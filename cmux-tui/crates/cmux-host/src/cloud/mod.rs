@@ -15,15 +15,20 @@
 //!   (`acp_activity` socket lines, held 90 s unless renewed), `activity`
 //!   advertised only while the stream is live and `activity-turns` with it
 //!   only while acpmux's lines arrive;
+//! - workload: every 30 s a probe of the machine's processes using CPU,
+//!   listening sockets and timers that are not the system's ([`workload`]),
+//!   reported as `activity.workload` with `activity-workload` while it reads;
+//!   the Cloud reads a machine as idle only when it counts none;
 //! - resume: the supervisor's `Resumed` event (clock-set wake, id
 //!   confirmed) sends one report named `resume`.
 //!
-//! Modules: [`wire`] (contracts, pure), [`sender`] (the two senders, sans
+//! Modules: [`wire`] (contracts, pure), [`workload`] (the workload probe), [`sender`] (the two senders, sans
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
 //! [`github_repos`] (repository discovery through the platform connector),
 //! [`github_status`] (the person's connected GitHub account, no token),
+//! [`carrier_ticket`] (the session host's relay Register ticket),
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), `github_minter` (the thread that answers both off the poll
 //! loop),
@@ -35,8 +40,10 @@
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
+pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
+pub mod daemon_noise_key;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
@@ -51,6 +58,8 @@ pub mod receiver_agent;
 mod receiver_files;
 #[cfg(target_os = "linux")]
 mod receiver_lifecycle;
+#[cfg(unix)]
+pub mod relay;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
@@ -59,6 +68,7 @@ pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
 pub mod wire;
+pub mod workload;
 
 #[cfg(all(test, unix))]
 mod github_tests;

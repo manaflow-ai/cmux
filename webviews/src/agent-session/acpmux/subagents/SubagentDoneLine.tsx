@@ -26,7 +26,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { formatDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
@@ -148,7 +148,8 @@ function DoneLine({
       : subagentTaskLabel(t, agent, childName);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
-  const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
+  // Its own time once ended; none when its start and end were stamped at one moment.
+  const time = spanDuration(t, elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
   const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
@@ -168,7 +169,7 @@ function DoneLine({
   const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
-  const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
+  const whole = (waiting ? parts : [...head, ...(time ? [time] : []), ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
   // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
@@ -284,7 +285,7 @@ function DoneLine({
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
           <ReactionMark reaction={agent.reaction} />
-          {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
+          {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {disclose ? (
           // A line with a report: the chevron after its words is its own control, the report's
@@ -298,7 +299,7 @@ function DoneLine({
             title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
             onClick={() => setReportOpen((value) => !value)}
           >
-            <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
           </button>
         ) : (
           /* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -307,7 +308,7 @@ function DoneLine({
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
           >
-            <ChevronRight size={14} strokeWidth={1.2} />
+            <ChevronRight size={14} />
           </span>
         )}
       </TranscriptActivityRowShell>

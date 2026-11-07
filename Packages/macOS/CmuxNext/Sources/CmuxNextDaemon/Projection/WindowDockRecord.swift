@@ -15,19 +15,43 @@ public struct WindowDockRecord: Codable, Sendable, Hashable {
     public var extentPermille: Int
     /// Toggled off: the dock keeps its workspace but takes no space and draws nothing.
     public var hidden: Bool
+    /// The Home Chief pane's no-tab-bar mode for this dock: a pane showing one tab draws no tab bar.
+    /// Absent (an older build's record) is off.
+    public var hidesTabBar: Bool
+    /// Whether a link from the Chief made this dock (`home.chiefDock.openBeside`) rather than the person
+    /// (cmux#37365). Absent (an older build's record) is nil: not known.
+    public var byLink: Bool?
 
-    public init(edge: String, workspaceKey: WorkspaceKey, mode: String, extentPermille: Int, hidden: Bool) {
+    public init(edge: String, workspaceKey: WorkspaceKey, mode: String, extentPermille: Int, hidden: Bool, hidesTabBar: Bool = false,
+                byLink: Bool? = false) {
         self.edge = edge
         self.workspaceKey = workspaceKey
         self.mode = mode
         self.extentPermille = extentPermille
         self.hidden = hidden
+        self.hidesTabBar = hidesTabBar
+        self.byLink = byLink
     }
 
     enum CodingKeys: String, CodingKey {
         case edge, mode, hidden
         case workspaceKey = "workspace_key"
         case extentPermille = "extent_permille"
+        case hidesTabBar = "hide_tab_bar"
+        case byLink = "by_link"
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(edge, forKey: .edge)
+        try c.encode(workspaceKey, forKey: .workspaceKey)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(extentPermille, forKey: .extentPermille)
+        try c.encode(hidden, forKey: .hidden)
+        // Written only when on, so a record without the mode reads as before.
+        if hidesTabBar { try c.encode(true, forKey: .hidesTabBar) }
+        // Always written by this build, so absent means an older build's record.
+        try c.encodeIfPresent(byLink, forKey: .byLink)
     }
 
     public init(from decoder: any Decoder) throws {
@@ -37,5 +61,7 @@ public struct WindowDockRecord: Codable, Sendable, Hashable {
         mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? "docked"
         extentPermille = try c.decodeIfPresent(Int.self, forKey: .extentPermille) ?? 300
         hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+        hidesTabBar = try c.decodeIfPresent(Bool.self, forKey: .hidesTabBar) ?? false
+        byLink = try c.decodeIfPresent(Bool.self, forKey: .byLink)
     }
 }

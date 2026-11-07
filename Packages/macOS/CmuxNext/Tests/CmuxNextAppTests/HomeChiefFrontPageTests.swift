@@ -59,14 +59,6 @@ import Testing
         #expect(panel.actionRows.allSatisfy { !$0.isHiddenOrHasHiddenAncestor })
     }
 
-    @Test func theDebugSwitchKeepsTheRowsOnlyPanel() {
-        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        panel.showsHero = false
-        panel.layoutSubtreeIfNeeded()
-        #expect(panel.hero.isHidden)
-        #expect(HomeTunables.all.contains { $0.key == "home.firstRun.hero" })
-    }
-
     @Test func thePetRowReadsAsTheChangeAndRunsTheToggle() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         var actions: [HomeFirstRunAction] = []

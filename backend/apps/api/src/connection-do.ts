@@ -244,7 +244,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return {
       sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight, revokes: this.ghRevokes,
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
-      register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
+      register: (p, at) => this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
       needsReauth: this.markNeedsReauth,
       installActive: this.installActive
@@ -254,7 +254,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   private installActive = async (p: Principal) => {
     type Users = { installGrant(e: string, install: string, grant: string): Promise<{ ok: boolean }> }
     if (!p.user || !p.install || !p.grant) return false
-    return (await (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as Users).installGrant(p.user, p.install, p.grant)).ok
+    return (await this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)).installGrant(p.user, p.install, p.grant)).ok
   }
 
   private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)

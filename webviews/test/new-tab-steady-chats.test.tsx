@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
-import { recentSessions } from "../src/agent-session/acpmux/NewTabPage";
+import { recentSessions } from "../src/agent-session/acpmux/newTabModel";
 import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 

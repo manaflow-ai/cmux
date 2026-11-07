@@ -19,7 +19,13 @@ extension UpdaterService {
                 shown.detail = changelog.detail ?? shown.detail
                 shown.lines = changelog.lines
             }
-        case .checking, .downloading, .installing, .note, .gettingNewest:
+        case .downloading(let transfer), .gettingNewest(let transfer?, pulled: false):
+            // The speed and time left under the bytes, in the detail's second line, which the card
+            // always keeps: the line fills in after the first second without moving anything.
+            if transfer.stage == .downloading, let bytes = shown.detail, let rate = transferRate.text(expected: transfer.expectedBytes) {
+                shown.detail = bytes + "\n" + rate
+            }
+        case .checking, .installing, .note, .gettingNewest:
             break
         }
         return shown

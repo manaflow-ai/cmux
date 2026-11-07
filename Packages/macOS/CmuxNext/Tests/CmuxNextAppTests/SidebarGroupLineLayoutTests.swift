@@ -52,13 +52,15 @@ import Testing
         return (sidebar, window)
     }
 
-    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it about 4 to 5 pt in from the header's left edge.
+    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it 2 pt in from the header's left edge, the 4 pt item
+    /// corner (99d72e1: the default corner is the omnibar's 8 pt, items nest two levels inside it) less the line.
     @Test func theShapeIsChromesMeasuredOne() {
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
         #expect(SidebarStyle.groupBarWidth == 2)
         #expect(SidebarStyle.groupLineCut == 6)
         let inset = SidebarStyle.groupLineCornerInset
-        #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
+        #expect(Metrics.itemCornerRadius == 4, "the default item corner, two levels inside the 8 pt pane corner")
+        #expect(inset == 2, "2 pt inside the header: \(inset)")
         #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 
@@ -129,7 +131,9 @@ import Testing
                 #expect(line.maxX <= member.frame.minX, "\(layout): \(id.rawValue)'s fill covers the line")
             }
 
-            // One color: the line is the bar's rest color.
+            // One color: the line is the solid bar's rest color (on glass it is the pane's vivid tint, `GroupHeaderGlassTests`).
+            TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+            defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)

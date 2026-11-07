@@ -276,16 +276,27 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// The status the app shows: a change sent from here, else the record's.
     public var shownStatus: Status { pendingChange ?? status }
 
+    /// The cmux-next record's `desktop`: the machine serves its agent display over the Native
+    /// link (its daemon advertises `link-desktop-v1`). It adds `desktop` to ``capabilities``
+    /// without declaring any other operation.
+    public var servesDesktop = false
+
     /// The declared capabilities, or the conservative empty set when the
-    /// record declared none. Gate actions with ``allows(_:)``, not this.
-    public var capabilities: Capabilities { declaredCapabilities ?? Capabilities() }
+    /// record declared none, with `desktop` when ``servesDesktop``. Gate
+    /// actions with ``allows(_:)``, not this.
+    public var capabilities: Capabilities {
+        var capabilities = declaredCapabilities ?? Capabilities()
+        if servesDesktop { capabilities.desktop = true }
+        return capabilities
+    }
 
     /// Whether an action needing `operation` may be attempted on this
     /// machine: a declared capability set must advertise it, and a record
     /// without one keeps the behavior from before capabilities existed (the
     /// server refuses what its provider cannot do).
     public func allows(_ operation: Capabilities.Operation) -> Bool {
-        declaredCapabilities?.supports(operation) ?? true
+        if operation == .desktop, servesDesktop { return true }
+        return declaredCapabilities?.supports(operation) ?? true
     }
 
     /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
@@ -367,38 +378,6 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         sizePick = (try? c.decodeIfPresent(CloudSizePick.self, forKey: .sizePick)) ?? nil
         lastChangeFailure = (try? c.decodeIfPresent(ChangeFailure.self, forKey: .lastChangeFailure)) ?? nil
     }
-}
-
-/// `POST /api/vm/{id}/attach-endpoint {transport:"cmux-remote"}`.
-public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
-    public struct Invitation: Sendable, Hashable, Decodable {
-        public var uri: String
-        public var invitationId: String
-        public var expiresAtUnix: Double
-    }
-
-    public var transport: String
-    public var route: String
-    public var session: String
-    public var trustedCarrier: Bool
-    /// Caller-relative ownership from the account API; only exact `owner` grants owner privileges.
-    public var vmKind: String?
-    public var expiresAtUnix: Double?
-    public var invitation: Invitation?
-    /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
-    /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
-    /// sandboxed; a value of another type fails the attach. The word's rules are Rust's
-    /// (cmux-cloud-start-core `vm_kind`).
-    public var callerOwnsVM: Bool { CloudStartCore().vmKind(vmKind).ownsVm }
-    /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
-    /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
-    public var callerIsTeammate: Bool { CloudStartCore().vmKind(vmKind).teammate }
-}
-
-public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
-    public var approved: Bool
-    public var state: String
-    public var deviceFingerprint: String?
 }
 
 extension String {

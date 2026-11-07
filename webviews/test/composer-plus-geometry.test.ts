@@ -61,6 +61,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     expect?: Row[];
     /** Trailing controls the layout must draw. */
     trailing?: ("mic" | "send")[];
+    /** The mic-to-Send gap in px: the chat composer's 4px token unless the surface ships its own. */
+    actionsGap?: number;
   };
   const LAYOUTS: Layout[] = [
     {
@@ -113,6 +115,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["pills", "foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-suggestions",
@@ -122,6 +125,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["suggestions"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-narrow",
@@ -159,6 +163,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       // The tray, as home-codex; the quiet row stands on +'s column.
       expect: ["foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
   ];
 
@@ -575,8 +580,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     }
     if (layout.trailing?.includes("mic") && layout.trailing.includes("send")) {
       if (m.actionsGap === null) out.push("the trailing controls' gap is not measurable");
-      else if (Math.abs(m.actionsGap - 4) > TOLERANCE)
-        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not 4`);
+      else if (Math.abs(m.actionsGap - (layout.actionsGap ?? 4)) > TOLERANCE)
+        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not ${layout.actionsGap ?? 4}`);
     }
     // One center line: the prompt's first line in Claude's look, the controls' row in Codex's.
     const target =

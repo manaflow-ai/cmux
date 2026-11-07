@@ -41,6 +41,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
+    /// `sidebar.groupHeader.background` (``SidebarGroupBackgroundStyle``): glass, solid, or cmux's own group look (glass).
+    public static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -114,6 +116,24 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupHeaderUnreadCount),
                           keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"])
+    }
+
+    /// Lawrence 2026-11-05: "groups must always have a visible bg color, groups should support both glassy and solid
+    /// bgs too". Every choice keeps the background visible; this picks its material only.
+    static func groupHeaderBackgroundDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderBackgroundPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.background.help",
+                                                   "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
+                          kind: .choice(SidebarGroupBackgroundStyle.allCases.map { style in
+                              switch style {
+                              case .auto: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic"))
+                              case .glass: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass"))
+                              case .solid: SettingChoice(style.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.groupHeaderBackground.rawValue),
+                          keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -192,9 +212,10 @@ public nonisolated enum SidebarSectionsSetting {
                               kind: .choice([
                                   SettingChoice(SidebarGroupBy.none.rawValue, SettingsText.keyed("settings.choice.groupByNone", "None")),
                                   SettingChoice(SidebarGroupBy.folder.rawValue, SettingsText.keyed("settings.choice.groupByFolder", "Folder")),
+                                  SettingChoice(SidebarGroupBy.recents.rawValue, SettingsText.keyed("settings.choice.groupByRecents", "Projects and Recents")),
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
-                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+                              keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd", "recents", "recent", "chatgpt", "history"]),
             // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
             SettingDescriptor(showSpacesPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
@@ -340,6 +361,14 @@ public nonisolated enum SidebarSectionsSetting {
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
+        if let value = root.value(at: groupHeaderBackgroundPath) {
+            if let text = value.stringValue, let style = SidebarGroupBackgroundStyle(rawValue: text) {
+                result.groupHeaderBackground = style
+            } else {
+                let choices = SidebarGroupBackgroundStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupHeader.background", message: "expected one of " + choices))
+            }
+        }
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)
         result.priorityViewShown = flag(root, SidebarPriorityViewSetting.shownPath, fallback: result.priorityViewShown, &diagnostics)
         if let value = root.value(at: groupByPath) {

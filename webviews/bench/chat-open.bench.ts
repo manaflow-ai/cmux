@@ -604,7 +604,10 @@ try {
             let firstTop = top;
             let activity = started;
             try {
-              window.cmuxAcpmuxBridge!.revealTurn!(`message:${message}`);
+              // The page's bridge (App.tsx declares it on Window); this file doesn't import App.
+              (window as unknown as { cmuxAcpmuxBridge: { revealTurn(id: string): void } }).cmuxAcpmuxBridge.revealTurn(
+                `message:${message}`,
+              );
               await new Promise<void>((resolve, reject) => {
                 const tick = () => {
                   const now = performance.now();

@@ -54,6 +54,9 @@ const SHAPES = new Set([
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',
   '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
+  // The tucked running tray's pull tab (subagents/TrayPullTab.tsx): its needs-you dot is a circle
+  // sized square through --acpmux-tray-pull-dot, which this reader does not resolve.
+  ".acpmux-tray-pull__dot",
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);

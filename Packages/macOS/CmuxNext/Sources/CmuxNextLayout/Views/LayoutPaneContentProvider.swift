@@ -49,6 +49,8 @@ public struct LayoutTabDrag {
 final class LayoutViewContext {
     let model: LayoutModel
     weak var provider: (any LayoutPaneContentProvider)?
+    /// The provider's next pane content in a host made ahead, parked hidden in a screen view (``parkSpare(_:in:)``).
+    private(set) var spareHost: PaneHostView?
     private(set) var hosts: [PaneID: PaneHostView] = [:]
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
@@ -148,6 +150,14 @@ final class LayoutViewContext {
             return entry.host
         }
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
+        if let spare = spareHost, spare.content === content {
+            spareHost = nil
+            spare.adopt(pane) { [weak self] in self?.provider?.holdsContentInMotion(for: pane) ?? false }
+            spare.isHidden = false
+            hosts[pane] = spare
+            return spare
+        }
         let host = PaneHostView(pane: pane, content: content) { [weak self] in
             self?.provider?.holdsContentInMotion(for: pane) ?? false
         }
@@ -244,4 +254,22 @@ final class LayoutViewContext {
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
     func isRetiredChrome(_ chrome: NSView) -> Bool { retired.values.contains { $0.host.chrome === chrome } }
+}
+
+extension LayoutViewContext {
+    /// Puts `content` (the provider's next pane content) in a host made now and parks it hidden in `screen`, the screen
+    /// view a new pane most likely shows in: a later ``host(for:)`` whose content is `content` adopts that host, and the
+    /// screen's reconcile only unhides it (no move between superviews, no window walk). Nil drops the one parked.
+    /// A hidden host in a screen's subviews is a state the screen already has (a closing pane's retired host).
+    /// TERMINAL CREATE COST item 4: a New Column's new host and pane entering the window cost 2 ms of the key's turn.
+    func parkSpare(_ content: NSView?, in screen: NSView?) {
+        spareHost?.removeFromSuperview()
+        spareHost = content.flatMap { content in
+            guard let screen else { return nil }
+            let host = PaneHostView(pane: PaneID(rawValue: "spare-pane-host"), content: content)
+            host.isHidden = true
+            screen.addSubview(host, positioned: .below, relativeTo: nil)
+            return host
+        }
+    }
 }

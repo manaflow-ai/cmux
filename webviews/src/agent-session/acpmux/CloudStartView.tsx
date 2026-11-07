@@ -10,6 +10,7 @@ import {
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 import { fileSizeLabel } from "./FileAttachment";
+import { Thinking } from "./conversation/Thinking";
 import { paneLanguage, usePaneLanguage, useT, type StringKey, type Translate } from "./i18n";
 import "./cloudStart.css";
 
@@ -275,11 +276,17 @@ function facts(start: CloudStartProgress, t: Translate): Fact[] {
 export function CloudStartView({
   start,
   bubble = true,
+  showSteps = false,
   onOpenEnvironment,
+  onSignIn,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
+  /// The startup steps while the start is on its way (galleries and tests); off, the start reads as a
+  /// local first turn and only a failure shows them.
+  showSteps?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  onSignIn?: () => void | Promise<unknown>;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -288,6 +295,8 @@ export function CloudStartView({
   // checklist out of the way until someone asks for it. A failure is the one time we open it
   // automatically: the failed row and its log tail explain what needs attention.
   const [expanded, setExpanded] = useState(failed);
+  const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
+  const [signingIn, setSigningIn] = useState(false);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     if (failed) setExpanded(true);
@@ -305,6 +314,27 @@ export function CloudStartView({
     if (onOpenEnvironment) onOpenEnvironment(options);
     else window.dispatchEvent(new CustomEvent("cmux:open-cloud-environment", { detail: options }));
   };
+  const signIn = () => {
+    if (!onSignIn || signingIn) return;
+    setSigningIn(true);
+    void Promise.resolve(onSignIn()).finally(() => setSigningIn(false));
+  };
+  // A start that is on its way reads as a local chat's first turn: the message, then the normal
+  // Thinking line, with no Cloud machine, clone or setup rows (Leo, 2026-11-04: "You actually see
+  // nothing. Like the ideal is, of course, you literally have parity with local, and you don't even
+  // realize that you entered the cloud"). Only a failure shows the steps, with what to do.
+  if (!failed && !showSteps) {
+    return (
+      <section className="acpmux-cloud-start" data-state={start.state} data-quiet="true">
+        {bubble && (
+          <div className="cv-user">
+            <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
+          </div>
+        )}
+        <Thinking />
+      </section>
+    );
+  }
   return (
     <section
       className="acpmux-cloud-start"
@@ -411,9 +441,20 @@ export function CloudStartView({
         )}
       </div>
       {failed && (
-        <output className="acpmux-cloud-start__status" role="alert">
-          {start.message ?? t("sandbox.failed")}
-        </output>
+        <div className="acpmux-cloud-start__failure" role="alert">
+          <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
+          {signInRequired && (
+            <button
+              type="button"
+              className="acpmux-cloud-start__sign-in"
+              onClick={signIn}
+              disabled={signingIn}
+              aria-busy={signingIn}
+            >
+              {t("cloudStart.signInToContinue")}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

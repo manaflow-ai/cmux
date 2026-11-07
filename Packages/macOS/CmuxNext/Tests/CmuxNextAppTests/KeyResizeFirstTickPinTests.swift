@@ -30,12 +30,15 @@ struct KeyResizeFirstTickPinTests {
     /// The grids `pane`'s terminal asked its PTY for since the last call.
     static func grids(_ pane: PaneID, _ rig: Ground.Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
+        // cmux-ad m18: a grid in the coalescer's 25 ms window counts as asked for (it goes when the window ends).
+        session.session.surfaceView.gridReports.flush()
         session.session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         return await session.io.gridsUntilMarker()
     }
 
     /// (a) Ctrl-Shift-H on p2 (right of p1): p2 grows to the left and its right edge stays. The first tick is late (0.1 s:
-    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge.
+    /// most of the travel in one step). In every frame p2's surface keeps its place against the right edge: the surface
+    /// fills its area, so it keeps that place because it follows the pane (cmux-ad m18 deleted the hold, m19 the switch).
     @Test(arguments: [0.1, 1.0 / 120])
     func theHeldSurfaceRidesTheEdgeThatStaysWhenTheFirstTickIsLate(firstStep: Double) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
@@ -59,8 +62,9 @@ struct KeyResizeFirstTickPinTests {
     }
 
     /// (b) Ctrl-Shift-H twice before one tick: each terminal sends one grid, the final one. Then H and L before one tick:
-    /// no terminal sends a grid or takes a new surface size.
-    @Test func pressesBeforeOneTickCoalesce() async throws {
+    /// no terminal sends a grid or takes a new surface size (review of #35470, T5).
+    @Test
+    func pressesBeforeOneTickCoalesce() async throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]

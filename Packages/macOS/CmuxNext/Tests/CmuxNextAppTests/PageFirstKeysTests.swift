@@ -25,8 +25,8 @@ import Testing
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
     ]
 
-    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I New
-    /// Agent Chat, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
+    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I Open
+    /// Chief Dock, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
     nonisolated static let editingKeys: [Key] = [
         Key(name: "Cmd-B", characters: "b", keyCode: 11),
         Key(name: "Cmd-I", characters: "i", keyCode: 34),

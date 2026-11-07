@@ -1,8 +1,10 @@
 //! `cmux-rd`: the remote desktop host engine, as a library: the `cmux-rd` binary (main.rs)
 //! and, on macOS, `cmux rd ...` in the cmux binary run [`run_cli`]. The host engine (Linux: a virtual X display; macOS: the Mac's
 //! own display) and its measurement tools. Subcommands:
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps 60] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
+//!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264]
+//!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs)
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps 60] [--input-frame-now 1] [--max-width PX (macOS)] [--codec openh264|x264|videotoolbox] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
 //!            stdin and stdout (src/serve.rs); macOS and Linux
@@ -49,6 +51,8 @@ mod serve;
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod stream;
+#[cfg(target_os = "linux")]
+mod systemd;
 #[cfg(target_os = "linux")]
 mod testapp;
 mod token;

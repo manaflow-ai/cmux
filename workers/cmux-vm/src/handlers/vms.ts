@@ -695,7 +695,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     .handle("resizeVm", ({ path, payload, headers }) =>
       audited("vm.resize", auditableVmId(path.vmId), resizeVm(path.vmId, payload, headers["idempotency-key"])),
     )
-    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ items })))))
+    .handle("listVmImages", () => withCaller("vm:read", "read", (caller) => visibleVmImages(caller).pipe(Effect.map((items) => new VmImageList({ order: "configured", items })))))
     .handle("replaceVmHttpsProxy", ({ path, payload, headers }) =>
       audited("vm.https_proxy.replace", auditableVmId(path.vmId), replaceVmHttpsProxy(path.vmId, path.hostname, payload, headers["idempotency-key"]), (receipt) => receipt.id),
     )

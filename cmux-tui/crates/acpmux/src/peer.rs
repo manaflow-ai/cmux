@@ -147,6 +147,11 @@ pub struct Peer {
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
     /// sessions listed): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
+    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// list): until then a name missing from the rows may only not be listed yet, so a
+    /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
+    /// hub's `Disconnected`.
+    pub rows_ready: AtomicBool,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -332,6 +337,7 @@ impl Peer {
             on_wire: Default::default(),
             prompts: Default::default(),
             connected: AtomicBool::new(false),
+            rows_ready: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),

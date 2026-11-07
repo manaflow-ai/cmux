@@ -10,7 +10,7 @@
 // The opened lead thought's label has its own looks (`data-lead-thought-look`): "Thought for 6s" with
 // the chevron right after it (shared, shipped), the chevron alone at the row's far edge (lead-edge,
 // cmux#27896, replaced) and the chevron alone at the text column (lead-bare). step-hover shows an
-// inner step under the pointer: its chevron shows and its words keep their tone.
+// inner step under the pointer: its chevron shows and its words light, never its glyph (Codex parity).
 import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -112,10 +112,11 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
-/// Opens the run, then points at its second step ("Listed every caller of fetchWithRetry").
+/// Opens the run, then points at its second step. A command step reads as its command, never as
+/// Claude's Bash description (Codex parity), so it is "rg -l fetchWithRetry src".
 const hoverStep: Play = async (ctx) => {
   await openRun(ctx);
-  await ctx.hover({ role: "button", name: /Listed every caller/ });
+  await ctx.hover({ role: "button", name: /rg -l fetchWithRetry src/ });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps > .cv-step > .cv-tool:hover"), { capMs: 10_000 });
 };
 
@@ -168,7 +169,7 @@ export default agentPaneEntry({
     ),
     "step-hover": variant(
       "shared",
-      "An inner step under the pointer: its chevron shows after its words, and its words keep the steps' tone, as a lone tool row's do.",
+      "An inner step under the pointer: its chevron shows after its words, and its words light to the text tone while its glyph keeps its own (Codex parity).",
       { play: hoverStep },
     ),
   },

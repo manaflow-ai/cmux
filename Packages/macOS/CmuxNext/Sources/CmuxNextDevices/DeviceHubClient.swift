@@ -120,6 +120,16 @@ public actor DeviceHubClient {
 
     // MARK: Endpoints
 
+    /// Lets this device renew its own host-scoped session for 30 days (`POST /v1/auth/device/anchor`;
+    /// a full session and this device's signature). The app calls it for cmux Remote's device.
+    public func anchorDevice() async throws -> Date {
+        struct Answer: Decodable {
+            var anchoredUntil: Double
+        }
+        let answer = try await call("POST", "/v1/auth/device/anchor", body: [String: String](), as: Answer.self)
+        return Date(timeIntervalSince1970: answer.anchoredUntil / 1000)
+    }
+
     public func me() async throws -> HubMe {
         try await call("GET", "/v1/me", as: HubMe.self)
     }

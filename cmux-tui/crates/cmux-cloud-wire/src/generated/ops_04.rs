@@ -4,6 +4,56 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.
+    ConversationImportOp {
+        name: "conversation.import",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ConversationImportParams,
+        result: HomeConversationCommit,
+        error: ConversationImportError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationImportParamsSource {
+    pub kind: LitMac,
+    pub host: String,
+    pub local_id: String,
+}
+
+wire_enum! {
+    ConversationImportParamsKind {
+        Group = "group",
+        Chief = "chief",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationImportParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ConversationImportParamsSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationImportParamsKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub participants: Option<Vec<HomeParticipantInput>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<bool>,
+    pub messages: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub read_cursors: Option<Value>,
+}
+
 wire_errors! {
     /// The error codes conversation.import declares.
     ConversationImportError {
@@ -846,60 +896,4 @@ wire_enum! {
         Urgent = "urgent",
         Recent = "recent",
     }
-}
-
-wire_enum! {
-    FeedListParamsGroupBy {
-        Thread = "thread",
-        Poster = "poster",
-        Workspace = "workspace",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<FeedListParamsState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<FeedListParamsType>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<FeedKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unread: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archived: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub needs_response: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster_kind: Option<FeedPosterKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order: Option<FeedListParamsOrder>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_by: Option<FeedListParamsGroupBy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<FeedItemId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListResultGroupsItem {
-    pub key: String,
-    pub label: String,
-    pub items: Vec<FeedItemId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedListResult {
-    pub items: Vec<FeedItem>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub groups: Option<Vec<FeedListResultGroupsItem>>,
-    pub next: Option<FeedItemId>,
-    pub revision: String,
 }

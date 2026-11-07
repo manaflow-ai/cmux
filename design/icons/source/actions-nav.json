@@ -54,8 +54,8 @@
   {
    "name": "action.copy",
    "meaning": "Copy",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.5 8.5v-3a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3'/><rect x='8.5' y='8.5' width='12' height='12' rx='2'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.5 8.5v-3a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3'/><rect x='8.5' y='8.5' width='12' height='12' rx='2' fill='currentColor'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.375' y='3.375' width='12.375' height='12.375' rx='2.25'/><path d='M15.75 8.25h2.625c1.035 0 1.875.84 1.875 1.875v8.25c0 1.035-.84 1.875-1.875 1.875h-8.25c-1.035 0-1.875-.84-1.875-1.875V15.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.375' y='3.375' width='12.375' height='12.375' rx='2.25'/><path d='M15.75 8.25h2.625c1.035 0 1.875.84 1.875 1.875v8.25c0 1.035-.84 1.875-1.875 1.875h-8.25c-1.035 0-1.875-.84-1.875-1.875V15.75' fill='currentColor'/></svg>",
    "alts": [],
    "note": "Two offset sheets, back one implied by an L. Solid fills the front sheet.",
    "replaces": [

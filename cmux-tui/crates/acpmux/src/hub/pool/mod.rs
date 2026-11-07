@@ -745,7 +745,12 @@ impl Hub {
                     // optional health query is slow: that query is a health
                     // observation, and must not turn a busy-machine wake into
                     // a cold-start failure.
-                    if !p.child.is_alive().await || p.child.is_stopped() {
+                    // The link ends only once the reader sees the closed socket: a host
+                    // killed just before this claim still looks live there, so its live lock
+                    // decides too.
+                    let lock_free =
+                        p.child.host_record().is_some_and(|r| crate::agent_host::host_dead_now(&r));
+                    if lock_free || !p.child.is_alive().await || p.child.is_stopped() {
                         tracing::warn!(
                             harness = %spec.key.harness,
                             "a pooled agent host is no longer live; it ends and the session starts on a fresh host"
@@ -1210,5 +1215,9 @@ async fn end_pooled_host(record: &HostRecord) {
         )
         .await;
     }
+    // A host killed outright ended nothing under it, and its harness exits on the closed pipe:
+    // a helper that left the group is found only by the host's mark.
+    let nonce = record.start_nonce.clone();
+    let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
 }

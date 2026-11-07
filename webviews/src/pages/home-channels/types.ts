@@ -362,6 +362,9 @@ export interface HomeInbox {
 export interface HomePinRequest {
   conversation: string;
   pinned: boolean;
+  /** The pin's place in my grid (the owners' scale: ms since 1970 plus the tile's index); absent: now
+   * for a new pin. A drag in the Messages list numbers the whole grid. */
+  position?: number;
   idempotencyKey?: string;
 }
 

@@ -9,7 +9,7 @@ import { JournalPage } from "./JournalPage";
 import { RailPage } from "./RailPage";
 import { SheetPage } from "./SheetPage";
 import type { ChangelogStore } from "./store";
-import type { ChangelogDesign, NewsLayout, SheetLayout } from "./types";
+import type { ChangelogDesign, NewsLayout, SheetLayout, SheetLinks } from "./types";
 
 export function ChangelogPage({
   store,
@@ -17,12 +17,14 @@ export function ChangelogPage({
   design = "sheet",
   news,
   sheet = "inline",
+  prs = "hover",
 }: {
   store: ChangelogStore;
   strings: Strings;
   design?: ChangelogDesign;
   news?: NewsLayout;
   sheet?: SheetLayout;
+  prs?: SheetLinks;
 }) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (s.loading)
@@ -31,7 +33,7 @@ export function ChangelogPage({
         {strings.t("changelog.page.loading")}
       </div>
     );
-  if (design === "sheet") return <SheetPage store={store} strings={strings} s={s} layout={sheet} />;
+  if (design === "sheet") return <SheetPage store={store} strings={strings} s={s} layout={sheet} links={prs} />;
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
   return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} news={news} />;

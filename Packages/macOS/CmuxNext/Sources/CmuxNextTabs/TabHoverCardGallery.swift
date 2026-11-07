@@ -51,7 +51,7 @@ public struct TabHoverCardGallery {
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.setFillColor(CGColor(red: 0.22, green: 0.45, blue: 0.95, alpha: 1))
-        context.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerWidth: 7, cornerHeight: 7, transform: nil))
+        context.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerWidth: Metrics.insetCornerRadius, cornerHeight: Metrics.insetCornerRadius, transform: nil))
         context.fillPath()
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 9, y: 9, width: 14, height: 14))
