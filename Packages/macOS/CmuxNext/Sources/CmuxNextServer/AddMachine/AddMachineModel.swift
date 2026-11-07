@@ -11,7 +11,7 @@ public nonisolated enum HostCommand: Equatable, Sendable {
     /// the setup enroll does (profiles, peer-back).
     case doctor(host: String, fix: Bool)
     /// `machine doctor ID --json`: the minting end's checks of a machine that joined with a one-line
-    /// token (Labs `labs.machineJoin`). It reads the cmux access token on stdin (``needsAccount``).
+    /// token or a pair code. It reads the cmux access token on stdin (``needsAccount``).
     case joinedDoctor(id: String)
 
     /// The arguments after the `cmux-tui` binary.

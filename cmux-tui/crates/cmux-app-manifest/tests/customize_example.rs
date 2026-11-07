@@ -1,6 +1,7 @@
 //! The customize app example agents copy (skills/cmux-customization/references/local-app-views.md)
 //! is a valid package as written: its manifest passes the validator the daemon runs (manifest
 //! v2), and every implementation's export is defined and handed to cmux in `__cmuxAppExports`.
+//! The copy-paste folders in skills/cmux-customization/templates are held to the same line.
 
 use std::path::Path;
 
@@ -18,6 +19,21 @@ mod apps {
             + open.len();
         let len = after[start..].find("```").expect("closed block");
         &after[start..start + len]
+    }
+
+    /// The names in the one `globalThis.__cmuxAppExports = { ... }` object.
+    ///
+    /// Read as names, not as text: a substring search finds `render` in `renderPane`, so a
+    /// manifest naming an export the script never hands over would pass.
+    fn exported_names(script: &str) -> Vec<&str> {
+        let open = "globalThis.__cmuxAppExports = {";
+        let start = script.find(open).expect("exports") + open.len();
+        let len = script[start..].find('}').expect("the exports object is closed");
+        script[start..start + len]
+            .split(',')
+            .map(|entry| entry.split(':').next().unwrap_or("").trim())
+            .filter(|name| !name.is_empty())
+            .collect()
     }
 
     #[test]
@@ -47,13 +63,13 @@ mod apps {
             Some(&serde_json::json!("bottom"))
         );
 
-        let exports = &script[script.find("globalThis.__cmuxAppExports = {").expect("exports")..];
+        let exported = exported_names(script);
         for interface in ["cmux.section/1", "cmux.session.info.section/1"] {
             let export = manifest["implements"][interface]["export"]
                 .as_str()
                 .unwrap_or_else(|| panic!("{interface} has no export"));
             assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
-            assert!(exports.contains(export), "{export} is not exported");
+            assert!(exported.contains(&export), "{export} is not exported, {exported:?} is");
         }
         assert!(!script.contains("\nexport "), "main.js is a classic script");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
@@ -82,11 +98,70 @@ mod apps {
         assert_eq!(manifest["id"], "local/customize");
         let export = manifest["implements"]["cmux.section/1"]["export"].as_str().expect("export");
         assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
-        assert!(script.contains(&format!("__cmuxAppExports = {{ {export} }}")), "{export} is not exported");
+        assert_eq!(exported_names(script), [export], "the template exports just its one view");
         for piece in ["Panel(", "Toggle(", "Slider(", "Row(", "Button(", "Menu(", "cmux.toast("] {
             assert!(script.contains(piece), "the template uses {piece}");
         }
         assert!(!script.contains('#'), "no literal colors");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    /// Every folder in skills/cmux-customization/templates is a customize app as written: a
+    /// valid package, each implementation's export defined and in the one `__cmuxAppExports`,
+    /// a classic script, and only tone names for color.
+    #[test]
+    fn every_template_folder_is_a_valid_customize_app() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../skills/cmux-customization/templates");
+        let mut names: Vec<String> = std::fs::read_dir(&root)
+            .expect("templates")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["command-button", "pane", "sidebar-section", "starter"]);
+        for name in names {
+            let dir = root.join(&name);
+            let report = validate_package(&dir);
+            assert!(report.is_valid(), "{name}: {:?}", report.issues);
+            let manifest = report.manifest.expect("manifest");
+            assert_eq!(manifest["manifestVersion"], 2, "{name}");
+            assert_eq!(manifest["id"], "local/customize", "{name}");
+            let script = std::fs::read_to_string(dir.join("main.js")).expect("main.js");
+            assert_eq!(
+                script.matches("__cmuxAppExports =").count(),
+                1,
+                "{name}: one exports object"
+            );
+            let exported = exported_names(&script);
+            let implements = manifest["implements"].as_object().expect("implements");
+            assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            for (interface, entry) in implements {
+                let export =
+                    entry["export"].as_str().unwrap_or_else(|| panic!("{name}: {interface}"));
+                assert!(
+                    script.contains(&format!("function {export}(")),
+                    "{name}: {export} is not defined"
+                );
+                assert!(
+                    exported.contains(&export),
+                    "{name}: {export} is not exported, {exported:?} is"
+                );
+            }
+            let named: Vec<&str> =
+                implements.values().filter_map(|entry| entry["export"].as_str()).collect();
+            for export in &exported {
+                assert!(
+                    named.contains(export),
+                    "{name}: {export} is exported but implements nothing"
+                );
+            }
+            assert!(
+                !script.contains("\nexport ") && !script.contains("\nimport "),
+                "{name}: classic script"
+            );
+            assert!(!script.contains('#'), "{name}: no literal colors");
+        }
     }
 }

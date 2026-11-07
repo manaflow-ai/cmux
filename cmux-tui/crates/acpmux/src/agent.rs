@@ -16,6 +16,7 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+pub(crate) mod foreign_login;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -118,6 +119,7 @@ pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 /// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
 /// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
 /// not answer in time is judged by its profile, then asked again when a prompt reaches it.
+// timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
 const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
@@ -1834,9 +1836,32 @@ impl ChildAgent {
         matches!(child.try_wait(), Ok(None)).then(|| f(pid))
     }
 
+    /// The processes under its harness, for ending some of them (`hub/silent_listing.rs`),
+    /// never found from a bare pid, which a reaped process gives up: a direct child's
+    /// descendants read while it is not reaped, under its slot's lock; a hosted one's, every
+    /// process that carries its host's start nonce (`HOST_MARK`).
+    #[cfg(unix)]
+    pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
+        if let Some(record) = self.host_record() {
+            let nonce = record.start_nonce;
+            return tokio::task::spawn_blocking(move || {
+                crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
+            })
+            .await
+            .unwrap_or_default();
+        }
+        let guard = self.child.lock().await;
+        under_unreaped(guard.as_ref()).await
+    }
+
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
+    pub fn host_build(&self) -> Option<String> {
+        self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
     }
 
     /// The hosted harness exited (its host is finishing).

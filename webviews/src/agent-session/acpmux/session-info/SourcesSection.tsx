@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
+import { numberedImageLabels } from "../imageLabel";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
 import { extraFolderName } from "../extraFolders";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { SessionInfoFold } from "./SessionInfoSection";
+import { WindowedRows } from "./WindowedRows";
 
-export const SOURCES_SHOWN = 5;
+export const SOURCES_SHOWN = 4;
 type RowProps = {
   source: SummarySource;
   onOpenBeside?: (url: string) => void;
@@ -28,6 +33,19 @@ export async function openSourceFile(
     if (!(error instanceof NativeError) || error.code !== "transport.path_invalid") throw error;
     return native("file.open", { path, where: "editor" });
   }
+}
+
+/// Each source's row name, in order: a pasted image with no name of its own (WebKit's "image.png")
+/// is "Screenshot 1", "Screenshot 2", ... in chat order, numbered across the whole list so a row
+/// keeps its number when View all unfolds; every other source is its label.
+export function sourceLabels(t: Translate, sources: readonly SummarySource[]): string[] {
+  const images = sources.filter((source) => source.kind === "image");
+  const named = numberedImageLabels(
+    t,
+    images.map((source) => ({ name: source.label, source: source.image?.source })),
+  );
+  const labels = new Map(images.map((source, index) => [source, named[index]!]));
+  return sources.map((source) => labels.get(source) ?? source.label);
 }
 
 export function scopedPath(path: string, cwd?: string): string | undefined {
@@ -60,8 +78,10 @@ export function SourcesSection({
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const t = useT();
-  const folds = sources.length > SOURCES_SHOWN;
+  // A fold that would hold back one row shows it instead (OutputsSection `OUTPUTS_SHOWN`).
+  const folds = sources.length - SOURCES_SHOWN >= 2;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
+  const labels = sourceLabels(t, sources);
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="sources">
@@ -74,29 +94,42 @@ export function SourcesSection({
             </span>
           </li>
         ))}
-        {shown.map((source) => (
-          <SourceRow
-            key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
-            source={source}
-            {...navigation}
-          />
-        ))}
+        <WindowedRows
+          items={shown}
+          render={(source, index) => (
+            <SourceRow
+              key={source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`}
+              source={source}
+              label={labels[index]!}
+              {...navigation}
+            />
+          )}
+        />
       </ul>
       {folds && (
-        <button
-          type="button"
-          className="acpmux-session-info-fold acpmux-session-info-sources-fold"
-          aria-expanded={expanded}
-          onClick={() => onExpandedChange(!expanded)}
+        <SessionInfoFold
+          className="acpmux-session-info-sources-fold"
+          open={expanded}
+          onToggle={() => onExpandedChange(!expanded)}
         >
-          {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: sources.length })}
-        </button>
+          {expanded
+            ? t("sessionInfo.outputs.showLess")
+            : t("sessionInfo.list.showMore", { n: sources.length - SOURCES_SHOWN })}
+        </SessionInfoFold>
       )}
     </>
   );
 }
 
-function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, cwd }: RowProps) {
+function SourceRow({
+  source,
+  label,
+  onOpenBeside,
+  onOpenImage,
+  readImage,
+  onOpenFile,
+  cwd,
+}: RowProps & { label: string }) {
   const t = useT();
   const [failure, setFailure] = useState<string>();
   useEffect(() => {
@@ -115,7 +148,7 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
   const content = (
     <>
       <Icon name={icon[source.kind ?? "url"]} size={rowIconSize(12)} row />
-      <span className="acpmux-session-info-source__label">{source.label || t("image.viewer")}</span>
+      <span className="acpmux-session-info-source__label">{label || t("image.viewer")}</span>
     </>
   );
   const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
@@ -131,7 +164,7 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
           Promise.resolve(image.src ?? readImage?.(image.id))
             .then((src) => {
               if (!src) throw new Error(t("image.unavailable"));
-              onOpenImage(src, source.label || t("image.viewer"));
+              onOpenImage(src, label || t("image.viewer"));
             })
             .catch((error: unknown) => setFailure(error instanceof Error ? error.message : t("image.actionFailed")));
         }}
@@ -168,5 +201,31 @@ function SourceRow({ source, onOpenBeside, onOpenImage, readImage, onOpenFile, c
         {content}
       </a>
     );
-  return <li className="acpmux-session-info-source">{failure ? <span role="alert">{failure}</span> : target}</li>;
+  // A pull request the chat named opens its diff from its ⋯ menu, as a Changes row does.
+  const diffUrl = onOpenBeside && source.kind === "pullRequest" ? pullRequestDiffUrl(source.url) : undefined;
+  return (
+    <li className="acpmux-session-info-source">
+      {failure ? <span role="alert">{failure}</span> : target}
+      {diffUrl && !failure && (
+        <Menu>
+          <MenuButton
+            className="acpmux-session-info-icon-button acpmux-session-info-source__more"
+            label={t("sessionInfo.changes.more", { reference: source.label })}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            className="acpmux-session-info-menu"
+            label={t("sessionInfo.changes.actions", { reference: source.label })}
+            align="end"
+          >
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+              {t("sessionInfo.changes.viewDiff")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      )}
+    </li>
+  );
 }

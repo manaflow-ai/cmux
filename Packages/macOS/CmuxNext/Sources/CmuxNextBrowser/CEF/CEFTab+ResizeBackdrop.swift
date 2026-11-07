@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// A resize gap in the page's own color. When a Chromium page's window or
 /// pane changes size, Chromium's frame at the new size arrives some frames
@@ -8,8 +8,7 @@ import AppKit
 /// new size, and the host view under the page window where it did not. Both
 /// take the page's own background (`pageBackdropARGB`), sampled from the
 /// document when it loads and again when a live resize starts, so the gap
-/// reads as more page instead of white or the window backdrop
-/// (`BrowserResizeTunables.pageBackdrop`).
+/// reads as more page instead of white or the window backdrop.
 extension CEFTab {
     /// The document's background as `[r, g, b]` (0-255): the root element's,
     /// else the body's (CSS propagates it to the canvas); white when neither
@@ -50,20 +49,25 @@ extension CEFTab {
 
     /// The page's background color for the host view, nil when the gap
     /// keeps the pane ground: before the first real page (the New Tab page
-    /// is a hole that shows the window backdrop), or with the tunable off.
+    /// is a hole that shows the window backdrop).
     /// A document that has not settled yet takes the loading base, so the gap
     /// matches the page area (`CEFTab+LoadingBackground`).
     var pageBackdropColor: CGColor? {
-        guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage else { return nil }
+        guard pastFirstRealPage else { return nil }
         let argb = loadingBaseARGB ?? pageBackdropARGB ?? PageBackground.engineDefaultARGB
         func channel(_ shift: UInt32) -> CGFloat { CGFloat((argb >> shift) & 0xFF) / 255 }
         return CGColor(srgbRed: channel(16), green: channel(8), blue: channel(0), alpha: 1)
     }
 
+    /// The ground the page's pane shows when it closes (CLOSE MOTION 2 case 3): the page's own background, as its host
+    /// view fills a resize gap with it, so the page's color stays where the page was instead of the window's; nil (the
+    /// chrome's ground) before the first real page and under a see-through cmux page, which shows the pane under it.
+    public var pageGround: CGColor? { pageSeeThrough ? nil : pageBackdropColor }
+
     /// Reads the document's background (after a load, and when a live resize
     /// starts) and applies it to Chromium's page background and the host view.
     func samplePageBackdrop() {
-        guard BrowserResizeTunables.pageBackdrop.value, pastFirstRealPage, browserID != nil, !isClosed else { return }
+        guard pastFirstRealPage, browserID != nil, !isClosed else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
             guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux) else { return }

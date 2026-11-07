@@ -21,7 +21,7 @@ public final class CloudAuth {
     @ObservationIgnored private let usesCaptureFixture: Bool
     /// This build's stored session (refresh token, and the access token when one is stored), read off the
     /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
-    /// signed out.
+    /// signed out. The two tokens are one pair (``consistentSession(refresh:access:)``).
     @ObservationIgnored public nonisolated let storedSession: @Sendable () async -> (accessToken: String?, refreshToken: String)?
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
@@ -38,6 +38,9 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+    /// Who is signed in and in which team, nil signed out: a change means the account's data (its
+    /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
+    public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
 
     /// How a launch signs in from the credentials it was given (``DogfoodCredentials``).
     struct LaunchSignIn: Equatable {
@@ -47,15 +50,25 @@ public final class CloudAuth {
         var autoLogin: Bool
         /// Whether resolved credentials replace a session already stored.
         var replacesSession: Bool
+        /// Whether the session lives in memory only: never read from or written to the Keychain, the
+        /// credentials file or the defaults, so it ends with the process.
+        var memoryOnly = false
     }
 
     /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
-    /// compile on the development Stack project) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE`
-    /// (dev-build-try passes it), never the ambient files, keeps a session already signed in unless told to
-    /// replace it, and gets no debug sign-in surface. Every other Release build never signs in from the launch.
+    /// compile) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE` (the proof passes it), never the
+    /// ambient files, keeps a session already signed in unless told to replace it, and gets no debug sign-in
+    /// surface. Signed cmux NIGHTLY signs in from an explicit file the same way, for end-to-end checks on a CI
+    /// Mac, with that launch's session in memory only (``LaunchSignIn/memoryOnly``): it never reads, writes or
+    /// replaces the session in its Keychain, and the next launch without the file is back on that session.
+    /// Every other Release build never signs in from the launch.
     nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
         let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
-        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", !configuration.isProductionAuth {
+        if !configuration.isDebugBuild, configuration.bundleID == nightlyBundleID, configuration.isProductionAuth,
+           explicitCredentialsFile {
+            return LaunchSignIn(devAuth: false, autoLogin: true, replacesSession: false, memoryOnly: true)
+        }
+        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", explicitCredentialsFile {
             return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
                                 replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
         }
@@ -64,6 +77,9 @@ public final class CloudAuth {
             || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
         return LaunchSignIn(devAuth: devAuth, autoLogin: devAuth, replacesSession: devAuth && replaces)
     }
+
+    /// Signed cmux NIGHTLY, the one shipped build that signs in from an explicit credentials file.
+    nonisolated static let nightlyBundleID = "com.cmuxterm.app.nightly"
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -107,6 +123,8 @@ public final class CloudAuth {
         let environment = useCaptureFixture ? [:] : (explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment))
         self.configuration = configuration
+        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
+            : Self.launchSignIn(configuration: configuration, environment: environment)
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -118,21 +136,25 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
+            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                                  memoryOnly: signIn.memoryOnly)
             tokenStore = productionStore
-            authDefaults = defaults
+            authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
-        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
+        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession,
+                                              memoryOnly: signIn.memoryOnly)
         tokenStore = productionStore
-        authDefaults = defaults
+        // A memory-only launch keeps its cached user and team off the defaults too, so the next launch
+        // never shows the file's account over the session in the Keychain.
+        authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         #endif
         let sessionStore = tokenStore
         storedSession = {
-            guard let refresh = await sessionStore.getStoredRefreshToken(), !refresh.isEmpty else { return nil }
-            return (await sessionStore.getStoredAccessToken(), refresh)
+            await Self.consistentSession(refresh: { await sessionStore.getStoredRefreshToken() },
+                                         access: { await sessionStore.getStoredAccessToken() })
         }
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
@@ -149,8 +171,6 @@ public final class CloudAuth {
         // build, which reads an explicit file (``launchSignIn``).
         // The variable is read from the process environment, so pass it per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
-        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
-            : Self.launchSignIn(configuration: configuration, environment: environment)
         let devAuth = signIn.devAuth
         var launchEnvironment = environment
         var replaceSession = false
@@ -208,18 +228,32 @@ public final class CloudAuth {
         )
     }
 
-    /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
+    /// This build's own Keychain store with its file fallback; an empty legacy default adopts, once, a session
+    /// from the namespaced store its update used (``CloudConfiguration/namespacedLegacyStorage(homeDirectory:)``). Signed NEXT DEV on the NIGHTLY account
     /// (``CloudConfiguration/adoptsNightlySession``) instead keeps its session in memory only and, when it
     /// has none, adopts the one a running cmux NIGHTLY hands over (`nightlySession`). NIGHTLY's own session
     /// is only read, never changed or cleared, and a sign-out here leaves it alive on the server
     /// (``stackClient(configuration:tokenStore:)``). Without `nightlySession` (no NIGHTLY to ask) that
     /// build starts signed out.
-    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?) -> any StackAuthTokenStoreProtocol {
+    /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
+    /// in memory and never opens the Keychain or the file fallback.
+    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?,
+                           memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
+        if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
-            return FallbackTokenStore(
+            let own = FallbackTokenStore(
                 primary: KeychainStackTokenStore(service: configuration.keychainService),
                 fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
             )
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
+            // A session signed in while the update read the namespaced store is this app's own: adopted once,
+            // and cleared with a sign-out so the next launch does not sign the person back in.
+            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+            return ImportingTokenStore(primary: own, sources: [{
+                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
@@ -318,5 +352,20 @@ extension CloudAuth {
     nonisolated static func mask(_ email: String) -> String {
         guard let at = email.firstIndex(of: "@") else { return "***" }
         return String(email.prefix(1)) + "***" + String(email[at...])
+    }
+}
+
+extension CloudAuth {
+    /// The stored pair, read so a refresh that rotates the tokens between the two reads is never handed out
+    /// half old: the refresh token is read before and after the access token, and the read is retried (three
+    /// times at most) until both agree. Nil when signed out or when the tokens keep rotating.
+    nonisolated static func consistentSession(refresh: () async -> String?, access: () async -> String?) async
+        -> (accessToken: String?, refreshToken: String)? {
+        for _ in 0 ..< 3 {
+            guard let before = await refresh(), !before.isEmpty else { return nil }
+            let accessToken = await access()
+            if await refresh() == before { return (accessToken, before) }
+        }
+        return nil
     }
 }

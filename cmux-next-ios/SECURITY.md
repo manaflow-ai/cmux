@@ -135,7 +135,18 @@ harness profile and asking-mode floor at dispatch, through the queue and for
 the active turn. The adapter cannot establish a Codex bridge profile from its
 mode name, or prevent a concurrent mode change by itself. No Mac approval
 signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
-commands are unsupported on this service. Hostd never opens a phone-supplied
+commands are unsupported on this service.
+
+Starting a chat (`session/new`) uses the rules a phone's Mac chat start already has
+(the `acpmux` lane's `session/new` under acpmux's remote guard), narrowed further.
+The phone names nothing but the request: hostd creates the tab in the machine's
+own store (`registry:` host, from the machine's `list-workspaces`) and starts
+Claude only, with no folder, model, MCP server, mode or policy from the phone.
+The machine's daemon starts every remote chat with policy `ask` and makes the
+chat's own folder. `vm_kind: "owner"` is sent because hostd opened this channel
+only on the app's single owner link for the machine. A Claude chat starts in
+its asking `default` mode, so the prompt preflight above still applies. A start
+the machine refuses closes the empty tab. Hostd never opens a phone-supplied
 path, accepts an arbitrary service, or treats the carrier as a local-owner
 connection. Sign-out stops the supervised hostd and its channels; each new
 channel needs a fresh app snapshot.
@@ -218,7 +229,7 @@ the owner's other agent conversations in Home.
 | `conversation-list`, `-snapshot`, `-history`, `-thread`, `-search` | Read the owner's own agent conversations (narrowed). |
 | `conversation-op`: `message.send` (`client_msg_id, parts, reply_to, thread_root`), `message.edit`, `message.retract`, `reaction.add/remove`, `read_cursor.set` | What the Mac's Home does in a conversation. |
 | `conversation-op`: `title.set` | Rename, as the Mac's Chief settings. |
-| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
+| `conversation-op`: `question.answer` with `approval` | Answer Chief's questions. Supervised, it counts only with the phone's approval-key signature over this Mac, conversation, question and answer (one use, at most 300 s; `chief_answers.rs`); hostd strips `approval`, and the owner stamps the respondent. An unsigned or forged answer is refused `forbidden`. |
 | `conversation-typing` (`conversation, on`) | Typing as the owner. |
 | `conversation-attachment-upload` (`begin` names an in-scope conversation; `chunk`, `commit`, `cancel` name the upload this connection began) and `-read` | Photos and files, under the owner's own limits (type allow list, 100 MB, hash checks). |
 | `cmux.protocol/2` `chief.engine.get`, `chief.engine.set` (`harness, model, effort, speed, compactor_speed`, strings), `chief.stop` (`name`) with `machine`/`session` only `current`, and no `origin` | The Mac Chief settings' model, harness and effort pickers and Stop (`ChiefControlClient`). |
@@ -721,7 +732,7 @@ same set of folders as `file`'s tab-folder rule (`feat-cnx-ios-fileroots`).
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's Face ID signature). |
+| Executes commands or opens content on local objects? | The phone could already prompt agents in known projects. This lets it start one in a folder where the person already has a tab open. The agent still runs under the Web rules: asking policy only, no MCP servers from the phone, an asking mode, each tool approval answered by the person (on the Mac, or with the phone's approval-key signature). |
 | Mutates or destroys objects the session does not own? | No new methods. Only the folder a session may start in widens, to folders the person has open in their own daemon. |
 | Reads local state the remote should not see? | An agent in that folder reads what its approved tools read there, as today in known projects. Folders with no open tab, `/` and `~` (and above) stay refused, and so does a folder that is only reachable through a symlink. The folder list itself never reaches the phone. |
 | Whose objects? | The Mac owner's own daemon session (the app's), set only by a connection that proved the app's person key; neither an agent, a page nor the phone can set it (`person_required`). |
@@ -967,7 +978,7 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   mode is not `default`, `plan` or `ask` (`acpmux_policy.rs`), answering the
   phone with a JSON-RPC error. So a phone keeps every agent it drives in a mode
   that asks; each tool approval reaches the person and an Allow needs the phone's
-  Face ID signature. Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
+  approval-key signature (no Face ID since 2026-11-04). Tests: acpmux `a_remote_device_starts_the_codex_bridge_in_its_asking_mode`,
   hostd `acpmux_policy::tests`.
 - **Rule 2.** No new method. It narrows what a phone could already send, and the
   start mode moves from one that does not ask to one that asks.
@@ -1154,7 +1165,7 @@ link request.
   Implemented on `feat-cnx-ios-parity` at the person's request for full Mac
   parity; confirm or revert in `verify/13742-recommendation.md`.
 
-- Phone pairing and Face ID signed approvals (`verify/phone-approvals.md`),
+- Phone pairing and signed approvals, no Face ID since 2026-11-04 (`verify/phone-approvals.md`),
   a trust-policy change recommended on issue #13742.
 - Notification replies without the live link and terminal input from a
   notification (`verify/notifications-trust.md`), recommended on #13742; held

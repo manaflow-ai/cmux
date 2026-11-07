@@ -462,7 +462,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.boundEngine
     if (!engine || engine.currentState.run_policy !== undefined) return
     try {
-      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { runPolicy(e: string): Promise<{ version: number; runs_allowed: boolean }> }
+      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity))
       const p = await team.runPolicy(entity)
       this.submitSystem("scheduler.run_policy", p, `run-policy:${p.version}:${p.runs_allowed ? 1 : 0}`)
     } catch (e) {

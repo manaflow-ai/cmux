@@ -1059,6 +1059,8 @@ mod tests {
         std::fs::write(&marker, staged.to_string()).unwrap();
         let meta: SessionMeta = serde_json::from_value(owner).unwrap();
         hub.drop_failed_import(&meta);
+        // The daemon's shutdown seal: the journal's lock passes to the next start.
+        hub.seal();
         drop(hub);
         let restarted = harness_hub(&dir);
         let loaded = restarted.sessions.lock().unwrap().contains_key(&id);

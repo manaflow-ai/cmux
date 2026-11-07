@@ -13,13 +13,14 @@ import {
 } from "../attachments";
 import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
-import { pasteLines, pasteName } from "../conversation/promptCollapse";
+import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
-import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { RemoveGlyph } from "./RemoveGlyph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -313,9 +314,7 @@ const InlineChip = memo(function InlineChip({
       aria-label={t(pending && !pending.failed ? "composer.cancelAttachment" : "composer.removeAttachment", { name })}
       onClick={() => (attachment ? onRemove(id) : onCancel(id))}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   if (!attachment)
@@ -354,8 +353,7 @@ const InlineChip = memo(function InlineChip({
   // in the prompt at its place.
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
-    const lines = pasteLines(text);
-    const label = `${t("composer.pastedText")} · ${t("transcript.pastedLines", { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
+    const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
     return (
       <span
         className="acpmux-md-inline-chip acpmux-text-card"
@@ -371,7 +369,7 @@ const InlineChip = memo(function InlineChip({
           aria-label={`${attachment.name || pasteName(text)}, ${label}`}
           onClick={() => onExpand(id)}
         >
-          <TextAttachmentCard text={text} label={label} />
+          <TextAttachmentCard text={text} label={label} wrap />
         </button>
         {remove}
       </span>

@@ -62,6 +62,9 @@ export async function traceUpwardAnchors({
       row.classList.contains("acpmux-row--after-step") ||
       row.classList.contains("acpmux-row--before-step") ||
       kind === "acpmux-activity" ||
+      // A turn's "Worked for" line is a step row (model.ts `isStepRow`), as every family folds a turn
+      // under it now (Codex parity).
+      kind === "acpmux-worked" ||
       kind === "acpmux-backgroundTask" ||
       kind === "acpmux-subagentDone" ||
       kind === "acpmux-compaction" ||

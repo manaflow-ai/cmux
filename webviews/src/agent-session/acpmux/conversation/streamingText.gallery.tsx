@@ -137,7 +137,10 @@ export default componentEntry<{ cadence: Cadence }>({
       reason: "The reply's code fence closes once; its first Shiki highlight compiles the grammar.",
     },
   },
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript", "agent-session/acpmux/conversation/RevealedMarkdown.tsx"],
+  covers: [
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
+    "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
+  ],
   load: async () => StreamingTextGallery,
   pane: true,
   styles: () =>

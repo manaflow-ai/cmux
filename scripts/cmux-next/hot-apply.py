@@ -1,0 +1,590 @@
+#!/usr/bin/env python3
+"""Apply a merged feat-cmux-next commit's web and Rust parts to a running cmux NEXT app, no new build.
+
+    hot-apply.py plan SHA [--app APP] [--repo DIR]
+    hot-apply.py apply SHA [--app APP] [--repo DIR] [--parts web,rust] [--socket P] [--acpmux-home H]...
+    hot-apply.py rollback [--app APP] [--socket P]
+    hot-apply.py status
+
+Leo, 2026-11-06: "how much of this needs a nightly versus, like, us being able to do the hot swap
+thing?" This puts the parts of a merged commit that need no app build into the app that runs now,
+from what feat-cmux-next already published for that commit. Nothing builds here.
+
+`plan` reads the app's commit (CMUXCommit in its Info.plist) and sorts `git diff APP_COMMIT SHA`
+with live_apply.py's rules:
+
+  web    webviews/ changed and SHA's web ABI (webviews/src/web-abi.json) equals the app's: the
+         bundles published for SHA's source key (fetch-web-bundles.sh) go into the app's web
+         overlay (web-overlay.sh install), and every open page reloads onto them
+  rust   SHA's cmux-tui tree key differs from the app's and no Rust the app links (its FFI
+         crates, scripts/ci/cmux_next_route.py) changed: the cmux binary published for SHA's tree
+         key (files.cmux.com/cmux-tui/tree/KEY, sha256 from its completion.json) replaces the
+         app's Contents/Resources/bin/cmux, and the app's daemon is handed to it the way the app
+         hands off its own (rust-live.py's Swapper: same app pid, terminals kept). bin/cmux is
+         also cmux-tui and acpmux (one multi-call binary), so `cmux link`, the CLI in the app's
+         terminals and every acpmux daemon started after it run SHA's build. A running acpmux
+         daemon keeps its build until it restarts: --acpmux-home H restarts the one of H.
+  left   what needs a new app: Swift, resources and manifests, Rust the app links, a web ABI
+         change, and the helpers the app bundles from cmux-tui crates (cmux-mobile-host; these
+         keep the app's build while the daemon part still applies)
+
+SHA must be at or after the app's commit on its history: the swapped parts carry every change
+between the two, not only SHA's own. A SHA the app already contains is a no-op.
+
+`apply` applies the parts (`--parts` picks; default every part `plan` finds) and checks each:
+the app's bin/cmux hashes to the published sha256, a new daemon owner answers from it, and the
+overlay's manifest names SHA. A failed check puts back what was there before (exit 1). The last
+line on stdout is the receipt, as JSON; it is also kept in the state folder (last.json and
+history.jsonl), which `rollback` reads to put back the build and overlay that ran before the last
+apply, checked the same way, and the acpmux daemons --acpmux-home restarted. A part that does not
+go back stays in the receipt's `undo`, and `rollback` tries it again. `status` prints the last receipt.
+
+The daemon is found from the app: the process running from APP's bin folder whose socket answers
+`server status` with its own pid (--socket names it instead). For a side instance, run
+`eval "$(scripts/cmux-next/side-instance.sh env NAME)"` first so the overlay is that copy's.
+
+Replacing bin/cmux breaks the app bundle's seal until `rollback` puts the same bytes back or the
+next update replaces the bundle. The running app is not affected; macOS checks the seal again only
+when it assesses the app (a first launch from a quarantined download).
+
+Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
+3: nothing here can apply SHA (an unpublished artifact, an unrelated commit, only `left` parts).
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import importlib.util
+import json
+import os
+import platform
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import live_apply  # noqa: E402
+
+TUI_BASE = os.environ.get("CMUX_HOT_APPLY_TUI_BASE") or "https://files.cmux.com/cmux-tui/tree"
+WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
+DEFAULT_APP = "/Applications/cmux NIGHTLY.app"
+BIN = "Contents/Resources/bin"
+APP_ABI = "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"
+SHA = re.compile(r"[0-9a-f]{40}")
+# What a temporary checkout of SHA needs to compute its web source key (web-bundle-key.py reads
+# the files): everything but the large folders no web bundle imports.
+WEB_KEY_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghostty/"]
+
+
+def load(name: str, file: str):
+    spec = importlib.util.spec_from_file_location(name, HERE / file)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # its dataclasses look their module up by name
+    spec.loader.exec_module(module)
+    return module
+
+
+def log(message: str) -> None:
+    print(f"hot-apply: {message}", file=sys.stderr, flush=True)
+
+
+def state_dir() -> Path:
+    if os.environ.get("CMUX_HOT_APPLY_STATE_DIR"):
+        return Path(os.environ["CMUX_HOT_APPLY_STATE_DIR"])
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Caches/cmux-next/hot-apply"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-next/hot-apply"
+
+
+def git(repo: Path, *args: str, check: bool = True) -> str:
+    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace")
+    if check and done.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {done.stderr.strip()[:300]}")
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def have_commit(repo: Path, sha: str) -> bool:
+    """SHA is in REPO, fetched from origin when it is not yet."""
+    def present() -> bool:
+        return subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True).returncode == 0
+    if present():
+        return True
+    subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", sha], capture_output=True)
+    return present()
+
+
+def is_ancestor(repo: Path, older: str, newer: str) -> bool:
+    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer]).returncode == 0
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=300) as answer:
+        return answer.read()
+
+
+def app_commit(app: Path, repo: Path = ROOT) -> str:
+    """The app's commit as a full sha. A nightly stamps CMUXCommit with the short one (nightly.yml)."""
+    with open(app / "Contents/Info.plist", "rb") as handle:
+        commit = str(plistlib.load(handle).get("CMUXCommit") or "")
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+        raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
+    if not SHA.fullmatch(commit):
+        def resolve() -> str:
+            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+        full = resolve()
+        if not SHA.fullmatch(full):
+            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
+            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
+                            "origin", "feat-cmux-next"], capture_output=True)
+            full = resolve()
+        if not SHA.fullmatch(full):
+            raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
+        commit = full
+    return commit
+
+
+def app_abi(app: Path) -> int | None:
+    try:
+        return json.loads((app / APP_ABI).read_text())["abi"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def tree_key(repo: Path, sha: str) -> str:
+    done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/cmux_tui_tree_key.py"), "--version", "v2", sha],
+                          cwd=repo, capture_output=True, text=True)
+    key = done.stdout.strip()
+    if done.returncode != 0 or not SHA.fullmatch(key):
+        raise RuntimeError(f"no cmux-tui tree key for {sha}: {done.stderr.strip()[:300]}")
+    return key
+
+
+def linked_rust(repo: Path, paths: list[str]) -> list[str]:
+    """The changed Rust paths the app links through FFI: those need a new app."""
+    import cmux_next_route as route
+    inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")] + list(route.app_ffi_inputs(repo))
+    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+
+
+def helper_rust(repo: Path, paths: list[str]) -> list[str]:
+    """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
+    sidecar): those helpers keep the app's build."""
+    import cmux_next_route as route
+    inputs = [i for i in route.scheme_phase_rust_inputs(repo) if not i.endswith(("Cargo.lock", "Cargo.toml"))]
+    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+
+
+def plan(repo: Path, app: Path, sha: str) -> dict:
+    base = app_commit(app, repo)
+    for commit in (base, sha):
+        if not have_commit(repo, commit):
+            raise RuntimeError(f"{commit} is not in {repo} (fetch feat-cmux-next)")
+    out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": []}
+    if is_ancestor(repo, sha, base):
+        out["notes"].append("the app already contains SHA")
+        return out
+    if not is_ancestor(repo, base, sha):
+        out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
+        return out
+    result = live_apply.classify_range(str(repo), base, sha)
+    files = result["files"]
+    for kind in ("swift-live", "rebuild"):
+        if files.get(kind):
+            out["left"][kind] = files[kind]
+    web = files.get("web-live", [])
+    if web:
+        want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
+        have = app_abi(app)
+        if have == want:
+            out["parts"].append("web")
+        else:
+            out["left"]["web ABI"] = [f"SHA's web needs ABI {want}, the app has {have}"]
+    rust = files.get("daemon", [])
+    if rust:
+        linked = linked_rust(repo, rust)
+        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, base)
+        if linked:
+            out["left"]["Rust the app links (FFI)"] = linked
+        elif out["tree_key"] != out["base_tree_key"]:
+            out["parts"].append("rust")
+            helpers = helper_rust(repo, rust)
+            if helpers:
+                # The daemon part still applies; the helpers built from these files keep the app's build.
+                out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
+    return out
+
+
+# ---------------------------------------------------------------- rust: the app's bin/cmux
+
+
+def triple() -> str:
+    arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
+    return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
+
+
+def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
+    """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
+    name = f"cmux-tui-{triple()}"
+    completion = json.loads(fetch(f"{TUI_BASE}/{key}/completion.json"))
+    if completion.get("key") != key:
+        raise RuntimeError(f"{TUI_BASE}/{key}/completion.json names key {completion.get('key')}")
+    want = completion.get("binaries", {}).get(name)
+    published = fetch(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
+    if not want or want != published:
+        raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
+    copy = state / "builds" / want / "cmux"
+    if not copy.is_file() or sha256_file(copy) != want:
+        body = fetch(f"{TUI_BASE}/{key}/{name}")
+        if hashlib.sha256(body).hexdigest() != want:
+            raise RuntimeError(f"{TUI_BASE}/{key}/{name} does not hash to {want}")
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+            part.write(body)
+        os.chmod(part.name, 0o755)
+        os.replace(part.name, copy)
+    return copy, want
+
+
+def keep(state: Path, path: Path) -> tuple[Path, str]:
+    """A copy of `path` by its sha256 under the state folder, so a rollback has its bytes."""
+    digest = sha256_file(path)
+    copy = state / "builds" / digest / "cmux"
+    if not copy.is_file():
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, copy)
+    return copy, digest
+
+
+def app_pids(app: Path) -> list[str]:
+    """The processes running an executable from APP's bin folder: by the executable's path (`comm`,
+    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short."""
+    prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
+    found = []
+    for field in ("comm", "command"):
+        ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            pid, _, rest = line.strip().partition(" ")
+            if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
+                found.append(pid)
+    # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
+    # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
+    proc = Path("/proc")
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or entry.name in found:
+                continue
+            try:
+                exe = os.readlink(entry / "exe").removesuffix(" (deleted)")
+            except OSError:
+                continue
+            if any(exe.startswith(prefix) for prefix in prefixes):
+                found.append(entry.name)
+    return found
+
+
+def find_socket(app: Path, cli: Path) -> str | None:
+    """The socket of the daemon running from APP's bin folder: a process there whose unix socket
+    answers `server status` with that process's pid. None when no daemon runs from it; a socket
+    that never answered means one may, and raises rather than pass for none."""
+    hung = []
+    for pid in app_pids(app):
+        lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
+        for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
+            try:
+                status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
+                                        capture_output=True, text=True, timeout=10)
+            except subprocess.TimeoutExpired:
+                hung.append(name)
+                continue
+            if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
+                return name
+    if hung:
+        raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
+                           f"from {app} is not known; nothing changed (--socket names it)")
+    return None
+
+
+def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) -> dict:
+    """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked."""
+    target = (app / BIN / "cmux").resolve()
+    swapper_cls = load("rust_live", "rust-live.py").Swapper
+    socket = socket or find_socket(app, target)
+    step: dict = {"file": str(target), "to": want, "socket": socket}
+    t0 = time.monotonic()
+    if socket is None:
+        # No daemon runs from this app: the file alone, which the app's next ensure runs.
+        staged = target.with_name(f".{target.name}.hot-apply")
+        shutil.copy2(new, staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        step["daemon"] = "none running; the next start runs it"
+    else:
+        swapper = swapper_cls(None, socket, state=state / "handoff")
+        owner = swapper.owner(target)
+        if owner is None:
+            raise RuntimeError(f"no daemon answers on {socket}")
+        if swapper.app_file(owner[1]) != target:
+            raise RuntimeError(f"the daemon on {socket} runs {owner[1]}, not {target}: not this app's")
+        swapper.app_handoff(new, owner[0], target)
+        now = swapper.owner(target, timeout=10)
+        step.update(old_pid=owner[0], new_pid=now[0] if now else None, daemon="app handoff")
+        if not now or now[0] == owner[0]:
+            raise RuntimeError(f"no new daemon owner answered on {socket} after the handoff")
+    step["seconds"] = round(time.monotonic() - t0, 3)
+    have = sha256_file(target)
+    step["running_sha256"] = have
+    if have != want:
+        raise RuntimeError(f"{target} hashes to {have}, not {want}")
+    return step
+
+
+def restart_acpmux(app: Path, homes: list[str]) -> list[dict]:
+    done = []
+    for home in homes:
+        # ACPMUX_SOCKET wins over ACPMUX_HOME: an inherited one would restart another home's daemon.
+        env = {k: v for k, v in os.environ.items() if k != "ACPMUX_SOCKET"}
+        result = subprocess.run([str(app / BIN / "acpmux"), "daemon", "restart"], capture_output=True, text=True,
+                                env=dict(env, ACPMUX_HOME=home), timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(f"acpmux daemon restart ({home}): {(result.stderr or result.stdout).strip()[:300]}")
+        done.append({"home": home, "restarted": True})
+    return done
+
+
+# ---------------------------------------------------------------- web: the app's overlay
+
+
+def web_key(repo: Path, sha: str) -> str:
+    """SHA's web source key, from a temporary sparse checkout of SHA (web-bundle-key.py reads files)."""
+    scratch = Path(tempfile.mkdtemp(prefix="hot-apply-web-"))
+    tree = scratch / "tree"
+    try:
+        git(repo, "worktree", "add", "-q", "--detach", "--no-checkout", str(tree), sha)
+        git(tree, "sparse-checkout", "set", "--no-cone", *WEB_KEY_SPARSE)
+        git(tree, "checkout", "-q", sha)
+        # The inputs the key names outside those folders (web/data, a cmux-tui binding) come back.
+        named = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--inputs"],
+                               capture_output=True, text=True, check=True).stdout.split()
+        git(tree, "sparse-checkout", "set", "--no-cone", *WEB_KEY_SPARSE,
+            *[f"/{p.rstrip('/')}" for p in named if not p.startswith(":")])
+        done = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--source"],
+                              capture_output=True, text=True)
+        key = done.stdout.strip()
+        if done.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise RuntimeError(f"no web source key for {sha}: {done.stderr.strip()[:300]}")
+        return key
+    finally:
+        git(repo, "worktree", "remove", "--force", str(tree), check=False)
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def overlay_snapshot(live) -> dict:
+    """live-apply.py's overlay state, made JSON so a later `rollback` can restore it."""
+    snap = live.overlay_state()
+    return {"links": snap["links"], "kept": {gen: str(path) for gen, path in snap["kept"].items()},
+            "manifest": snap["manifest"],
+            "web_dev": base64.b64encode(snap["web_dev"]).decode() if snap["web_dev"] is not None else None}
+
+
+def overlay_restore(live, saved: dict) -> None:
+    live.restore({"links": saved["links"], "kept": {gen: Path(path) for gen, path in saved["kept"].items()},
+                  "manifest": saved["manifest"],
+                  "web_dev": base64.b64decode(saved["web_dev"]) if saved["web_dev"] is not None else None})
+
+
+def overlay_commit(live) -> str | None:
+    overlay, _ = live.overlay_paths()
+    try:
+        return json.loads((overlay / "manifest.json").read_text()).get("commit")
+    except (OSError, ValueError):
+        return None
+
+
+def apply_web(repo: Path, sha: str, live) -> dict:
+    key = web_key(repo, sha)
+    out = Path(tempfile.mkdtemp(prefix="hot-apply-bundles-"))
+    try:
+        fetched = subprocess.run([str(ROOT / "scripts/cmux-next/fetch-web-bundles.sh"), "--key", key, "--out", str(out / "b")],
+                                 stdout=subprocess.PIPE, stderr=sys.stderr, text=True)
+        if fetched.returncode != 0:
+            raise RuntimeError(f"web bundles for key {key} not fetched (exit {fetched.returncode}; 3 is unpublished)")
+        installed = subprocess.run([str(ROOT / "scripts/cmux-next/web-overlay.sh"), "install", str(out / "b"), "--commit", sha],
+                                   stdout=sys.stderr, stderr=sys.stderr)
+        if installed.returncode != 0:
+            raise RuntimeError(f"web-overlay.sh install exited {installed.returncode}")
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+    if overlay_commit(live) != sha:
+        raise RuntimeError(f"the overlay's manifest names {overlay_commit(live)}, not {sha}")
+    return {"key": key, "commit": sha, "generation": live.generation()}
+
+
+# ---------------------------------------------------------------- commands
+
+
+def record(state: Path, receipt: dict) -> None:
+    state.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(receipt)
+    (state / "last.json").write_text(line + "\n")
+    with open(state / "history.jsonl", "a") as handle:
+        handle.write(line + "\n")
+    print(line)
+
+
+def command_plan(args) -> int:
+    out = plan(Path(args.repo), Path(args.app), args.sha)
+    print(json.dumps(out, indent=2))
+    return 0 if out["parts"] or not out["left"] else 3
+
+
+def command_apply(args) -> int:
+    repo, app, state = Path(args.repo), Path(args.app), state_dir()
+    t0 = time.monotonic()
+    planned = plan(repo, app, args.sha)
+    parts = [p for p in planned["parts"] if p in args.parts.split(",")]
+    receipt = {"action": "apply", **planned, "applied": [], "rolled_back": False, "steps": {},
+               "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if not parts:
+        receipt["seconds"] = round(time.monotonic() - t0, 3)
+        record(state, receipt)
+        return 0 if not planned["left"] else 3
+    live = load("live_apply_loop", "live-apply.py")
+    target = (app / BIN / "cmux").resolve()
+    undo: dict = {}
+    try:
+        if "rust" in parts:
+            new, want = fetch_cmux(planned["tree_key"], state)
+            prior, prior_sha = keep(state, target)
+            undo["rust"] = {"copy": str(prior), "sha256": prior_sha}
+            receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
+            receipt["steps"]["rust"]["from"] = prior_sha
+            receipt["applied"].append("rust")
+            if args.acpmux_home:
+                undo["rust"]["acpmux_homes"] = args.acpmux_home
+                receipt["steps"]["acpmux"] = restart_acpmux(app, args.acpmux_home)
+        if "web" in parts:
+            undo["web"] = overlay_snapshot(live)
+            receipt["steps"]["web"] = apply_web(repo, args.sha, live)
+            receipt["applied"].append("web")
+    except Exception as error:  # noqa: BLE001 - any failed step puts back what ran before
+        receipt["error"] = str(error)
+        receipt["rolled_back"] = True
+        receipt["rollback"] = put_back(app, undo, args.socket, state, live)
+        # A part that did not go back stays in `undo`, so `rollback` can try it again.
+        receipt["undo"] = {part: undo[part] for part, step in receipt["rollback"].items() if not step.get("ok")}
+        receipt["seconds"] = round(time.monotonic() - t0, 3)
+        record(state, receipt)
+        return 1
+    receipt["undo"] = undo
+    receipt["seconds"] = round(time.monotonic() - t0, 3)
+    record(state, receipt)
+    return 0
+
+
+def put_back(app: Path, undo: dict, socket: str | None, state: Path, live) -> dict:
+    """Restores each part in `undo` and checks it; returns what happened to each."""
+    out: dict = {}
+    if "web" in undo:
+        try:
+            overlay_restore(live, undo["web"])
+            out["web"] = {"ok": True, "commit": overlay_commit(live)}
+        except Exception as error:  # noqa: BLE001
+            out["web"] = {"ok": False, "error": str(error)}
+    if "rust" in undo:
+        target = (app / BIN / "cmux").resolve()
+        try:
+            if sha256_file(target) == undo["rust"]["sha256"]:
+                out["rust"] = {"ok": True, "running_sha256": undo["rust"]["sha256"], "daemon": "unchanged"}
+            else:
+                out["rust"] = {"ok": True, **swap_cmux(app, Path(undo["rust"]["copy"]), undo["rust"]["sha256"], socket, state)}
+            # The acpmux daemons the apply restarted run the applied build: restart them on the prior one.
+            if undo["rust"].get("acpmux_homes"):
+                out["rust"]["acpmux"] = restart_acpmux(app, undo["rust"]["acpmux_homes"])
+        except Exception as error:  # noqa: BLE001
+            out["rust"] = {"ok": False, "error": str(error)}
+    return out
+
+
+def command_rollback(args) -> int:
+    state = state_dir()
+    try:
+        last = json.loads((state / "last.json").read_text())
+    except (OSError, ValueError):
+        print("hot-apply: nothing applied here", file=sys.stderr)
+        return 3
+    if last.get("action") == "rollback" and not last.get("ok") and last.get("undo"):
+        last = {**last, "sha": last["of"]}  # a rollback that did not finish: try its parts again
+    elif last.get("action") != "apply" or not last.get("undo"):
+        print("hot-apply: the last apply left nothing to put back", file=sys.stderr)
+        return 3
+    app = Path(args.app or last["app"])
+    t0 = time.monotonic()
+    done = put_back(app, last["undo"], args.socket, state, load("live_apply_loop", "live-apply.py"))
+    receipt = {"action": "rollback", "of": last["sha"], "app": str(app), "steps": done,
+               "undo": {part: last["undo"][part] for part, step in done.items() if not step.get("ok")},
+               "ok": all(step.get("ok") for step in done.values()), "seconds": round(time.monotonic() - t0, 3),
+               "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    record(state, receipt)
+    return 0 if receipt["ok"] else 1
+
+
+def command_status(_args) -> int:
+    try:
+        print((state_dir() / "last.json").read_text().strip())
+    except OSError:
+        print("hot-apply: nothing applied here")
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("plan", "apply"):
+        p = sub.add_parser(name)
+        p.add_argument("sha")
+        p.add_argument("--app", default=DEFAULT_APP)
+        p.add_argument("--repo", default=str(ROOT))
+        if name == "apply":
+            p.add_argument("--parts", default="web,rust")
+            p.add_argument("--socket")
+            p.add_argument("--acpmux-home", action="append", default=[])
+    p = sub.add_parser("rollback")
+    p.add_argument("--app")
+    p.add_argument("--socket")
+    sub.add_parser("status")
+    args = parser.parse_args(argv)
+    if getattr(args, "sha", None) is not None:
+        args.sha = git(Path(args.repo), "rev-parse", "--verify", f"{args.sha}^{{commit}}", check=False) or args.sha
+        if not SHA.fullmatch(args.sha):
+            print(f"hot-apply: {args.sha!r} is not a commit here", file=sys.stderr)
+            return 2
+    try:
+        return {"plan": command_plan, "apply": command_apply, "rollback": command_rollback,
+                "status": command_status}[args.command](args)
+    except RuntimeError as error:
+        print(f"hot-apply: {error}", file=sys.stderr)
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

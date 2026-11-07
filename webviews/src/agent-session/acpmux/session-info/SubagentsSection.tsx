@@ -1,22 +1,18 @@
 // Session Info's Subagents, as Claude Code desktop's session panel lists them: what runs is named,
-// one row each, and what ended is one row. The harness's own subagents and the chats its agent
+// one row each, and what ended is one fold. The harness's own subagents and the chats its agent
 // started (ChildSessionRows.tsx; a Cloud VM's or another machine's included) share the list. Each
-// running one is a line of its own (subagents/AgentLine.tsx, the tray's): its name, what it does
-// now, how long it has run and its state, Waiting ones first; past five, "Show more" opens the
-// rest. The ones that ended are one row, "94 done · 1 failed", that opens into their lines, failed
-// first. Every line opens what it names: a subagent's pane or view (App.tsx `showSubagent`), a chat
-// beside this one (`chat.offer.open`); its hover card names it and says its state and its task. The
-// running lines' icons share one shimmer that sweeps down them (ui/wave.ts); the ended ones stay
-// still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
-// 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
-import { memo, useState } from "react";
+// running one is a lean line of its own (subagents/AgentLine.tsx `lean`): its own toned glyph, its
+// name and how long it has run, Waiting ones first; no spinner and no tool name (Lucas, 2026-11-05,
+// Session Info lab). Past five, "Show more" opens the rest. The ones that ended fold under one row,
+// "94 done · 1 failed", failed first. Every line opens what it names: a subagent's pane or view
+// (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
+// says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
+// `subagentCounts`).
+import { useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
-import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
-import { rowIconSize } from "../icons/iconSize";
-const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
@@ -24,7 +20,7 @@ import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
-import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying } from "../subagents/retryState";
@@ -32,9 +28,7 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { AgentMark } from "../../shared/AgentMark";
-import { TonedIcon } from "../subagents/TonedIcon";
-import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
+import { WindowedRows } from "./WindowedRows";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -132,53 +126,6 @@ const working = (status: SubagentStatus) => status === "running" || status === "
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
 
-// Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
-// inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
-// context and AgentMark's theme subscription still update independently through this memo boundary.
-const EndedAvatars = memo(
-  function EndedAvatars({ items }: { items: readonly Line[]; count: number }) {
-    return (
-      <span className="acpmux-session-info-subagents__avatars" aria-hidden="true">
-        {items.map((item) => (
-          <span key={item.key} data-agent-tone={agentTone(item.identity)}>
-            {item.agent ? (
-              <Avatar agent={item.agent} />
-            ) : (
-              <span className="cv-subagent-avatar" data-state={item.status}>
-                {item.mark ? (
-                  <AgentMark
-                    agent={item.mark}
-                    size={14}
-                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
-                  />
-                ) : (
-                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
-                )}
-              </span>
-            )}
-          </span>
-        ))}
-      </span>
-    );
-  },
-  (before, after) =>
-    before.count === after.count &&
-    before.items.length === after.items.length &&
-    before.items.every((item, index) => {
-      const next = after.items[index]!;
-      return (
-        item.key === next.key &&
-        item.identity === next.identity &&
-        item.status === next.status &&
-        item.working === next.working &&
-        item.icon === next.icon &&
-        item.mark === next.mark &&
-        item.agent?.state === next.agent?.state &&
-        item.agent?.harness === next.agent?.harness
-      );
-    }),
-);
-
 export function SubagentsSection({
   agents,
   waiting,
@@ -261,34 +208,28 @@ export function SubagentsSection({
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
-  // Each running line's place in the wave, top to bottom; the ended lines take none.
-  const wave = waveIndices(shown, (item) => working(item.status));
-  const line = (item: Line, index: number, inWave: boolean) => (
+  const line = (item: Line) => (
     <li key={item.key}>
       <AgentLine
+        lean
         name={item.name}
-        detail={item.detail}
-        progress={item.progress}
-        progressAgent={item.agent}
         status={item.status}
         state={item.state}
-        working={item.working}
         time={item.time}
         icon={item.icon}
         mark={item.mark}
         tone={agentTone(item.identity)}
         depth={item.depth}
         onOpen={item.open}
-        wave={inWave ? wave[index] : undefined}
         card={<AgentCard item={item} />}
       />
     </li>
   );
   return (
-    <div className="acpmux-session-info-subagents" style={SESSION_INFO_WAVE_STYLE}>
+    <div className="acpmux-session-info-subagents">
       {runningLines.length > 0 && (
         <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
-          {shown.map((item, index) => line(item, index, true))}
+          <WindowedRows items={shown} render={line} />
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
@@ -300,22 +241,20 @@ export function SubagentsSection({
       )}
       {endedLines.length > 0 && (
         <>
-          <button
-            type="button"
-            className="acpmux-summary-row acpmux-summary-link acpmux-session-info-subagents__ended"
-            aria-expanded={endedOpen}
-            onClick={() => setEndedOpen(!endedOpen)}
+          <SessionInfoFold
+            className="acpmux-session-info-subagents__ended"
+            open={endedOpen}
+            onToggle={() => setEndedOpen(!endedOpen)}
           >
-            <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
-            <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
-            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
-          </button>
+            <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            {endedCounts(t, endedLines)}
+          </SessionInfoFold>
           {endedOpen && (
             <ul
               ref={endedEdges}
               className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
             >
-              {endedLines.map((item, index) => line(item, index, false))}
+              <WindowedRows items={endedLines} render={line} />
             </ul>
           )}
         </>
