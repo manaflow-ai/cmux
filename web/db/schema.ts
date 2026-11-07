@@ -20,6 +20,10 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+/**
+ * The database's vm_provider also holds 'gcp' (next's 20261023120000_gcp_vm_provider). main has no
+ * GCP driver, so its code declares only the provider it can serve; 'gcp' joins with that driver.
+ */
 export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
@@ -80,10 +84,18 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
-/** Durable team-owned Runs. Session and provider credentials never enter these rows. */
+/**
+ * Durable Runs. Session and provider credentials never enter these rows.
+ *
+ * The Run tables hold the union of main's Run model (web/services/runs/legacy) and
+ * feat-cmux-next's, which replaces it (B2 of leo-workspace notes/web-next-to-cmux-com.md;
+ * migrations 20261028000000_run_model_enums to 20261028000200_run_model_validate). main's
+ * columns, enum values and run_attach_tickets go in the contract step once next's code serves.
+ */
 export const runStatus = pgEnum("run_status", [
   "queued",
   "running",
+  "cancelling",
   "succeeded",
   "failed",
   "cancelled",
@@ -91,21 +103,49 @@ export const runStatus = pgEnum("run_status", [
 
 export const runAttemptStatus = pgEnum("run_attempt_status", [
   "queued",
+  "leased",
   "running",
   "succeeded",
   "failed",
   "cancelled",
+  "expired",
 ]);
 
 export const runEventKind = pgEnum("run_event_kind", [
   "run.created",
   "attempt.queued",
   "attempt.started",
+  "attempt.heartbeat",
+  "attempt.output",
+  "attempt.artifact",
   "attempt.succeeded",
   "attempt.failed",
   "attempt.cancelled",
   "run.cancelled",
+  "run.cancel_requested",
+  "run.completed",
 ]);
+
+/** Runtime lifetime is independent from the compute placement that hosts it. */
+export const cloudRuntimeKind = pgEnum("cloud_runtime_kind", [
+  "persistent",
+  "ephemeral",
+]);
+
+/** Lifecycle transitions are owned by the control plane and fence stale workers. */
+export const cloudRuntimeLifecycle = pgEnum("cloud_runtime_lifecycle", [
+  "provisioning",
+  "ready",
+  "running",
+  "draining",
+  "suspended",
+  "stopped",
+  "released",
+  "failed",
+]);
+
+export type CloudRuntimeKind = (typeof cloudRuntimeKind.enumValues)[number];
+export type CloudRuntimeLifecycle = (typeof cloudRuntimeLifecycle.enumValues)[number];
 
 export const runs = pgTable("runs", {
   ownerTeamId: text("owner_team_id"),
@@ -115,11 +155,19 @@ export const runs = pgTable("runs", {
   billingTeamId: text("billing_team_id"),
   idempotencyKey: text("idempotency_key"),
   requestDigest: text("request_digest").notNull(),
-  source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+  source: jsonb("source").$type<Record<string, unknown> & { repository?: string; ref?: string; commit?: string; archiveDigest?: string }>().notNull(),
   recipe: text("recipe").notNull(),
   provider: text("provider").notNull().default("cloud-vm"),
   desiredAttempts: integer("desired_attempts").notNull().default(1),
+  /** `sandboxed`: one throwaway VM from a pinned image, destroyed when the Run ends (hq#3367). */
+  environment: text("environment").$type<"persistent" | "sandboxed">().notNull().default("persistent"),
+  /** Manifest image the sandbox VM booted from; null for persistent Runs. */
+  imageId: text("image_id"),
+  imageVersion: text("image_version"),
+  /** A sandboxed Run's result receipt (`cmux.run.receipt/v1`); never provider handles or secrets. */
+  receipt: jsonb("receipt").$type<Record<string, unknown> | null>(),
   status: runStatus("status").notNull().default("queued"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -130,6 +178,12 @@ export const runs = pgTable("runs", {
     .where(sql`${table.ownerTeamId} is null and ${table.idempotencyKey} is not null`),
   index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
   uniqueIndex("runs_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey).where(sql`${table.ownerTeamId} is not null and ${table.idempotencyKey} is not null`),
+  index("runs_status_updated_idx").on(table.status, table.updatedAt),
+  check("runs_desired_attempts_check", sql`${table.desiredAttempts} between 1 and 32`),
+  check("runs_provider_check", sql`${table.provider} in ('cloud-vm')`),
+  check("runs_environment_check", sql`${table.environment} in ('persistent', 'sandboxed')`),
+  check("runs_sandboxed_single_attempt_check", sql`${table.environment} <> 'sandboxed' or (${table.desiredAttempts} = 1 and ${table.imageId} is not null and ${table.billingTeamId} is not null)`),
+  index("runs_environment_status_idx").on(table.environment, table.status).where(sql`${table.environment} = 'sandboxed'`),
 ]);
 
 export const runAttempts = pgTable("run_attempts", {
@@ -141,14 +195,29 @@ export const runAttempts = pgTable("run_attempts", {
   cleanupState: text("cleanup_state").notNull().default("pending"),
   retainedUntil: timestamp("retained_until", { withTimezone: true }),
   promotedAt: timestamp("promoted_at", { withTimezone: true }),
-  runtimeId: uuid("runtime_id"),
+  /** Tenant-scoped durable runtime selected for this execution attempt. */
+  runtimeId: uuid("runtime_id").references(() => cloudRuntimes.id, { onDelete: "set null" }),
   id: uuid("id").defaultRandom().primaryKey(),
   runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
   ordinal: integer("ordinal").notNull(),
-  variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
+  variant: jsonb("variant").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   status: runAttemptStatus("status").notNull().default("queued"),
   providerVmId: text("provider_vm_id"),
-  result: jsonb("result").$type<Record<string, unknown>>(),
+  providerWorkspaceId: text("provider_workspace_id"),
+  providerTerminalId: text("provider_terminal_id"),
+  terminalRetainUntil: timestamp("terminal_retain_until", { withTimezone: true }),
+  /** Hash of the last single-use Run attach ticket; raw ticket material is never persisted. */
+  attachTicketHash: text("attach_ticket_hash"),
+  attachTicketExpiresAt: timestamp("attach_ticket_expires_at", { withTimezone: true }),
+  attachTicketConsumedAt: timestamp("attach_ticket_consumed_at", { withTimezone: true }),
+  cleanupLeaseToken: text("cleanup_lease_token"),
+  cleanupLeaseExpiresAt: timestamp("cleanup_lease_expires_at", { withTimezone: true }),
+  leaseToken: text("lease_token"),
+  leaseGeneration: integer("lease_generation").notNull().default(0),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  sourceDigest: text("source_digest"),
+  result: jsonb("result").$type<Record<string, unknown> | null>(),
+  exitCode: integer("exit_code"),
   error: text("error"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -156,7 +225,15 @@ export const runAttempts = pgTable("run_attempts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+  // main's (status, lease_until). On a database the folder created from empty, next's
+  // 20261016000000_run_api made this name (status, lease_expires_at) first. The contract step
+  // drops it and renames run_attempts_lease_expires_idx to it.
+  index("run_attempts_lease_idx").on(table.status, table.leaseUntil),
+  index("run_attempts_lease_expires_idx").on(table.status, table.leaseExpiresAt),
+  index("run_attempts_terminal_retention_idx").on(table.status, table.terminalRetainUntil, table.cleanupLeaseExpiresAt),
   index("run_attempts_run_status_idx").on(table.runId, table.status),
+  index("run_attempts_runtime_idx").on(table.runtimeId, table.createdAt, table.id),
+  check("run_attempts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
 ]);
 
 export const runEvents = pgTable("run_events", {
@@ -164,26 +241,53 @@ export const runEvents = pgTable("run_events", {
   runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
   attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
   sequence: integer("sequence").notNull(),
+  attemptSequence: integer("attempt_sequence"),
+  externalId: text("external_id"),
   kind: runEventKind("kind").notNull(),
   payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  /** Lease that wrote this event. A retry of it is answered only for this lease or the live holder. */
+  writerLeaseGeneration: integer("writer_lease_generation"),
+  /** SHA-256 of the writer's lease token; raw lease tokens are never stored on events. */
+  writerLeaseTokenHash: text("writer_lease_token_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+  uniqueIndex("run_events_attempt_external_unique")
+    .on(table.attemptId, table.externalId)
+    .where(sql`${table.attemptId} is not null and ${table.externalId} is not null`),
+  uniqueIndex("run_events_attempt_sequence_unique")
+    .on(table.attemptId, table.attemptSequence)
+    .where(sql`${table.attemptId} is not null and ${table.attemptSequence} is not null`),
   index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
 ]);
 
 
-/** Receipt artifacts are immutable JSON, never arbitrary external URLs. */
+/**
+ * Immutable artifact manifest entries. main's are inline JSON receipts in `payload`; next's bytes
+ * are uploaded to a provider-owned `uri`. The defaults keep main's inserts (which omit uri and
+ * media_type) valid; next's code writes both.
+ */
 export const runArtifacts = pgTable("run_artifacts", {
   id: uuid("id").defaultRandom().primaryKey(),
   runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
   attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  mediaType: text("media_type").notNull().default("application/json"),
   digest: text("digest").notNull(),
-  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   sizeBytes: integer("size_bytes").notNull(),
+  uri: text("uri").notNull().default("inline://cmux-run-artifact"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  /** Lease that recorded this manifest; see runEvents.writerLeaseGeneration. */
+  writerLeaseGeneration: integer("writer_lease_generation"),
+  writerLeaseTokenHash: text("writer_lease_token_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name)]);
+}, (table) => [
+  uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name),
+  index("run_artifacts_run_idx").on(table.runId, table.createdAt, table.id),
+  check("run_artifacts_size_check", sql`${table.sizeBytes} >= 0 and ${table.sizeBytes} <= 536870912`),
+  check("run_artifacts_digest_check", sql`${table.digest} ~ '^sha256:[0-9a-fA-F]{64}$'`),
+]);
 
 export const runAttachTickets = pgTable("run_attach_tickets", {
   digest: text("digest").primaryKey(),
@@ -340,22 +444,66 @@ export const cloudVmSnapshotRequests = pgTable(
   ],
 );
 
-/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
+/** Durable runtime identity. VM status and provider addresses remain owned by cloud_vms. */
 export const cloudRuntimes = pgTable("cloud_runtimes", {
   id: uuid("id").defaultRandom().primaryKey(),
   ownerTeamId: text("owner_team_id").notNull(),
+  runtimeKind: cloudRuntimeKind("runtime_kind").notNull().default("persistent"),
+  lifecycleState: cloudRuntimeLifecycle("lifecycle_state").notNull().default("provisioning"),
   /** Null until a host explicitly binds its authoritative journal lineage. */
   journalSessionId: text("journal_session_id"),
   /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
   machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  /** Incremented on every placement change and used as an optimistic fence. */
   placementGeneration: integer("placement_generation").notNull().default(1),
+  /** Runtime operation lease; never expose the token in public API views. */
+  leaseToken: text("lease_token"),
+  leaseGeneration: integer("lease_generation").notNull().default(0),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  /** Optional tenant-scoped idempotency key for runtime creation. */
+  idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
 }, (table) => [
   index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  index("cloud_runtimes_owner_lifecycle_idx").on(table.ownerTeamId, table.lifecycleState, table.updatedAt),
+  index("cloud_runtimes_lease_idx").on(table.lifecycleState, table.leaseExpiresAt),
   uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
   uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  uniqueIndex("cloud_runtimes_owner_idempotency_unique")
+    .on(table.ownerTeamId, table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} is not null`),
   check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_lease_generation_nonnegative", sql`${table.leaseGeneration} >= 0`),
   check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
+
+/** Durable provider workspace handles owned by a persistent Runtime. */
+export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
+  runtimeId: uuid("runtime_id").primaryKey().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
+  ownerTeamId: text("owner_team_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceName: text("workspace_name").notNull(),
+  provider: text("provider").notNull().default("freestyle"),
+  lifecycle: text("lifecycle").notNull().default("provisioning"),
+  providerVmId: text("provider_vm_id"),
+  providerWorkspaceId: text("provider_workspace_id"),
+  providerTerminalId: text("provider_terminal_id"),
+  ownerId: text("owner_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestDigest: text("request_digest").notNull(),
+  failureCode: text("failure_code"),
+  failureMessage: text("failure_message"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_runtime_workspaces_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey),
+  uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
+  index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
+  check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
+  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle', 'gcp')`),
 ]);
 
 /** Provider-owned agent identities; multiple root/child threads can share a runtime. */
