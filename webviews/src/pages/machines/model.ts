@@ -83,12 +83,10 @@ export function stateText(row: MachineRow, strings: Strings): string {
   return strings.t(row.isConnecting ? "machines.connecting" : "machines.offline");
 }
 
-/** The camelCase keys of the join doctor's steps whose raw name is not their key. */
-const STEP_KEYS: Record<string, string> = { "signed-in": "signedIn" };
-
-/** A check step's line; a step this build does not know shows by its raw name. */
+/** A check step's line, keyed by its name in camelCase (`peer-back` is `addMachine.step.peerBack`); a step
+ * this build does not know shows by its raw name. */
 export function stepText(step: string, strings: Strings): string {
-  const key = `addMachine.step.${STEP_KEYS[step] ?? step}`;
+  const key = `addMachine.step.${step.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())}`;
   const text = strings.t(key);
   return text === key ? step : text;
 }

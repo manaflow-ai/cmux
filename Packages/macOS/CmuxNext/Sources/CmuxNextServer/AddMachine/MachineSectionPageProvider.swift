@@ -83,11 +83,14 @@ public final class MachineSectionPageProvider: PageProvider {
         case Self.snapshotOp:
             return snapshot()
         case Self.newWorkspaceOp:
+            try Self.requireGesture(context)
             guard let machine = params["machine"]?.stringValue, !machine.isEmpty else { throw PageError.invalidParams("machine is required") }
             return ["ran": .bool(dependencies.newWorkspace(machine))]
         case Self.addMachineOp:
+            try Self.requireGesture(context)
             return ["ran": .bool(dependencies.addMachine())]
         case Self.menuOp:
+            try Self.requireGesture(context)
             guard let id = params["row"]?.stringValue, let kind = params["menu"]?.stringValue,
                   let row = dependencies.rows().first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("row is not a machine of the section")
@@ -98,6 +101,14 @@ public final class MachineSectionPageProvider: PageProvider {
             return .object([:])
         default:
             throw PageError.unknownOp(op)
+        }
+    }
+
+    /// New Workspace, Add Machine and the row menus run only on the person's own click or key in the page
+    /// (`context.userGesture`, which the page router records from real input; page script cannot set it).
+    private static func requireGesture(_ context: PageCallContext) throws {
+        guard context.userGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: "Only a person can do this in the Machines section")
         }
     }
 
