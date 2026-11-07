@@ -240,8 +240,12 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
   test("Tab into a row's controls shows them at full in the same frame", async () => {
     const page = await open();
     try {
+      // Start from the prompt's own row, so Tab's next stop is its controls. Tabbing from the page start
+      // goes through the composer, which takes focus back while the chat loads, so on a slow host 80
+      // presses never left it.
+      await page.locator("article.acpmux-user").first().focus();
       let reached = false;
-      for (let i = 0; i < 80 && !reached; i++) {
+      for (let i = 0; i < 20 && !reached; i++) {
         await page.keyboard.press("Tab");
         reached = await page.evaluate(() => Boolean(document.activeElement?.closest(".cv-user__actions")));
       }
