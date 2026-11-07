@@ -849,7 +849,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     attachments,
     setAttachments,
     pending: shown,
-    // A chat on this Mac shows none, also one carried in from a chat on another machine.
+    // Every chat shows these: saving an original again is a real retry wherever the agent runs.
     originalFailures,
     originalUploads,
     loading,
