@@ -46,14 +46,27 @@
   );
   border-radius: var(--acpmux-session-info-panel-radius);
 }
-/* Its edge, in every place: a hairline in the pane's strong border color on its rounded corners, and no fill
-   of its own where nothing runs under it (Leo, 2026-11-03: "maybe it's ok...? to HAVE NO BACKGROUND FOR THE
-   SESSION INFO / but i think having a border for it might be better"). The strong border (22% of the text, the
-   full text under Increase Contrast), not the 12% one, which read as no edge at all (Leo, 2026-11-07: "but the
-   border on session info is way too faint"). Over the chat's column it keeps the glass under the hairline, so
-   the transcript's text never reads through its own. SessionInfo.gallery.tsx hairlineEdge keeps it so. */
+/* Its edge, in every place: a hairline at 22% of the pane's text on its rounded corners, and no fill of its
+   own where nothing runs under it (Leo, 2026-11-03: "maybe it's ok...? to HAVE NO BACKGROUND FOR THE
+   SESSION INFO / but i think having a border for it might be better"). Not the pane's border tokens: in the
+   App --agent-border is the separator and --agent-border-strong the pane border (AgentPaneTheme.swift), both
+   7-9% of the text, which read as no edge at all (Leo, 2026-11-07: "but the border on session info is way
+   too faint"). The native panel draws the same 22%. The full text color under Increase Contrast, and none
+   with the App's borders off. Over the chat's column it keeps the glass under the hairline, so the
+   transcript's text never reads through its own. SessionInfo.gallery.tsx hairlineEdge keeps it so. */
+.acpmux-session-info {
+  --acpmux-session-info-edge: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+@media (prefers-contrast: more) {
+  .acpmux-session-info {
+    --acpmux-session-info-edge: var(--agent-text);
+  }
+}
+:root[data-borders="none"] .acpmux-session-info {
+  --acpmux-session-info-edge: transparent;
+}
 .acpmux-session-info[data-placement] {
-  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-edge, var(--agent-border-strong));
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-session-info-edge);
 }
 /* Lying over the chat's column (the right gutter cannot hold it), it stops above the composer's stack
    (SessionInfo.tsx sessionInfoOverChat, --acpmux-session-info-foot), so it never covers the composer. */

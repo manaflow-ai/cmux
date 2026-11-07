@@ -525,9 +525,9 @@ const scrollsWithNoScrollbar: Play = async (ctx) => {
   await ctx.waitFor(() => body.scrollTop > 0);
 };
 
-// The panel's edge: a hairline (at most 1px) in the pane's strong border color all round, on its rounded
-// corners, and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might
-// be better"; 2026-11-07: "but the border on session info is way too faint").
+// The panel's edge: a hairline (at most 1px) at 22% of the pane's text all round (never the App's 7-9% border
+// tokens), on its rounded corners, and no fill of its own where nothing runs under it (Leo, 2026-11-03:
+// "having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").
 const hairlineEdge: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
   const panel = ctx.find({ selector: ".acpmux-session-info" });
@@ -539,12 +539,12 @@ const hairlineEdge: Play = async (ctx) => {
       throw new Error(`The panel's ${side} edge does not draw`);
   }
   const probe = ctx.document.createElement("div");
-  probe.style.color = "var(--agent-border-strong)";
+  probe.style.color = "color-mix(in srgb, var(--agent-text) 22%, transparent)";
   panel.parentElement!.append(probe);
   const border = style(ctx, probe).color;
   probe.remove();
   if (look.borderTopColor !== border)
-    throw new Error(`The edge is ${look.borderTopColor}, not the pane's strong border ${border}`);
+    throw new Error(`The edge is ${look.borderTopColor}, not 22% of the pane's text (${border})`);
   if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
@@ -1972,7 +1972,7 @@ export default componentEntry<Props>({
       play: panelMoreAndLess,
     },
     "edge-hairline": {
-      note: 'Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane\'s strong border color (--agent-border-strong, 0.5px) on its rounded corners (Leo, 2026-11-03: "maybe it\'s ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").',
+      note: 'Chosen. The panel in the gutter with no fill of its own and a hairline edge at 22% of the pane\'s text (0.5px; the App\'s border tokens are 7-9% of it) on its rounded corners (Leo, 2026-11-03: "maybe it\'s ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full },
       play: hairlineEdge,
     },
@@ -1986,8 +1986,8 @@ export default componentEntry<Props>({
       props: { ...full, edge: "border-color:transparent" },
     },
     "edge-faint": {
-      note: 'Before, for comparison: the 12% edge (--agent-border), which read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too faint").',
-      props: { ...full, edge: "border-color:var(--agent-border)" },
+      note: 'Before, for comparison: the pane\'s border tokens as the App sends them (--agent-border-strong is the pane border, 7% of the text dark and 9% light; --agent-border the separator, 8% and 7%; AgentPaneTheme.swift), which read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too faint").',
+      props: { ...full, edge: "border-color:var(--agent-border-strong)" },
     },
     "over-chat-blur-only": {
       note: "Alternative over the chat: the hairline and the blur with no tint. Light transcript text still shows through the panel's rows, so the chosen look keeps the tint.",
