@@ -13,8 +13,14 @@ extension SidebarBridge {
     /// Selects a pinned tab in its workspace and focuses it. `ref` is the
     /// tab's id or its qualified `<session>:tab_…` form.
     func revealPinnedTab(_ ref: String) {
-        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = workspaceID(holding: pane) else { return }
+        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)?.id else { return }
         reveal(tab, in: pane, workspace: workspace, state: state)
+    }
+
+    /// A hover card's tab row clicked in this window: shown here, as a pinned tab (cmux#37371).
+    func revealListedTab(_ tab: String, of workspace: String) {
+        guard let state, let daemon = services.machines.workspace(id: workspace)?.1, let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
+        reveal(model, in: pane, workspace: workspace, state: state)
     }
 
     /// Focuses a tab of this window's current space showing `text` (an
@@ -69,19 +75,13 @@ extension SidebarBridge {
         return nil
     }
 
-    private func workspaceID(holding pane: PaneModel) -> String? {
-        for (workspace, _) in services.machines.allWorkspaces where workspace.screens.contains(where: { $0.panes.contains { $0 === pane } }) {
-            return workspace.id
-        }
-        return nil
-    }
-
     /// Selects `tab` in this window, which shows its workspace (taking it
     /// from another window that lists it: a click in one window never acts
     /// in another, Lawrence 2026-10-23): directly when its pane is on screen,
     /// else through this window's selection memory and focus. Showing the
     /// workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
+        if services.windows.registry.value.crossesIncognito([workspace], to: state.id) { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
         state.selection.select(tab.id, in: pane.id)
         state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
         services.paneController(for: pane)?.select(StripTabID(tab.id))
