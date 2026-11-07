@@ -400,20 +400,19 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
     opens = []
     for workspace in workspaces[:count]:
         tab = CHAT_TABS.get(workspace)
-        if tab is None:
-            opens.append({"workspace": workspace, "error": "no chat tab recorded for it"})
-            continue
         armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
         if not isinstance(armed, dict) or armed.get("error"):
             opens.append({"workspace": workspace, "error": f"arm: {armed}"})
             continue
         shown = app.action("goToWorkspace", focus=True, workspace=workspace)
         if not shown.get("error"):
-            shown = app.run("tab.focus", target=tab)
+            # No recorded id: the chat is the tab before the terminal the mix added last. The trace
+            # binds only when a chat loads, so a wrong guess reads as `live`, never as a restore time.
+            shown = app.run("tab.focus", target=tab) if tab else app.action("prevSurface")
         trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
         frames = trace.get("frames") or []
         opens.append({
-            "workspace": workspace,
+            "workspace": workspace, "tab": tab or "prevSurface",
             "error": shown.get("error") or trace.get("error"),
             "timed_out": trace.get("timed_out"),
             "first_content_ms": trace.get("first_content_ms"),
