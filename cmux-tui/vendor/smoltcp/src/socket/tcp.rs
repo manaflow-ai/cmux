@@ -923,6 +923,9 @@ impl<'a> Socket<'a> {
         self.remote_win_scale = None;
         self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
         self.remote_mss = DEFAULT_MSS;
+        // cmux patch: a reused socket starts its next connection with a fresh
+        // controller (initial window included), not the last connection's state.
+        self.set_congestion_control(self.congestion_control());
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
@@ -1906,11 +1909,16 @@ impl<'a> Socket<'a> {
                     // Treat a zero MSS as if the option were absent, like Linux does.
                     if max_seg_size != 0 {
                         self.remote_mss = (max_seg_size as usize).max(MIN_REMOTE_MSS);
-                        self.congestion_controller
-                            .inner_mut()
-                            .set_mss(self.remote_mss);
                     }
                 }
+                // cmux patch: size the congestion window in the segments this socket
+                // actually sends, min(local, remote) MSS, also when the peer sent none.
+                let local_mss = cx
+                    .ip_mtu()
+                    .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                self.congestion_controller
+                    .inner_mut()
+                    .set_mss(local_mss.min(self.remote_mss));
 
                 self.tuple = Some(Tuple {
                     local: IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port),
@@ -1959,11 +1967,16 @@ impl<'a> Socket<'a> {
                     // Treat a zero MSS as if the option were absent, like Linux does.
                     if max_seg_size != 0 {
                         self.remote_mss = (max_seg_size as usize).max(MIN_REMOTE_MSS);
-                        self.congestion_controller
-                            .inner_mut()
-                            .set_mss(self.remote_mss);
                     }
                 }
+                // cmux patch: size the congestion window in the segments this socket
+                // actually sends, min(local, remote) MSS, also when the peer sent none.
+                let local_mss = cx
+                    .ip_mtu()
+                    .saturating_sub(ip_repr.header_len() + TCP_HEADER_LEN);
+                self.congestion_controller
+                    .inner_mut()
+                    .set_mss(local_mss.min(self.remote_mss));
 
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
@@ -9602,6 +9615,62 @@ mod test {
 
         s.set_congestion_control(CongestionControl::None);
         assert_eq!(s.congestion_control(), CongestionControl::None);
+    }
+
+    // cmux patch: CUBIC's initial window counts the segments this socket sends.
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_cubic_initial_window_uses_sent_mss() {
+        use super::congestion::Controller as _;
+
+        // No MSS option: segments are 536 bytes, so ten of them.
+        let mut s = socket_listen();
+        s.set_congestion_control(CongestionControl::Cubic);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: None,
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.congestion_controller.inner().window(), 10 * 536);
+
+        // A peer MSS below the local one bounds the segments.
+        let mut s = socket_listen();
+        s.set_congestion_control(CongestionControl::Cubic);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                max_seg_size: Some(1000),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.congestion_controller.inner().window(), 10 * 1000);
+    }
+
+    // cmux patch: a reused socket's next connection starts from a fresh controller.
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_reset_restarts_congestion_controller() {
+        use super::congestion::Controller as _;
+
+        let mut s = socket_established();
+        s.set_congestion_control(CongestionControl::Cubic);
+        let fresh = s.congestion_controller.inner().window();
+        s.congestion_controller
+            .inner_mut()
+            .on_rto(Instant::from_millis(0), fresh);
+        assert!(s.congestion_controller.inner().window() < fresh);
+
+        s.reset();
+        assert_eq!(s.congestion_control(), CongestionControl::Cubic);
+        assert_eq!(s.congestion_controller.inner().window(), fresh);
     }
 
     // =========================================================================================//

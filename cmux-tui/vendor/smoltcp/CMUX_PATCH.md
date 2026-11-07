@@ -11,7 +11,13 @@ only until the first ACK of new data or the first loss. Linux and the other
 common stacks have started at 10 segments since 2013. A 200 KB first message
 needs about 4 round trips instead of about 7.
 
-The change is confined to `src/socket/tcp/congestion/cubic.rs` (marked
-`cmux patch`), with its tests there. Reno is unchanged; cmux does not enable it.
+The window counts the segments the socket actually sends: on every SYN the
+socket hands the controller `min(local, remote)` MSS, also when the peer sent no
+MSS option (536 bytes). `Socket::reset()` starts the next connection on a fresh
+controller of the same kind, so a reused socket gets the initial window again.
+
+The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
+each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
+cmux does not enable it.
 Remove this vendor copy when the smoltcp version used by cmux starts at the
 RFC 6928 window.
