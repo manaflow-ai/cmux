@@ -23,6 +23,7 @@ import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.ex
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
+import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
@@ -77,6 +78,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapWave,
   threadMinimapIncoming,
   chatMinimapPlaceholder,
+  codeActionsLook,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,

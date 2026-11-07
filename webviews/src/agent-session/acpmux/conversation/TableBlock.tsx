@@ -42,7 +42,9 @@ export function TableBlock({
   const markdown = tableMarkdown(table);
   return (
     <div className={`cv-table-block${className}`} data-actions={place}>
-      <div className={`cv-table-tools${place === "beside" ? "" : " ui-glass"}`}>
+      {/* Bare buttons on its corner, as a code card's (cornerActions.ts); only `above`, which sits
+          over the line before the table, keeps the glass pill under them. */}
+      <div className={`cv-table-tools${place === "above" ? " ui-glass" : ""}`}>
         {open && (
           <button
             type="button"

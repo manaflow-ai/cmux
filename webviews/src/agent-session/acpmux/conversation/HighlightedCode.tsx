@@ -1,6 +1,7 @@
 // The highlighted fenced-code card: a Pierre `File` with the pane's syntax theme (a ```diff fence
 // is highlighted as a diff). Ported from the agent-pane reference prototype
 // (src/conversation/CodeBlock.tsx); CodeBlock.tsx loads it after the page's first frame.
+import { cornerAction } from "./cornerActions";
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
@@ -93,7 +94,7 @@ export function HighlightedCode({
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button
           type="button"
-          className="cv-codeblock__action"
+          className={cornerAction()}
           aria-pressed={wrap}
           data-fold-toggle=""
           aria-label={t("changes.wrapLines")}

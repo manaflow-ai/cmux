@@ -3,14 +3,18 @@
 // 2026-11-07, on a code card's Wrap and Copy on opaque tiles with a gap between them: "why not just
 // have it similar to how we have the, you know, the copy button or whatever, where it doesn't
 // really have anything until you highlight over it"). Each surface at rest, under the pointer
-// (the block hovered, no button), with one button hovered, and with one pressed.
+// (the block hovered, no button), with one button hovered, and with one pressed. The experiment's
+// arms (codeActions.experiment.ts) compare bare touching buttons (shipped), bare spaced ones, bare
+// ones shown only on the block's hover, and a faint shared strip.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { DiffHunk, TurnFile } from "../diff";
 import { ArtifactContext } from "./artifactPreview";
+import { codeActionsLook } from "./codeActions.experiment";
 import { CodeHeader, codeHeaderClass } from "./CodeHeader";
 import { CopyButton } from "./CopyButton";
+import { cornerAction } from "./cornerActions";
 import { WrapLines } from "./icons";
 import { PlainCodeLines } from "./StreamingCode";
 import { EditDiff } from "./EditDiff";
@@ -70,7 +74,7 @@ function HighlightedCorner() {
       <CodeHeader look="corner" lang="ts">
         <button
           type="button"
-          className="cv-codeblock__action"
+          className={cornerAction()}
           aria-pressed={wrap}
           aria-label="Wrap lines"
           title="Wrap lines"
@@ -184,6 +188,7 @@ export default componentEntry<Props>({
   height: 320,
   covers: [
     "agent-session/acpmux/conversation/CodeHeader.tsx",
+    "agent-session/acpmux/conversation/cornerActions.ts",
     "agent-session/acpmux/conversation/CopyButton.tsx",
     "agent-session/acpmux/conversation/BlockParts.tsx",
     "agent-session/acpmux/conversation/EditDiff.tsx",
@@ -194,4 +199,11 @@ export default componentEntry<Props>({
   load: async () => Stage,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants,
+  experiment: {
+    definition: codeActionsLook,
+    script: [
+      { name: "Hover the block", run: onBlock("code") },
+      { name: "Hover Copy", run: onButton("code") },
+    ],
+  },
 });

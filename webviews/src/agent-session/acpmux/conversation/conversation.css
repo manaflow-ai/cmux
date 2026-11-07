@@ -142,6 +142,10 @@
   --cv-actions-out: var(--cmux-motion-quick, 80ms);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --cv-action-gap: 4px;
+  /* Between a block's corner buttons (a code card, a diff, a tool output, a reply table): none, as
+     a reply's Copy row has its buttons side by side (.cv-turn-action-group); the glyphs keep the
+     buttons' own 10px of air (code-actions-look `spaced` puts the old 4px back). */
+  --cv-code-action-gap: 0px;
 }
 /* Gallery-only comparisons for the activity hierarchy. The shipped middle value keeps secondary
    text above AA in both palettes; the alternatives are capture arms, never user settings. */
@@ -1379,7 +1383,7 @@
 .cv-table-block {
   --cv-table-tools-pad: 2px;
   --cv-table-tools-width: calc(
-    var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) + var(--cv-table-tools-pad) * 2
+    var(--cmux-control-height, 24px) * 2 + var(--cv-code-action-gap, 0px) + var(--cv-table-tools-pad) * 2
   );
   position: relative;
   width: fit-content;
@@ -1397,13 +1401,13 @@
   right: 0;
   display: flex;
   align-items: center;
-  gap: var(--cv-action-gap, 4px);
+  gap: var(--cv-code-action-gap, 0px);
   padding: var(--cv-table-tools-pad);
   border-radius: calc(var(--ds-radius-control) + var(--cv-table-tools-pad));
   opacity: 0;
   pointer-events: none;
 }
-/* The glass pill (corner, above): the transcript's quiet glass, tinted with the text colour at a
+/* The glass pill (above, over the line before the table; the corner's buttons are bare): the transcript's quiet glass, tinted with the text colour at a
    low strength, with the shared hairline rim, so it reads over a header or a line of prose. */
 .cv-table-tools.ui-glass {
   --glass-tint: color-mix(in srgb, var(--cv-fg) 8%, transparent);
@@ -1539,34 +1543,30 @@
 .cv-codeblock__actions {
   margin-left: auto;
   display: flex;
-  gap: var(--cv-action-gap);
+  gap: var(--cv-code-action-gap);
   color: var(--cv-codeblock-actions);
 }
-.cv-codeblock__action {
-  all: unset;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* A corner button is a reply's Copy button (`.cv-iconbtn`, cornerActions.ts): a bare glyph at rest,
+   the hover fill on the button under the pointer only, and the transcript's focus ring (Leo
+   2026-11-07, on Wrap and Copy on opaque tiles with a gap: "why not just have it similar to how we
+   have the, you know, the copy button or whatever, where it doesn't really have anything until you
+   highlight over it"). This only keeps its 26px box and its block's ink. Wrap lines turned on is
+   the glyph at full ink, never a fill, so only the hovered button is ever filled. */
+.cv-iconbtn.cv-codeblock__action {
   width: 26px;
   height: 26px;
-  border-radius: var(--ds-radius-control);
-  cursor: default;
+  color: inherit;
 }
-.cv-codeblock__action:hover,
-.cv-codeblock__action[aria-pressed="true"] {
+.cv-iconbtn.cv-codeblock__action[aria-pressed="true"] {
   color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
-}
-.cv-codeblock__action:focus-visible {
-  outline: 2px solid var(--agent-accent-soft);
-  outline-offset: 1px;
 }
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
 }
 /* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
-   top-right corner over the card's own tint and show while the pointer is on the card or focus is
+   top-right corner as bare glyphs, no strip behind them (the first line keeps their room, below),
+   and show while the pointer is on the card or focus is
    inside it (Leo 2026-11-01, on a tree diagram under "</> Plain text": "could we render this type of
    thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
 .cv-codeblock--corner .cv-codeblock__header {
@@ -1577,7 +1577,6 @@
   min-height: 0;
   padding: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--cv-fg) 7.5%, var(--cmux-surface-solid, var(--agent-page-bg, var(--acpmux-base))));
   opacity: 0;
 }
 /* The corner actions take the transcript's shared hover fade (transcript-hover-fade.test.ts):
@@ -1623,6 +1622,38 @@
   width: max-content;
   min-width: 100%;
   padding-inline-end: var(--cv-code-corner-reserve);
+}
+/* The code-actions-look arms (codeActions.experiment.ts) the gallery compares; `bare` ships and
+   sets no attribute. `spaced`: the old 4px between the buttons. */
+:root[data-code-actions="spaced"] {
+  --cv-code-action-gap: 4px;
+}
+/* `block-hover`: a labeled card's, a diff's and a Shell block's buttons show only while the pointer
+   is on the block or focus is in it, as an unlabeled card's corner does. */
+:root[data-code-actions="block-hover"]
+  :is(
+    .cv-codeblock:not(.cv-codeblock--corner) .cv-codeblock__actions,
+    .cv-edit-diff__header > .cv-iconbtn,
+    .cv-shell__actions
+  ) {
+  opacity: 0;
+}
+:root[data-code-actions="block-hover"] .cv-codeblock:hover .cv-codeblock__actions,
+:root[data-code-actions="block-hover"] .cv-codeblock:has([data-popup-open]) .cv-codeblock__actions,
+:root[data-code-actions="block-hover"] .cv-codeblock:focus-within .cv-codeblock__actions,
+:root[data-code-actions="block-hover"] .cv-edit-diff:hover .cv-edit-diff__header > .cv-iconbtn,
+:root[data-code-actions="block-hover"] .cv-edit-diff:has([data-popup-open]) .cv-edit-diff__header > .cv-iconbtn,
+:root[data-code-actions="block-hover"] .cv-edit-diff:focus-within .cv-edit-diff__header > .cv-iconbtn,
+:root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions,
+:root[data-code-actions="block-hover"] .cv-shell:has([data-popup-open]) .cv-shell__actions,
+:root[data-code-actions="block-hover"] .cv-shell:focus-within .cv-shell__actions {
+  opacity: 1;
+}
+/* `strip`: one very faint shared strip behind the pair, no solid tint. */
+:root[data-code-actions="strip"]
+  :is(.cv-codeblock--corner .cv-codeblock__header, .cv-shell__actions, .cv-tool-output__actions, .cv-table-tools) {
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cv-fg) 3.5%, transparent);
 }
 /* Gallery version B (CodeHeader.tsx `muted`): a short quiet row that names the block. */
 .cv-codeblock--muted .cv-codeblock__header {
@@ -1676,13 +1707,15 @@
   flex: none;
   color: var(--agent-diff-del);
 }
-/* Wrap lines, then Copy, at the header's end. */
-.cv-edit-diff__wrap {
+/* Wrap lines, then Copy, at the header's end, side by side (--cv-code-action-gap). */
+.cv-iconbtn.cv-edit-diff__wrap {
   margin-left: auto;
 }
-.cv-edit-diff__wrap,
-.cv-edit-diff__copy {
+.cv-iconbtn:is(.cv-edit-diff__wrap, .cv-edit-diff__copy) {
   color: var(--cv-codeblock-actions);
+}
+.cv-iconbtn.cv-edit-diff__wrap + .cv-edit-diff__copy {
+  margin-left: calc(var(--cv-code-action-gap) - var(--ds-space-2));
 }
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
@@ -3063,7 +3096,7 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
 /* Wrap lines and Copy at the label's other end. */
 .cv-shell__actions {
   display: flex;
-  gap: 2px;
+  gap: var(--cv-code-action-gap);
   margin-right: calc(-1 * var(--cv-action-overhang));
 }
 /* Wrap lines is every Shell block's one choice: it shows on the block's hover or keyboard focus,
@@ -4447,7 +4480,7 @@ a.cv-sha:focus-visible {
   align-self: start;
   margin: var(--ds-space-1) calc(var(--ds-space-3) - var(--cv-action-overhang)) 0 0;
   display: flex;
-  gap: 2px;
+  gap: var(--cv-code-action-gap);
   color: var(--cv-text-muted);
   /* No plate behind the actions (Leo 2026-10-28): each button keeps its own hover. */
   background: none;
