@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
