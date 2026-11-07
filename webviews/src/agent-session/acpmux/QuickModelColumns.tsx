@@ -23,7 +23,9 @@ import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import {
   QuickModelMenu,
   StarIcon,
+  UsedMark,
   familyTabs,
+  heldTab,
   initialOf,
   leadRoute,
   runsOffers,
@@ -373,7 +375,7 @@ function Columns({
   // The list: a search's matches under their family's name, else the tab's models, then its Legacy ones.
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
-    : shown && !shown.fork
+    : shown
       ? [...shown.models, ...shown.more]
       : [];
   // Rows listed twice under one name (two routes of one model, a search's or a tab's) show their
@@ -384,6 +386,14 @@ function Columns({
   const isRunning = (model: QuickModel) =>
     model.family === families.current && (model.id === current || runsOffers(model, current));
   const runningIndex = rows.findIndex(isRunning);
+  // A started chat's pick of another harness's model, held for its next message (forkHold.ts): its
+  // row is the checked one, and its settings column shows the held effort and Fast.
+  const heldFor = families.held;
+  const isHeld = (model: QuickModel) =>
+    !!heldFor && model.family === heldFor.family && heldFor.id !== undefined && model.id === heldFor.id;
+  const heldIndex = heldFor ? rows.findIndex(isHeld) : -1;
+  // What a started chat ran carries the "used here" mark (UsedMark), also while another is held.
+  const used = families.used;
 
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -391,7 +401,8 @@ function Columns({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      const first = families.current ?? list.find((family) => !family.starred)?.id;
+      // A held pick of another harness opens on its tab: the menu shows what the next message runs.
+      const first = heldTab(families) ?? families.current ?? list.find((family) => !family.starred)?.id;
       setTab(first);
       setQuery("");
       setCol(1);
@@ -409,7 +420,14 @@ function Columns({
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
   const firstIndex = rows.findIndex((model) => !model.disabled);
-  const hl = modelHl >= 0 && modelHl < rows.length ? modelHl : runningIndex >= 0 ? runningIndex : firstIndex;
+  const hl =
+    modelHl >= 0 && modelHl < rows.length
+      ? modelHl
+      : heldIndex >= 0
+        ? heldIndex
+        : runningIndex >= 0
+          ? runningIndex
+          : firstIndex;
   // The chat's own tab with no row for the running model (its catalog has not loaded, or does not
   // list it) still shows the session's levels and Fast, as the list menu's Effort row did.
   const sessionRow: QuickModel | undefined =
@@ -447,13 +465,20 @@ function Columns({
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
   const focusKey = focus ? keyOf(focus) : "";
   const mine = focusRuns && held?.key === focusKey ? held : undefined;
-  // The held pick when it is the shown model (or one of its providers).
+  // The held pick when it is the shown model (or one of its providers): one picked here, else the
+  // chat's pick of another harness's model held for its next message, with its effort and Fast.
   const picked =
     pending &&
     focus &&
     (keyOf(pending.model) === focusKey || focus.offers?.some((o) => keyOf(o) === keyOf(pending.model)))
       ? pending.model
-      : undefined;
+      : !pending && focus && heldFor && isHeld(focus)
+        ? {
+            ...focus,
+            ...(heldFor.effort ? { effort: heldFor.effort } : {}),
+            ...(heldFor.fast ? { fast: true } : {}),
+          }
+        : undefined;
   const level =
     picked?.effort ??
     mine?.effort ??
@@ -471,11 +496,14 @@ function Columns({
     : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
   // A model the harness cannot start takes no level, provider or Fast.
   const focusOff = !!focus?.disabled;
-  /// The row that shows the check: the held pick, else the running model.
+  /// The row that shows the check: the pick made here, else another harness's held model, else the
+  /// running model.
   const isChosen = (model: QuickModel) =>
     pending
       ? keyOf(model) === keyOf(pending.model) || !!model.offers?.some((o) => keyOf(o) === keyOf(pending.model))
-      : isRunning(model);
+      : heldFor
+        ? isHeld(model)
+        : isRunning(model);
   const tuneRows: TuneRow[] = [
     ...ladder.map((choice) => ({ kind: "level" as const, choice })),
     ...offers.map((offer) => ({ kind: "offer" as const, offer })),
@@ -507,9 +535,12 @@ function Columns({
     if (!model || model.disabled) return;
     setModelHl(index);
     setTuneHl(0);
-    // The running model again: nothing to land, unless a search named a level or Fast for it.
-    if (isRunning(model) && !model.effort && !model.fast) setPending(undefined);
-    else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
+    // The running model again: nothing to land, unless a search named a level or Fast for it. With
+    // another harness's model held, it is a pick again: it drops the hold.
+    if (isRunning(model) && !model.effort && !model.fast) {
+      setPending(undefined);
+      if (heldFor) menu.families.onPick(model);
+    } else hold(model, { effort: model.effort ?? inheritedLevel(model), fast: model.fast });
   };
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
@@ -551,7 +582,6 @@ function Columns({
     if (!entry) return;
     const family = leadRoute(entry, families.current);
     if (entry.routes.length === 1 && family.launch && !family.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(family.id);
       return;
@@ -574,7 +604,6 @@ function Columns({
   };
   const showRoute = (route: QuickFamily) => {
     if (route.launch && !route.note) {
-      if (families.forkReady === false) return;
       close();
       families.onLaunch?.(route.id);
       return;
@@ -628,18 +657,12 @@ function Columns({
       // A launch-only tab the arrows reached starts its harness on Return, as a click on it does.
       const launchOnly = shownTab?.routes.length === 1 && shown?.launch && !shown.note ? shown : undefined;
       if (launchOnly && (col === 0 || rows.length === 0)) {
-        if (families.forkReady === false) return;
         onOpenChange(false);
         families.onLaunch?.(launchOnly.id);
         return;
       }
       if (col === 2 && tuneKeys) runTune(tuneHl);
       else if (col === 1 && focus && !picked) pickModel(hl);
-      else if (col === 1 && !focus && !query && shown?.fork && families.forkReady) {
-        onOpenChange(false);
-        families.onFork?.(shown.id);
-        return;
-      }
       close();
       return;
     }
@@ -733,7 +756,6 @@ function Columns({
             face: { id: route.id, name: route.name },
             name: route.name,
             ...(route.note ? { detail: route.note } : {}),
-            disabled: !!route.launch && families.forkReady === false,
             pick: () => showRoute(route),
           }))
       : []),
@@ -889,6 +911,7 @@ function Columns({
           <span className="acpmux-cols-name">{model.name}</span>
         )}
         {model.tag && <span className="acpmux-cols-tag">{model.tag}</span>}
+        {used && isRunning(model) && <UsedMark look={used} />}
         {stars && (
           <button
             type="button"
@@ -974,7 +997,7 @@ function Columns({
     );
   };
 
-  const tabEmpty = !query && !!shown && !shown.fork && rows.length === 0;
+  const tabEmpty = !query && !!shown && rows.length === 0;
   return (
     <>
       <button
@@ -1127,17 +1150,20 @@ function Columns({
               {tabs.map((entry, index) => {
                 const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
                 const selected = !query && entry === shownTab;
+                // A started chat's own tab: the "used here" mark (UsedMark), drawn by the tab.
+                const ownTab = !!used && entry.routes.some((route) => route.id === families.current);
                 return (
                   <DrivenRow
                     key={entry.key}
                     kind="tab"
                     aria-selected={selected}
                     aria-label={entry.name}
-                    aria-disabled={
-                      entry.routes.every((route) => route.launch) && families.forkReady === false ? true : undefined
-                    }
-                    // tooltip-allow: the rail tab draws only the family's mark; the title names it.
-                    title={family.note ? `${entry.name} · ${family.note}` : entry.name}
+                    // tooltip-allow: the rail tab draws only the family's mark; the title names it and
+                    // whether this chat ran it.
+                    title={[entry.name, family.note, ownTab ? t("picker.usedHere") : undefined]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    data-used={ownTab ? used : undefined}
                     data-tooltip-side="left"
                     className="acpmux-cols-tab"
                     data-hl={selected ? "" : undefined}
@@ -1156,6 +1182,7 @@ function Columns({
                         {initialOf(entry.name)}
                       </span>
                     )}
+                    {ownTab && used !== "glyph" && <UsedMark look={used} />}
                   </DrivenRow>
                 );
               })}
@@ -1187,26 +1214,7 @@ function Columns({
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
             >
-              {!query && shown?.fork ? (
-                <>
-                  <div className="acpmux-cols-caption">{tabName}</div>
-                  <DrivenRow
-                    kind="button"
-                    className="acpmux-cols-row"
-                    data-hl=""
-                    aria-disabled={!families.forkReady ? true : undefined}
-                    onPick={() => {
-                      if (!families.forkReady) return;
-                      close();
-                      families.onFork?.(shown.id);
-                    }}
-                  >
-                    <span className="acpmux-cols-name">{t("picker.forkTo", { harness: shown.name })}</span>
-                  </DrivenRow>
-                </>
-              ) : (
-                models
-              )}
+              {models}
               {query && rows.length === 0 && (
                 <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                   <span className="acpmux-cols-name">{t("picker.noMatches")}</span>
@@ -1289,6 +1297,7 @@ function Columns({
                       () => pickOffer(offer),
                       <>
                         <span className="acpmux-cols-name">{offer.provider}</span>
+                        {used && offer.id === current && focus.family === families.current && <UsedMark look={used} />}
                         <span className="acpmux-cols-check">{offer === runningOffer && <CheckIcon />}</span>
                       </>,
                       "radio",

@@ -176,6 +176,22 @@ import Testing
         #expect(asked.all.count == 1)
     }
 
+    /// Review of #37397: the phone mirrors the peer's `may_allow` on the option and the prompt, so a plan or a
+    /// mode switch, or an option id offered twice, never asks for a signature.
+    @Test func peerMayAllowMirrorsWhatThePeerCounts() {
+        func ask(_ tool: JSONValue, _ options: [JSONValue]) -> JSONValue {
+            .object(["toolCall": tool, "options": .array(options)])
+        }
+        let once: JSONValue = .object(["optionId": .string("y"), "kind": .string("allow_once")])
+        let edit: JSONValue = .object(["kind": .string("edit")])
+        #expect(AcpmuxHub.peerMayAllow(ask(edit, [once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(edit, [once, once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(.object(["kind": .string("switch_mode")]), [once]), optionID: "y"))
+        let plan: JSONValue = .object(["_meta": .object(["claude": .object(["tool": .string("ExitPlanMode")])])])
+        #expect(!AcpmuxHub.peerMayAllow(ask(plan, [once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(edit, [once]), optionID: "n"))
+    }
+
     @Test func anUnreadableApprovalKeySendsNothing() async throws {
         let sent = Sent()
         let hub = AcpmuxHub()

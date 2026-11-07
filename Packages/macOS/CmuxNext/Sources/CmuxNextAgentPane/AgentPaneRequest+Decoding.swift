@@ -351,8 +351,11 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.signInCancel": self = .cloudSignInCancel
+        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
+        case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -366,6 +369,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "machine.share.self": self = .shareMachineWithMe
+        case "share.op":
+            // As `action.run`: a `session` that is there must be a usable id, never dropped.
+            let session = params?["session"].map { $0 as? String }
+            if let op = AgentPaneShareOp(params: params), session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .shareOp(op, session: session ?? nil)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
@@ -466,6 +477,9 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
+            else { self = .unsupported(method) }
+        case "pane.glass":
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
@@ -602,6 +616,13 @@ extension AgentPaneRequest {
         case "transport.close":
             if let connection = params?["connection"] as? Int {
                 self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
+            }
+        case "externalAccess.openSettings":
+            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params.keys) == ["kind"] {
+                self = .externalAccessOpenSettings(kind)
             } else {
                 self = .unsupported(method)
             }

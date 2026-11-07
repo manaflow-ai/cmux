@@ -527,3 +527,30 @@ async fn a_hand_whose_read_fails_keeps_the_requests_of_the_hands_read_before_it(
     let text = app.call("allow_text", json!({"key": key(), "environment": "e"})).await;
     assert_eq!(text["ok"], true, "{text}");
 }
+
+/// The usual owner, but the hands list takes a while.
+fn slow_lists(seen: &Seen) -> (u16, String) {
+    if seen.line.starts_with("GET /v1/hands ") {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    hands_owner(seen)
+}
+
+#[tokio::test]
+async fn a_refresh_running_when_a_new_start_begins_answers_that_its_session_ended() {
+    let (api, seen) = owner(slow_lists);
+    let mut app = App::new(Some("tok"));
+    app.start(&api);
+    let id = app.ask("refresh", json!({}));
+    let early = app.drain(std::time::Duration::from_millis(150)).await;
+    app.backlog.extend(early);
+    assert!(seen.lock().unwrap().iter().any(|s| s.line.starts_with("GET /v1/hands ")));
+    app.start(&api);
+    let reply = app.reply(id).await;
+    assert_eq!(reply["error"]["kind"], "not_signed_in", "{reply}");
+    let after = app.drain(std::time::Duration::from_millis(900)).await;
+    assert!(
+        !after.iter().any(|e| e["event"] == "reply" && e["id"] == id),
+        "answered once, never by the new start: {after:?}"
+    );
+}

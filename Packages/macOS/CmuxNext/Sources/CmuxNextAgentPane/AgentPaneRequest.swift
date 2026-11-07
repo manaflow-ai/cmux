@@ -120,6 +120,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Share with Me on a teammate's Cloud machine's refused start (`machine.share.self`): the app
     /// grants the signed-in person chats there, after a real gesture (``AgentPaneMachineShare``).
     case shareMachineWithMe
+    /// The Share dialog's op on this pane's own chat (`share.op {op, ...}`, ``AgentPaneShareOp``).
+    /// `session`, when the page names one, is the chat the dialog opened on: refused once the tab shows another.
+    case shareOp(AgentPaneShareOp, session: String? = nil)
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
@@ -167,10 +170,19 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
+    /// `cloud.signIn {task, ...}`: signs in, keeping the click for this exact Cloud start; the page
+    /// sends it again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
+    case cloudSignIn(AgentPaneCloudStart)
+    /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
+    /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
+    case cloudSignInCancel
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
     case cloudRepickChat(AgentPaneCloudRepick)
+    /// `cloud.answerStart {key, id, answer}`: the button the person clicked on a question a Cloud
+    /// start asks in its card (``AgentPaneCloudAsks``).
+    case cloudAnswerStart(AgentPaneCloudAnswer)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
@@ -225,6 +237,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``); empty when none shows.
+    case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
@@ -282,6 +297,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
+    case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
     /// machine the chat runs on (``AgentPaneDictationUpload``).
     case dictationRecordingUpload(path: String)

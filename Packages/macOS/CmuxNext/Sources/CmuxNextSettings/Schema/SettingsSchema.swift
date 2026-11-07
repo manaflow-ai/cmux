@@ -1,4 +1,4 @@
-public import CmuxNextActions
+import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
 
@@ -12,34 +12,21 @@ public nonisolated enum SettingsSchema {
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
         let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor] + MachineSettingsSchema.sshLinks + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
-            + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors + RemoteSettingsSchema.descriptors
-            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor] + CmuxConfigSnapshot.imessageDescriptors
+            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
+            + MachineSettingsSchema.deviceHub + [ContextMenusSetting.showCustomizeItemDescriptor] + MachineSettingsSchema.imessage
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
 
-    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
-    /// `appearance.metrics.*` rows say so themselves.
-    static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
-        "focusRing.enabled", "focusRing.width", "focusRing.color",
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
-    ]
-
-    /// Keys Reset All Settings leaves alone: the look picked at onboarding
-    /// (the app theme and the terminal font), which each row still resets.
-    public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
-        TerminalFontSetting().sizePath,
-    ]
+    // `sharedWithBrowser`, `keptOnResetAll`: schemas/settings/source/row-facts.json
+    // (SettingsSchema+RowFacts.generated.swift).
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
     /// page-hidden keys stay out).
@@ -52,29 +39,6 @@ public nonisolated enum SettingsSchema {
         all.first { $0.path == path }
     }
 
-    /// Actions shown as buttons at the end of a section (their titles and
-    /// availability come from the action registry).
-    public static func actions(in section: SettingsSection) -> [ActionID] {
-        switch section {
-        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop",
-                        "palette.clearSearchHistory"]
-        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
-        case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .editor: ["fileEditor.importEditorSettings"]
-        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
-        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
-        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
-        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        // The page draws Open <settings file> itself, named from the loaded path.
-        // Start and Stop Swift Live Mode, beside Labs > Live Code.
-        case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
-        case .development: []
-        }
-    }
-
     // MARK: General
 
     static var general: [SettingDescriptor] {
@@ -82,7 +46,6 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.keyed("settings.group.columns", "Columns")
         let quitting = SettingsText.keyed("settings.group.quit", "Quitting")
         let history = SettingsText.keyed("settings.group.history", "History")
-        let tabs = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -208,18 +171,7 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
                 keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
-            TabSettingsSchema.newTabTemplate(group: tabs),
-            TabSettingsSchema.nativeNewTabPage(group: tabs),
-            TabSettingsSchema.newTabPosition(group: tabs),
-            TabSettingsSchema.newTabButtonPosition(group: tabs),
-            TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
-            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
-            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
-        ] + TabSettingsSchema.verticalTabs(group: tabs) + [
-            TabSettingsSchema.hideLoneChatTab(group: tabs),
-            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+        ] + TabSettingsSchema.descriptors + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),

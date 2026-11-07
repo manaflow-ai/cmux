@@ -1,5 +1,25 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-06: the workspace group editor bubble is a React page (webviews/src/pages/group-editor) in one warm native
+  glass panel (`GroupEditorService`, CmuxNextSidebar). Leo, verbatim (all-hands move of NEXT's Swift to React/Rust):
+  "ok we need to go all hands on deck here. don't just do baby steps. we can just... do it". The look is the native
+  bubble's (gallery V1, chosen; V2 and V3 are alternatives); the AppKit panel, swatches and rows are gone. The sidebar
+  keeps the editor's rules (`SidebarGroupEditor`: when it opens, the toggle click, following a re-identified group,
+  No color clears the color, where the card sits: `SidebarGroupEditor.cardFrame`); the page only draws and reports.
+  Instant open (#26400, #27056) holds: the panel stays ordered in with its card transparent and click-through, the page
+  paints the pushed group and answers ready with its height, and the card shows in that one step (no fade or grow in);
+  150 ms without an answer shows it as it is. Cost: one WebKit page process for the editor, kept warm from an idle
+  moment after launch. Regression: `GroupEditorServiceTests`, the page's own tests.
+- 2026-11-06: an incognito window's mark in the sidebar's titlebar row is an icon of the row when the chip does not
+  fit. User report (https://github.com/manaflow-ai/cmux/issues/37351), verbatim: "looks not fully set up: glasses glyph
+  in a grey pill, off-size and misaligned with other toolbar icons". A sidebar narrower than the "Incognito" chip
+  showed the glyph alone in a caption-height gray pill stretched to the leftover width. Now: with room, the chip
+  (unchanged, as Swift live mode's mark); with less, a square of `SidebarStyle.toolbarButtonSize` on the + button's
+  frame line, the glyph centered at `Metrics.smallIconSize` in secondary ink, no fill, the same tooltip
+  (`IncognitoBadgeView`, now in CmuxNextDesign; `SidebarView.titlebarAccessoryFrame`). The sidebar's minimum width
+  keeps room for that square, so the mark never drops out. Reference: cmux-design-references
+  `apps/cmux/live/tabs-top-right-terminal-browser-buttons.png` (top-row icons are bare glyphs in secondary ink).
+  Regression: `IncognitoBadgeTitlebarRowTests`.
 - 2026-11-06: the workspace hover card stands on the shared hover card glass, and a tab row with no detail line is
   one row tall. Leo, verbatim: "it's got, like, a bit too much just default space, maybe, and you got all these empty
   things" and "it quite clearly seems like when you hover on the left, there's no glass." The card's default material
@@ -193,6 +213,10 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: the no-color block's rim lights its top and corners only and fades out over the first row, so no
+  hairline runs down a tall group's sides (`GlassRimView.fadeDepth`). Leo, with a screenshot of a hard line down the
+  right of a group's rows: "we want to make sure probably that we don't have this right edge going on ... for the
+  groupings". Regression: `NoColorGroupBlockTests.theRimDrawsNoEdgeDownTheGroupsSides`.
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
   and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,
