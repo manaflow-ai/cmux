@@ -83,11 +83,15 @@ pub(crate) fn this_machine() -> Option<LocalKey> {
     find(&dirs::home_dir()?, agent_list().as_deref())
 }
 
-/// The command that adds `line` to `~/.ssh/authorized_keys` on the host, once, owner-only.
+/// The command that adds `line` to `~/.ssh/authorized_keys` on the host, once, owner-only:
+/// `~/.ssh` is set to 0700 and the file to 0600 even when they already existed looser (sshd's
+/// StrictModes refuses group- or world-writable ones), and a file whose last line has no newline
+/// gets one first, so the new key is a line of its own.
 pub(crate) fn authorized_keys_command(line: &str) -> String {
     let key = shell_quote(line);
+    let file = "~/.ssh/authorized_keys";
     format!(
-        "umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF {key} ~/.ssh/authorized_keys || printf '%s\\n' {key} >> ~/.ssh/authorized_keys)"
+        "umask 077; mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch {file} && chmod 600 {file} && (grep -qxF {key} {file} || {{ [ -z \"$(tail -c 1 {file})\" ] || echo >> {file}; printf '%s\\n' {key} >> {file}; }})"
     )
 }
 
@@ -216,6 +220,17 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let line = "ssh-ed25519 AAAAx it's@mac";
         let cmd = authorized_keys_command(line);
+        // An existing file, too open and with no newline after its last key.
+        let ssh = home.path().join(".ssh");
+        std::fs::create_dir_all(&ssh).unwrap();
+        std::fs::write(ssh.join("authorized_keys"), "ssh-rsa AAAAold old@box").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o775)).unwrap();
+            let keys = ssh.join("authorized_keys");
+            std::fs::set_permissions(keys, std::fs::Permissions::from_mode(0o664)).unwrap();
+        }
         for _ in 0..2 {
             let ok = Command::new("/bin/sh")
                 .arg("-c")
@@ -227,7 +242,10 @@ mod tests {
             assert!(ok, "{cmd}");
         }
         let keys = home.path().join(".ssh/authorized_keys");
-        assert_eq!(std::fs::read_to_string(&keys).unwrap(), format!("{line}\n"));
+        assert_eq!(
+            std::fs::read_to_string(&keys).unwrap(),
+            format!("ssh-rsa AAAAold old@box\n{line}\n")
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;

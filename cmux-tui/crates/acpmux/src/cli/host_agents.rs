@@ -199,7 +199,13 @@ pub(crate) fn login_argv(host: &str, id: &str) -> Result<Vec<String>> {
     let mut argv = vec!["-t".to_owned()];
     if id == "codex" {
         let port = CODEX_LOGIN_PORT;
-        argv.extend(["-L".to_owned(), format!("{port}:localhost:{port}")]);
+        // Without the forward the browser sign-in cannot finish, so ssh stops rather than go on.
+        argv.extend([
+            "-o".to_owned(),
+            "ExitOnForwardFailure=yes".to_owned(),
+            "-L".to_owned(),
+            format!("{port}:localhost:{port}"),
+        ]);
     }
     argv.extend(hosts::ssh_argv(host, &format!("{DAEMON_BIN} harness login {id}"))?);
     Ok(argv)
@@ -220,6 +226,7 @@ pub(crate) fn run(
         let out = Command::new("ssh")
             .args(hosts::ssh_argv(host, &format!("{DAEMON_BIN} --json harness install {id}"))?)
             .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::piped())
             .output()?;
         if !out.status.success() {
@@ -320,7 +327,10 @@ mod tests {
     #[test]
     fn codex_login_forwards_its_callback_port_and_claude_does_not() {
         let codex = login_argv("leo@box", "codex").unwrap();
-        assert_eq!(&codex[..3], ["-t", "-L", "1455:localhost:1455"]);
+        assert_eq!(
+            &codex[..5],
+            ["-t", "-o", "ExitOnForwardFailure=yes", "-L", "1455:localhost:1455"]
+        );
         assert!(codex.last().unwrap().contains("~/.local/bin/acpmux harness login codex"));
         let claude = login_argv("leo@box", "claude").unwrap();
         assert_eq!(claude[0], "-t");
