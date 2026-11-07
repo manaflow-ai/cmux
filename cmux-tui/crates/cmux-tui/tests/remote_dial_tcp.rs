@@ -222,3 +222,35 @@ async fn dial_tcp_exits_on_sigterm_during_setup() {
         })
         .await;
 }
+
+/// A carrier that accepts TCP and never answers the WebSocket handshake: the
+/// client is still in its initial dial when SIGTERM comes, before any session.
+#[tokio::test(flavor = "current_thread")]
+async fn dial_tcp_exits_on_sigterm_during_a_stalled_handshake() {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let fixture = tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("ws://{}/v1/link", listener.local_addr().unwrap());
+        let held = tokio::spawn(async move {
+            let mut streams = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                streams.push(stream);
+            }
+        });
+        let child = dial_tcp(fixture.path(), &endpoint, "127.0.0.1", 22).spawn().unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let pid = child.id().expect("dial-tcp exited during its dial").to_string();
+        let killed = Command::new("kill").args(["-TERM", &pid]).status().await.unwrap();
+        assert!(killed.success());
+        let output = tokio::time::timeout(STEP_TIMEOUT, child.wait_with_output())
+            .await
+            .expect("dial-tcp ignored SIGTERM during its initial dial")
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "stderr: {stderr}");
+        assert!(output.stdout.is_empty(), "stdout: {:?}", output.stdout);
+        held.abort();
+    })
+    .await
+    .expect("dial-tcp dial cancellation timed out");
+}
