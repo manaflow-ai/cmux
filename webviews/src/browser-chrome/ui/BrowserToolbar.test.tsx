@@ -5,6 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { BrowserToolbar, extensionLabel, HOLD_MENU_MS, setChipDragImage } from "./BrowserToolbar";
 import { resolveChip, type BrowserToolbarCommand, type OmnibarBadges } from "./toolbarModel";
@@ -228,4 +229,35 @@ test("Chromium's drawing of an extension button draws alone; the letter fallback
   const letter = doc.getElementById("browser.extension.action.letter")!;
   expect(letter.querySelector(".bc-extension-initial")?.textContent).toBe("L");
   expect(letter.querySelector(".bc-extension-badge")?.textContent).toBe("4");
+});
+
+function standaloneRow(showsButtons: boolean): Document {
+  return render(
+    <BrowserToolbar
+      navigation={{ canGoBack: true, canGoForward: true, loading: false }}
+      omnibar={{ text: "example.com", chip: resolveChip(null), bookmark: "off" }}
+      extensions={{ shows: false, pinned: [] }}
+      onCommand={() => {}}
+      width={600}
+      showsButtons={showsButtons}
+      resolvedButtons={[]}
+    />,
+  );
+}
+
+/** The control groups after the bar that draw something. */
+const followingGroups = (doc: Document) =>
+  Array.from(doc.querySelectorAll(".bc-omnibar ~ .bc-group")).filter((group) => group.childElementCount > 0);
+
+const DROPS_BAR_MARGIN = ".bc-omnibar:not(:has(~ .bc-group:not(:empty))) {\n  margin-inline-end: 0;";
+
+test("a popup window's row (no buttons) has nothing after the bar, so the bar keeps no margin", () => {
+  expect(followingGroups(standaloneRow(false))).toEqual([]);
+  expect(readFileSync(new URL("./browserChrome.css", import.meta.url), "utf8")).toContain(DROPS_BAR_MARGIN);
+});
+
+test("a Markdown tab's row (navigation only) has nothing after the bar either", () => {
+  const doc = standaloneRow(true);
+  expect(followingGroups(doc)).toEqual([]);
+  expect(doc.querySelector(".bc-trailing")?.childNodes.length).toBe(0);
 });

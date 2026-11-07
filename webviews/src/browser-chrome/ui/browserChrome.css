@@ -42,7 +42,7 @@
 .bc-extensions {
   margin-inline-end: var(--bc-spacing);
 }
-.bc-omnibar + .bc-trailing {
+.bc-omnibar + .bc-trailing:not(:empty) {
   margin-inline-start: var(--bc-spacing);
 }
 
@@ -137,6 +137,11 @@ img.bc-extension-icon {
   padding-inline: var(--bc-chip-leading) var(--ds-space-1);
   border-radius: var(--bc-bar-radius);
   background: var(--bc-bar-fill);
+}
+/* A row with no controls after the bar (a popup window's or a Markdown tab's) ends at the bar, as
+   the native row did: the margin belongs between the bar and what follows it. */
+.bc-omnibar:not(:has(~ .bc-group:not(:empty))) {
+  margin-inline-end: 0;
 }
 /* Only the resting bar's hover eases; focus and the card switch at once, as a click expects
    (OmnibarViews dropped that fade for click latency). */
