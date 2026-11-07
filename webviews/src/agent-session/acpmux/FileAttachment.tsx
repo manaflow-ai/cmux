@@ -2,7 +2,8 @@ import React, { type ReactNode } from "react";
 import { usePaneLanguage } from "./i18n";
 import { FileDoc, Folder } from "./conversation/icons";
 import type { AttachmentSource } from "./attachments";
-import { SourceBadge, useSourceLabel, withSourceLabel } from "./composer/SourceBadge";
+import { SourceBadge } from "./composer/SourceBadge";
+import { useSourceLabel, withSourceLabel } from "./composer/sourceBadgeModel";
 
 export type FileAttachmentInfo = {
   name: string;

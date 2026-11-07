@@ -247,11 +247,10 @@ final class AppControl {
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
-            // Pane chrome alignment: tab pill gaps, border, first terminal cell.
-            .mainActor("debug.pane_chrome") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugPaneChrome.report(services: services))
-            },
+            // Pane chrome alignment (tab pill gaps, border, first terminal cell), and the window top's lines (TopAlignmentProbe).
+            .mainActor("debug.pane_chrome") { [weak services] _ in .value(services.map { DebugPaneChrome.report(services: $0) } ?? .null) },
+            .mainActor("debug.top_alignment") { [weak services] _ in
+                .value(services?.windows.controllers.first?.window.flatMap { JSONValue(foundation: TopAlignmentProbe(window: $0).report()) } ?? .null) },
             // Docked columns, the strip range and its scrollbar; `pane` +
             // `dock` changes a column (plans/cmux-next/dock-column.md).
             .mainActor("debug.dock") { [weak services] call in
