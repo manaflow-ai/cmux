@@ -1,5 +1,24 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
+  so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
+  drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`.
+- 2026-11-07: the Updated card drag and preview, review follow-ups of #37669, #37743, #37790, #37802 and #37894.
+  Taking the card away resets its settle, so it comes back at its rest. A card hidden mid-drag (a card of higher
+  priority took the slot) is not held when it comes back, and the page's late moves and release for that press
+  move nothing (`SidebarUpdatedCardHost.hideEndsDrag`). The place the host sends the page carries its zoom, so the
+  page reads the pointer's screen deltas in CSS px and the card stays under the pointer at any interface scale
+  (`PageCardDrag`). The card's rim and depth are the composer's glass material where the composer wears it; the
+  doodle-decorated card drags too. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`, `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
+- 2026-11-07: the Updated card drag, review of #37790. A drop settles from where the page let the card go (the
+  release's offset plus the held base), not from the frame of the last move, so a release between moves does not
+  jump back before it springs (`SidebarUpdatedCardHost.pageDragged`). A drag that starts with the hover preview open
+  hands the preview's room back at once, so the held card's view does not shrink mid-drag. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?"
+  Regression: `UpdatedCardDragTests`, webviews `updated-card-hover-preview.test.tsx`.
 - 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
   what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
   left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back
@@ -7,6 +26,16 @@
   every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
   improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
   `updated-card-hover-preview.test.tsx`.
+- 2026-11-07: the Updated card drags between the bottom card slot and the top of the list. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?" The card's
+  page runs the drag with the toasts' anchors and drag (webviews `ui/anchors.ts`, `pages/changelog/updatedCardDrag.ts`):
+  up or down past the slop it follows the pointer (across, the words still select, u4466); let go, it settles at the
+  nearer place; a flick or a drop past the sidebar's edge sends the x's dismiss. `SidebarUpdatedCardHost+Drag` stands
+  the view where the page holds it and springs it to its place on drop, while `SidebarView.layout` moves the list's
+  room from the bottom slot to the top (`topCardMotion`) on the same spring; the place is kept in the page's
+  localStorage and in `cmux.sidebar.updatedCard.anchor` for the first frame. Gallery: `pages.changelog.updated-card-drag`
+  `drag-spring` (chosen), `drag-rubber`, `drag-ghosts`. Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`.
 - 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
   under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
   keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of
@@ -1594,3 +1623,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
   Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
   order; `CmdPSearchMemoryTests` covers it.
+- 2026-11-07 (lane/borderless-chrome, for a590): the Blocks window style (`appearance.chromeStyle` blocks) turns
+  `appearance.borders` to none. A glass group header's edge (`GroupHeaderRowView.paintBackground`) drew
+  `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
+  the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
+  header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".

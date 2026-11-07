@@ -21,6 +21,7 @@ import { Envelope } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
+import { ExpandRow } from "./ExpandRow";
 import { targetChat } from "./SentMessageLine";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 
@@ -160,16 +161,13 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         <AgentMessageBody text={text} messageAt={messageAt} />
       </div>
       {cutAt !== undefined && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more cv-message__more"
-          aria-expanded={expanded}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => setExpanded(!expanded)}
-        >
-          {t(expanded ? "message.less" : "message.more")}
-        </button>
+          open={expanded}
+          controls={id}
+          onToggle={() => setExpanded(!expanded)}
+          label={t(expanded ? "message.less" : "message.more")}
+        />
       )}
     </>
   );

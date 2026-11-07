@@ -121,30 +121,46 @@ async function settle(): Promise<void> {
   ]);
 }
 
-function synthetic(element: Element, kind: string): void {
+/** Whether the shell's pointer is pressed: a person's moves between down and up hold the button. */
+let pointerHeld = false;
+
+export function syntheticPointer(element: Element, kind: string): void {
   const { x, y } = (() => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   })();
-  const init = {
+  const init = (buttons: number) => ({
     bubbles: true,
     cancelable: true,
     composed: true,
     clientX: x,
     clientY: y,
+    // Screen coordinates too: drags that follow the pointer across views read screen deltas.
+    screenX: x + window.screenX,
+    screenY: y + window.screenY,
     button: kind === "contextmenu" ? 2 : 0,
-    buttons: kind === "contextmenu" ? 2 : 0,
+    buttons,
     pointerId: 1,
     pointerType: "mouse",
     isPrimary: true,
-  };
-  const fire = (type: string) =>
-    element.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, init) : new MouseEvent(type, init));
+  });
+  const fire = (type: string, buttons = kind === "contextmenu" ? 2 : pointerHeld ? 1 : 0) =>
+    element.dispatchEvent(
+      type.startsWith("pointer") ? new PointerEvent(type, init(buttons)) : new MouseEvent(type, init(buttons)),
+    );
   if (kind === "hover")
-    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach(fire);
-  if (kind === "down" || kind === "click") ["pointerdown", "mousedown"].forEach(fire);
-  if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
-  if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
+    ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"].forEach((type) =>
+      fire(type),
+    );
+  if (kind === "down" || kind === "click") {
+    pointerHeld = true;
+    ["pointerdown", "mousedown"].forEach((type) => fire(type));
+  }
+  if (kind === "move") ["pointermove", "mousemove"].forEach((type) => fire(type));
+  if (kind === "up" || kind === "click") {
+    pointerHeld = false;
+    ["pointerup", "mouseup"].forEach((type) => fire(type));
+  }
   if (kind === "click") fire("click");
   if (kind === "contextmenu") fire("contextmenu");
 }
@@ -478,6 +494,8 @@ export async function runPlay(
   play: Play,
   options: { anchors?: PlayTarget[]; checks?: PlayChecks },
 ): Promise<PlayReport> {
+  // A play starts with the pointer up, whatever the last one left.
+  pointerHeld = false;
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
@@ -501,7 +519,7 @@ export async function runPlay(
     if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
-      else synthetic(element, kind);
+      else syntheticPointer(element, kind);
     }).then(record);
   };
   const gesture = async (
