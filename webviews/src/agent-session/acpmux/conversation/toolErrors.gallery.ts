@@ -271,10 +271,10 @@ const openRun = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
 };
 
-/// Opens the traceback's call, to show its raw output under it. A command reads as its command,
-/// never as Claude's Bash description (Codex parity).
+/// Opens the traceback's call, to show its raw output under it. A command reads as what it did,
+/// "Ran check_retry.py" (commandActions.ts).
 const openTraceback = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /python3 scripts\/check_retry\.py/ });
+  await ctx.click({ role: "button", name: /check_retry\.py/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 

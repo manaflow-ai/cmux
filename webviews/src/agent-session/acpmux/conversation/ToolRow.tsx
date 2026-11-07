@@ -113,7 +113,9 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a shortened line is skipped.
-  const drawsCommand = shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
+  // A label that names what the command did draws no command at all (commandActions.ts).
+  const drawsCommand =
+    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() && label.includes(tool.command?.trim() ?? "");
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
   // rendered result so the disclosure and its body agree, including image-only envelopes.

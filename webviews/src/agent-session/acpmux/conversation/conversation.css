@@ -6904,3 +6904,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-worked.has-divider.is-toggle {
   margin-bottom: var(--grid-gap);
 }
+/* The command line after a named action, in the dim tone (commandLabel.experiment.ts
+   "verbs-command"): what ran, under what it did. */
+.cv-command__dim {
+  color: var(--cv-text-dim);
+}

@@ -43,7 +43,7 @@ export default componentEntry<GuestPageProps>({
         // A folded thought reads its own words by the brain glyph (Codex parity), not "Thought".
         await ctx.waitFor(() => ctx.document.querySelector('button.cv-thought[aria-expanded="false"]'));
         await ctx.click({ selector: 'button.cv-thought[aria-expanded="false"]' });
-        await ctx.click({ text: /^Ran bun test/ });
+        await ctx.click({ text: /^Ran tests in upload\.test\.ts/ });
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
       },
     },

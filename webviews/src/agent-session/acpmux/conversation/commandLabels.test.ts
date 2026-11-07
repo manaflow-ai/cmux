@@ -38,7 +38,10 @@ const CASES: [command: string, label: string][] = [
     `agent-memory search "tooltip wrap width leo ask" 2>/dev/null | head -12 | cut -c1-220`,
     "Searched memory for “tooltip wrap width leo ask”",
   ],
-  [`agent-memory search "better tooltips" 2>/dev/null | head -10 | cut -c1-220`, "Searched memory for “better tooltips”"],
+  [
+    `agent-memory search "better tooltips" 2>/dev/null | head -10 | cut -c1-220`,
+    "Searched memory for “better tooltips”",
+  ],
   ["git status --short", "Checked git status"],
   ["cd /home/cmux/Projects/checkouts/cmux && git status", "Checked git status"],
   ["git -C ~/Projects/leo-workspace diff --stat origin/main...HEAD", "Viewed the diff"],
@@ -138,18 +141,14 @@ test("a group of the same search says how many times", () => {
     `agent-memory search "better tooltips" 2>/dev/null | head -10 | cut -c1-220`,
   );
   expect(toolGroupLabel(t, "commands", leo)).toBe("Searched memory twice");
-  expect(
-    toolGroupLabel(t, "commands", [...leo, ...commands(`agent-memory search "hover card"`)]),
-  ).toBe("Searched memory 3 times");
+  expect(toolGroupLabel(t, "commands", [...leo, ...commands(`agent-memory search "hover card"`)])).toBe(
+    "Searched memory 3 times",
+  );
 });
 
 test("a group of one kind of work names it; a mixed group counts its commands", () => {
-  expect(toolGroupLabel(t, "commands", commands("cat a.ts", "sed -n '1,9p' b.ts", "head c.ts"))).toBe(
-    "Read 3 files",
-  );
-  expect(toolGroupLabel(t, "commands", commands("git status", "git status --short"))).toBe(
-    "Checked git status twice",
-  );
+  expect(toolGroupLabel(t, "commands", commands("cat a.ts", "sed -n '1,9p' b.ts", "head c.ts"))).toBe("Read 3 files");
+  expect(toolGroupLabel(t, "commands", commands("git status", "git status --short"))).toBe("Checked git status twice");
   expect(toolGroupLabel(t, "commands", commands("rg foo", "grep -rn bar src"))).toBe("Searched the code twice");
   expect(toolGroupLabel(t, "commands", commands("git status", `rg foo`))).toBe("Ran 2 commands");
   expect(toolGroupLabel(t, "commands", commands("git status", "make"))).toBe("Ran 2 commands");
