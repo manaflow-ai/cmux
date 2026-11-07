@@ -38,13 +38,14 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const TAKES_VALUE: &[&str] =
     &["--on", "--prompt", "-p", "--agent", "--harness", "--model", "--cwd", "--name", "--timeout"];
 
-/// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud|vm start-chat` (unlike
+/// `--wait` and `--no-wait` take no value in `cmux chat …` and `cloud start-chat` (unlike
 /// `terminal send --wait none`), so the global scan reads the word after them as its own:
-/// `cmux chat send S --wait -- --json` keeps `--` and sends "--json".
+/// `cmux chat send S --wait -- --json` keeps `--` and sends "--json". (`vm start-chat` is
+/// refused for `cmux chat --on vm:…`, vm.rs.)
 pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     let ours = match command {
         [scope, ..] if scope == "chat" => true,
-        [scope, verb, ..] => matches!(scope.as_str(), "cloud" | "vm") && verb == "start-chat",
+        [scope, verb, ..] => scope == "cloud" && verb == "start-chat",
         _ => false,
     };
     ours && matches!(flag, "--wait" | "--no-wait")
