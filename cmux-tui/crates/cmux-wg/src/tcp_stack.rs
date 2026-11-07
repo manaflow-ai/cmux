@@ -34,9 +34,12 @@ use crate::error::WgError;
 use crate::stream::{Outbound, WgStream};
 use crate::wire::{ip_address, socket_addr};
 
-/// Per-socket receive and transmit buffers. Terminal traffic is small; the
-/// bulk lane (screen replay) benefits from a full window.
-const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
+/// Per-socket receive and transmit buffers. The receive buffer is the TCP
+/// window, so it caps one connection at buffer / RTT: 256 KiB held a bulk
+/// transfer to 34.5 Mbit/s on a 50 ms round trip. 1 MiB allows about
+/// 168 Mbit/s at 50 ms and 56 Mbit/s at 150 ms. Pages are touched only as
+/// data fills the rings, so an idle or terminal connection stays small.
+const SOCKET_BUFFER_BYTES: usize = 1024 * 1024;
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 pub(crate) const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
 /// Queued chunks per direction per connection before backpressure.
