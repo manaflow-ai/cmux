@@ -5,15 +5,16 @@
 #![cfg(unix)]
 
 use cmux_sdk_ffi::{
-    CmuxSdkBytes, CmuxSdkClient, CmuxSdkStream, ERR_INVALID, ERR_NULL, KIND_MUTATION, KIND_READ,
-    OK, cmux_sdk_bytes_free, cmux_sdk_call, cmux_sdk_cancel, cmux_sdk_close, cmux_sdk_command,
-    cmux_sdk_connect, cmux_sdk_next, cmux_sdk_stream_free, cmux_sdk_subscribe,
+    CMUX_SDK_ERR_INVALID, CMUX_SDK_ERR_NULL, CMUX_SDK_KIND_MUTATION, CMUX_SDK_KIND_READ,
+    CMUX_SDK_OK, CmuxSdkBytes, CmuxSdkClient, CmuxSdkStream, cmux_sdk_bytes_free, cmux_sdk_call,
+    cmux_sdk_cancel, cmux_sdk_close, cmux_sdk_command, cmux_sdk_connect, cmux_sdk_next,
+    cmux_sdk_stream_free, cmux_sdk_subscribe,
 };
 use serde_json::{Value, json};
 use std::ffi::CString;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
@@ -59,11 +60,14 @@ impl Drop for Client {
     }
 }
 
-fn connect(path: &PathBuf) -> Client {
+fn connect(path: &Path) -> Client {
     let path = CString::new(path.to_str().unwrap()).unwrap();
     let mut client = std::ptr::null_mut();
     let mut out = empty();
-    assert_eq!(unsafe { cmux_sdk_connect(path.as_ptr(), 2000, &mut client, &mut out) }, OK);
+    assert_eq!(
+        unsafe { cmux_sdk_connect(path.as_ptr(), 2000, &mut client, &mut out) },
+        CMUX_SDK_OK
+    );
     assert!(out.ptr.is_null() && !client.is_null());
     Client(client)
 }
@@ -84,7 +88,7 @@ fn call(client: &Client, op: &str, kind: i32, key: Option<&str>, params: &Value)
             &mut out,
         )
     };
-    assert_eq!(code, OK);
+    assert_eq!(code, CMUX_SDK_OK);
     take(out)
 }
 
@@ -113,9 +117,9 @@ fn reads_and_mutations_go_through_the_sdk() {
 
     let client = connect(&path);
     let here = json!({"machine": "current", "session": "current"});
-    let listed = call(&client, "conversation.list", KIND_READ, None, &here);
+    let listed = call(&client, "conversation.list", CMUX_SDK_KIND_READ, None, &here);
     assert_eq!(listed, json!({"ok": true, "result": {"conversations": []}}));
-    let refused = call(&client, "conversation.send", KIND_MUTATION, Some("send-1"), &here);
+    let refused = call(&client, "conversation.send", CMUX_SDK_KIND_MUTATION, Some("send-1"), &here);
     assert_eq!(refused["ok"], false);
     assert_eq!(refused["error"]["code"], "operation.failed");
     assert_eq!(refused["error"]["details"]["reason"], "not_participant");
@@ -128,27 +132,27 @@ fn reads_and_mutations_go_through_the_sdk() {
         cmux_sdk_call(
             client.0,
             op.as_ptr(),
-            KIND_MUTATION,
+            CMUX_SDK_KIND_MUTATION,
             std::ptr::null(),
             std::ptr::null(),
             0,
             &mut out,
         )
     };
-    assert_eq!(no_key, ERR_INVALID);
+    assert_eq!(no_key, CMUX_SDK_ERR_INVALID);
     assert!(out.ptr.is_null());
     let null = unsafe {
         cmux_sdk_call(
             std::ptr::null(),
             op.as_ptr(),
-            KIND_READ,
+            CMUX_SDK_KIND_READ,
             std::ptr::null(),
             std::ptr::null(),
             0,
             &mut out,
         )
     };
-    assert_eq!(null, ERR_NULL);
+    assert_eq!(null, CMUX_SDK_ERR_NULL);
     drop(client);
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -185,7 +189,7 @@ fn command_lines_return_data_and_whole_refusals() {
         let code = unsafe {
             cmux_sdk_command(client.0, name.as_ptr(), params.as_ptr(), params.len(), &mut out)
         };
-        assert_eq!(code, OK);
+        assert_eq!(code, CMUX_SDK_OK);
         take(out)
     };
     let history = command("cloud-conversation-history", &json!({"conversation": "conv_1"}));
@@ -246,19 +250,19 @@ fn a_stream_yields_items_and_ends_when_canceled() {
             &mut out,
         )
     };
-    assert_eq!(code, OK);
+    assert_eq!(code, CMUX_SDK_OK);
     assert!(out.ptr.is_null() && !stream.is_null());
 
     let next = |timeout_ms: u32| {
         let mut out = empty();
-        assert_eq!(unsafe { cmux_sdk_next(stream, timeout_ms, &mut out) }, OK);
+        assert_eq!(unsafe { cmux_sdk_next(stream, timeout_ms, &mut out) }, CMUX_SDK_OK);
         take(out)
     };
     let item = next(2000);
     assert_eq!(item["item"]["sequence"], 0);
     assert_eq!(item["item"]["value"], json!({"type": "snapshot", "messages": []}));
     assert_eq!(next(20), json!({"timed_out": true}));
-    assert_eq!(unsafe { cmux_sdk_cancel(stream) }, OK);
+    assert_eq!(unsafe { cmux_sdk_cancel(stream) }, CMUX_SDK_OK);
     let end = next(2000);
     assert_eq!(end["end"]["reason"], "canceled");
     unsafe { cmux_sdk_stream_free(stream) };
@@ -272,7 +276,7 @@ fn a_missing_socket_is_an_error_envelope() {
     let path = CString::new(socket_path().to_str().unwrap()).unwrap();
     let mut client = std::ptr::null_mut();
     let mut out = empty();
-    assert_eq!(unsafe { cmux_sdk_connect(path.as_ptr(), 500, &mut client, &mut out) }, OK);
+    assert_eq!(unsafe { cmux_sdk_connect(path.as_ptr(), 500, &mut client, &mut out) }, CMUX_SDK_OK);
     assert!(client.is_null());
     let failure = take(out);
     assert_eq!(failure["ok"], false);

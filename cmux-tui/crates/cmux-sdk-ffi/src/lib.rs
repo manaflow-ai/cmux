@@ -7,7 +7,7 @@
 //! ([`cmux::raw::Client::request_raw_reply`]). No logic of its own: JSON in,
 //! JSON out (include/cmux_sdk_ffi.h says the shapes).
 //!
-//! Every function catches a panic (it returns `ERR_PANIC`), takes no global
+//! Every function catches a panic (it returns `CMUX_SDK_ERR_PANIC`), takes no global
 //! state, and may run on any thread; one client handle may be used from
 //! several threads at once (calls on it are serialized by the SDK).
 
@@ -26,15 +26,15 @@ use serde_json::{Map, Value, json};
 
 /// The ABI version `cmux_sdk_ffi_abi_version` returns; bump it when a type
 /// or function changes.
-pub const ABI_VERSION: u32 = 1;
+pub const CMUX_SDK_FFI_ABI_VERSION: u32 = 1;
 
-pub const OK: i32 = 0;
-pub const ERR_NULL: i32 = -1;
-pub const ERR_INVALID: i32 = -2;
-pub const ERR_PANIC: i32 = -4;
+pub const CMUX_SDK_OK: i32 = 0;
+pub const CMUX_SDK_ERR_NULL: i32 = -1;
+pub const CMUX_SDK_ERR_INVALID: i32 = -2;
+pub const CMUX_SDK_ERR_PANIC: i32 = -4;
 
-pub const KIND_READ: i32 = 0;
-pub const KIND_MUTATION: i32 = 1;
+pub const CMUX_SDK_KIND_READ: i32 = 0;
+pub const CMUX_SDK_KIND_MUTATION: i32 = 1;
 
 /// A reply buffer owned by the caller: free it with `cmux_sdk_bytes_free`.
 #[repr(C)]
@@ -60,7 +60,7 @@ pub struct CmuxSdkStream {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_sdk_ffi_abi_version() -> u32 {
-    ABI_VERSION
+    CMUX_SDK_FFI_ABI_VERSION
 }
 
 /// Connects to the daemon socket at `socket_path` (UTF-8, NUL-terminated).
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn cmux_sdk_connect(
 ) -> i32 {
     guard(|| {
         if out_client.is_null() || out.is_null() {
-            return ERR_NULL;
+            return CMUX_SDK_ERR_NULL;
         }
         // SAFETY: both checked non-null; the caller passes writable pointers.
         unsafe {
@@ -88,7 +88,7 @@ pub unsafe extern "C" fn cmux_sdk_connect(
             *out = empty();
         }
         // SAFETY: the caller passes NULL or a NUL-terminated string.
-        let Some(path) = (unsafe { text(socket_path) }) else { return ERR_INVALID };
+        let Some(path) = (unsafe { text(socket_path) }) else { return CMUX_SDK_ERR_INVALID };
         let timeout = match timeout_ms {
             0 => Duration::from_secs(10),
             ms => Duration::from_millis(u64::from(ms)),
@@ -104,7 +104,7 @@ pub unsafe extern "C" fn cmux_sdk_connect(
             // SAFETY: checked non-null above.
             Err(error) => unsafe { *out = bytes(&failure(&error)) },
         }
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -116,17 +116,17 @@ pub unsafe extern "C" fn cmux_sdk_connect(
 pub unsafe extern "C" fn cmux_sdk_close(client: *mut CmuxSdkClient) {
     let _ = guard(|| {
         if client.is_null() {
-            return OK;
+            return CMUX_SDK_OK;
         }
         // SAFETY: the caller gives up a handle from cmux_sdk_connect.
         let client = unsafe { Box::from_raw(client) };
         let _ = client.client.close();
-        OK
+        CMUX_SDK_OK
     });
 }
 
-/// One `cmux.protocol/2` request for `operation`: `kind` is `KIND_READ` or
-/// `KIND_MUTATION`, a mutation's `idempotency_key` is required (reuse it to
+/// One `cmux.protocol/2` request for `operation`: `kind` is `CMUX_SDK_KIND_READ` or
+/// `CMUX_SDK_KIND_MUTATION`, a mutation's `idempotency_key` is required (reuse it to
 /// retry an unknown outcome), and `params` is a JSON object (or empty for
 /// none), sent as given. `*out` is the result envelope.
 ///
@@ -146,28 +146,30 @@ pub unsafe extern "C" fn cmux_sdk_call(
 ) -> i32 {
     guard(|| {
         // SAFETY: per this function's contract.
-        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else { return ERR_NULL };
+        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else {
+            return CMUX_SDK_ERR_NULL;
+        };
         // SAFETY: per this function's contract.
         let (Some(operation), Some(params)) =
             (unsafe { text(operation) }, unsafe { json_object(params, params_len) })
         else {
-            return ERR_INVALID;
+            return CMUX_SDK_ERR_INVALID;
         };
         // SAFETY: per this function's contract.
         let key = unsafe { text(idempotency_key) };
         let kind = match (kind, key) {
-            (KIND_READ, None) => CallKind::Read,
-            (KIND_MUTATION, Some(key)) => match MutationOptions::new(key) {
+            (CMUX_SDK_KIND_READ, None) => CallKind::Read,
+            (CMUX_SDK_KIND_MUTATION, Some(key)) => match MutationOptions::new(key) {
                 Ok(options) => CallKind::Mutation(options),
                 Err(error) => {
                     *out = bytes(&failure(&error));
-                    return OK;
+                    return CMUX_SDK_OK;
                 }
             },
-            _ => return ERR_INVALID,
+            _ => return CMUX_SDK_ERR_INVALID,
         };
         *out = bytes(&envelope(client.client.call(operation, kind, params)));
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -188,16 +190,18 @@ pub unsafe extern "C" fn cmux_sdk_command(
 ) -> i32 {
     guard(|| {
         // SAFETY: per this function's contract.
-        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else { return ERR_NULL };
+        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else {
+            return CMUX_SDK_ERR_NULL;
+        };
         // SAFETY: per this function's contract.
         let (Some(command), Some(Value::Object(mut body))) =
             (unsafe { text(command) }, unsafe { json_object(params, params_len) })
         else {
-            return ERR_INVALID;
+            return CMUX_SDK_ERR_INVALID;
         };
         body.insert("cmd".into(), json!(command));
         *out = bytes(&client.command(body));
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -218,17 +222,19 @@ pub unsafe extern "C" fn cmux_sdk_subscribe(
 ) -> i32 {
     guard(|| {
         if out_stream.is_null() {
-            return ERR_NULL;
+            return CMUX_SDK_ERR_NULL;
         }
         // SAFETY: checked non-null; the caller passes a writable pointer.
         unsafe { *out_stream = std::ptr::null_mut() };
         // SAFETY: per this function's contract.
-        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else { return ERR_NULL };
+        let Some((client, out)) = (unsafe { handle_and_out(client, out) }) else {
+            return CMUX_SDK_ERR_NULL;
+        };
         // SAFETY: per this function's contract.
         let (Some(operation), Some(params)) =
             (unsafe { text(operation) }, unsafe { json_object(params, params_len) })
         else {
-            return ERR_INVALID;
+            return CMUX_SDK_ERR_INVALID;
         };
         match client.client.subscribe(operation, params) {
             Ok(stream) => {
@@ -239,7 +245,7 @@ pub unsafe extern "C" fn cmux_sdk_subscribe(
             }
             Err(error) => *out = bytes(&failure(&error)),
         }
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -258,8 +264,10 @@ pub unsafe extern "C" fn cmux_sdk_next(
 ) -> i32 {
     guard(|| {
         // SAFETY: per this function's contract.
-        let Some((stream, out)) = (unsafe { handle_and_out(stream, out) }) else { return ERR_NULL };
-        let Ok(mut stream) = stream.stream.lock() else { return ERR_PANIC };
+        let Some((stream, out)) = (unsafe { handle_and_out(stream, out) }) else {
+            return CMUX_SDK_ERR_NULL;
+        };
+        let Ok(mut stream) = stream.stream.lock() else { return CMUX_SDK_ERR_PANIC };
         let polled = match timeout_ms {
             0 => stream.recv().map(|item| item.map_or(StreamPoll::End, StreamPoll::Item)),
             ms => stream.recv_timeout(Duration::from_millis(u64::from(ms))),
@@ -275,7 +283,7 @@ pub unsafe extern "C" fn cmux_sdk_next(
             Err(error) => failure(&error),
         };
         *out = bytes(&reply);
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -288,9 +296,9 @@ pub unsafe extern "C" fn cmux_sdk_next(
 pub unsafe extern "C" fn cmux_sdk_cancel(stream: *const CmuxSdkStream) -> i32 {
     guard(|| {
         // SAFETY: the caller passes NULL or a live handle.
-        let Some(stream) = (unsafe { stream.as_ref() }) else { return ERR_NULL };
+        let Some(stream) = (unsafe { stream.as_ref() }) else { return CMUX_SDK_ERR_NULL };
         let _ = stream.cancellation.cancel();
-        OK
+        CMUX_SDK_OK
     })
 }
 
@@ -305,7 +313,7 @@ pub unsafe extern "C" fn cmux_sdk_stream_free(stream: *mut CmuxSdkStream) {
             // SAFETY: the caller gives up a handle from cmux_sdk_subscribe.
             drop(unsafe { Box::from_raw(stream) });
         }
-        OK
+        CMUX_SDK_OK
     });
 }
 
@@ -405,7 +413,7 @@ fn end_json(stream: &ResourceStream) -> Value {
 }
 
 fn guard(body: impl FnOnce() -> i32) -> i32 {
-    catch_unwind(AssertUnwindSafe(body)).unwrap_or(ERR_PANIC)
+    catch_unwind(AssertUnwindSafe(body)).unwrap_or(CMUX_SDK_ERR_PANIC)
 }
 
 fn empty() -> CmuxSdkBytes {
