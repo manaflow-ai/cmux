@@ -68,7 +68,20 @@ import Testing
             if drag.target != before { targets.append(drag.target.map { String(describing: $0) } ?? "nil") }
         }
         // What the sweep resolved: its first targets and the last move's probe, so a sweep that never retargets says why.
-        let seen = "targets=\(targets.prefix(3)) probe=\(drag.probe.map { String(describing: $0) } ?? "nil")"
+        var seen = "targets=\(targets.prefix(3)) probe=\(drag.probe.map { String(describing: $0) } ?? "nil")"
+        // Where a move's time goes, at the sweep's end: each part's median of 20 calls.
+        let point = drag.lastWindowPoint
+        let parts: [(String, () -> Void)] = [
+            ("pin", { _ = SidebarListPinDrop.holds(list, drag, at: point) }),
+            ("gate", { _ = SidebarGroupDrop.gate(list, drag, card: drag.probeCard, resolved: nil) }),
+            ("options", { _ = list.options(includeGap: true) }),
+            ("make", { _ = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: list.options(includeGap: false)) }),
+            ("displayLayout", { _ = list.displayLayout() }),
+            ("showDragLayout", { list.showDragLayout() }),
+        ]
+        for (name, part) in parts {
+            seen += String(format: " %@=%.1fus", name, stat((0..<20).map { _ in microseconds(part) }, 0.5))
+        }
         list.cancelDrag()
         return (held, retarget, base, seen)
     }
