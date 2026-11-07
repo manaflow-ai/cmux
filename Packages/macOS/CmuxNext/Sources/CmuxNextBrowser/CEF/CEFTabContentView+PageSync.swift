@@ -6,6 +6,9 @@ nonisolated enum CEFPageSyncReason: Hashable, Sendable {
     case drag
     /// A key resize's spring moves the pane: the page follows its pane in every frame.
     case keyResize
+    /// A split's, close's or zoom's spring resizes the pane (``CEFTabContentView`` as ``PaneMotionTargeting``): the page
+    /// follows its pane in every frame, as in a key resize.
+    case paneSpring
 }
 
 /// Page sync (fork API 27): every page window over this pane waits, up to a bounded deadline, for Chromium's frame at each
