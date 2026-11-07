@@ -184,6 +184,8 @@ import Testing
     /// the close's frame and starts no strip move.
     @Test func aPanesLastTabStartsNoStripMotion() throws {
         try Self.withMotion(reduce: false) {
+            // With movement off every close is instant, so this would pass with no last-tab rule at all.
+            try #require(Motion.tabs.animatesMovement, "SETUP: animation speed is off on this host")
             let rig = Self.rig(Self.tabs(1), selected: TabID("tab0"))
             rig.model.tabs.removeAll()
             rig.strip.sync(fromModel: true)
@@ -222,6 +224,87 @@ import Testing
                 let shows = Self.shown(cell, at: now).x
                 #expect(abs(shows - was) < 0.5, "\(id.rawValue) jumped \(shows - was) pt when the second close began")
                 #expect(MotionPath(cell.layer, "position").moves(after: now + 2.0 / 120), "\(id.rawValue) does not slide on")
+            }
+        }
+    }
+
+    /// "Close Tabs to the Right" on the first of six tabs: five tabs go in one change. Each closing tab keeps its left edge
+    /// on the tab that stays (the nearest tab left of it that stays), in whatever order the strip meets them: none rests
+    /// under that tab, and no tick shows one left of its right edge. Before, a closing tab could take a closing neighbour as
+    /// its anchor and be pinned before it (Dictionary and Set order), so it slid under the staying tab, different per run.
+    /// Eight rounds with other ids give other hash orders.
+    @Test func closeTabsToTheRightPinsEveryClosingTabToTheTabThatStays() throws {
+        try Self.withMotion(reduce: false) {
+            try #require(Motion.tabs.animatesMovement, "SETUP: animation speed is off on this host")
+            for round in 0..<8 {
+                let tabs = (0..<6).map { TabItem(id: TabID("r\(round)-tab\($0)"), title: "Tab \($0)") }
+                let rig = Self.rig(tabs, selected: tabs[0].id)
+                let strip = rig.strip
+                rig.model.tabs.removeSubrange(1...)
+                strip.sync(fromModel: true)
+                rig.pane.layoutSubtreeIfNeeded()
+                let staying = try #require(strip.cells[tabs[0].id])
+                let closing = try tabs.dropFirst().map { item in
+                    (item.id, try #require(strip.cells[item.id], "round \(round): \(item.id.rawValue) left at once: no shrink"))
+                }
+                let begin = try #require(Self.moveBegin([staying] + closing.map(\.1)), "round \(round): the close started no strip move")
+                let edge = staying.layer.frame.maxX
+                for (id, cell) in closing {
+                    #expect(abs(cell.layer.frame.minX - edge) < 0.5,
+                            "round \(round): \(id.rawValue) rests at x \(cell.layer.frame.minX), not on the staying tab's right edge \(edge)")
+                }
+                for k in 0...30 {
+                    let time = begin + Double(k) / 120
+                    let stay = Self.shown(staying, at: time)
+                    for (id, cell) in closing {
+                        let x = Self.shown(cell, at: time).x
+                        #expect(x >= stay.x + stay.width - 0.5,
+                                "round \(round) tick \(k): \(id.rawValue) shows at x \(x), under the staying tab (right edge \(stay.x + stay.width))")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The close slide runs on the `tabs` motion category alone: `ui.animations.newTab` ("A new tab grows into its place")
+    /// off stops a new tab's growth, not a close's slide.
+    @Test func aCloseSlidesWithNewTabMotionOff() throws {
+        try Self.withMotion(reduce: false) {
+            try #require(Motion.tabs.animatesMovement, "SETUP: animation speed is off on this host")
+            DesignSettings.shared.enabledAnimations.remove(.newTab) // `withMotion` restores it
+            let rig = Self.rig(Self.tabs(5), selected: TabID("tab0"))
+            rig.model.tabs.remove(at: 1)
+            rig.strip.sync(fromModel: true)
+            #expect(rig.strip.dying.contains(TabID("tab1")), "with ui.animations.newTab off the closed tab left at once: no slide")
+            #expect(!Self.moveKeys(rig.strip).isEmpty, "with ui.animations.newTab off the close started no strip move")
+        }
+    }
+
+    /// A pinned tab's close: the line that ends the pinned group slides on the strip's move with the pinned tab left of it,
+    /// so no tick shows it over that tab's pill. Before, it was at its end place in the close's frame while the tab slid.
+    @Test func thePinnedDividerSlidesWithThePinnedTabs() throws {
+        try Self.withMotion(reduce: false) {
+            try #require(Motion.tabs.animatesMovement, "SETUP: animation speed is off on this host")
+            let rig = Self.rig(Self.tabs(5, pinned: 2), selected: TabID("tab2"))
+            let strip = rig.strip
+            let divider = strip.pinnedDivider
+            try #require(!divider.isHidden, "SETUP: the strip shows no pinned divider")
+            let before = divider.position.x
+            rig.model.tabs.remove(at: 0)
+            strip.sync(fromModel: true)
+            rig.pane.layoutSubtreeIfNeeded()
+            try #require(!divider.isHidden, "the pinned divider went with one pinned tab left")
+            try #require(abs(divider.position.x - before) > 1, "SETUP: the divider's place did not change")
+            let pinned = try #require(strip.cells[TabID("tab1")])
+            let begin = try #require(Self.moveBegin([pinned]), "the close started no strip move")
+            let shown = MotionPath(divider, "position").value(at: begin).x
+            #expect(abs(shown - before) < 0.5, "the divider jumped \(shown - before) pt in the close's frame")
+            let inset = 2 * strip.metrics.tabBackgroundInset
+            for k in 0...30 {
+                let time = begin + Double(k) / 120
+                let tab = Self.shown(pinned, at: time)
+                let x = MotionPath(divider, "position").value(at: time).x
+                #expect(x >= tab.x + tab.width - inset - 0.5, "tick \(k): the divider (x \(x)) lies over the pinned tab's pill (ends \(tab.x + tab.width - inset))")
             }
         }
     }
