@@ -42,6 +42,7 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ $# -eq 2 ]] || { echo "usage: $0 <app-path> <app-entitlements>" >&2; exit 2; }
 APP_PATH="${1%/}"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
+COMPUTER_USE_ENTITLEMENTS="${CMUX_COMPUTER_USE_ENTITLEMENTS:-$SCRIPTS_DIR/../cmux-computer-use.entitlements}"
 R="${RCODESIGN:-rcodesign}"
 # rcodesign reads every RCODESIGN_* environment variable as its own config
 # (apple-codesign 0.29: Env::prefixed("RCODESIGN_")), so one the job or the
@@ -262,9 +263,13 @@ PY
   echo "==> signed and re-pinned ${#signed[@]} cmux-tui SSH payload(s)"
 fi
 
-# 2. The Computer Use helper app: its executable gets the helper entitlements.
+# 2. Only Computer Use needs permission to send Apple Events to browsers.
 computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
-if [[ -d "$computer_use" ]]; then exe_of "$computer_use"; ent["$exe"]="$HELPER_ENTITLEMENTS"; fi
+if [[ -d "$computer_use" ]]; then
+  [[ -f "$COMPUTER_USE_ENTITLEMENTS" ]] || { echo "error: Computer Use entitlements file missing" >&2; exit 1; }
+  exe_of "$computer_use"
+  ent["$exe"]="$COMPUTER_USE_ENTITLEMENTS"
+fi
 
 # 3. Plugins (--deep, no entitlements).
 for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"]=1; done
