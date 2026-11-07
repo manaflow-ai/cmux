@@ -1705,6 +1705,8 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/FoldTwisty.tsx#FoldTwisty",
+    "agent-session/shared/FoldDetails.tsx#FoldDetails",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
