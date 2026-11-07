@@ -3,7 +3,7 @@ use std::cell::Cell;
 use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
-use super::{Parsed, Reads, Route, Start, cloud_words, here_words, parse, route};
+use super::{Parsed, Reads, Route, Start, cloud_words, here_words, parse, route, start_words};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -227,4 +227,15 @@ fn a_cloud_device_is_an_existing_cloud_vm() {
     let two = json!({"machines": [{"machine_id": "a", "title": "dev"},
                                   {"machine_id": "b", "title": "dev"}]});
     assert_eq!(code(with(two)), "chat_target.unavailable");
+}
+
+/// `cmux chat PROMPT` is a start, like `cmux chat new PROMPT`; the other chat verbs are not.
+#[test]
+fn a_bare_prompt_is_a_start() {
+    assert_eq!(start_words(&words(&["fix the tests"])), Some(&words(&["fix the tests"])[..]));
+    assert_eq!(start_words(&words(&["new", "hi"])), Some(&words(&["hi"])[..]));
+    assert_eq!(start_words(&words(&["--on", "cloud", "hi"])), Some(&words(&["--on", "cloud", "hi"])[..]));
+    assert_eq!(start_words(&[]), Some(&[][..]));
+    assert_eq!(start_words(&words(&["send", "x"])), None);
+    assert_eq!(start_words(&words(&["list"])), None);
 }

@@ -118,13 +118,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if scope != "chat" {
         return None;
     }
-    let rest = match rest.split_first() {
-        Some((first, after)) if first == "new" => after,
-        Some((first, _)) if OTHER_VERBS.contains(&first.as_str()) || !first.starts_with('-') => {
-            return None;
-        }
-        _ => rest,
-    };
+    let rest = start_words(rest)?;
     let prefix = args.get(..args.len().saturating_sub(command.len())).unwrap_or_default();
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
     let start = match parse(&words, std::env::var(TARGET_ENV).ok()) {
@@ -136,6 +130,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(usage_failure(&error, global.output)),
     };
     Some(run(&global, prefix, start))
+}
+
+/// The start's words after `chat`, or `None` for another chat verb. Anything but a verb (a flag,
+/// or the prompt itself: `cmux chat 'fix the tests'`) is a start.
+fn start_words(rest: &[String]) -> Option<&[String]> {
+    match rest.split_first() {
+        Some((first, after)) if first == "new" => Some(after),
+        Some((first, _)) if OTHER_VERBS.contains(&first.as_str()) => None,
+        _ => Some(rest),
+    }
 }
 
 /// The words after `chat` (or `chat new`); `env_target` is `CMUX_ON`, read when `--on` is

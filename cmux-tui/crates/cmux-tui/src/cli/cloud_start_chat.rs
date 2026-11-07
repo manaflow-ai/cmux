@@ -910,6 +910,77 @@ fn wait_turn(
     }
 }
 
+/// The pause between reads of the app's machine list while a new machine is being made.
+const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
+
+/// The machine a `cloud new-machine` answered `pending` for (`creation_id`), once the app lists it: its
+/// create row leaves `creating` and one machine the first list (`listed`) did not have appears. Waits
+/// until `--timeout`, counted from `started_at`.
+fn await_created(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    created: &Value,
+    started_at: Instant,
+) -> Result<String, Outcome> {
+    let ids = |list: &Value| -> Vec<String> {
+        at(list, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| at(row, "machine_id").as_str().map(str::to_owned))
+            .collect()
+    };
+    let before = ids(listed);
+    let creation = at(created, "creation_id").as_str();
+    let deadline = started_at.checked_add(request.timeout).unwrap_or(started_at);
+    let pending = |why: String| {
+        failed(
+            "cloud.start_pending",
+            format!(
+                "the new machine is still being made ({why}); find it with `cmux vm list-machines`, \
+                 then run `cmux chat --on vm:ID` with the same prompt"
+            ),
+            json!({"app": created, "list": "cmux vm list-machines --json"}),
+            75,
+        )
+    };
+    loop {
+        if runner.now() >= deadline {
+            return Err(pending(format!("not up after {}s", request.timeout.as_secs())));
+        }
+        runner.pause(CREATE_POLL_PAUSE);
+        let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+        else {
+            continue;
+        };
+        let row = at(&now, "creating").as_array().into_iter().flatten().find(|row| {
+            creation.is_some() && at(row, "creation_id").as_str() == creation
+        });
+        if let Some(row) = row {
+            if at(row, "status").as_str() == Some("failed") {
+                let reason = at(row, "reason").as_str().unwrap_or("no reason given");
+                return Err(failed(
+                    "cloud.start_failed",
+                    format!("the new machine's create failed: {reason}"),
+                    json!({"app": created, "creation": row}),
+                    1,
+                ));
+            }
+            continue;
+        }
+        let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
+        match new.as_slice() {
+            [id] => return Ok(id.clone()),
+            [] if creation.is_some() => {
+                return Err(pending("its create left the app's list with no new machine".into()));
+            }
+            [] => {}
+            _ => return Err(pending("several new machines appeared".into())),
+        }
+    }
+}
+
 /// What the relay-first chat came to.
 enum Relayed {
     /// The command's answer: the reply, a failure, or a turn the link path waits on.
@@ -953,21 +1024,16 @@ fn relay_chat(
                     Ok(created) => created,
                     Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
                 };
-            match at(&created, "machine_id").as_str() {
-                Some(id) if at(&created, "pending").as_bool() != Some(true) => {
-                    *made = Some(id.to_owned());
-                    id.to_owned()
-                }
-                _ => {
-                    return Relayed::Answered(failed(
-                        "cloud.start_pending",
-                        "the new machine is still being made; find it with `cmux cloud list-machines`, \
-                         then run this command again with --target machine:ID",
-                        json!({"app": created, "list": "cmux cloud list-machines --json"}),
-                        75,
-                    ));
-                }
-            }
+            let id = match at(&created, "machine_id").as_str() {
+                Some(id) if at(&created, "pending").as_bool() != Some(true) => id.to_owned(),
+                // A slow create: `--timeout` covers it too.
+                _ => match await_created(runner, request, listed, &created, started_at) {
+                    Ok(id) => id,
+                    Err(outcome) => return Relayed::Answered(outcome),
+                },
+            };
+            *made = Some(id.clone());
+            id
         }
     };
     let mut args = words(&["cloud", "relay-chat", "--target"]);
