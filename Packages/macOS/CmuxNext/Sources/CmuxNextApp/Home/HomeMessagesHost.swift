@@ -42,12 +42,9 @@ final class HomeMessagesHostProvider: PageProvider {
                            "linkPreview", "openLink", "headerPanels", "appearance"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
-    /// The page's open conversation, as it last said.
-    private(set) var shown: ConversationID?
-    /// New Message shows on the page (it reports no conversation then).
-    private(set) var composing = false
-    /// The page said what it shows at least once (its inbox is read).
-    private(set) var reported = false
+    /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
+    private(set) var page = HomeMessagesShown()
+    var shown: ConversationID? { page.conversation }
     /// The page's report changed what it shows (its first report too).
     var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
     /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
@@ -81,12 +78,7 @@ final class HomeMessagesHostProvider: PageProvider {
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
-            let composing = id == nil && fields["composing"]?.boolValue == true
-            guard !reported || id != shown || composing != self.composing else { return .null }
-            let moved = id != shown
-            (reported, shown, self.composing) = (true, id, composing)
-            onShown?(id, composing)
-            if moved { restartPanels() }
+            reportShown(id, composing: id == nil && fields["composing"]?.boolValue == true)
             return .null
         case "drafts.load":
             let store = home.homeStore
@@ -217,6 +209,13 @@ final class HomeMessagesHostProvider: PageProvider {
         default:
             throw PageError.unknownOp(stream)
         }
+    }
+
+    /// The page says what it shows (`selected`).
+    func reportShown(_ id: ConversationID?, composing: Bool) {
+        guard let moved = page.report(id, composing: composing) else { return }
+        onShown?(page.conversation, composing)
+        if moved { restartPanels() }
     }
 
     // MARK: New Message's first send

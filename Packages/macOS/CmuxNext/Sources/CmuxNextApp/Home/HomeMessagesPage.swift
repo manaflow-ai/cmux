@@ -138,7 +138,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
         // task-owner: lives as long as this view (cancelled in deinit); event-driven (Observation)
         watches.append(Task { [weak self] in
             for await _ in ObservationStream({ store.rows.map(\.id) }) {
-                guard let self, host.reported, host.shown == nil, !host.composing,
+                guard let self, host.page.reported, host.shown == nil, !host.page.composing,
                       let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) else { continue }
                 followed = first.rawValue
                 show(HomeDockSelection(conversation: first.rawValue))
@@ -167,7 +167,7 @@ final class HomeMessagesPage: NSView, PageWebViewContainer {
             for await key in ObservationStream({ HomeDefaultConversation.chiefKey(home) }) {
                 guard let self, key != last else { continue }
                 last = key
-                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: host.composing,
+                let next = HomeDefaultConversation.followUp(chief: key.chief, shown: shown, followed: followed, composing: host.page.composing,
                                                             rows: visibleRows(home), home: home)
                 followed = next.followed
                 if let open = next.open { show(HomeDockSelection(conversation: open.rawValue)) }
