@@ -189,6 +189,9 @@ mod tests {
             revoked: false,
             wg_public_key: "public-key".into(),
             credential_generation: 1,
+            user_id: None,
+            host_fingerprint: None,
+            cloned: false,
         };
         let identity = MachineIdentity::from_record(&credential);
         let result = render(State {
