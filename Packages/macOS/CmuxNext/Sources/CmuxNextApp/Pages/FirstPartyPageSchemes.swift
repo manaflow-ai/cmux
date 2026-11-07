@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
+import CmuxNextServer
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
@@ -55,6 +56,7 @@ enum FirstPartyPageSchemes {
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .passwords, .editor,
         .chiefInspector, .debugSettings, .homeChannels, .homeMessages,
         .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage, .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress,
+        .serverCards,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
