@@ -27,7 +27,7 @@ while [ $# -gt 0 ]; do
 done
 PAGES="history apps coderouter cloud keybindings icon-picker group-editor settings passwords changelog files artifacts stats chief-usage chief-views github mobile-pairing machines chief-inspector home-channels home-messages debug-settings import-history cloud-progress tasks"
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
-PAGES="$PAGES page-info"
+PAGES="$PAGES page-info site-settings site-data certificate"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
