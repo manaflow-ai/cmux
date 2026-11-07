@@ -5,10 +5,10 @@ import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links
 import { ImageIcon } from "./icons";
 import { MathInline } from "./Math";
 import { codeSpans } from "../slashCommands";
-import { PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, isTemplatePath, linkPath, pathName } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { type StartedMentions } from "../started/startedSessionCardModel";
@@ -138,8 +138,12 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // An agent link or a `HOST/NAME` (sessionRefs.ts): a link to the session when it is the
       // reader's (Leo, 2026-11-03: "these links aren't clickable"); a name stays code until then.
       const ref = path ? undefined : agentRef(inner);
+      // A provider's file id in code is still one nobody here can open (chips/paths.ts).
+      const foreign = path || ref ? undefined : foreignFileId(inner);
       out.push(
-        ref ? (
+        foreign ? (
+          <ForeignFileRef key={k++} id={foreign} />
+        ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
@@ -297,6 +301,9 @@ export function InlineImage({ source, opts }: { source: string; opts: InlineOpti
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
+  // An image only its provider opens (`sediment://…`) is named as that, never a broken image.
+  const foreign = foreignFileId(src);
+  if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);

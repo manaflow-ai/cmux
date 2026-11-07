@@ -326,6 +326,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  outputFiles,
   plan,
   toolCalls,
   agents = [],
@@ -394,6 +395,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
+  outputFiles?: ReturnType<typeof chatOutputs>;
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -585,7 +588,7 @@ export function SessionInfo({
   // What the chat made for the person (chatOutputs.ts): the documents its replies link to and the
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
-  const madeFiles = useMemo(() => chatOutputs(rows, cwd), [rows, cwd]);
+  const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(

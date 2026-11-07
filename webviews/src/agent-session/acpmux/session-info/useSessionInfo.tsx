@@ -40,6 +40,7 @@ import {
   type SessionInfoSectionId,
 } from "./sessionInfoState";
 import { outputArtifacts, outputLinks } from "./outputsSectionModel";
+import { chatOutputs } from "./chatOutputs";
 import { type ProcessRegistry } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
@@ -545,6 +546,9 @@ const closeSessionInfo = () => {
   setSessionInfoOpen(false);
 };
 
+/// No files made (a stable value, so the sections' memo holds).
+const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+
 /// Session Info while it is drawn: its presence, its width and folds, whether it floats or pushes,
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useSessionInfo (one Session Info open drew that pane five
@@ -889,6 +893,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
@@ -999,19 +1008,24 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
-  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
-  // panel lists another agent, not each streamed token's copy.
+  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
   if (
-    galleryRows.current.length !== rows.length ||
+    galleryRows.current.any !== any ||
     galleryRows.current.artifacts !== artifacts ||
     galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
+    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -1187,6 +1201,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        outputFiles={outputFiles}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
