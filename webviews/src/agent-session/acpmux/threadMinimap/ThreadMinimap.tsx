@@ -1238,7 +1238,13 @@ export function ThreadMinimap({
   /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
   const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * rowPitch + rowPitch / 2 - listTop;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div
+      className="acpmux-minimap"
+      // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
+      // that looked deeper would be checked again for every node a streamed chunk inserts.
+      data-side={side}
+      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+    >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
         <span
