@@ -105,7 +105,7 @@ const codex = (configOptions: unknown[]): Summary => ({
   configOptions,
 });
 
-async function render(summary: Summary, sent: string[]) {
+async function render(summary: Summary, sent: string[], extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -121,6 +121,7 @@ async function render(summary: Summary, sent: string[]) {
     canLoadOlder: false,
     catalog: [],
     summary,
+    ...extra,
   } as unknown as Snapshot;
   root ??= createRoot(host);
   await act(async () => {
@@ -156,6 +157,41 @@ test("only options no other chip owns are extra", async () => {
   // A harness that reports its modes only as a config option keeps them here.
   const noModes = { ...codex(all), modes: undefined } as Summary;
   expect(extraConfigOptions(noModes).map((entry) => entry.id)).toEqual(["mode", "thinking"]);
+});
+
+// Leo 2026-11-04 ("this should NOT be in the bottom composer area"): Claude's session recap switch
+// is Settings > Chats > Session Recap, so it never becomes a composer chip.
+test("the session recap option never reaches the composer", async () => {
+  const { extraConfigOptions } = await import("../src/agent-session/acpmux/agentOptions");
+  type Summary = Parameters<typeof extraConfigOptions>[0];
+  const summary = {
+    family: "claude",
+    harness: "claude",
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      option("session-recap", ["default", "on", "off"], { category: "model_config", name: "Session recap" }),
+      option("thinking", ["off", "on"]),
+    ],
+  } as unknown as Summary;
+  expect(extraConfigOptions(summary).map((entry) => entry.id)).toEqual(["thinking"]);
+});
+
+// Leo 2026-11-03 ("why is this here", the Options menu open on a Claude chat): acpmux's per-chat
+// prompt suggestions switch is a usage setting like the recap, so it never becomes a composer chip.
+test("the prompt suggestions option never reaches the composer", async () => {
+  const { extraConfigOptions } = await import("../src/agent-session/acpmux/agentOptions");
+  type Summary = Parameters<typeof extraConfigOptions>[0];
+  const summary = {
+    family: "claude",
+    harness: "claude",
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      option("session-recap", ["default", "on", "off"], { category: "model_config", name: "Session recap" }),
+      option("prompt-suggestions", ["off", "on"], { category: "model_config", name: "Prompt suggestions" }),
+      option("thinking", ["off", "on"]),
+    ],
+  } as unknown as Summary;
+  expect(extraConfigOptions(summary).map((entry) => entry.id)).toEqual(["thinking"]);
 });
 
 test("the Options chip names one option and picks its choice through the config command", async () => {
@@ -199,6 +235,19 @@ test("a custom harness collaboration option stays available in Options", async (
     sent,
   );
   expect(host.querySelector<HTMLElement>("[data-menu=options]")?.textContent).toContain("Collaboration mode: Default");
+});
+
+test("a chat still opening draws no Options from the last session's summary", async () => {
+  const thinking = [option("thinking", ["off", "on"], { name: "Thinking" })];
+  // The pane opened chat s2 while the summary still describes s1 (another chat's switch).
+  await render(codex(thinking), [], { sessionId: "s2" });
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+  // A chat switching harness also carries its old session's options.
+  await render(codex(thinking), [], { sessionId: "s1", switching: { phase: "starting" } });
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+  // Once its own summary is attached, Options is back.
+  await render(codex(thinking), [], { sessionId: "s1" });
+  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Thinking");
 });
 
 test("a session with no extra option shows no Options chip", async () => {

@@ -1,10 +1,11 @@
 // l10n-allow-file: test fixture recap text, not shipped UI.
 // A recap in a read-only transcript (a shared chat's guest) or a replay draws no ×: there it would
-// do nothing, or act on the live chat (App.tsx ReadOnlyRecapRow, readOnlyRegistry, replayRegistry).
+// do nothing, or act on the live chat (rows/RecapRow.tsx ReadOnlyRecapRow, rows/registry.tsx
+// readOnlyRegistry, App.tsx noDismissRegistry).
 import { expect, test } from "bun:test";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { readOnlyRegistry } from "../src/agent-session/acpmux/App";
+import { readOnlyRegistry } from "../src/agent-session/acpmux/rows/registry";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const row: AcpmuxRow = {

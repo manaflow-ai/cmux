@@ -224,39 +224,65 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     assert_eq!(answer["source"], "config", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
-    // A unix socket client (an agent, a script) cannot widen a chat to full
-    // access.
+    // A unix socket client (an agent, a script) may move a chat to Claude Code's own Auto under
+    // the person's full-access start level (`start_mode.rs` `may_move_without_person`), but to
+    // no other mode that does not ask.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r =
+        agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// acp-chief-issues.md #15 (2026-10-19 u1976): the Chief asked a headless
-/// `acpmux new --mode bypassPermissions` (then auto, acceptEdits) for a
-/// nightly job; each was refused with person_required, and the refusal
-/// sent it to the app or a preset, so it gave up. A script can still start
-/// a chat headless with no mode at all: it then runs in the person's own
-/// start mode. The refusal must say so, and that start must work.
+/// acp-chief-issues.md #15 (2026-10-19 u1976), cmux#37392: a headless
+/// `acpmux new --mode bypassPermissions` (a Chief's `cmux chat new --mode
+/// bypassPermissions` reaches the app's daemon with no caller it can prove)
+/// names the mode a start with no mode gets anyway while the person's start
+/// level is full access, so it starts in it. Under another level it is still
+/// refused, and the refusal names the start without a mode, which works.
 #[tokio::test]
-async fn a_refused_headless_mode_start_names_the_start_without_a_mode() {
+async fn a_headless_mode_start_runs_in_the_persons_full_access_and_is_refused_below_it() {
     let dir = home("headless", json!({"defaultPermissionMode": "fullAccess"}));
     let daemon = hub(&dir);
     let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let params = json!({"cwd": dir.join("work"), "mcpServers": [],
         "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
-    let r = script.call("session/new", params).await;
+    let r = script.call("session/new", params.clone()).await;
+    assert!(r.get("error").is_none(), "full access is the person's start level: {r}");
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(script.mode(&id).await, "bypassPermissions", "{r}");
+    // Another mode that skips approvals (one acpmux never starts a chat in) stays the person's.
+    let wider = json!({"cwd": dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "claude", "mode": "danger-full-access"}}});
+    let r = script.call("session/new", wider).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    let message = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.contains("without --mode"), "{message}");
-    // That start, with no mode, works headless in the person's start mode.
-    let (_, mode) = script.chat(&dir, "claude").await;
-    assert_eq!(mode, "bypassPermissions");
+    drop(script);
+    drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+
+    for level in ["standard", "ask"] {
+        let dir = home(&format!("headless-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
+        let r = script.call("session/new", params).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("without --mode"), "{message}");
+        // That start, with no mode, works headless in the person's start mode.
+        let (_, mode) = script.chat(&dir, "claude").await;
+        assert_ne!(mode, "bypassPermissions", "{level}");
+        drop(script);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[tokio::test]
@@ -272,7 +298,8 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     let dir = home("standard", json!({"defaultPermissionMode": "standard"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Claude Code's own start mode is Auto, never Manual (`claude_stdio::OWN_MODE`).
+    assert_eq!(app.chat(&dir, "claude").await.1, "auto");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -787,12 +814,16 @@ async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
     assert!(r.get("error").is_none(), "{r}");
     let begin = mover.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
     let transfer = begin["result"]["transferId"].clone();
+    let epoch = begin["result"]["epoch"].clone();
     assert!(transfer.is_string(), "{begin}");
     let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
     let r = mover
-        .call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer}))
+        .call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": transfer, "epoch": epoch}),
+        )
         .await;
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
@@ -820,7 +851,8 @@ async fn deny_all_in_config_holds_on_every_chat_from_startup() {
 /// no Codex mode. The Codex bridge's `ask` asks before every change and its `read-only` only
 /// reads (`hub/start_mode.rs` `NARROW_MODES`), so a start in either needs no person. A bridge
 /// mode that does not ask still does, and so does the codex-acp adapter's `read-only`, which
-/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`). The bridge's
+/// full-access mode, which a start with no mode gets here, needs none (cmux#37392).
 #[tokio::test]
 async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let dir = home("narrow-start", json!({"defaultPermissionMode": "fullAccess"}));
@@ -839,10 +871,14 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
         let id = id.to_owned();
         assert_eq!(agent.mode(&id).await, mode);
     }
-    for mode in ["agent", "agent-full-access"] {
-        let r = agent.call("session/new", start("codex", mode)).await;
-        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{mode}: {r}");
-    }
+    let r = agent.call("session/new", start("codex", "agent")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "agent: {r}");
+    // The bridge's full-access mode is what a start with no mode gets under the person's
+    // full-access start level, so naming it needs no person either (cmux#37392).
+    let r = agent.call("session/new", start("codex", "agent-full-access")).await;
+    let id = r["result"]["sessionId"].as_str();
+    let id = id.unwrap_or_else(|| panic!("agent-full-access: {r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "agent-full-access");
     let r = agent.call("session/new", start("adapter", "read-only")).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -1009,9 +1045,9 @@ async fn chief_subagent_chats_start_at_the_person_start_level() {
 
     // Chief's own turn and a person's preset keep the harness's own mode.
     let turn = chief.preset_chat(&dir, "optchat-chief-0a1b2c3d").await;
-    assert_eq!(chief.mode(&turn).await, "default");
+    assert_eq!(chief.mode(&turn).await, "auto");
     let own = chief.preset_chat(&dir, "p").await;
-    assert_eq!(chief.mode(&own).await, "default");
+    assert_eq!(chief.mode(&own).await, "auto");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1081,5 +1117,38 @@ async fn the_persons_bypass_pick_on_a_deny_all_chat_is_still_refused() {
     let r =
         app.call("session/set_mode", json!({"sessionId": id, "modeId": "agent-full-access"})).await;
     assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cmux#37392 (exact-head review of the Chief permission mode): a Chief whose mode is Auto
+/// sets it on its Claude turn before each prompt, from a connection that is not the person. Under
+/// an `ask` start level acpmux refused that set even on a chat already in Auto, so every Chief
+/// turn was refused. A set to the mode a chat already runs changes nothing and needs no person;
+/// any other move under `ask` still does, and a full-access mode is never taken this way.
+#[tokio::test]
+async fn a_set_to_the_mode_a_chat_already_runs_needs_no_person() {
+    let dir = home("unchanged-mode", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (chat, mode) = app.chat(&dir, "claude").await;
+    assert_eq!(mode, "default");
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = script.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "the chat already runs Auto: {r}");
+    assert_eq!(script.mode(&chat).await, "auto");
+    let r =
+        script.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    // A chat the person put in bypass: the same set from the script stays the person's.
+    let r = app
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = script
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }

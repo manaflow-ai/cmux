@@ -118,7 +118,7 @@ extension DiffPageProvider {
     }
 
     /// SHA-256 of the diff's compact JSON, hex.
-    static func fingerprint(_ diff: JSONValue) -> String {
+    nonisolated static func fingerprint(_ diff: JSONValue) -> String {
         SHA256.hash(data: Data(diff.compactText.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 

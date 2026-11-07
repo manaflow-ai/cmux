@@ -41,7 +41,7 @@ extension LayoutRootView {
             if view.frame.origin != origin { view.setFrameOrigin(origin) }
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
-            if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {
+            if id != model.layoutPassReads.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {
                 view.isHidden = true
                 // No frame steps a hidden screen: its pane springs land now, not when it shows again.
                 view.settleMotion()
@@ -49,6 +49,8 @@ extension LayoutRootView {
                 view.finishResizeGesture()
             }
             guard shown != (view.frame, view.alphaValue, view.isHidden) else { continue }
+            // It slid, faded or hid under a possibly still pointer: its divider hover and resize cursor follow.
+            view.refreshDividerHover()
             setNeedsOverlaySync()
             // The thumb's occluder follows the screen's origin and hidden state.
             view.scrollbar?.syncOccluder()

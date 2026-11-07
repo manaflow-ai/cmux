@@ -167,8 +167,18 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "step-to-prose": diff(at(sends.at(-1)), at(short[0])),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),
-        "step-to-live": diff(at(inboxes[1]), at(live)),
-        "live-to-step": diff(at(live), at(waiting)),
+        "step-to-waiting": diff(at(inboxes[1]), at(waiting)),
+        // Closed, the group draws its first message's line under its head (stacked): the live line
+        // is a row under that line (as transcript-spacing-kinds.test.ts `after`).
+        "step-to-live": ((gap) =>
+          gap == null
+            ? null
+            : Math.round(
+                (gap -
+                  (document.querySelector(".acpmux-pendingMessages .cv-msgline__preview")?.getBoundingClientRect()
+                    .height ?? 0)) *
+                  100,
+              ) / 100)(diff(at(waiting), at(live))),
       };
 
       const bubbleElement = holding("Hand the three polish lanes")?.closest<HTMLElement>(".cv-user__bubble");

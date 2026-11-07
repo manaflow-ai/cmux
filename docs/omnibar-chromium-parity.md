@@ -23,7 +23,7 @@ Chromium `main` (fetched 2026-10-30):
 
 cmux: `CmuxNextBrowser/Omnibox/Omnibar*` (the pure state machine), `CmuxNextBrowser/UI/AddressBarView*`
 (the field, its AppKit callbacks), `CmuxNextApp/Focus/*` (focus coordinator, effect applier,
-`OmnibarFocusMemory`), `CmuxNextBrowser/CEF/CEFTab+Focus.swift` (Chromium page focus requests).
+the address bar memory is cmux-focus-core's `omnibar_memory`), `CmuxNextBrowser/CEF/CEFTab+Focus.swift` (Chromium page focus requests).
 
 Gap column: **match**, **gap** (to fix, slice named), **fixed** (closed by this work, sha in
 the slice table), **differs by choice** (with the reason), **n/a** (no Mac equivalent).
@@ -57,7 +57,7 @@ the slice table), **differs by choice** (with the reason), **n/a** (no Mac equiv
 | A new tab on the New Tab page focuses the omnibox, text empty | `WebContentsDelegate::ShouldFocusLocationBarByDefault` (NTP), `BV::OnActiveTabChanged` → `RestoreFocus` | the new tab's address bar is the focus target | match |
 | A page load that asks for focus does not take it from the omnibox of a new tab; typing before the NTP loads is never overwritten | `OVV::SetFocus(false)` does not select-all when already focused (crbug.com/40610912); `CEF` asks `OnSetFocus(NAVIGATION)` after the first load | `CEFTab.chromiumRequestsFocus` refuses CEF's own requests | match |
 | A click on the New Tab page moves focus to the page | the NTP is web contents: the click focuses them, `OVV::OnBlur` | see the first row | **fixed**: slice 1 |
-| Switching back to a tab restores its omnibox edit: text, keyword, focus, selection | `OEM::GetStateForTabSwitch`, `OEM::RestoreState`, `OVV::OnTabChanged` (`SetSelectedRange(state->selection)`) | per-tab `AddressBarView` keeps its state; `OmnibarFocusMemory` gives focus back with the saved selection | **fixed**: slice 3 |
+| Switching back to a tab restores its omnibox edit: text, keyword, focus, selection | `OEM::GetStateForTabSwitch`, `OEM::RestoreState`, `OVV::OnTabChanged` (`SetSelectedRange(state->selection)`) | per-tab `AddressBarView` keeps its state; cmux-focus-core's `omnibar_memory` gives focus back with the saved selection | **fixed**: slice 3 |
 | A tab left with all its text deleted comes back reverted and all selected | `OEM::GetStateForTabSwitch` (empty `user_text`), `OVV::OnTabChanged` | `focusLost` drops empty text: reverted, select-all on the next focus | match |
 
 ## Mouse in the field

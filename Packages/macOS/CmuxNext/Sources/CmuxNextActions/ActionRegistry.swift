@@ -133,6 +133,9 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
+    /// whose host may reach no pasteboard, records it instead.
+    @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
     /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
@@ -153,6 +156,8 @@ public final class ActionRegistry {
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []
+    /// What the App's top pages mean for runs (``install(_:)``); nil: no top pages.
+    @ObservationIgnored public internal(set) var topPageRules: ActionTopPageRules?
     /// Sees every handler run after it ran (the tips card's local usage flags).
     @ObservationIgnored public var runObserver: (@MainActor (ActionID, ActionInvocation) -> Void)?
     /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.

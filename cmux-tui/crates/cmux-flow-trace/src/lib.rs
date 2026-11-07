@@ -45,6 +45,25 @@ pub const DRAIN_INTERVAL: Duration = Duration::from_millis(50);
 const HIGH_WATER: usize = RING_SLOTS / 2;
 /// The longest terminal id a record keeps (a 16-byte id in lowercase hex).
 const TERMINAL_BYTES: usize = 32;
+/// How many terminals with a recent traced key press [`hop_on_traced`] remembers.
+const TRACED_SLOTS: usize = 16;
+/// How long after a traced key press its terminal's busy-path hops are recorded.
+const TRACED_WINDOW_NS: u64 = 10_000_000_000;
+
+/// A terminal with a recent traced key press: the hash of its id and when its window ends (0: empty).
+struct TracedSlot {
+    terminal: AtomicU64,
+    until_ns: AtomicU64,
+}
+
+/// The terminals a key press was traced on lately ([`hop`] with a flow id and a terminal). A daemon with a thousand
+/// busy terminals filled the ring with their output hops and dropped key-press records (3.8 M dropped in one typing
+/// run, STATUS 10927); [`hop_on_traced`] records a busy path's hop only for these terminals. Lock-free: a racing
+/// update can at worst keep or lose one terminal's window early, which costs records, never correctness.
+static TRACED: [TracedSlot; TRACED_SLOTS] =
+    [const { TracedSlot { terminal: AtomicU64::new(0), until_ns: AtomicU64::new(0) } };
+        TRACED_SLOTS];
+static NEXT_TRACED: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
 struct Record {
@@ -240,9 +259,59 @@ pub fn enabled() -> bool {
 
 /// Records hop `name` of flow `flow` (0: a hop no message carries the id to) on
 /// the terminal whose lowercase hex id is `terminal` (at most 32 bytes are kept).
-/// No allocation, lock or system call (see the module doc).
+/// No allocation, lock or system call (see the module doc). A hop with a flow id
+/// and a terminal opens that terminal's window for [`hop_on_traced`].
 pub fn hop(name: &'static str, flow: u64, terminal: &str) {
     let Some(sink) = sink() else { return };
+    if flow != 0 && !terminal.is_empty() {
+        note_traced(terminal_key(terminal), now_ns());
+    }
+    record_hop(sink, name, flow, terminal);
+}
+
+/// [`hop`] (flow 0) for a busy path that every terminal takes (each output transition, each attach broadcast): it
+/// records only for a terminal that had a traced key press in the last 10 s, so many busy terminals cannot fill the
+/// ring and drop the key presses' records. Off: one load, as [`hop`].
+pub fn hop_on_traced(name: &'static str, terminal: &str) {
+    let Some(sink) = sink() else { return };
+    if terminal.is_empty() {
+        return;
+    }
+    let key = terminal_key(terminal);
+    // The clock is read only for a slot that holds this terminal: most busy terminals have none.
+    let mut now = None;
+    let traced = TRACED.iter().any(|slot| {
+        slot.terminal.load(Ordering::Relaxed) == key
+            && slot.until_ns.load(Ordering::Relaxed) > *now.get_or_insert_with(now_ns)
+    });
+    if traced {
+        record_hop(sink, name, 0, terminal);
+    }
+}
+
+/// Opens (or extends) the window of the terminal whose id hashes to `key`.
+fn note_traced(key: u64, now: u64) {
+    let until = now.saturating_add(TRACED_WINDOW_NS);
+    if let Some(slot) = TRACED.iter().find(|slot| slot.terminal.load(Ordering::Relaxed) == key) {
+        slot.until_ns.store(until, Ordering::Relaxed);
+        return;
+    }
+    let index = NEXT_TRACED.fetch_add(1, Ordering::Relaxed) % TRACED_SLOTS;
+    if let Some(slot) = TRACED.get(index) {
+        slot.until_ns.store(0, Ordering::Relaxed);
+        slot.terminal.store(key, Ordering::Relaxed);
+        slot.until_ns.store(until, Ordering::Relaxed);
+    }
+}
+
+/// FNV-1a of a terminal id, never 0 (an empty slot).
+fn terminal_key(terminal: &str) -> u64 {
+    terminal.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    }) | 1
+}
+
+fn record_hop(sink: &Sink, name: &'static str, flow: u64, terminal: &str) {
     let bytes = terminal.as_bytes();
     let len = bytes.len().min(TERMINAL_BYTES);
     let mut record = Record {

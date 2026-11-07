@@ -2,7 +2,9 @@
 // A coordinator's tagged ask in the whole agent pane (turns.ts NEXT_STEP, NextStepCard.tsx): the
 // turn's answer ends on `[outward] ...?` with its answers listed, so the transcript draws the card
 // under the prose; once the person answers, the card folds to the question and the answer, and an
-// ordinary closing question draws no card.
+// ordinary closing question draws no card. `wrap-up-code-mode` is a real chat's turn: the agent
+// called `cmux.acpmux_wrap_up` from a `cmux_exec` script, and the call_log below is what that DEV
+// chat recorded (code_mode.rs keeps the shown box as `shown`).
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
@@ -28,6 +30,27 @@ const turn = (answer: string, reply?: string) =>
     ...(reply ? [user(reply, 2)] : []),
   ]);
 
+// The call_log a real SR2 Claude chat recorded on a DEV build (2026-11-03).
+const SHOWN = {
+  recap: "Checked the folder: it is empty.",
+  ask: "Should I add a README here?",
+  actions: ["Yes, add README", "No thanks"],
+};
+const codeModeTurn = chat([
+  user("What's in this folder?", 6),
+  activity(
+    [
+      tool("mcp__cmux__cmux_exec", "other", "completed", {
+        inputSummary: JSON.stringify({ script: `await cmux.acpmux_wrap_up(${JSON.stringify(SHOWN)})` }),
+        output: JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown: SHOWN }] }),
+      }),
+    ],
+    5,
+  ),
+  assistant("The folder is empty. I asked in the wrap-up box whether to add a README.", 4),
+  summary(4, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+]);
+
 export default agentPaneEntry({
   id: "agent-pane.next-step-in-pane",
   title: "Tagged ask in the transcript",
@@ -46,6 +69,16 @@ export default agentPaneEntry({
     "ordinary-question": {
       note: "An untagged closing question: no card, the prose as it was.",
       snapshot: turn("All 14 tests pass. Should I open a PR for this?"),
+    },
+    "wrap-up-code-mode": {
+      note: "A real chat's wrap-up from a cmux_exec script: the recap, the question and its two answers.",
+      snapshot: codeModeTurn,
+    },
+    "wrap-up-click": {
+      note: "The same turn on the in-page mock acpmux, so a click on an answer sends it as the next prompt.",
+      ready: { transport: "mock", sessionId: "mock-wrap-up-code-mode" },
+      // The mock's session of the same turn, so the box's answer reaches its chat.
+      snapshot: { ...codeModeTurn, sessionId: "mock-wrap-up-code-mode" },
     },
   },
 });

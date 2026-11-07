@@ -63,7 +63,7 @@ extension ActionDescriptor {
         "palette.copyIdentifiers", "workspaceGroup.copyID", "cloudCopyMachineID", "agentChat.copyIdentifier",
         // Diagnostics, recovery and one-time setup.
         "palette.restartSocketListener", "palette.restartServer", "palette.attemptUpdate", "openDebugSettings",
-        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording", "home.agentMessagePlayground", "home.mcpConnectPlayground", "home.chiefTeleportPlayground",
+        "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording", "home.agentMessagePlayground", "home.mcpConnectPlayground", "home.compareTablePlayground", "home.chiefTeleportPlayground",
         "taskManager.killProcess", "palette.installCLI", "palette.uninstallCLI", "palette.makeDefaultBrowser",
         "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "updates.installEarlierBuild", "palette.shortcutKeymap",
         "workspace.importClassic", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
@@ -224,7 +224,7 @@ extension ActionDescriptor {
                           "browserProfile.new", "browserProfile.rename", "browserProfile.delete", "browserProfile.setColor",
                           "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                           "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace",
-                          "browserProfile.openLink", "browserProfile.moveTab", "browserProfile.duplicateTab",
+                          "browserProfile.openLink", "browserProfile.openLinkInNew", "browserProfile.moveTab", "browserProfile.duplicateTab",
                           "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
                           "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault",
                           "browserProfile.clearBrowsingData", "browserProfile.manageExtensions",

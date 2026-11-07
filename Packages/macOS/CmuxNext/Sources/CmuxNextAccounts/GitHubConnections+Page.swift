@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextDesign
 import Foundation
 
 extension GitHubConnections {
@@ -16,6 +17,8 @@ extension GitHubConnections {
             "connect": .string(Self.connect), "disconnect": .string(Self.disconnect),
             "confirm": .string(Self.confirm), "cancel": .string(Self.cancel),
             "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
+            // Msg 3790: signed out, the card says to sign in and shows the Sign In button.
+            "signIn": scopeIsSignedOut ? .string(SignInButton.defaultTitle) : .null,
             "connections": .array(currentConnections.map { row in
                 ["id": row["id"] ?? .null,
                  "account": row["account"]?["name"] ?? "GitHub",

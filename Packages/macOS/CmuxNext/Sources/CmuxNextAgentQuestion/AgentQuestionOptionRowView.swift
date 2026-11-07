@@ -54,8 +54,8 @@ final class AgentQuestionOptionRowView: NSView {
         let local = { (rect: CGRect) in rect.offsetBy(dx: -origin.x, dy: -origin.y) }
         self.frames = AgentQuestionCardLayout.Row(frame: frames.frame, keycap: local(frames.keycap), label: local(frames.label),
                                                   detail: frames.detail.map(local), check: local(frames.check), isOther: frames.isOther)
-        layer?.cornerRadius = style.size(9)
-        keycap.cornerRadius = style.size(5)
+        layer?.cornerRadius = style.insetCornerRadius
+        keycap.cornerRadius = style.controlCornerRadius
         keycapLabel.font = style.keycapFont
         keycapLabel.stringValue = content.number <= 9 ? "\(content.number)" : ""
         title.font = style.labelFont

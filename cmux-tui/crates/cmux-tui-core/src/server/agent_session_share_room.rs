@@ -1197,8 +1197,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 Ok(guest) => {
                     let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
                         "guest_id": guest.get("guest_id")});
-                    // An invitee's role, so a view invitee's page has no composer; nothing else
-                    // about the account reaches the room. A link guest's answer has no role.
+                    // The guest's role (a link guest's is always `view`), so a view guest's page
+                    // has no composer; nothing else about the account reaches the room.
                     if let Some(role) = guest.get("role") {
                         answer["role"] = role.clone();
                     }
@@ -1262,4 +1262,4 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
-mod tests;
+pub(super) mod tests;

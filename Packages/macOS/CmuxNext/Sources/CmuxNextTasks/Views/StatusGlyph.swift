@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// Status as the pack's task status icon in the status's palette color: dashed ring (triage),
 /// dotted ring (backlog), ring (unstarted), half disc (started), check (completed), cross
@@ -38,12 +39,12 @@ struct PriorityGlyph: View {
             case .none:
                 Color.clear
             case .urgent:
-                RoundedRectangle(cornerRadius: 2.5).fill(colors.attention)
+                RoundedRectangle(cornerRadius: Metrics.corners.radius(depth: 3)).fill(colors.attention)
                     .overlay(Text("!").font(.system(size: 9, weight: .heavy)).foregroundStyle(colors.background))
             case .high, .medium, .low:
                 HStack(alignment: .bottom, spacing: 1.5) {
                     ForEach(0..<3, id: \.self) { bar in
-                        RoundedRectangle(cornerRadius: 1)
+                        Capsule()
                             .fill(bar < filled ? colors.secondary : colors.tertiary.opacity(0.35))
                             .frame(width: 2.5, height: CGFloat(4 + bar * 3))
                     }

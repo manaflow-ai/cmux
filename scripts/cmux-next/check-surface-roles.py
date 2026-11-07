@@ -4,7 +4,7 @@
 
 The one source is schemas/surface-roles/surface-roles.json: every popover, menu, card, toast, sheet
 and tooltip is one of its roles, with its tone (the theme's glass tint or the shared neutral glass),
-veil, rim, radius, shadow and Reduce Transparency fallback. Two hand-kept copies follow it: the
+veil, rim, corner depth (native) and web radius, shadow and Reduce Transparency fallback. Two hand-kept copies follow it: the
 app's (CmuxNextDesign/FloatingGlass/SurfaceRole.swift: `SurfaceRole`, and the neutral looks
 `FloatingGlassStyle.toast`, `.dialog` and `.card`) and the webviews' (the surface-roles block of
 webviews/src/ui/glass/glass.css: `--surface-<role>-*` and `--surface-near-opaque`). This script
@@ -28,7 +28,7 @@ BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil.
 DARK_GRAY, LIGHT_GRAY = 0.11, 0.99
-FIELDS = {"name", "for", "tone", "radius", "webRadius", "castsShadow", "reduceTransparency"}
+FIELDS = {"name", "for", "tone", "cornerDepth", "webRadius", "castsShadow", "reduceTransparency"}
 NEUTRAL_FIELDS = FIELDS | {"style", "veil", "rim"}
 
 
@@ -41,9 +41,11 @@ def load():
     styles = []
     for role in data["roles"]:
         assert role["name"].isidentifier(), role["name"]
+        # A native corner is a level of the one concentric corner rule, never a literal radius.
+        assert isinstance(role["cornerDepth"], int) and role["cornerDepth"] >= 0, role
         if role["tone"] == "neutral":
             assert set(role) == NEUTRAL_FIELDS, role
-            assert role["style"].isidentifier() and role["radius"] is not None, role
+            assert role["style"].isidentifier(), role
             styles.append(role["style"])
             for appearance in ("dark", "light"):
                 veil = role["veil"][appearance]
@@ -69,23 +71,19 @@ def swift(data):
     cases = "\n".join("    /// %s.\n    case %s" % (doc(role["for"]), role["name"]) for role in data["roles"])
     neutral = [role for role in data["roles"] if role["tone"] == "neutral"]
     style_cases = "\n".join("        case .%s: return .%s" % (role["name"], role["style"]) for role in neutral)
-    radius_cases = "\n".join(
-        "        case .%s: return %s" % (role["name"], num(role["radius"]))
-        for role in data["roles"]
-        if role["radius"] is not None
-    )
+    depth_cases = "\n".join("        case .%s: return %d" % (role["name"], role["cornerDepth"]) for role in data["roles"])
     shadow_cases = ", ".join("." + role["name"] for role in data["roles"] if role["castsShadow"])
     fallback_cases = "\n".join(
         '        case .%s: return "%s"' % (role["name"], role["reduceTransparency"]) for role in data["roles"]
     )
     looks = "\n".join(
         "    /// %s.\n"
-        "    nonisolated public static let %s = FloatingGlassStyle(cornerRadius: %s, darkVeilAlpha: %s, lightVeilAlpha: %s,\n"
+        "    nonisolated public static let %s = FloatingGlassStyle(cornerDepth: %d, darkVeilAlpha: %s, lightVeilAlpha: %s,\n"
         "                                                         darkRim: (%s, %s), lightRim: (%s, %s), castsShadow: %s)"
         % (
             doc(role["for"]),
             role["style"],
-            num(role["radius"]),
+            role["cornerDepth"],
             num(role["veil"]["dark"]),
             num(role["veil"]["light"]),
             num(role["rim"]["dark"][0]),
@@ -126,12 +124,11 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {{
         neutralStyle.map {{ .neutralGlass($0) }} ?? .theme
     }}
 
-    /// The role's own corner radius; nil for one on the panel radius tunable
-    /// (`Metrics.panelCornerRadius`).
-    public var cornerRadius: CGFloat? {{
+    /// How many levels inside the one corner radius the role's corner is: 0 is the outer radius
+    /// (a top-level surface); `cornerRadius` (SurfaceRole+CornerRadius.swift) resolves it.
+    public var cornerDepth: Int {{
         switch self {{
-{radius_cases}
-        default: return nil
+{depth_cases}
         }}
     }}
 
@@ -156,7 +153,7 @@ extension FloatingGlassStyle {{
         cases=cases,
         near=num(data["nearOpaque"]),
         style_cases=style_cases,
-        radius_cases=radius_cases,
+        depth_cases=depth_cases,
         shadow_cases=shadow_cases,
         fallback_cases=fallback_cases,
         looks=looks,

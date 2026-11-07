@@ -5,6 +5,7 @@ import {
   COMPUTER_USE_PREVIEW_RESERVE,
   computerUsePreviewTitle,
   currentComputerUsePreview,
+  PERSON_POINTER_IDLE_MS,
   readComputerUsePreview,
   setComputerUsePreview,
 } from "./computerUsePreview";
@@ -76,6 +77,79 @@ describe("computerUsePreview", () => {
     setComputerUsePreview({ session: "cua_1", app: "", done: false, frame, pointer: { x: 0.5, y: 0.5, click: 2 } });
     expect(currentComputerUsePreview()).not.toBe(first);
     expect(currentComputerUsePreview()?.pointer?.click).toBe(2);
+    setComputerUsePreview(null);
+  });
+
+  test("a running card takes both telepointers; a done or malformed one has none", () => {
+    const telepointers = {
+      agent: { x: 0.4, y: 0.6, visible: true, ageMs: 250 },
+      person: { x: 1, y: 0.5, visible: false, ageMs: 2250, idle: true },
+    };
+    const read = readComputerUsePreview({ session: "cua_1", app: "", done: false, frame, telepointers });
+    expect(read?.telepointers).toEqual({
+      agent: { x: 0.4, y: 0.6, visible: true, ageMs: 250, idle: false },
+      person: { x: 1, y: 0.5, visible: false, ageMs: 2250, idle: true },
+    });
+    expect(
+      readComputerUsePreview({ session: "cua_1", app: "", done: true, frame, telepointers })?.telepointers,
+    ).toBeUndefined();
+    // An age past the idle time dims it even without the host's flag; a bad age is dropped.
+    expect(
+      readComputerUsePreview({
+        session: "cua_1",
+        app: "",
+        done: false,
+        frame,
+        telepointers: { person: { x: 0.1, y: 0.1, visible: true, ageMs: PERSON_POINTER_IDLE_MS } },
+      })?.telepointers?.person?.idle,
+    ).toBe(true);
+    expect(
+      readComputerUsePreview({
+        session: "cua_1",
+        app: "",
+        done: false,
+        frame,
+        telepointers: { person: { x: 0.1, y: 0.1, visible: true, ageMs: -5 } },
+      })?.telepointers,
+    ).toEqual({ person: { x: 0.1, y: 0.1, visible: true, idle: false } });
+    for (const bad of [{ x: 1.5, y: 0, visible: true }, { x: 0, y: 0 }, { x: 0, y: 0, visible: "yes" }, null, 3]) {
+      expect(
+        readComputerUsePreview({ session: "cua_1", app: "", done: false, frame, telepointers: { person: bad } })
+          ?.telepointers,
+      ).toBeUndefined();
+    }
+  });
+
+  test("the person's pointer moving at the same frame is a change; a re-aged one is not", () => {
+    const person = { x: 0.5, y: 0.5, visible: true, ageMs: 0 };
+    setComputerUsePreview({ session: "cua_1", app: "", done: false, frame, telepointers: { person } });
+    const first = currentComputerUsePreview();
+    setComputerUsePreview({
+      session: "cua_1",
+      app: "",
+      done: false,
+      frame,
+      telepointers: { person: { ...person, ageMs: 40 } },
+    });
+    expect(currentComputerUsePreview()).toBe(first);
+    setComputerUsePreview({
+      session: "cua_1",
+      app: "",
+      done: false,
+      frame,
+      telepointers: { person: { ...person, x: 0.6 } },
+    });
+    expect(currentComputerUsePreview()).not.toBe(first);
+    expect(currentComputerUsePreview()?.telepointers?.person?.x).toBe(0.6);
+    const moved = currentComputerUsePreview();
+    setComputerUsePreview({
+      session: "cua_1",
+      app: "",
+      done: false,
+      frame,
+      telepointers: { person: { ...person, x: 0.6, visible: false } },
+    });
+    expect(currentComputerUsePreview()).not.toBe(moved);
     setComputerUsePreview(null);
   });
 

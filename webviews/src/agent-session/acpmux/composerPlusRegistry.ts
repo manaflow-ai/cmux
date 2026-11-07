@@ -142,7 +142,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.project",
       section: "add",
-      name: label("project.choose"),
+      name: label("composer.chooseFolder"),
       description: "",
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],

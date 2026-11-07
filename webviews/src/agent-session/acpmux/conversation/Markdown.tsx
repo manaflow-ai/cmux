@@ -23,15 +23,16 @@ import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { MathDisplay, MathInline } from "./Math";
+import { installSelectionCopy } from "./selectionCopy";
 import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { ForeignFileRef, linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -490,7 +491,7 @@ export const linkIcon = (href: string) => {
   if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
   if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
-  return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
+  return <Globe size={16} className="cv-link__icon" />;
 };
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
@@ -710,8 +711,12 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // An agent link or a `HOST/NAME` (sessionRefs.ts): a link to the session when it is the
       // reader's (Leo, 2026-11-03: "these links aren't clickable"); a name stays code until then.
       const ref = path ? undefined : agentRef(inner);
+      // A provider's file id in code is still one nobody here can open (chips/paths.ts).
+      const foreign = path || ref ? undefined : foreignFileId(inner);
       out.push(
-        ref ? (
+        foreign ? (
+          <ForeignFileRef key={k++} id={foreign} />
+        ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
           <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
@@ -895,6 +900,9 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
+  // An image only its provider opens (`sediment://…`) is named as that, never a broken image.
+  const foreign = foreignFileId(src);
+  if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);
@@ -1224,12 +1232,43 @@ function Blocks({
 /// The newest revealed text of a streaming reply: its steps and the source suffix they cover.
 export type FreshTail = { steps: Reveal[]; text: string; now: number };
 
+/// The characters that can open or close inline Markdown (or break the line) in a fresh suffix.
+const FRESH_SYNTAX = /[*`_~[\]()$\\\n]/;
+
+/// Whether plain text appended to `prefix` draws as `prefix`'s own drawing followed by that text:
+/// nothing in `prefix` is left open for the text to join (an unpaired `**`, `` ` ``, `$` or `[`, a
+/// link's `](` with no `)` yet, or a trailing backslash). A plain `(` opens nothing, so text inside
+/// parentheses still fades. Conservative: an odd `_` inside a word also says no.
+function closedInline(prefix: string): boolean {
+  if (prefix.endsWith("\\")) return false;
+  const count = (char: string) => prefix.split(char).length - 1;
+  const link = prefix.lastIndexOf("](");
+  return (
+    ["*", "`", "_", "~", "$"].every((char) => count(char) % 2 === 0) &&
+    count("[") === count("]") &&
+    (link < 0 || prefix.indexOf(")", link) >= 0)
+  );
+}
+
 /// `text` with its newest characters in spans that fade in (`.cv-fresh`). Each span keeps its key
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
-/// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
+/// text fades by step: when the newest text has Markdown syntax or a line break in it, the plain
+/// words after the last of those still fade, as long as nothing before them is left open; else
+/// it draws as usual. Skipping the whole fade on any `(`, `` ` `` or line break left most replies
+/// with none (Leo, 2026-11-03: "hey even u have that text fading in! i want that...").
 function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
-  const fresh = tail.text.trimEnd();
-  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
+  let fresh = tail.text.trimEnd();
+  if (!fresh || !text.endsWith(fresh)) return renderInline(text, opts);
+  if (FRESH_SYNTAX.test(fresh)) {
+    let last = fresh.length - 1;
+    while (last >= 0 && !FRESH_SYNTAX.test(fresh[last]!)) last -= 1;
+    fresh = fresh.slice(last + 1);
+    const prefix = text.slice(0, text.length - fresh.length);
+    if (!fresh.trim() || !closedInline(prefix)) return renderInline(text, opts);
+    // A closer at the prefix's end that a following word character (or `:`) would cancel (italic
+    // `_x_`/`*x*`, inline math `$x$`, a footnote `[^1]`) would draw for the fade and then flip.
+    if (/[*_$\]]$/.test(prefix) && /^[\w:]/.test(fresh)) return renderInline(text, opts);
+  }
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
   const spans: ReactNode[] = [];
@@ -1292,6 +1331,8 @@ export function Markdown({
   skills,
   commonmark = false,
 }: MarkdownProps) {
+  // A selection copied out of a message keeps its formatting (selectionCopy.ts); once per page.
+  installSelectionCopy();
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   // A sent prompt (`commonmark`) is whole, never streamed: it parses at once, its code read as send

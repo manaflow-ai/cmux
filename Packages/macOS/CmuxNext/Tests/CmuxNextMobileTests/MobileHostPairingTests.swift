@@ -128,6 +128,38 @@ import Testing
         #expect(devices.devices[0].fingerprint.count == 16)
     }
 
+    /// Another of the person's Macs (docs/multi-machine-sessions.md): allowed, it starts with no
+    /// grant at all, reaches hostd as a `mac` record with its grants, and never approves agent actions.
+    @Test func anAllowedMacStartsWithNoGrantAndIsNeverAnApprover() throws {
+        var devices = MobileHostPairedDevices(userID: "u")
+        let mac = MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "", kind: "mac")
+        #expect(mac.isMachine)
+        #expect(devices.decision(for: mac) == .ask)
+        devices.approve(mac, at: Date(timeIntervalSince1970: 5))
+        #expect(devices.decision(for: mac) == .trusted)
+        // The same keys asking as a phone are a different request.
+        #expect(devices.decision(for: MobileHostPairRequest(phoneDeviceID: "m1", name: "Studio", identityKey: Self.identity, approvalKey: "")) == .ask)
+        #expect(devices.devices[0].grants.isEmpty, "pairing grants nothing")
+        devices.setGrants(["run", "view", "root"], for: "m1")
+        #expect(devices.devices[0].grants == ["view", "run"], "unknown grants are dropped, the order is fixed")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 6))
+        devices.setGrants(["install"], for: Self.request.phoneDeviceID)
+        #expect(devices.devices[1].grants.isEmpty, "a phone never gets grants")
+        let object = try #require(try JSONSerialization.jsonObject(with: MobileHostLaunch.devicesLine(devices).dropLast()) as? [String: Any])
+        let rows = try #require(object["devices"] as? [[String: Any]])
+        #expect(rows[0]["kind"] as? String == "mac")
+        #expect(rows[0]["grants"] as? [String] == ["view", "run"])
+        #expect(rows[1]["kind"] == nil, "a phone's record is as before")
+        #expect((devices.approversParams(macDevice: "x")["approvers"] as? [[String: String]])?.map { $0["id"] } == [Self.request.phoneDeviceID])
+        #expect(devices.devices[0].fingerprint == MobileHostPairedDevices.fingerprint(Self.identity))
+        // A file written before machines decodes as phones.
+        let old = Data(#"{"id":"p","name":"n","identityKey":"04","approvalKey":"04","pairedAt":0}"#.utf8)
+        let decoded = try JSONDecoder().decode(MobileHostPairedDevice.self, from: old)
+        #expect(decoded.kind == "phone" && decoded.grants.isEmpty)
+        let round = try JSONDecoder().decode(MobileHostPairedDevice.self, from: JSONEncoder().encode(devices.devices[0]))
+        #expect(round == devices.devices[0])
+    }
+
     @Test func theFileBelongsToOneUser() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -630,6 +662,32 @@ import Testing
         #expect(Self.relaunched(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)).approvers.isEmpty)
     }
 
+    /// A seal the Keychain refuses to read (right after a nightly update the user's Mac answered
+    /// errSecMissingEntitlement, then errSecAuthFailed from the login Keychain, for two launches) is not
+    /// a tampered list: the read says so (nil), so the iPhone host waits and reads again instead of asking
+    /// the person to allow every phone again; once the Keychain answers, the phone is trusted.
+    @Test func aSealTheKeychainRefusesIsNotReadAsATamperedList() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keychain = FakeKeychain(entitled: false)
+        let seal = MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain)
+        _ = try Self.saved(directory, seal: seal)
+
+        keychain.refuseLogin(errSecAuthFailed)
+        #expect(seal.read() == .refused)
+        let refused = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        #expect(refused.read(userID: "u") == nil, "a refused seal read as a list that trusts no phone")
+        #expect(refused.load(userID: "u").devices.isEmpty, "a refused seal must trust no phone")
+
+        keychain.refuseLogin(nil)
+        let answered = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        #expect(answered.read(userID: "u")?.decision(for: Self.request) == .trusted)
+        // No item at all is still "none": that list trusts no phone (a list from before the seal).
+        #expect(seal.clearDigest())
+        #expect(seal.read() == MobileHostPairingSealRead.none)
+        #expect(MobileHostPairedDevicesFile(directory: directory, seal: seal).read(userID: "u")?.devices.isEmpty == true)
+    }
+
     /// An entitled build keeps its seal in the data-protection Keychain and never reads the login
     /// Keychain: a digest planted there for a list of another process's own counts for nothing.
     @Test func anEntitledBuildIgnoresTheLoginKeychain() throws {
@@ -738,7 +796,14 @@ final class FakeKeychain: @unchecked Sendable {
 
     private let lock = NSLock()
     private var store: [Key: Data] = [:]
+    private var loginRefusal: OSStatus?
     let entitled: Bool
+
+    /// From now on every login Keychain call answers `status` (nil: answers again), as a login item
+    /// this launch may not read without UI does (errSecAuthFailed, 2026-11-03).
+    func refuseLogin(_ status: OSStatus?) {
+        lock.withLock { loginRefusal = status }
+    }
 
     init(entitled: Bool) {
         self.entitled = entitled
@@ -756,6 +821,7 @@ final class FakeKeychain: @unchecked Sendable {
     private func key(_ query: [String: Any]) -> Result<Key, FakeKeychainRefusal> {
         let dataProtection = query[kSecUseDataProtectionKeychain as String] as? Bool == true
         if dataProtection, !entitled { return .failure(FakeKeychainRefusal(status: errSecMissingEntitlement)) }
+        if !dataProtection, let status = lock.withLock({ loginRefusal }) { return .failure(FakeKeychainRefusal(status: status)) }
         return .success(Key(dataProtection: dataProtection, service: query[kSecAttrService as String] as? String ?? "",
                             account: query[kSecAttrAccount as String] as? String ?? ""))
     }

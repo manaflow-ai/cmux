@@ -3,7 +3,7 @@ import CmuxNextDesign
 extension SidebarSectionsPreferences {
     /// Whether the workspace list draws differently than under `previous`: its rows'
     /// elements, Projects shown, the grouping, a header per computer, minimal mode, the density,
-    /// detailed status icons, timestamps, workspace colors and their style, or what group headers show.
+    /// detailed status icons, timestamps, workspace colors and their style, what group headers show, or how their background draws.
     func changesList(from previous: SidebarSectionsPreferences?) -> Bool {
         previous?.workspaceRow != workspaceRow
             || previous?.showProjects != showProjects || previous?.groupBy != groupBy
@@ -12,5 +12,6 @@ extension SidebarSectionsPreferences {
             || previous?.showLocalMachine != showLocalMachine || previous?.showColors != showColors
             || previous?.workspaceColorIndicator != workspaceColorIndicator
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
+            || previous?.groupHeaderBackground != groupHeaderBackground
     }
 }

@@ -33,11 +33,10 @@ enum ThemeBridge {
     /// Applies the config's colors again, for a change only cmux reads (a theme's accent).
     static func refresh(store: ThemeStore) { apply(GhosttyRuntime.shared, to: store) }
 
-    /// Repaints with cmux.json's window background over the config files' own opacity and blur,
+    /// Repaints with cmux.json's window background over the config files' own opacity and blur (`ghostty`),
     /// ahead of the config reload that brings the terminals along (an Opacity slider step).
-    static func repaintBackground(store: ThemeStore) {
-        let resolved = GhosttyRuntime.backgroundOverride.resolved(
-            backgroundOpacity: GhosttyConfigBackground.loaded.opacity, backgroundBlur: GhosttyConfigBackground.loaded.blur)
+    static func repaintBackground(store: ThemeStore, ghostty: GhosttyConfigBackground) {
+        let resolved = ghostty.resolved(GhosttyRuntime.backgroundOverride)
         store.applyBackground(opacity: resolved.backgroundOpacity, blur: resolved.backgroundBlur)
     }
 

@@ -222,6 +222,12 @@ impl RegistryConnection {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
     }
 
+    /// Bytes of the WAL frames this registry's commits appended (`server-stats`
+    /// `write_path.registry_wal_frame_bytes`); 0 for an in-memory registry.
+    pub(crate) fn wal_frame_bytes(&self) -> u64 {
+        self.durability.as_ref().map(|durability| durability.wal_frame_bytes()).unwrap_or_default()
+    }
+
     /// The connection for a request thread. The caller holds the workspace
     /// registry lock (or owns the registry outright), never the state lock
     /// unless it pinned this lock before taking state.

@@ -24,3 +24,8 @@ declare module "virtual:cmux-gallery/revision" {
   const revision: import("./liveStatus").Revision;
   export default revision;
 }
+declare module "virtual:cmux-gallery/entry-index" {
+  /** Each entry id and its file under webviews (`src/.../X.gallery.ts`). */
+  const index: Record<string, string>;
+  export default index;
+}

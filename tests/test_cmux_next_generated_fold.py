@@ -161,9 +161,10 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
-def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker):
+def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
     """path_route's own expression context: its route step, the tree probes and the marker upload."""
-    return {"github": {"event_name": event, "ref": ref},
+    return {"github": {"event_name": event, "ref": ref,
+                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -220,18 +221,19 @@ class GeneratedFoldTest(unittest.TestCase):
         events = [("push", NEXT), ("push", "refs/heads/main"),
                   ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
         cases = pr_single = 0
-        for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork in itertools.product(
+        for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork, labels in itertools.product(
                 events, ("true", "false"), ("true", "false"), ("all", ""), ("true", "false"),
                 ("ready", "deferred", "failed", ""), ("", "failure"), ("success", "failure"), ("true", "false"),
-                (False, True)):
-            rctx = route_ctx(event, ref, generated, swift, targets, daemon, tree, marker)
+                (False, True), ((), ("full-ci",))):
+            rctx = route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels)
             host = Expr(host_expr, rctx).value()
             tree_state = Expr(tree_expr, rctx).value()
             outputs = {"generated": generated, "swift": swift, "swift_targets": targets, "daemon": daemon,
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}}, "labels": []}}},
+                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                                                         "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},
                              "push-head-preflight": {"outputs": {"current": current}}}}
@@ -251,9 +253,13 @@ class GeneratedFoldTest(unittest.TestCase):
             verdict = truthy(Expr(self.verdict["if"], ctx).value())
             # The generated-files job's condition before generated_host: its shared prerequisites.
             gen_routed = (generated == "true" and web == "success" and current == "true"
-                          and not (event == "pull_request" and fork))
+                          and not (event == "pull_request" and fork and not labels))
             with self.subTest(event=event, ref=ref, generated=generated, swift=swift, targets=targets, daemon=daemon,
-                              tree=tree, marker=marker, web=web, current=current, fork=fork, host=host):
+                              tree=tree, marker=marker, web=web, current=current, fork=fork, labels=labels, host=host):
+                # A pull request runs swift-test only with full-ci (2026-11-05).
+                if event == "pull_request" and not labels:
+                    self.assertFalse(runs["swift-test"])
+                    self.assertNotEqual(host, "swift-test")
                 checked_by = [job_id for job_id in HOSTS if folds[job_id]] + (
                     ["generated-files"] if runs["generated-files"] else [])
                 self.assertEqual(len(checked_by), 1 if gen_routed else 0, checked_by)
@@ -273,15 +279,19 @@ class GeneratedFoldTest(unittest.TestCase):
                     self.assertEqual(producers, 1)
                     pr_single += 1
             cases += 1
-        self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2)
+        self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2 * 2)
         self.assertGreater(pr_single, 0)
 
     def test_a_pull_request_with_daemon_or_swift_and_generated_inputs_has_one_build_producer(self):
         """HQ#4724's case, spelled out: before, swift-test (or daemon-test) and generated-files both built."""
         pr = ("pull_request", "refs/pull/1/merge")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "swift-test")
+        # A pull request runs swift-test only with full-ci (2026-11-05), so without it the daemon tests
+        # or the generated-files job's own build check the generated files.
+        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "generated-files")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "daemon-test")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", "", ("full-ci",)), "swift-test")
         self.assertEqual(self.host(*pr, "true", "false", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "swift-test")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", "", ("full-ci",)), "swift-test")
         # No targets: swift-test does not build, so the daemon tests or the job's own build check them.
         self.assertEqual(self.host(*pr, "true", "true", "", "true", "ready", ""), "daemon-test")
         self.assertEqual(self.host(*pr, "true", "true", "", "false", "", ""), "generated-files")

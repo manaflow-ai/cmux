@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -5,6 +7,12 @@ import Observation
 /// writing it fires (and so removes) that observation.
 @Observable
 fileprivate final class SidebarRowWatchCancel {
+    var epoch: UInt64 = 0
+}
+
+/// Read by the structural pass once (``SidebarRowFeed/lists(_:rule:)``); moves when a workspace's listing flips.
+@Observable
+fileprivate final class SidebarListingFlips {
     var epoch: UInt64 = 0
 }
 
@@ -60,7 +68,35 @@ public final class SidebarRowFeed {
         }
     }
 
+    /// Whether one workspace lists (``lists(_:rule:)``), observed apart from the structural pass.
+    @MainActor private final class Listing {
+        var value: Bool
+        var rule: () -> Bool
+        /// What the rule read changed since it last ran: the next pass or check runs it again.
+        var stale = false
+        /// The rule's observation is armed.
+        var armed = false
+        /// The armed observation's generation; a callback of an older one is stale.
+        var generation: UInt64 = 0
+        let cancel = SidebarRowWatchCancel()
+        let tracking = SingleArmedTracking()
+        /// The pass that last asked.
+        var pass: UInt64
+
+        init(value: Bool, rule: @escaping () -> Bool, pass: UInt64) {
+            self.value = value
+            self.rule = rule
+            self.pass = pass
+        }
+    }
+
     private var entries: [WorkspaceID: Entry] = [:]
+    private var listings: [WorkspaceID: Listing] = [:]
+    /// Listings the pass ran (new or stale) that `fill` observes; listings whose observation fired, for the check.
+    private var unarmedListings: [WorkspaceID] = []
+    private var staleListings: Set<WorkspaceID> = []
+    private var listingCheckScheduled = false
+    private let listingFlips = SidebarListingFlips()
     private var dirty: Set<WorkspaceID> = []
     private var flushScheduled = false
     private var pass: UInt64 = 0
@@ -92,7 +128,14 @@ public final class SidebarRowFeed {
     public func beginPass(inputs: AnyHashable) {
         pass &+= 1
         named.removeAll(keepingCapacity: true)
-        if inputs != self.inputs { inputsChanged = true }
+        if inputs != self.inputs {
+            inputsChanged = true
+            // A rule reads the pass's inputs by value too (whether the Home item shows the Home workspaces).
+            for listing in listings.values { disarm(listing) }
+            listings.removeAll()
+            unarmedListings.removeAll()
+            staleListings.removeAll()
+        }
         self.inputs = inputs
     }
 
@@ -102,6 +145,34 @@ public final class SidebarRowFeed {
         for entry in entries.values { disarm(entry) }
         entries.removeAll()
         dirty.removeAll()
+        for listing in listings.values { disarm(listing) }
+        listings.removeAll()
+        unarmedListings.removeAll()
+        staleListings.removeAll()
+    }
+
+    /// Whether workspace `id` lists, by `rule`, for the structural pass. `rule` reads the workspace's own records (its
+    /// tabs: a window's Home that the Home item shows, a chat whose session ended), and the pass must not: it walks
+    /// every workspace, so a change inside ONE workspace (a tab opened, Cmd-N's first tab replacing its stand-in) ran
+    /// the whole pass again (SIDEBAR ROWS STATUS 15571 cause b). The pass reads one flip counter here instead. The
+    /// rule runs in the pass only for a new workspace or one whose records changed (its reads join that pass once);
+    /// `fill` observes it apart, and a change it hears runs that one rule on the next flush, waking the pass only
+    /// when the answer flips.
+    public func lists(_ id: WorkspaceID, rule: @escaping () -> Bool) -> Bool {
+        _ = listingFlips.epoch
+        if let listing = listings[id] {
+            listing.pass = pass
+            listing.rule = rule
+            guard listing.stale else { return listing.value }
+            listing.stale = false
+            listing.value = rule()
+            if !listing.armed { unarmedListings.append(id) }
+            return listing.value
+        }
+        let value = rule()
+        listings[id] = Listing(value: value, rule: rule, pass: pass)
+        unarmedListings.append(id)
+        return value
     }
 
     /// The row of `id` for the structural pass: the last mapped row, or a
@@ -140,6 +211,7 @@ public final class SidebarRowFeed {
             disarm(entry)
             entries[id] = nil
         }
+        armListings()
         var rows: [SidebarWorkspace] = []
         let remap = inputsChanged
         inputsChanged = false
@@ -169,11 +241,7 @@ public final class SidebarRowFeed {
             _ = cancel.epoch
             return entry.make()
         } onChange: { [weak self] in
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { self?.markDirty(id, generation: generation) } // main-proof: checked on the line above
-            } else {
-                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation) }
-            }
+            MainDelivery().run { self?.markDirty(id, generation: generation) }
         }
     }
 
@@ -184,6 +252,70 @@ public final class SidebarRowFeed {
         guard entry.armed else { return }
         entry.armed = false
         entry.cancel.epoch &+= 1
+    }
+
+    /// Forgets the listings the last pass did not ask for and observes the ones it ran.
+    private func armListings() {
+        for (id, listing) in listings where listing.pass != pass {
+            disarm(listing)
+            listings[id] = nil
+        }
+        let ids = unarmedListings
+        unarmedListings.removeAll(keepingCapacity: true)
+        var flipped = false
+        for id in ids {
+            guard let listing = listings[id], !listing.armed else { continue }
+            let value = arm(id, listing)
+            if value != listing.value { (listing.value, flipped) = (value, true) }
+        }
+        if flipped { listingFlips.epoch &+= 1 }
+    }
+
+    /// Runs `listing`'s rule under an observation that marks it stale on its next change (one armed at most).
+    private func arm(_ id: WorkspaceID, _ listing: Listing) -> Bool {
+        disarm(listing)
+        listing.armed = true
+        listing.stale = false
+        let generation = listing.generation
+        let cancel = listing.cancel
+        let rule = listing.rule
+        return listing.tracking.track(shape: []) {
+            _ = cancel.epoch
+            return rule()
+        } onChange: { [weak self] in
+            MainDelivery().run { self?.markStale(id, generation: generation) }
+        }
+    }
+
+    private func disarm(_ listing: Listing) {
+        listing.generation &+= 1
+        guard listing.armed else { return }
+        listing.armed = false
+        listing.cancel.epoch &+= 1
+    }
+
+    private func markStale(_ id: WorkspaceID, generation: UInt64) {
+        guard let listing = listings[id], listing.generation == generation else { return }
+        listing.armed = false
+        listing.stale = true
+        staleListings.insert(id)
+        guard !listingCheckScheduled else { return }
+        listingCheckScheduled = true
+        schedule { [weak self] in self?.checkListings() }
+    }
+
+    /// Runs the stale listings' rules again (a pass may have run them first) and wakes the pass once if one flipped.
+    private func checkListings() {
+        listingCheckScheduled = false
+        let ids = staleListings
+        staleListings.removeAll(keepingCapacity: true)
+        var flipped = false
+        for id in ids {
+            guard let listing = listings[id], listing.stale else { continue }
+            let value = arm(id, listing)
+            if value != listing.value { (listing.value, flipped) = (value, true) }
+        }
+        if flipped { listingFlips.epoch &+= 1 }
     }
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64) {

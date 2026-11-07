@@ -32,7 +32,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-pub use activity::{ChatActivity, activity_change, changes_activity};
+pub use activity::{ActivityCache, ChatActivity, activity_change, changes_activity};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};

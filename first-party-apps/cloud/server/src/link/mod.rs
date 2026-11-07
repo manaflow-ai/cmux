@@ -79,8 +79,15 @@ pub struct Attach {
     pub(crate) park_link_waits: bool,
     /// The link a connect just parked on, for the loop to pick up.
     pub(crate) parked: Option<(String, u64)>,
-    /// Ops of the serve loop that wait for a link (bounded).
+    /// The machine a connect just parked on until it runs, for the loop.
+    pub(crate) parked_machine: Option<String>,
+    /// Ops of the serve loop that wait for a link or a running machine
+    /// (bounded).
     pub(crate) parked_ops: Vec<park::Parked>,
+    /// The clock of the reads of a parked op's starting machine.
+    pub(crate) wait_clock: std::sync::Arc<dyn crate::clock::Clock>,
+    /// Wakes the serve loop (set by the loop; `None`: no loop).
+    pub(crate) wake: Option<LinkWake>,
     /// Frame links on the host channel (`DataPlane::Frames`, crate::connector).
     pub(crate) frames: crate::connector::frames::FrameLinks,
     next_terminal: u64,
@@ -117,7 +124,10 @@ impl Attach {
             link_handles: BTreeMap::new(),
             park_link_waits: false,
             parked: None,
+            parked_machine: None,
             parked_ops: Vec::new(),
+            wait_clock: std::sync::Arc::new(crate::clock::SystemClock),
+            wake: None,
             frames: crate::connector::frames::FrameLinks::new(Box::new(
                 crate::connector::port::UnixPortOpener,
             )),
@@ -135,6 +145,13 @@ impl Attach {
     /// from the host (`cmux.host.link.get`), never from the environment.
     pub fn real() -> Self {
         Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
+    }
+
+    /// The clock of a parked connect's reads of its starting machine (tests
+    /// fire it by hand).
+    pub fn with_wait_clock(mut self, clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+        self.wait_clock = clock;
+        self
     }
 
     /// The clock of the `connect_info` cache (tests set their own time).

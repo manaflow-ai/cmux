@@ -17,6 +17,7 @@
 // The sentinels' IntersectionObservers (one above the mounted rows, one below a window opened around
 // a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
+import { Button } from "../../../ui/Button";
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Markdown } from "../conversation/Markdown";
 import { Spinner } from "../conversation/icons";
@@ -299,7 +300,13 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
   const open = opens ? openAgent : undefined;
   return (
     <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
-      <button type="button" className="acpmux-bg__task-open" disabled={!open} onClick={() => open?.(id)}>
+      <Button
+        variant="ghost"
+        type="button"
+        className="acpmux-bg__task-open"
+        disabled={!open}
+        onClick={() => open?.(id)}
+      >
         {running ? (
           <Spinner size={12} loading />
         ) : (
@@ -308,7 +315,7 @@ function NestedAgent({ id, name, running, opens }: { id: string; name: string; r
           </span>
         )}
         <span className="acpmux-bg__label">{name}</span>
-      </button>
+      </Button>
       {running && stop?.(id, name)}
     </div>
   );
@@ -320,7 +327,9 @@ function Thought({ text }: { text: string }) {
   if (!text.trim()) return null;
   return (
     <div className="acpmux-bg__thought">
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         className="acpmux-bg__line acpmux-bg__line--fold"
         aria-expanded={open}
@@ -328,7 +337,7 @@ function Thought({ text }: { text: string }) {
       >
         <span>{t("backgroundTasks.thought")}</span>
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
-      </button>
+      </Button>
       {open && <p className="acpmux-bg__thought-text">{text}</p>}
     </div>
   );
@@ -343,7 +352,9 @@ function ToolLine({ item }: { item: AcpmuxActivity }) {
   const failed = call.status === "failed";
   return (
     <div className="acpmux-bg__tool" data-failed={failed || undefined}>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         className="acpmux-bg__line acpmux-bg__line--fold"
         aria-expanded={open}
@@ -352,7 +363,7 @@ function ToolLine({ item }: { item: AcpmuxActivity }) {
         {call.status === "in_progress" || call.status === "pending" ? <Spinner size={12} loading /> : null}
         <span className="acpmux-bg__label">{title}</span>
         <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
-      </button>
+      </Button>
       {open && (ran || output) && (
         <pre className="acpmux-bg__output">
           {ran && <code className="acpmux-bg__ran">{ran}</code>}

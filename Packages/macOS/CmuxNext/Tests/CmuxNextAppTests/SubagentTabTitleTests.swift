@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
@@ -13,6 +13,10 @@ import Testing
 @MainActor
 struct SubagentTabTitleTests {
     private static let host = "install:this-mac"
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
 
     @Test func aSubagentsPaneIsNamedAfterTheSubagentNotTheChat() throws {
         let daemon = DaemonService()
@@ -75,23 +79,71 @@ struct SubagentTabTitleTests {
         #expect(titles.title(ofTab: "tab") == nil)
     }
 
+    @Test func identityFollowsThePaneAndClosedTabsReleaseIt() {
+        let titles = SubagentTabTitles()
+        titles.name("reviewer", of: "s", title: nil, tone: 1)
+        titles.bind("reviewer", of: "other", toTab: "other-tab")
+        #expect(titles.tone(ofTab: "other-tab") == nil)
+        titles.bind("reviewer", of: "s", toTab: "tab")
+        #expect(titles.tone(ofTab: "tab") == 1, "an unnamed child still has an identity")
+        titles.show("Auditor", inTab: "tab", tone: 3)
+        #expect(titles.tone(ofTab: "tab") == 3)
+        titles.show(nil, inTab: "tab")
+        #expect(titles.tone(ofTab: "tab") == nil, "the parent kept its child's identity")
+        titles.show("Invalid", inTab: "tab", tone: 99)
+        #expect(titles.tone(ofTab: "tab") == nil)
+        titles.show("Reviewer", inTab: "closed", tone: 1)
+        titles.bind("reviewer", of: "s", toTab: "new") { $0 != "closed" }
+        #expect(titles.tone(ofTab: "closed") == nil)
+        #expect(titles.tone(ofTab: "new") == 1)
+    }
+
+    @Test func loadingAWorkflowKeepsItsBoundTabNameAndClearsThePreviousChildTone() async {
+        let titles = SubagentTabTitles()
+        titles.name("workflow", of: "s", title: "Review the patch")
+        titles.bind("workflow", of: "s", toTab: "tab")
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagent: { title, tone, keepingTitle in
+            titles.show(title, inTab: "tab", tone: tone, keepingTitle: keepingTitle)
+        })
+        @MainActor func shown(_ params: [String: Any]) async {
+            let reply = await model.respondToHeader(AgentPaneRequest(body: ["method": "chat.subagentShown", "params": params]))
+            #expect(reply["ok"] as? Bool == true)
+        }
+
+        await shown(["subagent": "workflow"])
+        #expect(titles.title(ofTab: "tab") == "Review the patch", "loading discarded the name bound when the workflow opened")
+        #expect(titles.tone(ofTab: "tab") == nil)
+        await shown(["subagent": "child", "title": "Auditor", "tone": 3])
+        #expect(titles.title(ofTab: "tab") == "Auditor")
+        #expect(titles.tone(ofTab: "tab") == 3)
+        await shown(["subagent": "workflow"])
+        #expect(titles.title(ofTab: "tab") == "Auditor", "an unknown name must not erase the current bound name")
+        #expect(titles.tone(ofTab: "tab") == nil, "the workflow kept the previous child's identity")
+        await shown(["subagent": "workflow", "title": "Review the patch"])
+        #expect(titles.title(ofTab: "tab") == "Review the patch")
+        await shown([:])
+        #expect(titles.title(ofTab: "tab") == nil, "returning to the parent kept a child name")
+        #expect(titles.tone(ofTab: "tab") == nil)
+    }
+
     @Test func thePageReportsWhatThePaneShows() {
-        let shown = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": "a2", "title": "Auditor"]])
-        guard case .subagentShown(let agent, let title) = shown else { Issue.record("not decoded: \(shown)"); return }
-        #expect(agent == "a2" && title == "Auditor")
+        let shown = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": "a2", "title": "Auditor", "tone": 2]])
+        guard case .subagentShown(let agent, let title, let tone) = shown else { Issue.record("not decoded: \(shown)"); return }
+        #expect(agent == "a2" && title == "Auditor" && tone == 2)
         let chat = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": [String: Any]()])
-        guard case .subagentShown(let none, let noTitle) = chat else { Issue.record("not decoded: \(chat)"); return }
-        #expect(none == nil && noTitle == nil, "back on the chat: no subagent, no name")
+        guard case .subagentShown(let none, let noTitle, let noTone) = chat else { Issue.record("not decoded: \(chat)"); return }
+        #expect(none == nil && noTitle == nil && noTone == nil, "back on the chat: no subagent, no name")
         let bad = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": ""]])
         if case .subagentShown = bad { Issue.record("an empty subagent id was taken") }
     }
 
     @Test func thePagesRequestCarriesTheName() throws {
-        let request = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1", "focus": false, "title": "Audit the stack"]])
-        guard case .subagentPane(let agent, let focus, let title) = request else { Issue.record("not decoded: \(request)"); return }
-        #expect(agent == "agent-1" && !focus && title == "Audit the stack")
+        let request = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1", "focus": false, "title": "Audit the stack", "tone": 4]])
+        guard case .subagentPane(let agent, let focus, let title, let tone) = request else { Issue.record("not decoded: \(request)"); return }
+        #expect(agent == "agent-1" && !focus && title == "Audit the stack" && tone == 4)
         let old = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1"]])
-        guard case .subagentPane(_, _, let none) = old else { Issue.record("not decoded: \(old)"); return }
-        #expect(none == nil, "a page that sends no name still opens the pane")
+        guard case .subagentPane(_, _, let none, let noTone) = old else { Issue.record("not decoded: \(old)"); return }
+        #expect(none == nil && noTone == nil, "a page that sends no name still opens the pane")
     }
 }

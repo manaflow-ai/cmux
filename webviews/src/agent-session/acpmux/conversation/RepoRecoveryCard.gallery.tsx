@@ -2,7 +2,7 @@
 import { componentEntry } from "../../../gallery/format";
 import { RepoRecoveryCard, type RepoRecovery } from "./RepoRecoveryCard";
 
-type Props = { recovery: RepoRecovery };
+type Props = { recovery: RepoRecovery; outcomes?: boolean };
 
 const needsGithub: RepoRecovery = {
   code: "repo.needs_github",
@@ -37,10 +37,18 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/conversation/RepoRecoveryCard.tsx#RepoRecoveryCard"],
   styles: () => import("./conversation.css"),
   load: async () =>
-    function RepoRecoveryGallery({ recovery }: Props) {
+    function RepoRecoveryGallery({ recovery, outcomes }: Props) {
       return (
-        <div style={{ padding: "24px" }}>
+        <div style={{ padding: "24px", display: "grid", gap: 8 }}>
           <RepoRecoveryCard recovery={recovery} />
+          {/* The card's later lines (it reaches them by clicking): the same column, the shared inks. */}
+          {outcomes && (
+            <>
+              <div className="cv-repo-recovery cv-repo-recovery--quiet">Connecting GitHub…</div>
+              <div className="cv-repo-recovery cv-repo-recovery--done">Repository attached</div>
+              <div className="cv-repo-recovery cv-repo-recovery--error">Couldn’t recover this repository action</div>
+            </>
+          )}
         </div>
       );
     },
@@ -51,5 +59,9 @@ export default componentEntry<Props>({
     },
     "no-access": { note: "The organization is named with install and request actions.", props: { recovery: noAccess } },
     ambiguous: { note: "Several matching repositories are one tap away.", props: { recovery: ambiguous } },
+    outcomes: {
+      note: "Its lines on the tool row's text column (24 in), no outer margin: waiting in the dim ink, attached in the success ink and failed in the failure ink (the shared status colors), buttons at the controls' 6 radius.",
+      props: { recovery: noAccess, outcomes: true },
+    },
   },
 });

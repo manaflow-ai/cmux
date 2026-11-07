@@ -116,6 +116,7 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
         Trigger::Cron { expr, tz } => Ok(cron(expr.clone(), tz)),
         Trigger::Manual => Ok(json!([{"type": "manual"}])),
         Trigger::At { .. } => usage(messages().cloud_local_only.replace("{flag}", "at")),
+        Trigger::Watch { .. } => usage(messages().cloud_local_only.replace("{flag}", "watch")),
         Trigger::Every { seconds, anchor } => match every_as_cron(*seconds, *anchor) {
             Some(expr) => Ok(cron(expr, "UTC")),
             None => usage(messages().teleport_every.replace("{value}", &t.describe())),
@@ -127,7 +128,7 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
 /// minutes every hour (N divides an hour) or the same hours every day (N
 /// whole hours dividing a day).
 pub(super) fn every_as_cron(seconds: u64, anchor: i64) -> Option<String> {
-    if seconds == 0 || seconds % 60 != 0 || anchor % 60 != 0 {
+    if seconds == 0 || !seconds.is_multiple_of(60) || anchor % 60 != 0 {
         return None;
     }
     let step = (seconds / 60) as i64;
@@ -155,6 +156,14 @@ fn to_cloud(store: &Store, x: &Automation, global: &GlobalArgs, out: &Out) -> Ou
         return usage(messages().teleport_command);
     };
     let triggers = cloud_triggers(&x.trigger)?;
+    let local_only = [
+        (x.gate.condition.is_some(), "if"),
+        (x.gate.cooldown_seconds > 0, "cooldown"),
+        (x.gate.max_runs_per_day.is_some(), "max-runs"),
+    ];
+    if let Some((_, flag)) = local_only.iter().find(|(set, _)| *set) {
+        return usage(messages().cloud_local_only.replace("{flag}", flag));
+    }
     let chief = match cloud::call(global, "chief.list", json!({}), None) {
         Ok(Answer::Value(v)) => cloud::default_chief(&v)
             .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
@@ -456,6 +465,8 @@ fn from_cloud(
         catch_up: spec_of.get("catch_up").and_then(Value::as_str).map(str::to_string),
         timeout_seconds: None,
         sharing: None,
+        // A Cloud automation has no condition or guardrails of this machine's kind.
+        gate: None,
         handoff: ImportHandoff {
             id: handoff_id.clone(),
             from: "cloud".into(),
