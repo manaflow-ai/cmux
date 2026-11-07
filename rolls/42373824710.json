@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42373824710",
+  "recorded_at": "2026-11-07T12:52:09Z",
+  "reason": "cmux-tui 470857dcd954 changes the image's cmux-tui (pinned ddbc81786634)",
+  "dry_run": false,
+  "cmux_tui": "470857dcd954fdc57221c741325b79c396cce3ac",
+  "fixes": [
+    {
+      "sha": "470857dcd954fdc57221c741325b79c396cce3ac",
+      "mergedAt": "2026-11-07T04:29:36-08:00",
+      "subject": "acpmux: add machine_info agent tool (#34423)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T12:52:09Z",
+    "snapshot_id": "sh-107609d220b3480aaae360485b733fdb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42373824710): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "756fd429fdcad896c540315076398f523067aca9",
+    "image": "cloud-native-auto-470857dc-42373824710-1",
+    "revision": "ci-42373824710-1",
+    "at": "2026-11-07T12:52:09Z"
+  },
+  "rolled_back": false
+}
