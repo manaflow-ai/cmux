@@ -130,7 +130,12 @@ jobs:
       layered: true
       roll: true
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
-    # No secrets pass: the bake job reads its Freestyle key from its own environment (cmux-next-vm-image-dev).
+    # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
+    # passed, so exactly these three pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
+    secrets:
+      FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+      CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
+      CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
 
   promote:
     needs: [plan, bake]
