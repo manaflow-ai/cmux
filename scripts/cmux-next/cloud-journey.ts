@@ -1203,7 +1203,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
-        const last = await awaitReply();
+        const last = await awaitReply().catch(async (e: Error) => {
+          if (!gwExec && !gatewayLocal) throw e;
+          // Through a gateway, which provider the chat machine's Codex picked says where its call went.
+          const d = await exec(`grep -nE '^(model_provider|profile) *=|^\\[model_providers' "$HOME/.codex/config.toml" 2>&1 | head -8`).catch(() => null);
+          throw new Error(`${e.message} (the machine's Codex config: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 300)})`);
+        });
         // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
         if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
         return { value: last, detail: last.slice(0, 280) };
