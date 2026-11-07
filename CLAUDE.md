@@ -393,9 +393,9 @@ one schema, so do it like this:
   (`SettingsSchemaExportTests`; base autofix regenerates it, never hand-edit it). A new kind, validation or
   value shape also goes into `cmux-config`'s schema module.
 - MCP: `settings_list|get|set|reset|unset` (`cmux-tui/crates/cmux-tui/src/cli/mcp/settings_tools.rs`) read the
-  same schema and write only keys marked `agent_settable`. Put every new key in exactly one table of
-  `SettingsSchema+AgentPolicy.swift`: `agentSettableKeys` (agents may set it; looks and layout usually) or
-  `agentRefusedKeys` with an `AgentRefusal` reason (privacy, network, destructive, user-only).
+  same schema and write only keys marked `agent_settable`. Put every new key in exactly one group of
+  `schemas/settings/source/agent-policy.json`: `settable` (agents may set it; looks and layout usually) or a
+  refusal reason (privacy, network, destructive, userOnly), then run `scripts/cmux-next/gen-settings-sources.py`.
   `SettingsSchemaExportTests` fails on a key in neither or both.
 - A setting edited by a dedicated control instead of a schema row (keybindings, custom actions) gets the
   surfaces through its `ActionCatalog` action's `ActionSurfacePlan`: `palette`, and `cli: .offered` for a

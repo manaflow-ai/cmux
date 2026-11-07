@@ -229,6 +229,17 @@ export const PAGES = {
       },
     ],
   },
+  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
+  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
+  machines: {
+    out: "webviews/src/pages/machines/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
+      },
+    ],
+  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
@@ -263,6 +274,12 @@ export const PAGES = {
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+  },
+  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
+  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
+  "home-messages-cards": {
+    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
   },
   // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
   // their translations carry over. The parts it reuses from Channels read Channels' table beside it.

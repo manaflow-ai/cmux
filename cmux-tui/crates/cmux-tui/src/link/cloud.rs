@@ -461,6 +461,12 @@ const RUNNING_HANDSHAKE_WAIT: Duration = Duration::from_secs(45);
 /// The pause between those tries, so a connect that fails at once does not spin.
 const HANDSHAKE_RETRY_PAUSE: Duration = Duration::from_secs(1);
 
+/// The pauses before asking again for a link token the broker could not
+/// mint ("the Cloud broker is unavailable", seen on a person's Mac on
+/// 2026-11-06): a few seconds in all, then the dial is refused.
+const TOKEN_RETRY_PAUSES: [Duration; 3] =
+    [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
+
 /// A refused Cloud dial: the typed code, and what failed in `error_detail`
 /// and on this link's stderr (the app keeps it in the link's `link.log`).
 /// Both get the same clipped, one-line detail (`failed_because`), never the
@@ -514,22 +520,26 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
         // Peer setup is not cut by the connect deadline, so a half-applied
         // change cannot be left behind (it bounds its own tunnel start).
-        // The tries after the refetch end with the wait, not past it.
-        let budget = if tries < 1 {
-            DIAL_TIMEOUT
-        } else {
-            DIAL_TIMEOUT.min(RUNNING_HANDSHAKE_WAIT.saturating_sub(began.elapsed()))
-        };
         let (failed, handshake) =
             match overlay.set_cloud_peer(host, resolved.key, &resolved.info).await {
                 Err(error) => (format!("the tunnel peer setup failed: {error}"), false),
-                Ok(_) => match tokio::time::timeout(budget, overlay.connect(remote)).await {
-                    Ok(Ok(stream)) => break (resolved, stream),
-                    Ok(Err(error)) => (format!("connect to {remote}: {error}"), true),
-                    Err(_) => {
-                        (format!("no handshake with {remote} within {} s", budget.as_secs()), true)
+                Ok(_) => {
+                    // The tries after the refetch end with the wait, not past it:
+                    // the time left is read after the peer setup, which can be slow.
+                    let budget = if tries < 1 {
+                        DIAL_TIMEOUT
+                    } else {
+                        DIAL_TIMEOUT.min(RUNNING_HANDSHAKE_WAIT.saturating_sub(began.elapsed()))
+                    };
+                    match tokio::time::timeout(budget, overlay.connect(remote)).await {
+                        Ok(Ok(stream)) => break (resolved, stream),
+                        Ok(Err(error)) => (format!("connect to {remote}: {error}"), true),
+                        Err(_) => (
+                            format!("no handshake with {remote} within {} s", budget.as_secs()),
+                            true,
+                        ),
                     }
-                },
+                }
             };
         tries += 1;
         // Rule 3: a handshake failure fetches once more before it reports.
@@ -554,12 +564,22 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
         );
         return refuse(&mut caller, host, service, error, &detail).await;
     };
-    // One fresh token per attempt, used once, never kept.
-    let grant = match resolver.token(host, service).await {
-        Ok(grant) => grant,
-        Err(error) => {
-            let detail = format!("link_token: {}", error.detail());
-            return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+    // One fresh token per attempt, used once, never kept. A mint the broker
+    // could not answer is asked again a few times before the dial is refused.
+    let mut pauses = TOKEN_RETRY_PAUSES.iter();
+    let grant = loop {
+        match resolver.token(host, service).await {
+            Ok(grant) => break grant,
+            Err(error) => {
+                if matches!(error, ConnectInfoError::Unavailable(_))
+                    && let Some(pause) = pauses.next()
+                {
+                    tokio::time::sleep(*pause).await;
+                    continue;
+                }
+                let detail = format!("link_token: {}", error.detail());
+                return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+            }
         }
     };
     let hello = ServiceHello {

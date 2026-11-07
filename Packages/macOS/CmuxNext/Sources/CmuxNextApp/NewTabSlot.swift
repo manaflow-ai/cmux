@@ -3,15 +3,12 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// Where a new tab the user opens goes (cx-d0d.58). Cmd-T follows
-/// `tabs.newTabPosition`: right after the selected tab by default
-/// (Lawrence 2026-10-20), else at the end or the start (after the pinned
-/// tabs); the strip's + `tabs.newTabButtonPosition` (the end). New Tab After Current Tab, at Start, at End and the tab menu's
-/// New Tab to the Right name their place whatever the setting says. The
-/// tab is made where it always is (the end), then moves into its slot
-/// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab made in
-/// another pane (the docked chat's strip) stays where it lands. What a New
-/// Tab page turns into takes the page's slot.
+/// Where a new tab the user opens goes (cx-d0d.58). Cmd-T and the other new-tab keys follow `tabs.newTabPosition`: right
+/// after the selected tab by default (Lawrence 2026-10-20), else at the end or the start (after the pinned tabs); the strip's
+/// + `tabs.newTabButtonPosition` (the end). New Tab After Current Tab, at Start, at End and the tab menu's New Tab to the Right
+/// name their place whatever the setting says. The tab is made at the end, then moves into its slot (`TabMoves.move`,
+/// optimistic) once its pane lists it. A tab made in another pane (the docked chat's strip) stays where it lands. What a
+/// New Tab page turns into takes the page's slot.
 @MainActor
 enum NewTabSlot {
     /// How long the move waits for the pane to list the new tab.
@@ -71,7 +68,7 @@ enum NewTabSlot {
         return { [weak pane] surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
-            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0, pane: pane, open: open) }
+            place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0, pane: pane, open: open, services: services) }
         }
     }
 
@@ -84,7 +81,7 @@ enum NewTabSlot {
         return { [weak pane] key in
             then?(key)
             place(in: { home(of: target.anchor, services) ?? pane }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
-                slot(for: target, in: $0, pane: pane, open: open)
+                slot(for: target, in: $0, pane: pane, open: open, services: services)
             }
         }
     }
@@ -149,12 +146,13 @@ enum NewTabSlot {
         })
     }
 
-    /// The final index for `target` among `others` (the pane's tabs but the new one); when an after-anchor
-    /// left, where `pane`'s `open` re-anchored the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil.
-    /// The start is right after the pinned tabs.
-    static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil) -> Int? {
+    /// The final index for `target` among `others` (the pane's tabs but the new one); an after-anchor that was a stand-in
+    /// (Cmd-T on a new tab not answered yet) is the daemon's tab it became; when it left, where `pane`'s `open` re-anchored
+    /// the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil. The start is right after the pinned tabs.
+    static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
-        case .after(let anchor): slot(after: anchor, in: others) ?? pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) }
+        case .after(let anchor): slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
+            .flatMap { slot(after: $0, in: others) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
         case .start: others.prefix { $0.pinned }.count
         }
     }
