@@ -68,7 +68,9 @@ extension CloudHandlers {
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
+    /// `environment`: the Cloud environment the dialog starts on (the composer's Environment chip).
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil,
+                                    environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -88,7 +90,7 @@ extension CloudHandlers {
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 // The app server's create takes no repository and no size for now.
                 supportsRepository: false, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: true,
+                environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
                 sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
@@ -268,6 +270,8 @@ extension CloudHandlers {
                 }
             }
         }
+        // The composer's Environment chip (its New Cloud machine row): the setup dialog starts on it.
+        if let environment = invocation["environment"]?.stringValue, environment.hasPrefix("env_") { request.environment = environment }
         return request
     }
 

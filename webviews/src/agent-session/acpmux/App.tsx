@@ -49,6 +49,7 @@ import {
 } from "./sessionAuth";
 import { postNative } from "./native";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
+import { cloudEnvironmentPick, environmentForStart } from "./cloudEnvironmentChoice";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -3978,8 +3979,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (cloudStartPending.current) return false;
-    const reservationKey = cloudReservation.handoff(start.environment);
-    const request: CloudStart = { task: text, attachments, ...start, ...(reservationKey ? { reservationKey } : {}) };
+    // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
+    const environment = start.environment ?? environmentForStart(cloudEnvironmentPick());
+    const reservationKey = cloudReservation.handoff(environment);
+    const request: CloudStart = {
+      task: text,
+      attachments,
+      ...start,
+      ...(environment ? { environment } : {}),
+      ...(reservationKey ? { reservationKey } : {}),
+    };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
     return false;
