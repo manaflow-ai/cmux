@@ -241,14 +241,15 @@ fn quick_start_commands_parse() {
 }
 
 /// `cloud new-machine` is `cmux machine new`'s old name: the overview shows
-/// only the new one, and the old verb's own help names it.
+/// only `vm new`, and the old verb's own help names `machine new`.
 #[test]
 fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
     for japanese in [false, true] {
         let text = overview(japanese);
         assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
         assert!(!text.contains("cmux vm new-machine"), "{text}");
-        assert!(text.contains("cmux machine new"), "{text}");
+        // The quick start makes a VM with the short verb (`vm new` is `machine new`).
+        assert!(text.contains("cmux vm new --size"), "{text}");
         let help = verb_help("new-machine", japanese).unwrap();
         assert!(help.contains("cmux machine new"), "{help}");
         assert!(help.contains("cmux vm new-machine [--size"), "{help}");
