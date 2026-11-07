@@ -49,6 +49,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+// These cover the paste card (sentPasteLook `card`); the default draws a paste as the bubble's own
+// text (test/sent-bubble-final-size.test.ts, user-prompt-collapse.test.tsx).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "sent-paste-look": "card" };
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");

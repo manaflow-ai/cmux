@@ -214,6 +214,29 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
   );
 }
 
+/// The images acpmux's echo of a prompt names (by the SHA-256 of their bytes, with no bytes or
+/// size of their own), each matched in order to the image the pane's own row drew for it (`sent`,
+/// the composer's bytes) by its type and name, keeping those bytes and their size. The echo then
+/// draws each image in the frame it lands, at the shape the pane's row drew it, never a square
+/// slot that reshapes once the pane's priming or acpmux's read lands (Leo, 2026-11-07: "know
+/// beforehand the size we're going to go for rather than say, like, Oh wait, well now we're going
+/// to expand"). An image with no match (a video's frame, a preview sent as its original's link)
+/// stays as acpmux named it.
+export function withSentShapes<
+  Image extends { mimeType: string; name?: string; width?: number; height?: number; src?: string },
+>(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
+  if (!sent?.length) return [...named];
+  let next = 0;
+  return named.map((image) => {
+    const own = sent[next];
+    if (!own?.src || own.mimeType !== image.mimeType || (own.name && image.name && own.name !== image.name))
+      return image;
+    next += 1;
+    const size = image.width && image.height ? undefined : knownImageSize(own.src);
+    return { ...image, src: own.src, ...(size && { width: size.width, height: size.height }) };
+  });
+}
+
 /// What an image source is: a data URL the page already has (a reply's image), or a sent image
 /// acpmux names by `id` and `read` reads (TurnActions.promptImage).
 export type StableImageSource = { src: string } | { id: string; read?: (id: string) => Promise<string | undefined> };

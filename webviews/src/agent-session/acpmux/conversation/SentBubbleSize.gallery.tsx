@@ -13,10 +13,11 @@ import { componentEntry } from "../../../gallery/format";
 import type { ComposerAttachment } from "../attachments";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
-import { primeSentImages } from "./imageEntries";
+import { primeSentImages, withSentShapes } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { UserBubble } from "./UserBubble";
+import { sentPasteLook } from "./sentPasteLook.experiment";
 
 type Shot = { width: number; height: number; hue: number };
 type Prompt = {
@@ -153,8 +154,9 @@ async function echoRow(sent: AcpmuxRow, attachments: ComposerAttachment[], key: 
   const note = video?.video
     ? `\n${framesNote(video.name, video.video.durationMs, video.video.width, video.video.height, [0])}`
     : "";
+  // Each image keeps the bytes and size the pane's own row drew it with, as direct.ts does.
   const { images: _images, ...rest } = sent;
-  const images = [...named, ...(frame ? [frame] : [])];
+  const images = [...withSentShapes(named, sent.images), ...(frame ? [frame] : [])];
   return {
     ...rest,
     id: `durable-${key}`,
@@ -232,6 +234,17 @@ export default componentEntry<Props>({
   height: 640,
   covers: ["agent-session/acpmux/conversation/UserBubble.tsx#UserBubble"],
   load: async () => SentBubbleStage,
+  // The paste's look inside the bubble (Leo, 2026-11-07: "we do not want to have this card thing
+  // going on, this double card thing"): its own text (the default), one label row, or the card.
+  experiment: {
+    definition: sentPasteLook,
+    script: [
+      {
+        name: "the sent paste settles",
+        run: async (ctx) => ctx.waitFor(() => ctx.document.querySelector("[data-sent-settled]")),
+      },
+    ],
+  },
   variants: {
     "text-only": {
       note: "A typed prompt alone: the bubble's one size from the frame it lands.",
@@ -283,9 +296,34 @@ export default componentEntry<Props>({
       },
     },
     "long-paste": {
-      note: "A 600-character paste under a typed line: its own characters in the bubble's text, never a card inside the bubble.",
+      note: "A 600-character paste under a typed line: its own characters in the bubble's text, never a card inside the bubble (compare: the row and card arms).",
       height: 360,
       props: { prompts: [{ text: "Can you look at this?", paste: PASTE }] },
+    },
+    "agent-paste": {
+      note: "A pasted Codex handoff: its own text, with a quiet 'Pasted from Codex' line over it so it never passes as the person's words.",
+      height: 300,
+      props: {
+        prompts: [
+          {
+            text: "Can you pick this up?",
+            paste:
+              "From Codex:\nHandoff: the upload probe is red on the second retry.\n\nThe backoff doubles from 200 ms but never resets between uploads, so the third upload waits 1.6 s before its first try.\n\nTrace-ID: ask-77",
+          },
+        ],
+      },
+    },
+    "huge-paste": {
+      note: "A 2,300-line stack trace pasted under a question: its first lines as the bubble's text, folded under the prompt's one Show more.",
+      height: 640,
+      props: {
+        prompts: [
+          {
+            text: "Why does the upload fail after the second retry?",
+            paste: Array.from({ length: 2300 }, (_, index) => `    at retry (uploader.ts:${index + 12}:7)`).join("\n"),
+          },
+        ],
+      },
     },
     "long-text": {
       note: "A 15-line prompt draws whole; a 40-line one opens on its first lines, fading out, over Show more.",
