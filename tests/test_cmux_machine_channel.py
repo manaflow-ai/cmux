@@ -8,11 +8,13 @@ takes each sha256 from the run's binaries (--binaries-dir) instead. Both ways it
 binary from its URL and refuses one whose bytes differ, and both give the same payload key, so
 the later point-machine-channel finds the channel current (web-ota-pointer.py newer) and keeps it.
 
-The early upload and a publish of the same commit by another run never wait on each other: the
-commit's write-once claim (scripts/ci/cmux-machine-linux-claim.sh) decides whose Linux bytes the
-prefix gets. Without it, a publisher that claimed the prefix between the early job's check and its
-upload left both runs waiting for a manifest neither could write (review of cmux#37970). Those
-cases run the real publish steps against the fake R2 of test_cmux_tui_republish_same_commit.py.
+The early upload and a publish of the same commit by another run or attempt never wait on each
+other: both upload the four Linux objects write-once before anything names them
+(scripts/ci/cmux-machine-linux-bytes.sh), the first upload of each wins, the early job skips when it
+lost and publish adopts the served bytes. A separate claim object left windows (a check before an
+upload, an expired claim, a failed read) in which a publisher's checksums named bytes another upload
+then replaced, and both runs waited for a manifest neither could write (reviews of cmux#37970).
+Those cases run the real publish steps against the fake R2 of test_cmux_tui_republish_same_commit.py.
 Runs without network.
 """
 
@@ -105,17 +107,13 @@ LINUX = "cmux-tui-x86_64-unknown-linux-musl"
 
 
 class EarlyUploadAndAnotherPublisher(unittest.TestCase):
-    """Run 1 points the channel early; run 2 publishes the same commit (cx-a1q4d: two runs of one commit)."""
+    """Run 1 points the channel early; run 2 (or a later attempt) publishes the same commit."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.box = republish.Sandbox(pathlib.Path(self.tmp.name))
-        uploader = self.box.repo / "scripts/ci/upload-r2-object.py"
-        uploader.write_text(uploader.read_text().replace(
-            'p.add_argument("--conflict-exit-code", type=int)',
-            'p.add_argument("--conflict-exit-code", type=int); p.add_argument("--content-type")'))
-        shutil.copy(ROOT / "scripts/ci/cmux-machine-linux-claim.sh", self.box.repo / "scripts/ci/")
+        shutil.copy(ROOT / "scripts/ci/cmux-machine-linux-bytes.sh", self.box.repo / "scripts/ci/")
         self.keep = republish.step_script("publish", "Keep the Linux binaries the machine channel already uploaded")
         self.upload = republish.step_script("publish", "Upload to R2")
         self.early_dir = pathlib.Path(self.tmp.name) / "early-assets"
@@ -123,23 +121,24 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
         (self.early_dir / LINUX).write_text("linux build of run 1\n")
 
     def early(self, **env):
-        """point-machine-channel-early's claim and upload in run 1 (its point is not under test)."""
+        """point-machine-channel-early's upload (its point is not under test)."""
         script = f"""
-            rc=0; scripts/ci/cmux-machine-linux-claim.sh early {self.early_dir} || rc=$?
+            rc=0; scripts/ci/cmux-machine-linux-bytes.sh early {self.early_dir} || rc=$?
             [[ $rc == 3 ]] && {{ echo skipped; exit 0; }}
             [[ $rc == 0 ]] || exit $rc
-            python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 --file {self.early_dir}/{LINUX} \\
-              --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "cmux-tui/$GITHUB_SHA/{LINUX}" --cache-control x
             echo uploaded"""
         return self.box.run(script, **{"GITHUB_RUN_ID": "1", **env})
 
+    def keep_step(self, **env):
+        self.box.build("2", real_checksums=True)
+        return self.box.run(self.keep, **{"GITHUB_RUN_ID": "2", **env})
+
     def publish(self, **env):
         """Run 2's publish: keep, then the manifest and checksums of the bytes it holds, then the upload."""
-        self.box.build("2", real_checksums=True)
-        result = self.box.run(self.keep, GITHUB_RUN_ID="2", **env)
+        result = self.keep_step(**env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.checksums_again()
-        return self.box.run(self.upload, GITHUB_RUN_ID="2", **env)
+        return self.box.run(self.upload, **{"GITHUB_RUN_ID": "2", **env})
 
     def checksums_again(self):
         """"Build manifest and checksums" runs after the keep step: it names the bytes the step left."""
@@ -154,56 +153,43 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
     def served(self):
         return (self.box.r2 / f"cmux-tui/{self.box.sha}/{LINUX}").read_text()
 
-    def test_the_publisher_claims_first_and_the_early_job_skips(self):
-        result = self.publish()
+    def assert_published_with(self, result, text):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertEqual(self.served(), text)
+        manifest = json.loads((self.box.r2 / f"cmux-tui/{self.box.sha}/manifest.json").read_text())
+        self.assertEqual(manifest["binaries"][LINUX], hashlib.sha256(text.encode()).hexdigest())
+
+    def test_the_publisher_uploads_first_and_the_early_job_skips(self):
+        self.assert_published_with(self.publish(), f"{LINUX} build 2\n")
         early = self.early()
         self.assertEqual(early.returncode, 0, early.stdout + early.stderr)
         self.assertIn("skipped", early.stdout)
-        self.assertIn("build 2", self.served())
 
-    def test_the_early_job_claims_first_and_the_publisher_keeps_its_bytes(self):
-        early = self.early()
-        self.assertIn("uploaded", early.stdout, early.stderr)
-        result = self.publish()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
-        self.assertEqual(self.served(), "linux build of run 1\n")
-        manifest = json.loads((self.box.r2 / f"cmux-tui/{self.box.sha}/manifest.json").read_text())
-        self.assertEqual(manifest["binaries"][LINUX], hashlib.sha256(b"linux build of run 1\n").hexdigest())
+    def test_the_early_job_uploads_first_and_the_publisher_keeps_its_bytes(self):
+        self.assertIn("uploaded", self.early().stdout)
+        self.assert_published_with(self.publish(), "linux build of run 1\n")
 
-    def test_the_publisher_waits_for_a_claimed_upload_still_in_flight(self):
-        # Run 1 holds the claim; its binary lands while run 2 waits (the fake sleep copies it in).
-        claim = self.box.r2 / f"cmux-tui-machine-claims/{self.box.sha}"
-        claim.parent.mkdir(parents=True)
-        claim.write_text("1 %d\n" % __import__("time").time())
-        race = pathlib.Path(self.tmp.name) / "race"
-        (race / f"cmux-tui/{self.box.sha}").mkdir(parents=True)
-        (race / f"cmux-tui/{self.box.sha}/{LINUX}").write_text("linux build of run 1\n")
-        result = self.publish(FAKE_RACE_DIR=str(race), FAKE_RACE_FINISHES="1")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.served(), "linux build of run 1\n")
-        self.assertIn("15", (pathlib.Path(self.tmp.name) / "sleep.log").read_text())
-
-    def test_a_claim_that_cannot_be_read_is_never_taken_for_this_runs_own(self):
-        # Run 2's publish holds the claim; run 1's early job cannot read it back (review of cmux#37970).
-        result = self.publish()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        early = self.early(FAKE_DOWNLOAD_FAIL=f"cmux-tui-machine-claims/{self.box.sha}=56")
-        self.assertNotEqual(early.returncode, 0)
-        self.assertNotIn("uploaded", early.stdout)
-        self.assertIn("build 2", self.served())
-        # Its publish fails the same way rather than adopting bytes no run uploaded.
-        self.box.build("1", real_checksums=True)
-        keep = self.box.run(self.keep, GITHUB_RUN_ID="1", FAKE_DOWNLOAD_FAIL=f"cmux-tui-machine-claims/{self.box.sha}=56")
-        self.assertNotEqual(keep.returncode, 0)
+    def test_the_early_job_after_the_keep_step_skips_and_publish_completes(self):
+        # Publish settled the bytes; a later early upload (another run, or a later attempt of a run
+        # whose first attempt never uploaded) loses and skips before the checksums go up.
+        self.assertEqual(self.keep_step().returncode, 0)
+        self.assertIn("skipped", self.early().stdout)
+        self.checksums_again()
+        self.assert_published_with(self.box.run(self.upload, GITHUB_RUN_ID="2"), f"{LINUX} build 2\n")
 
     def test_a_rerun_of_all_jobs_keeps_its_own_earlier_upload(self):
-        early = self.early(GITHUB_RUN_ID="2")
-        self.assertIn("uploaded", early.stdout, early.stderr)
-        result = self.publish()  # run 2 again: its rebuild has other bytes
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.served(), "linux build of run 1\n")
+        self.assertIn("uploaded", self.early(GITHUB_RUN_ID="2").stdout)
+        self.assert_published_with(self.publish(), "linux build of run 1\n")  # the rebuild has other bytes
+
+    def test_a_read_that_fails_stops_publish_before_anything_names_the_bytes(self):
+        self.assertIn("uploaded", self.early().stdout)
+        keep = self.keep_step(FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/{LINUX}=56")
+        self.assertNotEqual(keep.returncode, 0)
+        self.assertIn("could not be read", keep.stdout + keep.stderr)
+        self.assertEqual(sorted(p.name for p in (self.box.r2 / f"cmux-tui/{self.box.sha}").iterdir()), [LINUX])
+        # A re-run with healthy reads then publishes the early bytes.
+        self.assert_published_with(self.publish(), "linux build of run 1\n")
 
 
 if __name__ == "__main__":

@@ -1808,12 +1808,12 @@ jobs:
           merge-multiple: true
 
       # point-machine-channel-early uploads this commit's Linux cmux-tui and
-      # cmux-tui-hook to cmux-tui/<sha>/ before this job runs. Whichever run
-      # first writes the commit's write-once claim (cmux-tui-machine-claims/<sha>)
-      # decides whose Linux bytes the prefix gets; this step puts those served
-      # bytes here, so the checksums name them and every upload below is
-      # identical (also after "Re-run all jobs" rebuilt them). It waits for
-      # another run's early upload when that run holds the claim.
+      # cmux-tui-hook to cmux-tui/<sha>/ before this job runs, and another run
+      # or attempt of the same commit may too. Upload those four write-once
+      # first and keep whatever bytes the prefix ends up serving
+      # (scripts/ci/cmux-machine-linux-bytes.sh), so the checksums and manifest
+      # name them and every upload below is identical. A read that fails stops
+      # here, before anything names the bytes.
       - name: Keep the Linux binaries the machine channel already uploaded
         if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
         env:
@@ -1821,7 +1821,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: scripts/ci/cmux-machine-linux-claim.sh publish assets/cmux-tui
+        run: scripts/ci/cmux-machine-linux-bytes.sh publish assets/cmux-tui
 
       - name: Build manifest and checksums
         run: |
@@ -3722,10 +3722,11 @@ jobs:
   # it, continue-on-error keeps it out of the run's result, and whenever it
   # skips or fails, point-machine-channel below moves the channel after
   # publish and verify-publish as before (it finds the channel current when
-  # the early one succeeded). It runs only in the run that owns the tree key,
-  # and uploads only when its run holds the commit's write-once claim, which
-  # publish takes too (scripts/ci/cmux-machine-linux-claim.sh), so it never
-  # races a second publisher of the same commit.
+  # the early one succeeded). It runs only in the run that owns the tree key.
+  # The four objects are write-once and publish settles them the same way
+  # before naming them (scripts/ci/cmux-machine-linux-bytes.sh): whichever
+  # upload lands first wins, the early job skips when it lost, and publish
+  # adopts the served bytes, so neither ever waits for the other.
   point-machine-channel-early:
     environment: artifacts
     name: point the Cloud machine channel at this commit's Linux build
@@ -3757,27 +3758,13 @@ jobs:
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          # The commit's write-once claim decides whose Linux bytes cmux-tui/<sha>/ gets
-          # (scripts/ci/cmux-machine-linux-claim.sh); another run's publish holds it: skip.
-          rc=0
-          scripts/ci/cmux-machine-linux-claim.sh early assets/cmux-tui || rc=$?
-          [[ $rc == 3 ]] && exit 0
-          [[ $rc == 0 ]] || exit "$rc"
           dir="$RUNNER_TEMP/machine-channel"
           mkdir -p "$dir" && chmod 700 "$dir"
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            for name in cmux-tui cmux-tui-hook; do
-              rc=0
-              python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 \
-                --file "assets/cmux-tui/$name-$target" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-                --key "cmux-tui/$GITHUB_SHA/$name-$target" --cache-control "public, max-age=31536000, immutable" || rc=$?
-              if [[ $rc == 75 ]]; then
-                echo "::notice title=machine channel waits for publish::cmux-tui/${GITHUB_SHA:0:12}/$name-$target holds other bytes; point-machine-channel moves the channel after publish"
-                exit 0
-              fi
-              [[ $rc == 0 ]] || exit "$rc"
-            done
-          done
+          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
+          rc=0
+          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
           python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --commit "$GITHUB_SHA" \
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
