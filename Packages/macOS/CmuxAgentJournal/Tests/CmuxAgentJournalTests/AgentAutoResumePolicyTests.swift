@@ -253,6 +253,58 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
     }
 
+    /// Feeds live events through the notification reconciler and the tracker
+    /// the way the app's journal lifecycle center does.
+    private struct LiveObservation {
+        var reconciler = AgentNotificationReconciler()
+        var tracker = AgentAutoResumeTracker()
+        var sequence: Int64 = 0
+        let surface: String
+
+        mutating func observe(
+            _ kind: AgentJournalEventKind, child: String? = nil, detail: String? = nil, notify: Bool = false
+        ) -> AgentAutoResumeTracker.Action {
+            sequence += 1
+            let draft = AgentJournalEventDraft(
+                eventId: "event-\(sequence)", kind: kind, occurredAtMs: sequence, source: "claude",
+                agentKey: "claude", sessionId: "session", workspaceId: "workspace", surfaceId: surface,
+                detail: detail,
+                attention: AgentAttentionContext(
+                    turnIdentity: "turn-1", requestIdentity: child,
+                    notification: notify ? AgentJournalNotification(
+                        title: "Agent", subtitle: "", body: "Ready", category: "turn-complete") : nil))
+            let event = AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence, draft: draft)
+            _ = reconciler.apply(event)
+            return tracker.observe(draft, surfaceId: surface, projected: reconciler.lifecycleEvent(event).draft)
+        }
+    }
+
+    @Test func aChildThatFinishesAfterTheFinalStopKeepsTheTurnEnded() {
+        // The root stops while a child is still running. The child's later
+        // completion leaves the session idle, so it is not work starting
+        // again and a late error must not schedule a resume.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.childSpawned, child: "child") == .none)
+        #expect(live.observe(.turnCompleted, notify: true) == .none)
+        #expect(live.observe(.childCompleted, child: "child") == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+        #expect(live.tracker.totalResumes(surfaceId: surface) == 0)
+    }
+
+    @Test func aChildSpawnedAfterTheFinalStopReopensTheTurn() {
+        // A new child after the Stop is the session running again, so a
+        // failure in that work still gets its resume.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted, notify: true) == .none)
+        #expect(live.observe(.childSpawned, child: "late-child") == .none)
+        guard case .schedule = live.observe(.errorReported, detail: "overloaded") else {
+            Issue.record("an error after a child spawned past the Stop should schedule a resume")
+            return
+        }
+    }
+
     @Test func aStateChangeDeclaringRunningReopensTheTurn() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)

@@ -77,6 +77,29 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         return surfaces[surfaceId]?.sessionId
     }
 
+    /// Folds one live journal event for a surface into a decision, the way
+    /// the app observes it.
+    ///
+    /// - Parameter projected: The notification reconciler's lifecycle
+    ///   projection of the same event.
+    public mutating func observe(
+        _ draft: AgentJournalEventDraft,
+        surfaceId: String,
+        projected: AgentJournalEventDraft
+    ) -> Action {
+        observe(
+            kind: draft.kind,
+            surfaceId: surfaceId,
+            isSubagent: draft.isSubagent,
+            detail: draft.detail,
+            sessionId: draft.sessionId,
+            // Pending background work continues the turn, and the pane's own
+            // idle settlement can land before a slow StopFailure.
+            endsTurn: !draft.pendingWork && draft.nativeEvent != "program_status_idle",
+            declaredPhase: draft.declaredPhase
+        )
+    }
+
     /// Folds one journaled event for a surface into a decision.
     ///
     /// - Parameter endsTurn: For `.turnCompleted`, whether the agent's turn is
