@@ -184,3 +184,17 @@ async fn an_exact_short_name_beats_a_sibling_in_another_case() {
     list(&hub, "hb", "0199cccc-3333", "coord/td3-B", "idle");
     assert_eq!(hub.key_route("hb/td2_a").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
 }
+
+/// Review of #36919: a bare key naming a sub-session's short name in another case reaches that
+/// child ahead of a sibling it names only without separators, live or not.
+#[tokio::test]
+async fn a_bare_short_name_in_another_case_beats_one_without_separators() {
+    for first in ["idle", "closed"] {
+        let hub = test_hub();
+        add_peer(&hub, "hb");
+        list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", first);
+        list(&hub, "hb", "0199bbbb-2222", "coord/td2_a", "idle");
+        let found = hub.key_route("TD2-A").unwrap();
+        assert_eq!(found.as_deref(), Some("hb/0199aaaa-1111"), "first child {first}");
+    }
+}
