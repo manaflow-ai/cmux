@@ -74,7 +74,7 @@ final class AgentsStepView: NSView {
         } else if model.signingIn != nil {
             OnboardingStrings.agentsSignInRunning
         } else {
-            nil
+            OnboardingStrings.agentsSkillsHint
         }
         status.stringValue = text ?? ""
         status.isHidden = text == nil

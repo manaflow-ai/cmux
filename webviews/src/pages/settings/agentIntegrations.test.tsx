@@ -94,3 +94,62 @@ test("without the cmux CLI the card says so and still gives the command", async 
   expect(element.querySelector("[data-integrations-command]")!.textContent).toBe("cmux agent hook install");
   page.unmount();
 });
+
+// cmux skills for agents outside cmux's chats (Aziz 2026-11-06): nothing installed until the
+// person clicks Install on a folder, which sends only that folder; a folder the person made is
+// never offered Install.
+test("cmux skills are opt-in per global folder and install only on a click", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.integrations" });
+  await settle();
+  const element = card(page.container);
+  const section = element.querySelector<HTMLElement>("[data-skills-section]")!;
+  const targets = [...section.querySelectorAll<HTMLElement>("[data-skills-target]")];
+  expect(targets.map((row) => [row.dataset.skillsTarget, row.dataset.skillsState])).toEqual([
+    ["claude", "absent"],
+    ["agents", "absent"],
+  ]);
+  expect(section.textContent).toContain("Codex, OpenCode and other agents");
+  expect(section.querySelector("[data-skills-command]")!.textContent).toBe("cmux agent skills install --global");
+  // The hook rows stay one agent each.
+  expect(ids(element)).toEqual(["claude", "codex", "amp", "gemini"]);
+  expect(page.provider.integrationRuns).toEqual([]);
+  await act(async () =>
+    section.querySelector<HTMLButtonElement>('[data-skills-target="claude"] [data-skills-action="install"]')!.click(),
+  );
+  await settle();
+  expect(page.provider.integrationRuns).toEqual([{ action: "install", id: "claude", kind: "skills" }]);
+  const after = card(page.container).querySelector<HTMLElement>('[data-skills-target="claude"]')!;
+  expect(after.dataset.skillsState).toBe("installed");
+  page.unmount();
+});
+
+test("a folder cmux did not write offers no Install, only the command to copy", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.integrations" });
+  page.provider.integrations = {
+    ...page.provider.integrations,
+    skills: {
+      problem: null,
+      command: "cmux agent skills install --global",
+      providers: [
+        {
+          id: "agents",
+          path: "~/.agents/skills",
+          state: "conflict",
+          reason: "not_owned",
+          detail: "~/.agents/skills already holds cmux-browser that cmux did not install",
+          error: null,
+        },
+      ],
+    },
+  };
+  await act(async () =>
+    card(page.container).querySelector<HTMLButtonElement>('[data-integration-action="refresh"]')!.click(),
+  );
+  await settle();
+  const row = card(page.container).querySelector<HTMLElement>('[data-skills-target="agents"]')!;
+  expect([...row.querySelectorAll<HTMLElement>("[data-skills-action]")].map((b) => b.dataset.skillsAction)).toEqual([
+    "copy",
+  ]);
+  expect(row.querySelector("[data-skills-reason]")!.textContent).toContain("cmux leaves it alone");
+  page.unmount();
+});

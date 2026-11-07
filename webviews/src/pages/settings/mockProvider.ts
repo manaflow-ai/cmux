@@ -531,6 +531,29 @@ export class MockSettingsProvider {
       "cmux.settings.integrations.run": (params) => {
         const run = params as IntegrationsRun;
         if (run.action === "refresh") return {};
+        if (run.kind === "skills") {
+          const skills = this.integrations.skills!;
+          const target = skills.providers.find((entry) => entry.id === run.id);
+          if (!target) throw new ProtocolError("cmux.settings.invalid", "id must be a listed skills folder");
+          if (run.action !== "remove" && (target.state === "conflict" || target.state === "unavailable")) {
+            throw new ProtocolError(
+              "cmux.settings.invalid",
+              `${target.id} has a folder cmux did not create in the way`,
+            );
+          }
+          this.integrationRuns.push(run);
+          const next = run.action === "remove" ? "absent" : "installed";
+          this.integrations = {
+            ...this.integrations,
+            skills: {
+              ...skills,
+              providers: skills.providers.map((entry) =>
+                entry.id === target.id ? { ...entry, state: next, error: null } : entry,
+              ),
+            },
+          };
+          return {};
+        }
         const row = this.integrations.providers.find((entry) => entry.id === run.id);
         // Like the host: only a listed provider, and never an install over a conflict.
         if (!row) throw new ProtocolError("cmux.settings.invalid", "id must be a listed provider");
@@ -938,6 +961,14 @@ export class MockSettingsProvider {
       },
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
+    skills: {
+      problem: null,
+      command: "cmux agent skills install --global",
+      providers: [
+        { id: "claude", path: "~/.claude/skills", state: "absent", reason: null, detail: null, error: null },
+        { id: "agents", path: "~/.agents/skills", state: "absent", reason: null, detail: null, error: null },
+      ],
+    },
   };
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];

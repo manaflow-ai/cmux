@@ -387,6 +387,35 @@ Object.assign(variants, {
     note: "Agent integrations opened: one row per hook state, a conflict with no Install, and the manual command.",
     focus: "agents.integrations",
   }),
+  // The cmux skills part of the same card: Claude Code installed, the shared folder holding a
+  // folder the person made (no Install, the command to copy).
+  "agents-integrations-skills": variant("agents", {
+    note: "cmux skills for agents outside cmux's chats: one row per global folder, opt-in, never over the person's own folder.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+      ],
+      skills: {
+        problem: null,
+        command: "cmux agent skills install --global",
+        providers: [
+          { id: "claude", path: "~/.claude/skills", state: "installed", reason: null, detail: null, error: null },
+          {
+            id: "agents",
+            path: "~/.agents/skills",
+            state: "conflict",
+            reason: "not_owned",
+            detail: "~/.agents/skills already holds cmux-browser that cmux did not install",
+            error: null,
+          },
+        ],
+      },
+    },
+  }),
   "agents-integrations-no-cli": variant("agents", {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",

@@ -73007,6 +73007,792 @@
           }
         }
       }
+    },
+    "settingsWindow.agentIntegrations.skills.conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A folder cmux didn’t create has a skill’s name here. cmux leaves it alone; move it to install."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد هنا مجلد لم ينشئه cmux يحمل اسم إحدى المهارات. لن يغيّره cmux؛ انقله للتثبيت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovdje je folder koji cmux nije napravio s imenom jedne vještine. cmux ga ne dira; premjestite ga da instalirate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En mappe, cmux ikke har oprettet, har en færdigheds navn her. cmux rører den ikke; flyt den for at installere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier liegt ein Ordner mit dem Namen eines Skills, den cmux nicht angelegt hat. cmux lässt ihn in Ruhe; verschiebe ihn, um zu installieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aquí hay una carpeta que cmux no creó con el nombre de una habilidad. cmux no la toca; muévela para instalar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dossier que cmux n’a pas créé porte ici le nom d’une compétence. cmux n’y touche pas ; déplacez-le pour installer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui c’è una cartella non creata da cmux con il nome di una skill. cmux non la tocca; spostala per installare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が作成していない、スキルと同名のフォルダーがあります。cmux は変更しません。インストールするには移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានថតដែល cmux មិនបានបង្កើត ដែលមានឈ្មោះដូចជំនាញមួយនៅទីនេះ។ cmux មិនប៉ះវាទេ សូមផ្លាស់ទីវាដើម្បីដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 만들지 않은 폴더가 스킬과 같은 이름으로 있습니다. cmux는 건드리지 않으니 설치하려면 옮기세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En mappe cmux ikke har laget, har navnet til en ferdighet her. cmux lar den være; flytt den for å installere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jest tu folder, którego cmux nie utworzył, o nazwie jednej z umiejętności. cmux go nie rusza; przenieś go, aby zainstalować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há aqui uma pasta que o cmux não criou com o nome de uma habilidade. O cmux não mexe nela; mova-a para instalar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь есть папка с именем навыка, которую создал не cmux. cmux её не трогает; переместите её, чтобы установить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีโฟลเดอร์ที่ cmux ไม่ได้สร้างซึ่งใช้ชื่อเดียวกับทักษะอยู่ที่นี่ cmux จะไม่แตะต้อง ย้ายออกเพื่อติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Burada cmux’un oluşturmadığı, bir beceriyle aynı adı taşıyan bir klasör var. cmux ona dokunmaz; yüklemek için taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тут є тека з назвою навички, яку створив не cmux. cmux її не чіпає; перемістіть її, щоб установити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ở đây có một thư mục cmux không tạo, trùng tên với một kỹ năng. cmux để nguyên nó; hãy di chuyển nó để cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里有一个非 cmux 创建、与某个技能同名的文件夹。cmux 不会动它；移走它即可安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡有一個非 cmux 建立、與某個技能同名的資料夾。cmux 不會更動它；移走它即可安裝。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.skills.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents you start in a terminal or another app don’t get cmux’s skills unless you install them here. cmux’s own agent chats always have them. Install puts them in the folder each agent reads at start."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الذين تشغّلهم في طرفية أو تطبيق آخر لا يحصلون على مهارات cmux إلا إذا ثبّتها هنا. محادثات الوكلاء في cmux تملكها دائمًا. التثبيت يضعها في المجلد الذي يقرؤه كل وكيل عند بدئه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti koje pokrenete u terminalu ili drugoj aplikaciji ne dobijaju cmux vještine dok ih ovdje ne instalirate. cmux-ovi chatovi s agentima ih uvijek imaju. Instalacija ih stavlja u folder koji svaki agent čita pri pokretanju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter, du starter i en terminal eller en anden app, får ikke cmux’ færdigheder, medmindre du installerer dem her. cmux’ egne agentchats har dem altid. Installér lægger dem i den mappe, hver agent læser ved start."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten, die du in einem Terminal oder einer anderen App startest, erhalten die cmux-Skills erst, wenn du sie hier installierst. Die Agent-Chats von cmux haben sie immer. Installieren legt sie in den Ordner, den jeder Agent beim Start liest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes que inicias en una terminal u otra app no reciben las habilidades de cmux a menos que las instales aquí. Los chats de agentes de cmux siempre las tienen. Instalar las coloca en la carpeta que cada agente lee al iniciar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents que vous lancez dans un terminal ou une autre app n’ont les compétences cmux que si vous les installez ici. Les chats d’agents de cmux les ont toujours. L’installation les place dans le dossier que chaque agent lit au démarrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti che avvii in un terminale o in un’altra app non ricevono le skill di cmux a meno che tu non le installi qui. Le chat agente di cmux le hanno sempre. Installa le mette nella cartella che ogni agente legge all’avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルや他のアプリで起動したエージェントは、ここでインストールしない限り cmux のスキルを使えません。cmux のエージェントチャットには常に含まれています。インストールすると、各エージェントが起動時に読むフォルダーに配置されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងទែមីណាល់ ឬកម្មវិធីផ្សេង មិនទទួលបានជំនាញ cmux ទេ លុះត្រាតែអ្នកដំឡើងវានៅទីនេះ។ ការជជែកភ្នាក់ងាររបស់ cmux មានវាជានិច្ច។ ការដំឡើងដាក់វាក្នុងថតដែលភ្នាក់ងារនីមួយៗអាននៅពេលចាប់ផ្ដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이나 다른 앱에서 시작한 에이전트는 여기서 설치하기 전에는 cmux 스킬을 받지 않습니다. cmux의 에이전트 채팅에는 항상 포함됩니다. 설치하면 각 에이전트가 시작할 때 읽는 폴더에 넣습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter du starter i en terminal eller en annen app, får ikke cmux-ferdighetene med mindre du installerer dem her. cmux sine egne agentchatter har dem alltid. Installer legger dem i mappen hver agent leser ved oppstart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci uruchomieni w terminalu lub innej aplikacji nie dostają umiejętności cmux, dopóki ich tu nie zainstalujesz. Czaty agentów w cmux zawsze je mają. Instalacja umieszcza je w folderze, który każdy agent czyta przy starcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes que você inicia em um terminal ou outro app não recebem as habilidades do cmux, a menos que você as instale aqui. Os chats de agentes do cmux sempre as têm. Instalar as coloca na pasta que cada agente lê ao iniciar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты, запущенные в терминале или другом приложении, получают навыки cmux, только если установить их здесь. В чатах агентов cmux они есть всегда. Установка кладёт их в папку, которую каждый агент читает при запуске."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ที่คุณเริ่มในเทอร์มินัลหรือแอปอื่นจะไม่ได้รับทักษะของ cmux จนกว่าคุณจะติดตั้งที่นี่ แชตเอเจนต์ของ cmux มีทักษะเหล่านี้เสมอ การติดตั้งจะวางไว้ในโฟลเดอร์ที่เอเจนต์แต่ละตัวอ่านตอนเริ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir terminalde veya başka bir uygulamada başlattığınız ajanlar, burada yüklemediğiniz sürece cmux becerilerini almaz. cmux’un kendi ajan sohbetlerinde her zaman vardır. Yükleme, onları her ajanın başlangıçta okuduğu klasöre koyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти, запущені в терміналі чи іншому застосунку, отримують навички cmux, лише якщо встановити їх тут. У чатах агентів cmux вони є завжди. Встановлення кладе їх у теку, яку кожен агент читає під час запуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tác tử bạn khởi động trong terminal hoặc ứng dụng khác sẽ không có kỹ năng của cmux trừ khi bạn cài đặt chúng ở đây. Các cuộc trò chuyện tác tử của cmux luôn có sẵn. Cài đặt sẽ đặt chúng vào thư mục mà mỗi tác tử đọc khi khởi động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在终端或其他应用中启动的智能体不会获得 cmux 技能，除非你在此安装。cmux 自己的智能体聊天始终带有这些技能。安装会把它们放到每个智能体启动时读取的文件夹中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在終端機或其他 App 中啟動的代理程式不會取得 cmux 技能，除非你在此安裝。cmux 自己的代理程式聊天一律具備這些技能。安裝會將它們放到每個代理程式啟動時讀取的資料夾中。"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.skills.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or run this in any terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو شغّل هذا في أي طرفية:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili ovo pokrenite u bilo kojem terminalu:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller kør dette i en vilkårlig terminal:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder führe das in einem beliebigen Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ejecuta esto en cualquier terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou lancez ceci dans n’importe quel terminal :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure esegui questo in un terminale qualsiasi:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または任意のターミナルで次を実行します:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬដំណើរការវានៅក្នុងទែមីណាល់ណាមួយ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 아무 터미널에서 다음을 실행하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller kjør dette i en hvilken som helst terminal:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albo uruchom to w dowolnym terminalu:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou execute isto em qualquer terminal:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или выполните это в любом терминале:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรือรันคำสั่งนี้ในเทอร์มินัลใดก็ได้:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya da bunu herhangi bir terminalde çalıştırın:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або виконайте це в будь-якому терміналі:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc chạy lệnh này trong bất kỳ terminal nào:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在任意终端中运行："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或在任何終端機中執行："
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.skills.target.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode and other agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex وOpenCode ووكلاء آخرون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode i drugi agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode og andre agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode und andere Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode y otros agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode et autres agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode e altri agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex、OpenCode、その他のエージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode និងភ្នាក់ងារផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode 및 기타 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode og andre agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode i inni agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode e outros agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode и другие агенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode และเอเจนต์อื่น ๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode ve diğer ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode та інші агенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex, OpenCode và các tác tử khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex、OpenCode 及其他智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex、OpenCode 及其他代理程式"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.skills.target.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "settingsWindow.agentIntegrations.skills.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux skills"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهارات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vještine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-færdigheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Skills"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habilidades de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compétences cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skill di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux スキル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំនាញ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 스킬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-ferdigheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umiejętności cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Habilidades do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навыки cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทักษะของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux becerileri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навички cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kỹ năng cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 技能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 技能"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

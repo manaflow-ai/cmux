@@ -39,8 +39,15 @@ public final class SettingsAgentIntegrations: PageProvider {
 
     /// The command a person can run in a terminal instead (each row appends its id).
     static let manualCommand = "cmux agent hook install"
+    /// The same for cmux's skills (`cmux agent skills status`, acpmux `skills_install.rs`): opt-in
+    /// global skill folders for agents started outside cmux's chats, such as a plain terminal.
+    static let skillsCommand = "cmux agent skills install --global"
 
     private(set) var rows: [Row] = []
+    /// One row per global skills folder (`claude`, `agents`), same states as the hook rows.
+    private(set) var skillRows: [Row] = []
+    /// As `problem`, for the skills status.
+    private(set) var skillsProblem: String?
     private(set) var loading = false
     /// `unavailable` (this build carries no CLI) or `failed` (status did not answer).
     private(set) var problem: String?
@@ -78,6 +85,21 @@ public final class SettingsAgentIntegrations: PageProvider {
                     "errorKind": row.errorKind.map(JSONValue.string) ?? .null,
                 ]
             }),
+            "skills": [
+                "problem": skillsProblem.map(JSONValue.string) ?? .null,
+                "command": .string(Self.skillsCommand),
+                "providers": .array(skillRows.map(Self.json)),
+            ],
+        ]
+    }
+
+    private static func json(_ row: Row) -> JSONValue {
+        [
+            "id": .string(row.id), "path": .string(row.path), "state": .string(row.state),
+            "reason": row.reason.map(JSONValue.string) ?? .null,
+            "detail": row.detail.map(JSONValue.string) ?? .null,
+            "error": row.error.map(JSONValue.string) ?? .null,
+            "errorKind": row.errorKind.map(JSONValue.string) ?? .null,
         ]
     }
 
@@ -94,6 +116,10 @@ public final class SettingsAgentIntegrations: PageProvider {
         case "install", "repair", "remove":
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) needs a click in the page")
+            }
+            if params["kind"]?.stringValue == "skills" {
+                try await runSkills(action, id: params["id"]?.stringValue)
+                return .object([:])
             }
             guard let id = params["id"]?.stringValue, let row = rows.first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("id must be a listed provider")
@@ -119,19 +145,49 @@ public final class SettingsAgentIntegrations: PageProvider {
         return .object([:])
     }
 
-    /// Reads `agent hook status` again; only the newest read writes the rows.
+    /// One skills gesture on a listed folder: `agent skills install|uninstall <id>`, then a refresh.
+    private func runSkills(_ action: String, id: String?) async throws {
+        guard let id, let row = skillRows.first(where: { $0.id == id }) else {
+            throw PageError.invalidParams("id must be a listed skills folder")
+        }
+        if action != "remove", row.state == "conflict" || row.state == "unavailable" {
+            throw PageError.invalidParams("\(id) has a folder cmux did not create in the way")
+        }
+        guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
+        let verb = action == "remove" ? "uninstall" : "install"
+        let reply = try? await runCLI(cli, ["--json", "agent", "skills", verb, id])
+        let refusal = reply.map { Self.refusal(of: id, $0) } ?? .kind("noAnswer")
+        await refresh()
+        if let refusal, let index = skillRows.firstIndex(where: { $0.id == id }) {
+            switch refusal {
+            case .text(let text): skillRows[index].error = text
+            case .kind(let kind): skillRows[index].errorKind = kind
+            }
+        }
+    }
+
+    /// Reads `agent hook status` and `agent skills status` again; only the newest read writes the rows.
     func refresh() async {
         guard let cli = await cli() else {
             rows = []
             problem = "unavailable"
+            skillRows = []
+            skillsProblem = "unavailable"
             return
         }
         generation += 1
         let mine = generation
         loading = true
         let reply = try? await runCLI(cli, ["--json", "agent", "hook", "status"])
+        let skills = try? await runCLI(cli, ["--json", "agent", "skills", "status"])
         guard mine == generation else { return }
         loading = false
+        if let skills, let read = Self.rows(skills.0 == 0 ? skills.1 : skills.2) {
+            skillRows = read
+            skillsProblem = nil
+        } else {
+            skillsProblem = "failed"
+        }
         // A provider status could not read (invalid JSON) fails the command, with the rows it did
         // read in the error's details.
         guard let reply, let read = Self.rows(reply.0 == 0 ? reply.1 : reply.2) else {

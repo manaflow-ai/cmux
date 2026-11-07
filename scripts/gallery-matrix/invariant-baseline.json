@@ -3527,6 +3527,7 @@
     "pages.settings#agents-harnesses-unreachable": [],
     "pages.settings#agents-integrations": [],
     "pages.settings#agents-integrations-no-cli": [],
+    "pages.settings#agents-integrations-skills": [],
     "pages.settings#agents-removed": [],
     "pages.settings#agents-stable-added": [],
     "pages.settings#agents-stable-check-busy": [],

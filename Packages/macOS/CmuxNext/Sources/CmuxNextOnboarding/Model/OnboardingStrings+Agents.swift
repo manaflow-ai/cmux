@@ -25,6 +25,13 @@ extension OnboardingStrings {
         String(localized: "onboarding.agents.signIn.running",
                defaultValue: "Finish signing in in the terminal tab, then come back here.", bundle: .module)
     }
+    /// The line under the list once nothing else is said there: cmux's skills are opt-in for agents
+    /// started outside cmux's chats, and where to install them (Aziz 2026-11-06).
+    static var agentsSkillsHint: String {
+        String(localized: "onboarding.agents.skillsHint",
+               defaultValue: "Agents you start in a terminal don’t get cmux’s skills unless you install them: Settings > Agents > Agent integrations, or run cmux agent skills install --global.",
+               bundle: .module)
+    }
     static var agentsSignInFailed: String {
         String(localized: "onboarding.agents.signIn.failed",
                defaultValue: "Couldn’t open a terminal tab to sign in.", bundle: .module)

@@ -996,10 +996,25 @@ export type IntegrationsState = {
   /** The command to run by hand (`cmux agent hook install`); a row appends its id. */
   command: string;
   providers: IntegrationRow[];
+  /** cmux's skills in the person's global skill folders (`cmux agent skills status`), opt-in for
+   * agents started outside cmux's chats. Row ids: `claude` (~/.claude/skills) and `agents`
+   * (~/.agents/skills: Codex, OpenCode and others). Absent from older hosts. */
+  skills?: SkillsState;
 };
 
-/** One Agent integrations gesture; each runs only on a click. */
-export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
+/** The skills part of Agent integrations. */
+export type SkillsState = {
+  problem: "unavailable" | "failed" | null;
+  /** `cmux agent skills install --global`; a row appends its id. */
+  command: string;
+  providers: IntegrationRow[];
+};
+
+/** One Agent integrations gesture; each runs only on a click. `kind: "skills"` acts on a skills
+ * folder row instead of an agent's hooks. */
+export type IntegrationsRun =
+  | { action: "refresh" }
+  | { action: "install" | "repair" | "remove"; id: string; kind?: "hooks" | "skills" };
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };

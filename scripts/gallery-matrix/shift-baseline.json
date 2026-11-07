@@ -2506,6 +2506,7 @@
     "pages.settings#agents-harnesses-unreachable": 0,
     "pages.settings#agents-integrations": 0,
     "pages.settings#agents-integrations-no-cli": 0,
+    "pages.settings#agents-integrations-skills": 0,
     "pages.settings#agents-removed": 0,
     "pages.settings#agents-stable-added": 0,
     "pages.settings#agents-stable-check-busy": 0,

@@ -10,7 +10,7 @@ import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
-import type { IntegrationRow, IntegrationsRun, IntegrationsState } from "../ops";
+import type { IntegrationRow, IntegrationsRun, IntegrationsState, SkillsState } from "../ops";
 import { t } from "../strings";
 
 type Gesture = Exclude<IntegrationsRun["action"], "refresh">;
@@ -112,6 +112,130 @@ function Row({
   );
 }
 
+/** One global skills folder (`claude`, `agents`): what it holds and the gestures its state allows.
+ * Its own data attributes, so the hook rows' (`data-integration`) stay one agent each. */
+function SkillsRow({
+  row,
+  command,
+  busy,
+  onRun,
+  onCopy,
+}: {
+  row: IntegrationRow;
+  command: string;
+  busy: boolean;
+  onRun: (gesture: Gesture) => void;
+  onCopy: (text: string) => void;
+}) {
+  const titleId = useId();
+  const blocked = row.state === "conflict" || row.state === "unavailable";
+  const manual = `${command} ${row.id}`;
+  return (
+    <div className="row accounts-row" data-skills-target={row.id} data-skills-state={row.state}>
+      <div className="row-main">
+        <span className="accounts-mark" aria-hidden="true">
+          <AgentMark agent={row.id === "claude" ? "claude" : "codex"} size={16} />
+        </span>
+        <div className="row-label">
+          <div className="row-title" id={titleId}>
+            {t(`settingsWindow.agentIntegrations.skills.target.${row.id === "claude" ? "claude" : "agents"}`)}
+          </div>
+          {row.path && <div className="row-help selectable font-mono">{row.path}</div>}
+          {blocked && (
+            <div className="row-help" data-skills-reason={row.reason ?? "unreadable"}>
+              {row.reason === "not_owned"
+                ? t("settingsWindow.agentIntegrations.skills.conflict")
+                : t(`settingsWindow.agentIntegrations.conflict.${row.reason ?? "unreadable"}`)}
+            </div>
+          )}
+          {(row.error || row.errorKind) && (
+            <div className="row-error selectable" data-skills-error={row.errorKind ?? ""}>
+              {row.error ?? t(`settingsWindow.agentIntegrations.error.${row.errorKind}`)}
+            </div>
+          )}
+        </div>
+        <div className="row-control">
+          <span className={blocked || row.state === "partial" ? "badge badge-warning" : "badge"}>
+            {t(`settingsWindow.agentIntegrations.state.${row.state}`)}
+          </span>
+          {gestures(row).map((gesture) => (
+            <Button
+              key={gesture}
+              type="button"
+              className="button"
+              data-skills-action={gesture}
+              aria-describedby={titleId}
+              disabled={busy}
+              onClick={() => onRun(gesture)}
+            >
+              {t(`settingsWindow.agentIntegrations.${gesture}`)}
+            </Button>
+          ))}
+          {row.state === "conflict" && (
+            <Button
+              type="button"
+              className="button"
+              data-skills-action="copy"
+              aria-describedby={titleId}
+              onClick={() => onCopy(manual)}
+            >
+              {t("settingsWindow.agentIntegrations.copy")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** cmux skills for agents started outside cmux's chats: off until the person installs them. */
+function SkillsSection({
+  skills,
+  busy,
+  onRun,
+  onCopy,
+}: {
+  skills: SkillsState;
+  busy: boolean;
+  onRun: (id: string, gesture: Gesture) => void;
+  onCopy: (text: string) => void;
+}) {
+  return (
+    <div data-skills-section="">
+      <div className="row-title">{t("settingsWindow.agentIntegrations.skills.title")}</div>
+      <div className="row-help">{t("settingsWindow.agentIntegrations.skills.help")}</div>
+      {skills.problem && (
+        <div className="row-error" data-skills-problem={skills.problem}>
+          {t(`settingsWindow.agentIntegrations.problem.${skills.problem}`)}
+        </div>
+      )}
+      {skills.providers.length > 0 && (
+        <div className="rows">
+          {skills.providers.map((row) => (
+            <SkillsRow
+              key={row.id}
+              row={row}
+              command={skills.command}
+              busy={busy}
+              onRun={(gesture) => onRun(row.id, gesture)}
+              onCopy={onCopy}
+            />
+          ))}
+        </div>
+      )}
+      <div className="row-help">{t("settingsWindow.agentIntegrations.skills.manual")}</div>
+      <div className="row-help selectable flex items-center gap-2">
+        <code className="font-mono" data-skills-command="">
+          {skills.command}
+        </code>
+        <Button type="button" className="button" data-skills-action="copyAll" onClick={() => onCopy(skills.command)}>
+          {t("settingsWindow.agentIntegrations.copy")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AgentIntegrations({ focus }: { focus: string | null }) {
   const store = useStore();
   const [open, setOpen] = useState(focus === "agents.integrations");
@@ -132,10 +256,12 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
     [refresh],
   );
   const run = useCallback(
-    async (id: string, gesture: Gesture) => {
+    async (id: string, gesture: Gesture, kind: "hooks" | "skills" = "hooks") => {
       setBusy(id);
       try {
-        setState(await store.runIntegrations({ action: gesture, id }));
+        setState(
+          await store.runIntegrations(kind === "skills" ? { action: gesture, id, kind } : { action: gesture, id }),
+        );
       } finally {
         setBusy(null);
       }
@@ -211,6 +337,14 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
             {t("settingsWindow.agentIntegrations.copy")}
           </Button>
         </div>
+        {state?.skills && (
+          <SkillsSection
+            skills={state.skills}
+            busy={busy !== null}
+            onRun={(id, gesture) => void run(id, gesture, "skills")}
+            onCopy={(text) => void store.copy(text)}
+          />
+        )}
       </details>
     </section>
   );
