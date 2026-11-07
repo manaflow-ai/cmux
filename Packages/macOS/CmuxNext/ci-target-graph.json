@@ -1327,7 +1327,8 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
-        "CmuxNextHomeEngine"
+        "CmuxNextHomeEngine",
+        "CmuxNextTestSupport"
       ],
       "packages": [
         "CmuxHomeCore"
@@ -1979,6 +1980,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests",
       "targets": [
+        "CmuxNextDesign",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],

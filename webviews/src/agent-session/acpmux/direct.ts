@@ -1,3 +1,4 @@
+import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
@@ -68,6 +69,7 @@ import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
+import { forkHistoryTail, sameForkHistory } from "./forkTail";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import {
@@ -679,6 +681,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
     pending: true,
@@ -2150,6 +2153,13 @@ export class AcpmuxDirectClient {
   private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
+  /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
+  /// record is outside the held page): the live line's clock counts from it, never from an older
+  /// prompt a resumed turn still opens with. Unset falls back to the prompt's time (turns.ts).
+  private turnStartedAtMs?: number;
+  /// When the prompt that opened the open turn was recorded: a summary start before it is an earlier
+  /// turn's (`dateTurnFromHost`).
+  private turnPromptAtMs?: number;
   private autoResumedAttempt: number | undefined;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
@@ -2254,6 +2264,9 @@ export class AcpmuxDirectClient {
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
+  /// The seq a fork's rows drawn before the attach were taken through from the chat it forked
+  /// (forkTail.ts, `KeptTail.forkedThrough`), which the attach checks them against.
+  private drawnForkThrough?: number;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -3067,6 +3080,7 @@ export class AcpmuxDirectClient {
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.drawnGeneration = undefined;
+    this.drawnForkThrough = undefined;
     this.rowsGeneration = undefined;
     this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
@@ -3107,6 +3121,8 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.turnStartedAtMs = undefined;
+    this.turnPromptAtMs = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
@@ -3206,6 +3222,26 @@ export class AcpmuxDirectClient {
       },
       forThisPage,
     );
+  }
+
+  /// Hands the app host the fork acpmux just made of `from` as its tail (forkTail.ts), drawn from
+  /// this page's rows of `from`, so the fork's own tab draws it on the frame it opens instead of
+  /// reading it cold. Only rows of the chat this page shows, attached, of this machine.
+  private handOverForkTail(from: string, reply: Record<string, any>): void {
+    if (from !== this.selectedSessionId || this.replayThrough !== undefined || this.rowsPeer !== undefined) return;
+    if (this.attachedGeneration !== this.selectionGeneration) return;
+    const tail = forkHistoryTail(
+      {
+        events: this.events,
+        historyExhausted: this.historyExhausted,
+        turnOpener: this.turnOpener,
+      },
+      // acpmux answers `session/fork`'s `{sessionId, modes, configOptions}` and puts the fork's
+      // session summary (its `createdAt`, `lastSeq`, `forkSeq`) in `_meta.acpmux`.
+      { ...reply?._meta?.acpmux, sessionId: reply.sessionId },
+    );
+    // The fork's tab is another page: only the app host's copy reaches it.
+    if (tail) rememberTail(String(reply.sessionId), tail, false);
   }
 
   /// The summary a kept tail carries: the row as listed now, but naming only the machine and the
@@ -3552,6 +3588,8 @@ export class AcpmuxDirectClient {
     this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } });
     this.copyLive = undefined;
     this.turnOpen = false;
+    this.turnStartedAtMs = undefined;
+    this.turnPromptAtMs = undefined;
     this.drewKeptTail = true;
     return true;
   }
@@ -3561,6 +3599,7 @@ export class AcpmuxDirectClient {
     if (kept.peerCopy) this.peerCopy = { ...kept.peerCopy, attaching: true };
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
     this.rowsGeneration = this.drawnGeneration;
+    this.drawnForkThrough = kept.forkedThrough;
     const keptPeer = (kept.summary as { peer?: unknown } | undefined)?.peer;
     this.rowsPeer = typeof keptPeer === "string" ? keptPeer : undefined;
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
@@ -5083,9 +5122,15 @@ export class AcpmuxDirectClient {
     // Rows not proven of the machine the row names are another journal as well: for a peer chat a
     // tail of another machine or of none known, for a chat on this Mac a tail of a machine.
     const otherMachine = (peerChat || this.rowsPeer !== undefined) && this.rowsPeer !== row?.peer;
+    // A fork's rows taken from the chat it forked (forkTail.ts) are its history only where the
+    // page holds the same records: a fork that copied the history renumbered it.
+    const forkThrough = copy ? undefined : this.drawnForkThrough;
+    this.drawnForkThrough = undefined;
+    const forkStray = forkThrough !== undefined && !sameForkHistory(page, this.events, forkThrough);
     const otherSession =
       drawnThrough > 0 &&
-      ((copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
+      (forkStray ||
+        (copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
         (peerChat || copy !== undefined
           ? !sameGeneration(drawnOf, createdAt)
           : typeof drawnOf === "number" && typeof createdAt === "number" && drawnOf !== createdAt));
@@ -5710,6 +5755,8 @@ export class AcpmuxDirectClient {
     this.forgetSuggestion();
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnStartedAtMs = undefined;
+    this.turnPromptAtMs = undefined;
     this.runningTurnId = undefined;
     this.autoResumedAttempt = undefined;
     this.turnPrompt = undefined;
@@ -5775,6 +5822,7 @@ export class AcpmuxDirectClient {
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
         if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
+    this.dateTurnFromHost();
   }
 
   /// Mux events that move the live summary, queue or permission.
@@ -6841,6 +6889,11 @@ export class AcpmuxDirectClient {
         this.stoppingOpens(event);
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
+        // A prompt that opens a turn is timed from until that turn's own start comes.
+        if (!this.turnOpen) {
+          this.turnStartedAtMs = undefined;
+          this.turnPromptAtMs = event.at;
+        }
         this.turnOpen = true;
       } else if (event.kind === "stopping") {
         // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
@@ -6873,6 +6926,7 @@ export class AcpmuxDirectClient {
         // until the agent sends a plan again.
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
         this.turnOpen = true;
+        this.turnStartedAtMs = event.at;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -6892,6 +6946,12 @@ export class AcpmuxDirectClient {
             this.streamingAssistantMessageId = undefined;
           }
         }
+      } else if (event.kind === "steer_read") {
+        // The agent read this steer (acpmux `steer_end.rs`): its row is read now, so it offers no X
+        // acpmux would refuse. Its next words, which said so before, can come a minute later or
+        // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
+        // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
       } else if (event.kind === "steer_withdrawn") {
         // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
         // text went back to the composer that took it.
@@ -6917,6 +6977,8 @@ export class AcpmuxDirectClient {
               (row.compaction?.state === "running" || row.compaction?.inferred === true),
           );
         this.turnOpen = false;
+        this.turnStartedAtMs = undefined;
+        this.turnPromptAtMs = undefined;
         this.turnPrompt = undefined;
         this.turnTokens = undefined;
         this.turnTokenSplit = undefined;
@@ -7441,11 +7503,27 @@ export class AcpmuxDirectClient {
       return;
     }
     const turn = hostTurn(this.summary);
-    if (state !== "runs" || this.turnOpen || !turn) return;
+    if (state !== "runs" || !turn) return;
     if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
-    this.turnOpen = true;
-    if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
-    if (!this.rows.has("typing")) this.rows.set("typing", { id: "typing", version: 1, at: Date.now(), kind: "typing" });
+    if (!this.turnOpen) {
+      this.turnOpen = true;
+      this.turnStartedAtMs = undefined;
+      if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
+      if (!this.rows.has("typing"))
+        this.rows.set("typing", { id: "typing", version: 1, at: Date.now(), kind: "typing" });
+    }
+    this.dateTurnFromHost();
+  }
+
+  /// The open turn's start record is outside the held page (an attach mid-turn, a restart that
+  /// adopted its host): the summary's `turn.startedAt` dates it, when the summary names that turn.
+  private dateTurnFromHost(): void {
+    const turn = hostTurn(this.summary);
+    const startedAt = this.summary?.turn?.startedAt;
+    if (!this.turnOpen || this.turnStartedAtMs !== undefined || !turn || typeof startedAt !== "number") return;
+    if (turn.turnId !== undefined && this.runningTurnId !== undefined && turn.turnId !== this.runningTurnId) return;
+    if (this.turnPromptAtMs !== undefined && startedAt < this.turnPromptAtMs) return;
+    this.turnStartedAtMs = startedAt;
   }
 
   /// acpmux holds no turn while the pane still holds one open: its end never reached the pane.
@@ -7453,6 +7531,8 @@ export class AcpmuxDirectClient {
   /// record still settles it (`turn_end`, `turn_result`).
   private hostEndedTurn(): void {
     this.turnOpen = false;
+    this.turnStartedAtMs = undefined;
+    this.turnPromptAtMs = undefined;
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -7704,6 +7784,7 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      ...(working && this.turnStartedAtMs !== undefined ? { turnStartedAtMs: this.turnStartedAtMs } : {}),
       // Between turns only, and never while a replay seeks: the composer's ghost text.
       ...(this.promptSuggestion && !working && this.replayThrough === undefined
         ? { promptSuggestion: this.promptSuggestion }
@@ -10169,7 +10250,10 @@ export class AcpmuxDirectClient {
         return undefined;
       }
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
-      if (stay) return String(result.sessionId);
+      if (stay) {
+        this.handOverForkTail(sessionId, result);
+        return String(result.sessionId);
+      }
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {
@@ -10757,6 +10841,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      turnStartedAtMs: this.turnStartedAtMs,
+      turnPromptAtMs: this.turnPromptAtMs,
       // The running turn's prompt is the held events', never an older page's.
       turnPrompt: this.turnPrompt,
       turnTokens: this.turnTokens,
@@ -10799,6 +10885,8 @@ export class AcpmuxDirectClient {
     const held = new Map(this.rows);
     this.runningTurnId = undefined;
     this.turnOpen = false;
+    this.turnStartedAtMs = undefined;
+    this.turnPromptAtMs = undefined;
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
