@@ -549,8 +549,9 @@ final class CloudService {
                 return
             }
             guard listGeneration == generation, listAccount == account, auth.isSignedIn else { return }
-            machines.cloudLimits = CloudMachineLimits(nextPlan: answer)
-            logger.info("plan: \(machines.cloudLimits?.planId ?? "unreadable", privacy: .public) pays=\(machines.cloudLimits?.paysForCloud == true, privacy: .public)")
+            let limits = CloudMachineLimits(nextPlan: answer)
+            machines.cloudLimits = limits
+            logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
         }
     }
 
