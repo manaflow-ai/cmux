@@ -66,8 +66,24 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public func present() {
         guard let window else { return }
         WindowPlacement.present(window)
+        leaveCloseButtonUncovered()
         page?.focusPage()
         model.stepDidAppear()
+    }
+
+    /// A Chromium page is a child window over the whole window, the titlebar too (a full-size
+    /// content view): it leaves the close button's rect uncovered, so the button shows and takes
+    /// the click. WebKit draws under the titlebar and needs none. The window's size is fixed, so
+    /// the rect is set once it is laid out.
+    func leaveCloseButtonUncovered() {
+        guard let page, let button = window?.standardWindowButton(.closeButton), let frame = button.superview else { return }
+        page.nativeRects = [page.convert(button.frame, from: frame)]
+    }
+
+    /// The rects the page leaves uncovered (``leaveCloseButtonUncovered()``), in window coordinates, for tests.
+    var uncoveredRects: [CGRect] {
+        guard let page else { return [] }
+        return page.nativeRects.map { page.convert($0, to: nil) }
     }
 
     /// Closes the window through its close button (the same AppKit path a
