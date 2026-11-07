@@ -45,8 +45,19 @@ public final class StaticPaletteProvider: PaletteProvider {
     // need a main-actor hop (RegistryPaletteProvider, #17590).
     nonisolated deinit {}
 
-    public var immediateItems: [PaletteItem]? { itemsList }
-    public func items() async -> [PaletteItem] { itemsList }
+    public var immediateItems: [PaletteItem]? { live(itemsList) }
+    public func items() async -> [PaletteItem] { live(itemsList) }
+
+    /// `items` with each on/off row's state read now (``PaletteItem/readsToggleState``).
+    private func live(_ items: [PaletteItem]) -> [PaletteItem] {
+        guard items.contains(where: { $0.readsToggleState != nil }) else { return items }
+        return items.map { item in
+            guard let read = item.readsToggleState else { return item }
+            var item = item
+            item.toggleState = read()
+            return item
+        }
+    }
 }
 
 /// A provider backed by an async closure (daemon queries, file system scans).

@@ -45,19 +45,15 @@ public final class AgentChatRailActions {
 
     /// Binds the three rows and their palette checks into `registry`.
     public func bind(into registry: ActionRegistry) {
-        toggle(Self.showMinimap, Self.minimapPath, in: registry) { settings in
+        toggle(Self.showMinimap, Self.minimapPath, in: registry, isOn: { Self.isMinimapShown(Self.display($0)) }) { settings in
             Self.isMinimapShown(Self.display(settings)) ? .string("off") : nil
         }
-        ActionTargetTitles.setPaletteState(Self.showMinimap, in: registry) { [settings] in Self.isMinimapShown(Self.display(settings())) }
-        toggle(Self.railOnRight, Self.railSidePath, in: registry) { settings in
+        toggle(Self.railOnRight, Self.railSidePath, in: registry, isOn: { Self.isRailOnRight(Self.display($0)) }) { settings in
             Self.isRailOnRight(Self.display(settings)) ? nil : .string("right")
         }
-        ActionTargetTitles.setPaletteState(Self.railOnRight, in: registry) { [settings] in Self.isRailOnRight(Self.display(settings())) }
-        toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry) { settings in
+        toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry, isSetting: true,
+               isOn: { $0.map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false }) { settings in
             .string((SidebarSurfaceSetting.effective(in: settings.snapshot) == .same ? SidebarSurface.separate : .same).rawValue)
-        }
-        ActionTargetTitles.setPaletteSettingState(Self.matchTerminalBackground, in: registry) { [settings] in
-            settings().map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false
         }
     }
 
@@ -75,21 +71,46 @@ public final class AgentChatRailActions {
         settings.map { AgentPaneDisplaySetting(fileRoot: $0.fileRoot) } ?? .fallback
     }
 
-    /// Binds `id` to write `next(settings)` at `path` (nil removes the key).
-    private func toggle(_ id: ActionID, _ path: [String], in registry: ActionRegistry,
+    /// Binds `id` to write `next(settings)` at `path` (nil removes the key), and its palette state to
+    /// `isOn`. The write lands after the run returns: until it does, the palette row reads the state the
+    /// run asked for, and the open palette reads its rows again once it lands or fails
+    /// (`ActionRegistry.paletteStateDidChange`), as a Settings row does (`SettingsPaletteSource`).
+    private func toggle(_ id: ActionID, _ path: [String], in registry: ActionRegistry, isSetting: Bool = false,
+                        isOn: @escaping @MainActor (SettingsController?) -> Bool,
                         next: @escaping @MainActor (SettingsController) -> JSONValue?) {
         let (settings, managed, notLoaded, logger) = (settings, managed, notLoaded, Self.logger)
-        registry.bindEffect(id) { invocation in
+        // The registry keeps these closures and with them this object (the App binds one and drops it).
+        registry.bindEffect(id) { [weak registry] invocation in
             guard let settings = settings() else { return .refused(notLoaded) }
             if let key = settings.managedKey(forPath: path)?.key { return .refused(managed(key)) }
             let value = next(settings), writer = SettingWriter(invocation.origin)
+            let token = self.markPending(id, !(self.pending[id]?.isOn ?? isOn(settings)))
             // task-owner: one settings write; ends when cmux.json is written
             Task {
                 do { try await settings.setSetting(at: path, to: value, by: writer) } catch {
                     logger.error("palette setting toggle failed: \(String(describing: error), privacy: .public)")
                 }
+                guard self.pending[id]?.token == token else { return }
+                self.pending[id] = nil
+                registry?.paletteStateDidChange?()
             }
             return .done
         }
+        let state: @MainActor () -> Bool = { [settings] in self.pending[id]?.isOn ?? isOn(settings()) }
+        if isSetting {
+            ActionTargetTitles.setPaletteSettingState(id, in: registry, state)
+        } else {
+            ActionTargetTitles.setPaletteState(id, in: registry, state)
+        }
+    }
+
+    /// The state each row's write asked for while it has not landed, with that write's token.
+    private var pending: [ActionID: (token: Int, isOn: Bool)] = [:]
+    private var writes = 0
+
+    private func markPending(_ id: ActionID, _ isOn: Bool) -> Int {
+        writes += 1
+        pending[id] = (writes, isOn)
+        return writes
     }
 }

@@ -147,6 +147,31 @@ struct PaletteSettingRowStateTests {
         #expect(palette.visiblePanel == nil, "a command on what is in front closes the palette")
     }
 
+    /// The same on the family page that lists it (Pane Borders and Focus Ring…): the page's rows were
+    /// built when the page opened, and the flipped row still reads its new state there.
+    @Test func returnFlipsASettingRowInPlaceOnItsFamilyPage() async throws {
+        _ = NSApplication.shared
+        let focusRing = Switch(false)
+        let palette = PaletteController(registry: Self.registry(focusRing), sources: PaletteSources(), frecencyPersistence: nil)
+        defer { palette.closeForTest() }
+        palette.show(.commands)
+        palette.model.send(.setQuery("Pane Borders and Focus Ring"))
+        await palette.model.settle()
+        let family = try #require(palette.model.rows.first { $0.item.id == "family:paneChrome" }, "the family row is listed")
+        palette.model.run(family.item.primary, of: family.item)
+        await palette.model.settle()
+        func row() -> PaletteRow? { palette.model.rows.first { $0.item.actionID == "focusRing.toggle" } }
+        #expect(try #require(row(), "Focus Ring is on the page").item.toggleState == false)
+        for expected in [true, false] {
+            let shown = try #require(row())
+            palette.model.run(shown.item.primary, of: shown.item)
+            await palette.model.settle()
+            #expect(focusRing.isOn == expected)
+            #expect(palette.visiblePanel != nil, "the palette stays open")
+            #expect(row()?.item.toggleState == expected, "the row on the family page reads its new state")
+        }
+    }
+
     /// A row named by its setting is still found by the verb people type.
     @Test func aSettingRowIsFoundByToggle() async throws {
         _ = NSApplication.shared

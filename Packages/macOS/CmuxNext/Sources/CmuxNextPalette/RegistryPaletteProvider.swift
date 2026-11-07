@@ -223,6 +223,10 @@ public final class RegistryPaletteProvider: PaletteProvider {
             actionID: actionID
         )
         item.toggleState = face.isOn
+        if face.isOn != nil {
+            let registry = registry
+            item.readsToggleState = { registry.action(for: actionID)?.paletteState?() ?? false }
+        }
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
