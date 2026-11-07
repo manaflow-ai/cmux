@@ -89,7 +89,12 @@ import { commandRead } from "../session-info/commandRules";
 import { trimRawCommand } from "../conversation/shortCommand";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
-import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
+import {
+  STATUS_LABEL,
+  type SubagentStatus,
+  subagentStateText,
+  subagentStatus,
+} from "../summary/subagentStatusListModel";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";

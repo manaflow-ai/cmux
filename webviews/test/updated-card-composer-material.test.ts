@@ -36,6 +36,17 @@ test("the shared edge is the composer's edge share, one hairline on every side",
   expect(declaration(material, "--composer-material-ring")).toContain("inset 0 0 0 var(--cmux-hairline");
 });
 
+/** What a `color-mix(in srgb, A N%, B)` value mixes toward: its last argument, B. */
+const mixTarget = (value: string) => /,\s*([^,]+(?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\s*\)$/.exec(value)?.[1]?.trim();
+
+test("the shared edge mixes toward the page under it, as the composer's does, so an opaque theme draws the same line", () => {
+  const composer = mixTarget(declaration(composerStyles, "--acpmux-composer-edge"));
+  const shared = mixTarget(declaration(material, "--composer-material-edge"));
+  expect(composer).toStartWith("var(--agent-page-bg");
+  expect(shared).toStartWith("var(--agent-page-bg");
+  expect(shared).not.toBe("transparent");
+});
+
 test("the shared rim is the composer's top-lit rim", () => {
   expect(shares(declaration(material, "--composer-material-rim"))).toEqual(
     shares(declaration(composerStates, "--acpmux-composer-rim")),
