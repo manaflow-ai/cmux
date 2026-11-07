@@ -444,7 +444,7 @@ import {
   cloudRunsHere,
   cloudFolderGrants,
   cloudStartFolder,
-  cloudStartToasted,
+  cloudStartSaid,
   makeCloudSignInRetry,
   resumeSignedIn,
   grantedCloudStart,
@@ -4044,7 +4044,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         return;
       }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
-      if (!answer.ok && !cloudStartToasted(answer))
+      if (!answer.ok && !cloudStartSaid(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
     return started;
@@ -5010,6 +5010,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
+  /// The person's click on a Cloud start's question (CloudStartAsk): the host takes it only from this
+  /// pane and only with the click's own gesture; false lets the card's buttons take another click.
+  const answerCloudStart = (id: string, button: string): Promise<boolean> =>
+    cloudStart?.state === "starting"
+      ? callNative("cloud.answerStart", { key: cloudStart.key, id, answer: button }).then(
+          () => true,
+          () => false,
+        )
+      : Promise.resolve(false);
+  /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
+  /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
+  const retryCloudStart = () => composerHandle.current?.send();
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -10408,6 +10420,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                 <CloudStartView
                                   start={cloudStart}
                                   bubble={cloudStart.state === "starting"}
+                                  onAnswer={answerCloudStart}
+                                  onRetry={retryCloudStart}
                                   onSignIn={cloudSignInRetry}
                                 />
                               ),
@@ -10672,6 +10686,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
+                      working={snapshot.isWorking === true}
                       // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
                       onApplyWorktree={
                         snapshot.sessionId && localCwd
@@ -10862,7 +10877,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : cloudStart && !snapshot.sessionId ? (
-                  <CloudStartView start={cloudStart} onSignIn={cloudSignInRetry} />
+                  <CloudStartView
+                    start={cloudStart}
+                    onAnswer={answerCloudStart}
+                    onRetry={retryCloudStart}
+                    onSignIn={cloudSignInRetry}
+                  />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}

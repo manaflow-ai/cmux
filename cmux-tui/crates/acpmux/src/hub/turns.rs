@@ -848,9 +848,9 @@ impl Hub {
         // finishes later. Do not let the stale compaction flag cancel the
         // next, explicit prompt immediately.
         session.compacting.store(false, Ordering::SeqCst);
-        // Its control and mobile origin go with it: a restart that finds its turn never started
-        // queues it again as it came (`unstarted_prompt.rs`).
-        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile});
+        // Its control, mobile origin and trust gate go with it: a restart that finds its turn
+        // never started queues it again as it came (`unstarted_prompt.rs`).
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile, "trustGate": run.trust_gate});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {

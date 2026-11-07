@@ -4,8 +4,9 @@
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
-// commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
+// commands and what it produced (Outputs). It starts closed
+// (session-info-closed-default.test.ts), so each case here opens it before its chat binds; it stays
+// open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 // Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
@@ -45,6 +46,7 @@ import {
   sessionInfoState,
   resetSessionInfoState,
   setSessionInfoMore,
+  setSessionInfoOpen,
   setSessionInfoSection,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
@@ -107,6 +109,8 @@ function installDom(sessionInfo: boolean): HTMLElement {
   Object.assign(scope, replacements);
   resetSessionInfoState();
   setSessionInfoMore(true);
+  // Opened before the chat binds: the first chat's own choice (a new pane starts closed).
+  setSessionInfoOpen(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -504,12 +508,14 @@ test("open, closed, Show more and width are this pane's, and another pane's chan
 test("a pane switched to another chat shows that chat's Session Info at once, never playing the last one out", async () => {
   const container = installDom(true);
   const chatB = { ...localChat, sessionId: "chat-b" };
-  // Chat B was left closed, chat A open. Chat A is new to the pane, so it opens whatever chat B chose
-  // (Lucas, 2026-11-06: "New chats still default to open").
+  // Chat B was left closed, chat A open. Chat A is new to the pane, so it starts closed whatever
+  // chat B chose (Leo, 2026-11-07), and the person opens it there.
   await render(container, chatB);
   await click(toggle(container)!);
   expect(panel(container)).toBeNull();
   await render(container, localChat);
+  expect(panel(container)).toBeNull();
+  await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();
   // Every phase change of a Session Info panel while the pane switches to chat B (chat A's panel
   // turning to `leaving` is the last chat's panel playing out over chat B).

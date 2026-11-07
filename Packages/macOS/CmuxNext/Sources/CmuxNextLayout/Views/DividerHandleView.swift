@@ -153,7 +153,7 @@ final class DividerHandleView: NSView {
     /// must show above Chromium pages (an occlusion hole), unlike the rest
     /// of the hit area.
     var lineFrameInSuperview: CGRect {
-        // A lit band reaches past the line: the page must leave its halo uncovered too.
+        // A lit band is wider than a thin line: the page must leave the whole band uncovered.
         convert(glow.isLit ? lineFrame.union(glow.extent) : lineFrame, to: superview)
     }
 
