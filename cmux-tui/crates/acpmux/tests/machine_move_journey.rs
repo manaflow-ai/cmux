@@ -594,9 +594,10 @@ async fn a_web_client_or_a_paired_device_cannot_restore_a_journal() {
 }
 
 /// One chat on a machine of its own, restored straight through its unix socket (the owner's
-/// daemon would send the same request over its link).
+/// daemon would send the same request over its link). The review's F2 (a purge racing a
+/// restore) is tested at the purge's own seam, `hub/journal_restore_tests.rs`.
 struct OneChat {
-    home: tempfile::TempDir,
+    _home: tempfile::TempDir,
     hub: Arc<Hub>,
     c: C,
     id: String,
@@ -616,7 +617,7 @@ async fn one_chat() -> OneChat {
     let id = c.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
     let created = hub.session_summary(&hub.resolve(&id).unwrap())["createdAt"].clone();
     let before = journal(&hub, &id).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap_or(0);
-    OneChat { home, hub, c, id, created, before }
+    OneChat { _home: home, hub, c, id, created, before }
 }
 
 impl OneChat {
@@ -684,33 +685,6 @@ async fn a_prompt_between_a_restores_tries_waits_for_the_retry() {
     }
     let prompt = events.iter().find(|e| names_prompt(e, "user_message", "p-between")).unwrap();
     assert!(prompt["seq"].as_u64().unwrap() > chat.before + 3, "{prompt}");
-}
-
-/// F2: a purge that comes while a restore holds the chat waits for it, and then leaves nothing:
-/// no record of the restore brings the purged chat's folder back.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_purge_during_a_restore_leaves_nothing_of_the_chat() {
-    let _one = ONE_AT_A_TIME.lock().await;
-    let mut chat = one_chat().await;
-    acpmux::hub::journal_restore::pause_once_holding(&chat.id, 1500);
-    let mut killer = client(chat.hub.clone()).await;
-    let id = chat.id.clone();
-    let purge = tokio::spawn(async move {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while !acpmux::hub::journal_restore::test_paused() {
-            assert!(Instant::now() < deadline, "the restore never held the chat");
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        killer.raw(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await
-    });
-    let restored = chat.restore().await;
-    let purged = tokio::time::timeout(Duration::from_secs(60), purge).await.unwrap().unwrap();
-    assert!(purged.get("error").is_none(), "the purge failed: {purged}");
-    assert!(chat.hub.resolve(&chat.id).is_err(), "the chat outlived its purge");
-    let folder = chat.home.path().join(&chat.id);
-    assert!(!folder.exists(), "the purged chat's folder came back ({restored}): {folder:?}");
-    let events = chat.hub.events(&chat.id, 0, 100).unwrap_or_default();
-    assert!(events.is_empty(), "the purged chat has records again: {events:#?}");
 }
 
 /// F3: a flush that fails fails the restore, even with every record read back, so the owner
