@@ -526,10 +526,13 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
     metadata: {
       at: row.at,
       links: [],
-      // An app or persona label (`[from Muse]`) names its own sender; its session's name never
-      // replaces it, so such a card keeps its "From <name>" line (incomingMessage.ts promptOf).
+      // An app or persona label (`[from Muse]`), a Chief or a person names its own sender; the
+      // session it came through never replaces that name, so such a card keeps its "From <name>"
+      // line (IncomingMessageCard.tsx looks no chat up for these either).
       ...(prompt.incoming?.kind === "message" &&
-        !prompt.incoming.message.app && {
+        !prompt.incoming.message.app &&
+        !prompt.incoming.message.chief &&
+        !prompt.incoming.message.fromPerson && {
           sender: {
             name: prompt.incoming.message.name,
             sessionId: prompt.incoming.message.sessionId,
