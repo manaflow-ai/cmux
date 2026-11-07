@@ -205,8 +205,7 @@ export function ConversationList(props: ConversationListProps) {
       // it, or moving up, half a row under it; then it stays open while the pointer is over its open area.
       const shut = metrics.pinnedHeight(pinnedIds.length);
       const opens = !!drag && (at.y < shut || (at.y < drag.y && at.y < shut + metrics.rowHeight / 2));
-      const index =
-        start.fromGrid || drag?.index != null || opens ? target(at.x, at.y, start.fromGrid, count) : null;
+      const index = start.fromGrid || drag?.index != null || opens ? target(at.x, at.y, start.fromGrid, count) : null;
       setDrag({ id: start.id, fromGrid: start.fromGrid, x: at.x, y: at.y, index });
     };
     const up = (event: PointerEvent) => {
