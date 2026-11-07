@@ -74,11 +74,11 @@ nonisolated enum ChromiumAccessibilityPress {
     }
 
     private static func window(of element: AnyObject) -> NSWindow? {
-        (element as? NSAccessibilityProtocol)?.accessibilityWindow?() as? NSWindow
+        (element as? NSAccessibilityProtocol)?.accessibilityWindow() as? NSWindow
     }
 
     private static func frame(of element: AnyObject) -> CGRect? {
-        guard let frame = (element as? NSAccessibilityProtocol)?.accessibilityFrame?(), !frame.isEmpty else { return nil }
+        guard let frame = (element as? NSAccessibilityProtocol)?.accessibilityFrame(), !frame.isEmpty else { return nil }
         return frame
     }
 }
