@@ -68,13 +68,8 @@ fn print_document(document: &Value) -> i32 {
     }
 }
 
-/// Short CLI names of settings keys: (alias, key). An alias is never a schema key itself.
-pub(crate) const KEY_ALIASES: &[(&str, &str)] = &[("on", super::super::chat_start::TARGET_SETTING)];
-
-/// The key `path` names: its key when it is an alias, else `path` itself.
-pub(crate) fn resolve_alias(path: &str) -> &str {
-    KEY_ALIASES.iter().find(|(alias, _)| *alias == path).map_or(path, |(_, key)| *key)
-}
+// The key aliases are the daemon parser's (cli/command/settings.rs), which builds on every platform.
+pub(super) use super::super::command::{KEY_ALIASES, resolve_alias};
 
 /// The app's refusal of a user-only key.
 const USER_ONLY: &str = "setting_user_only";

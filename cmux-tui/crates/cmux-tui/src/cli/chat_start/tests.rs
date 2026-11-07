@@ -406,3 +406,10 @@ fn a_vm_target_signed_out_says_to_sign_in() {
     };
     assert_eq!(code(route(Some("vm:dev"), reads)), "chat_target.signed_out");
 }
+
+/// `cmux config set on …` sets the key `cmux chat` reads: the `on` alias (cli/command/settings.rs,
+/// built on every platform) names [`super::TARGET_SETTING`].
+#[test]
+fn the_on_alias_is_the_chat_target_setting() {
+    assert_eq!(super::super::command::resolve_alias("on"), super::TARGET_SETTING);
+}
