@@ -22,7 +22,8 @@ import Foundation
 /// that), written and read off the main actor.
 @MainActor
 public final class HomeAttachmentPreparer {
-    public static let maxSessions = 8
+    /// More than a drop of files at once (each uploads at once, attachmentDrafts.ts).
+    public static let maxSessions = 64
     public static let maxReadBytes = 3 * 1024 * 1024
 
     private struct Session {

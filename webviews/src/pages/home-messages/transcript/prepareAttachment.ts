@@ -59,6 +59,8 @@ export function hostPrepareFile(client: PageClient): PrepareFile {
         });
         parts.push(fromBase64(piece.data ?? ""));
       }
+      const read = parts.reduce((total, piece) => total + piece.length, 0);
+      if (read !== size) throw new Error("the host's prepared file came back short");
       return new File(parts as BlobPart[], done.name ?? file.name, { type: done.mimeType ?? file.type });
     } finally {
       void client.call(PREFIX + "end", { id }).catch(() => undefined);
