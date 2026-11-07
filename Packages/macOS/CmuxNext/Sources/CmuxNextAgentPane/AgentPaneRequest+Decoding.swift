@@ -415,6 +415,13 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "agent.mini":
+            self = .miniSubject
+        case "agent.mini.show":
+            // A session id is short; null (or absent) is the Chief.
+            if let session = params?["sessionId"] as? String {
+                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
+            } else { self = .showInMini(nil) }
         case "chief.face":
             // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
             if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
@@ -516,7 +523,8 @@ extension AgentPaneRequest {
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
+                                      facts: id == nil ? nil : SubagentTabFacts(params))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -569,6 +577,14 @@ extension AgentPaneRequest {
             if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
                let url = URL(string: text), url.isAgentPanePreview {
                 self = .openPreview(url)
+            } else {
+                self = .unsupported(method)
+            }
+        case "cloud.preview.open":
+            if let params, Set(params.keys) == ["port"],
+               let port = params["port"] as? NSNumber, CFGetTypeID(port) != CFBooleanGetTypeID(),
+               Double(port.intValue) == port.doubleValue, (1...65535).contains(port.intValue) {
+                self = .openCloudPreview(port: port.intValue)
             } else {
                 self = .unsupported(method)
             }

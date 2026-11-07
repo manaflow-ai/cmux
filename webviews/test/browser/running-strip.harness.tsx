@@ -73,13 +73,16 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
 };
 // The same command with its tail open as a host that reads output and opens terminals shows it
 // (`window.__showOpenCommand`): the command, then one line of its time, state and Open in terminal.
-(window as unknown as { __showOpenCommand: () => void }).__showOpenCommand = () => {
+(window as unknown as { __showOpenCommand: (width?: number, line?: string) => void }).__showOpenCommand = (
+  width = 720,
+  line = command,
+) => {
   const items = trayItems(
     [],
     [
       {
         id: "s/1",
-        command,
+        command: line,
         state: "running",
         processId: "s/1",
         toolCallId: "call-1",
@@ -90,7 +93,7 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
     true,
   );
   view.render(
-    <section className="acpmux-shell" style={{ width: 720 }}>
+    <section className="acpmux-shell" style={{ width }}>
       <div className="acpmux-main">
         <div className="acpmux-dock">
           <SubagentTray
@@ -99,7 +102,6 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
             waiting={new Set()}
             onOpen={() => {}}
             onOpenCommand={() => {}}
-            canOpenTerminal
             canReadTail
             stopProcess={async () => {}}
           />
@@ -139,6 +141,66 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
             working
             waiting={new Set()}
             onOpen={() => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
+// Leo's hat (2026-11-07): a running subagent with a long task, a finished one, and a running command
+// whose shell line runs long (`window.__showRows`). What a line's click calls is kept in
+// `window.__opened`, so a test can tell a line that expands in place from one that navigates.
+const opened: string[] = [];
+(window as unknown as { __opened: string[] }).__opened = opened;
+(window as unknown as { __showRows: (width?: number) => void }).__showRows = (width = 720) => {
+  const now = Date.now();
+  const agents = [
+    {
+      id: "long",
+      parent: null,
+      name: "Reviewer",
+      task: "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+      state: "running",
+      startedAt: now - 374_000,
+    },
+    {
+      id: "done",
+      parent: null,
+      name: "Tester",
+      task: "Run the tray tests",
+      state: "completed",
+      startedAt: now - 90_000,
+      endedAt: now - 54_000,
+    },
+  ];
+  const wait = "glaeda-gh wait file ~/Projects/checkouts/cmux/composer-hat-row-check/.done --timeout 3600";
+  view.render(
+    <section className="acpmux-shell" style={{ width }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={trayItems(
+              agents,
+              [
+                {
+                  id: "w/1",
+                  command: wait,
+                  state: "running",
+                  processId: "w/1",
+                  toolCallId: "call-w",
+                  startedAt: now - 60_000,
+                },
+              ],
+              [],
+              true,
+            )}
+            finished={finishedTrayItems(agents, [])}
+            working
+            waiting={new Set()}
+            onOpen={(id) => opened.push(`agent:${id}`)}
+            onOpenCommand={(entry) => opened.push(`command:${entry.id}`)}
+            stop={async () => {}}
+            stopProcess={async () => {}}
           />
         </div>
       </div>
