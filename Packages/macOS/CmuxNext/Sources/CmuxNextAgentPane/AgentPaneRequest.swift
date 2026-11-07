@@ -146,6 +146,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `agent.mini {}`: the agent session the floating mini (the Chief pet) stands for, as
+    /// `sessionId`; null while it is the Chief's. The chat menu's Show in Mini row reads it.
+    case miniSubject
+    /// `agent.mini.show {sessionId}`: Show in Mini for agent session `sessionId`; null gives the
+    /// mini back to the Chief.
+    case showInMini(String?)
     /// `chief.face {chief}`: the name and avatar Chief `chief` (a participant id, `agent_mux` or
     /// `agent_…`) shows in the sidebar and Home, for a message it sent this chat (acpmux
     /// `fromChief`, manaflow-ai/cmux#27914): `name`, and `src` (a small data URL) or `text`.
@@ -298,6 +304,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.handoff`: the mic, when `agentPane.dictationSource` names an app, sends that
+    /// app's shortcut or starts macOS Dictation (``AgentPaneDictationHandoff``).
+    case dictationHandoff
+    /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
+    case dictationSources
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
@@ -388,7 +399,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
-    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`).
+    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`),
+    /// and `pane.setDictationSource {source}` writes `agentPane.dictationSource`.
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).

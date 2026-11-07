@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card drag, review of #37790. A drop settles from where the page let the card go (the
+  release's offset plus the held base), not from the frame of the last move, so a release between moves does not
+  jump back before it springs (`SidebarUpdatedCardHost.pageDragged`). A drag that starts with the hover preview open
+  hands the preview's room back at once, so the held card's view does not shrink mid-drag. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?"
+  Regression: `UpdatedCardDragTests`, webviews `updated-card-hover-preview.test.tsx`.
+- 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
+  what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
+  left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back
+  closed. With motion reduced or off the room goes back as the preview closes, with no 240 ms wait. The preview lists
+  every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
+  improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
+  `updated-card-hover-preview.test.tsx`.
 - 2026-11-07: the Updated card drags between the bottom card slot and the top of the list. Leo, verbatim: "what if
   you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?" The card's
   page runs the drag with the toasts' anchors and drag (webviews `ui/anchors.ts`, `pages/changelog/updatedCardDrag.ts`):
@@ -638,6 +651,19 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## The window top shares one line; the + sits on the trailing column (2026-11-07)
+
+Leo 2026-11-07: "i was thinking we can do some work to align the top bit of the sidebar with the tabs/vice versa, and
+likewise the top of the sidebar with the subsequent elements below (workspaces and their notification symbols, then
+the search icon)". Under a minimal titlebar the traffic lights, the toolbar band (toggle, Back, Forward), the
+sidebar's + and the top row's tab pills (and the pane toolbar's buttons) center on one line, `TopRowLine`: the
+lights' center, the one line macOS fixes. The top-row strip moves its pills inside itself to reach it, at every
+density; a pill too tall to center under the window's top stops 1 pt below it. The titlebar row's +, standing
+alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that the rows' status marks, unread dots
+and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
+`chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
+`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tour `top-alignment`.
+
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
 Leo 2026-11-05, on the first-run "Help Make cmux Faster?" hang-reports card: "why is the text under it? Also giving
@@ -694,6 +720,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
 | Hover card usage | A workspace whose agent chat reports acpmux `usageStats` gets one row after the agent row: the context each call carries and the last 24 hours' cost ("312K context · $1,421 in 24h"), with the context-window ring. No usage, no row. | Leo 2026-10-30 ("that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next") |
+| Titlebar row + | Alone, the + centers on the trailing column with the rows' marks and footer Search, and on the top row's one line with the traffic lights and the tabs. | Leo 2026-11-07 ("the top of the sidebar with the subsequent elements below (workspaces and their notification symbols, then the search icon)") |
 | Trailing indicators | One center x in every row kind and density (section, status, band and chat history headers' chevrons too, a band header in every look, cards included, through `SidebarRegionLayout.itemTrailingTrim`): Home and band items, selected and unselected workspace rows, pinned, nested and top-level group headers (chevron and resting spinner), members, at compact, comfortable and expanded, Minimal Mode on and off. The dot or spinner owns the trailing column; a disclosure, a count, the keycap and the hover close and more sit left of it. On hover the mark gives way: a hovered workspace row draws no dot or spinner while its close, more or pin show (at the default end spot the end-most control takes the column), a hovered loading group header shows its chevron and no spinner, and leaving clears the controls at once as the mark returns. | Lawrence 11914 ("the home blue dot isn't lined up with the other trailing dots"), 11959 ("trailing dots and spinners must line up horizontally across sections"); Leo 2026-10-28 ("If you're hovering over a workspace or whatever, just don't show the spinner. Also ... why the fuck is it not aligned? Oh, because it's the inner tab thing") |
 | Status colors | One color per meaning in every row kind (Home, band items, workspace rows, group headers, nested): blue `systemBlue` unread or new, orange `systemOrange` needs attention (a permission prompt, a question, waiting on you), red `systemRed` an error. Tokens `Palette.statusUnread/statusAttention/statusError`; sidebar indicators opt in with `StatusIndicatorView.usesStatusColors`. A row shows one: red, else orange, else blue, else its spinner. A group header, open or collapsed, rolls up its subtree the same way; a collapsed header with none of those keeps its loading spinner. | Lawrence 11983 ("make sure sidebar has blue, orange/yellow for needs attention, and red for errors"); takes back 10-18's "an error is Ready (blue)" and 10-20's "All we care about is the loading" for headers |
 | Status dots: one diameter | Every status dot (blue unread, orange needs attention, any other dot) paints one diameter, `SidebarStyle.statusDotSize` (8 pt at compact, the 8 pt step at each density and text size), centered on the trailing column, in every row kind: Home and band items, pinned rows, selected and unselected workspace rows, group header roll-ups (open and collapsed), nested rows, icon and tile corners and Priority rows. A dot drawn by the status indicator reads it through `StatusIndicatorView.dotDiameter`; the unread badge and the row badge read the token; no view sizes a dot itself. The spinner and the non-dot marks (the red info mark, the shield) keep their 14 pt box. Color swatches and machine dots are not status dots (`SidebarStyle.dotSize`). | Lawrence 19696 ("dots are different size now which is very bad"); Leo 2026-10-31 ("INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR") sets the size |
@@ -1533,6 +1560,42 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `SidebarHoverCardMetrics`), read on every configure so a change applies to the next card.
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
+
+## A relaunch's first frame has the live rows' heights (2026-11-07)
+
+- Leo 2026-11-07: "Like, it was already loaded, and then it flickered."
+- Cause: the saved sidebar kept only a row's id, machine, title, kind, brand, icon and color. A row with a second
+  line, a status block (entries, log line, progress label and bar) or a Done task status came back one line tall and
+  outside the Done fold, so the live tree's one unanimated reload changed row heights and moved every row below.
+- Fix: `SidebarWorkspaceSnapshot` also saves what sets the height and the fold: the second line's facts (folder,
+  branch, process, status, ports, pull request, notification text, last activity, the description's first line),
+  a row kind that differs from its tab's, the status block's drawn lines (at most 3 entries plus the "N more" count,
+  the log line and the progress label), the bar's fraction and the task status. Every field is optional, so older
+  snapshots still read; each text is cut to 200 characters.
+- Test: `SidebarRestoredRowHeightTests` (CmuxNextAppTests).
+
+## A drag's start moves no row: Pinned opens at the top edge (2026-11-07)
+
+- Leo 2026-11-07: "did we not remove or find adifferent solution for the drag here to pin yet in the sidebar? it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that..."
+- Every workspace drag (and every drag on the document) turned on `showEmptyPinned` as it lifted: an empty Pinned
+  drew its header and "Drop here to pin" row at the top, and every empty document section its drop row, so every row
+  moved down the moment a drag started.
+- Now the lift shows no new row. `SidebarEmptyZones` makes, at the lift, the zones the drag can open: an empty
+  Pinned's opens once the pointer, moving up, reaches the top half of the row it opens above (or above it); an empty
+  titled section's once the pointer reaches its title. One opens at a time, on the drag's spring (rows move, the zone
+  fades in), takes the drop, and closes half a row past it. A group drag on the document rebuilds its plan when one
+  opens or closes. A section the drag empties still keeps its drop row in the dragged rows' place, and a list Pinned
+  the drag empties keeps its header and row for the whole drag (`keepsPinned`), so the row can go back.
+- A drag the document does not take (a workspace it places nowhere yet) resolves on the list, which drops into no
+  document section: it opens none of their zones (it never could drop there).
+- Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
+- A block tile's drag opens zones too; a Pinned that keeps items opens none (the drop goes among its items); the
+  half-row reach is the height of the row the zone opens above (density, status and detail lines).
+- A collapsed empty section opens its zone too (its title is all it draws). A section the document refuses the drag
+  into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
+- A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
+  moves the zone's reach by as much.
 
 ## Reviewed behavior-only commits
 

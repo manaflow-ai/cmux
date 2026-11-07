@@ -179,6 +179,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDictationSource":
+            // The mic menu's source pick; the page writes only this key with it.
+            if let source = (params?["source"] as? String).flatMap(AgentPaneDictationSource.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.dictationSourcePath, value: .string(source.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
@@ -415,6 +422,13 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "agent.mini":
+            self = .miniSubject
+        case "agent.mini.show":
+            // A session id is short; null (or absent) is the Chief.
+            if let session = params?["sessionId"] as? String {
+                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
+            } else { self = .showInMini(nil) }
         case "chief.face":
             // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
             if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
@@ -636,6 +650,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.handoff": self = .dictationHandoff
+        case "dictation.sources": self = .dictationSources
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

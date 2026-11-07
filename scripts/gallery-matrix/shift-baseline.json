@@ -520,7 +520,7 @@
     "agent-pane.composer#agent-home-folders": 0,
     "agent-pane.composer#agent-home-path": 0,
     "agent-pane.composer#attach-screenshot": 0.01433,
-    "agent-pane.composer#attach-screenshot-too-large": 0.00621,
+    "agent-pane.composer#attach-screenshot-oversized": 0.01433,
     "agent-pane.composer#attach-window-cancelled": 0,
     "agent-pane.composer#attachment-failed": 0.03588,
     "agent-pane.composer#attachment-inline-caret": 0.01321,

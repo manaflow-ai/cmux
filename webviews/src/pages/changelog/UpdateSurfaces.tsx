@@ -37,6 +37,7 @@ import {
   type MouseEvent,
 } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
+import { motionMode } from "../../ui/motion/motionMode";
 import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { Doodle, DoodleActions, DoodleHeadline } from "./doodle/UpdateDoodle";
@@ -153,7 +154,7 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
 /** How long the preview's close runs before the card hands its room back (the motion scale's
-    ceiling, `--cmux-motion-large`). */
+    ceiling, `--cmux-motion-large`); with motion reduced or off, no wait. */
 const PREVIEW_CLOSE_MS = 240;
 
 export function UpdatedCard({
@@ -220,7 +221,7 @@ export function UpdatedCard({
     actions.openChangelog();
   };
   const rest = useRef<HTMLDivElement | null>(null);
-  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.close);
+  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.closeForDrag);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
       {strings.t("changelog.page.title")}
@@ -402,11 +403,18 @@ function useHoverPreview({
     if (!want) {
       setShown(false);
       if (forced || !asked.current) return;
-      // The glass closes over the rows first; then the host takes its room back.
-      const timer = setTimeout(() => {
+      const handBack = () => {
         asked.current = false;
         sized.current?.(0);
-      }, PREVIEW_CLOSE_MS);
+      };
+      // With motion reduced or off the preview has no close to run (updateSurfaces.css): the room
+      // goes back at once (#37615 F2).
+      if (motionMode() !== "full") {
+        handBack();
+        return;
+      }
+      // The glass closes over the rows first; then the host takes its room back.
+      const timer = setTimeout(handBack, PREVIEW_CLOSE_MS);
       return () => clearTimeout(timer);
     }
     if (!mounted) {
@@ -482,6 +490,15 @@ function useHoverPreview({
     listRef: list,
     cardRef: card,
     close: () => intent.current?.close(),
+    /** Closes it for a drag: the room goes back at once, so the host does not shrink the held card's
+        view mid-drag when the close ends (review F2 of #37790). */
+    closeForDrag: () => {
+      if (asked.current) {
+        asked.current = false;
+        sized.current?.(0);
+      }
+      intent.current?.close();
+    },
   };
 }
 

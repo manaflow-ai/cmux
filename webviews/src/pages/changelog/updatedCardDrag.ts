@@ -116,6 +116,12 @@ export function pressCard(
   const own = (next: PointerEvent) => next.pointerId === event.pointerId;
   const move = (next: PointerEvent) => {
     if (!own(next)) return;
+    // A release outside the card-sized page view (over the native sidebar) sends the page no
+    // pointerup; the first move with no button held is the release.
+    if (next.buttons === 0) {
+      end(next, false);
+      return;
+    }
     const point = at(next);
     const offset = drag.move(point, next.timeStamp);
     if (!drag.dragging) return;
@@ -151,6 +157,8 @@ export function pressCard(
     delete target.dataset.dragging;
     host.hold?.(undefined);
     const result = cancelled ? null : drag.release(at(last), last.timeStamp, box);
+    // The card lets go from where the pointer was released, not from the last move's place.
+    if (result) shown = shownOffset(feel, drag.offset, anchorRow(nearestAnchor(at(last), box)), place);
     if (result?.kind === "dismiss") {
       host.dismiss();
       return;

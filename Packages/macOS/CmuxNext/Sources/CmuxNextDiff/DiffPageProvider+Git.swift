@@ -154,7 +154,7 @@ extension DiffPageProvider {
 
 /// The running app's diff git: the agent pane's local git link and its staging.
 public final class DiffAgentGit: DiffGitRunning {
-    private let link: AgentPaneGitLink
+    let link: AgentPaneGitLink
 
     public init(link: AgentPaneGitLink) {
         self.link = link
