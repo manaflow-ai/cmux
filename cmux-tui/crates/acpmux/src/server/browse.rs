@@ -148,7 +148,11 @@ fn list(
         ));
     }
     // Opened once and listed through that open folder, checked by what it names now: a rename
-    // or a link swapped in after the check above never lists another folder.
+    // or a link swapped in after the check above never lists another folder. Where a listing
+    // can only read by name, nothing holds it to the roots, so a peer gets nothing.
+    if roots.is_some() && !opened::HOLDS_ITS_FOLDER {
+        return Err(refused("browse.path", "this machine can't list a folder for a peer"));
+    }
     let opened = opened::open(&dir).map_err(|e| match e.raw_os_error() {
         Some(code) if code == libc::ENOTDIR => {
             refused("browse.not_directory", format!("{} is not a folder", dir.display()))
@@ -271,12 +275,15 @@ mod opened {
     }
 
     #[cfg(not(unix))]
-    pub(super) use other::open;
+    pub(super) use other::{HOLDS_ITS_FOLDER, open};
     #[cfg(unix)]
-    pub(super) use unix::open;
+    pub(super) use unix::{HOLDS_ITS_FOLDER, open};
 
     #[cfg(unix)]
     mod unix {
+        /// A listing reads through the folder it opened (`fdopendir`), not its name.
+        pub(in super::super) const HOLDS_ITS_FOLDER: bool = true;
+
         use super::{Entry, Kind};
         use std::ffi::{CStr, CString, OsString};
         use std::fs::File;
@@ -425,6 +432,10 @@ mod opened {
 
     #[cfg(not(unix))]
     mod other {
+        /// A listing reads by name: a folder swapped for a link mid-read would be read instead,
+        /// so this platform never lists under roots (a peer's listing).
+        pub(in super::super) const HOLDS_ITS_FOLDER: bool = false;
+
         use super::{Entry, Kind};
         use std::io;
         use std::path::{Path, PathBuf};
@@ -593,6 +604,13 @@ mod tests {
         }
         assert!(Ask::from(&json!({"path": null})).unwrap().path.is_none());
         assert!(Ask::from(&json!({})).unwrap().path.is_none());
+    }
+
+    #[test]
+    fn a_peer_listing_needs_a_held_folder() {
+        // The roots hold only where the listing reads the folder it opened; elsewhere a peer
+        // gets nothing (list refuses before opening).
+        assert!(opened::HOLDS_ITS_FOLDER, "unix reads through the opened folder");
     }
 
     #[test]
