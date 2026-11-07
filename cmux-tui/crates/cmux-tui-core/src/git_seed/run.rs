@@ -485,6 +485,12 @@ impl Seed {
                 self.git(&["update-ref", "-d", &incoming])?;
             }
         }
+        // The optional deletion marker carries a stash-only delta through Git's
+        // bundle format. It has no semantic ref in the seeded working copy.
+        let marker = "refs/cmux-seed-incoming/stash-cleared";
+        if self.git(&["rev-parse", "--verify", "--quiet", marker]).is_ok() {
+            self.git(&["update-ref", "-d", marker])?;
+        }
         Ok(())
     }
 
