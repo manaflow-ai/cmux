@@ -17,6 +17,8 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     private let label: ChromeLabel
     /// The row's icon: the glyph alone, centered.
     private let compactIcon = NSImageView()
+    /// The chip's fill, resolved with the text colors (`applyColors`); the row's icon has none.
+    private var chipFill: CGColor?
 
     /// The glyph the visible state draws (tests).
     public var glyph: NSImage? { isCompact ? compactIcon.image : chipIcon.image }
@@ -92,7 +94,9 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
                                        width: side, height: side)
         }
         layer?.cornerRadius = compact ? 0 : Metrics.chipCornerRadius(height: bounds.height)
-        applyColors()
+        // Only the fill follows the state here; the colors resolve at init and on an appearance change, as the
+        // chip's always did (a layout-time resolve gave the word a different ink).
+        layer?.backgroundColor = compact ? NSColor.clear.cgColor : chipFill
     }
 
     override public func setFrameSize(_ newSize: NSSize) {
@@ -111,8 +115,9 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
             chipIcon.contentTintColor = Palette.textSecondary
             compactIcon.contentTintColor = Palette.textSecondary
             label.textColor = Palette.textSecondary
-            layer?.backgroundColor = isCompact ? NSColor.clear.cgColor : Palette.hoverFill.cgColor
+            chipFill = Palette.hoverFill.cgColor
         }
+        layer?.backgroundColor = isCompact ? NSColor.clear.cgColor : chipFill
     }
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
