@@ -993,18 +993,23 @@ export function mergeQueue(
     // sender lives in `_meta.provenance` and `queuedMessage` must see it.
     // Override only the text with acpmux's current preview; a stale full
     // prompt would make the provenance branch look like an edit.
+    // An agent's message the person edited, or a prompt acpmux could not attribute, lists null
+    // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
+    const listedProvenance =
+      entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
     const listedMessage = queuedMessage({
       ...entry,
       text: preview,
       fromAgent: listed,
       fromHarness: entry?.fromHarness,
+      ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
     });
     const kept = whole ? had.message : undefined;
     // A queue listing may carry the full provenance even when its compatibility `fromAgent`
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? undefined : (kept ?? listedMessage);
+    const message = listed === null ? (listedProvenance ? listedMessage : undefined) : (kept ?? listedMessage);
     // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
     // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
     const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;
@@ -5962,8 +5967,9 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place, and makes it the person's: acpmux drops an agent's
-      // provenance and sender (hub/queue.rs), so its row loses the sender too. A teammate's own
+      // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
+      // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
+      // One with no provenance (an older acpmux dropped it) is the person's. A teammate's own
       // edit keeps their `person_message` provenance, so the row keeps its author.
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
@@ -5985,7 +5991,7 @@ export class AcpmuxDirectClient {
                 entry.next === true,
                 false,
                 recordImages(msg),
-                undefined,
+                queuedMessage(msg, this.incomingContext()),
                 promptAuthor(msg),
                 // A held prompt's parts are this record's alone (THE RULE, Hold).
                 msg.awaitingOwner === true

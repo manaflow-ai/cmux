@@ -549,6 +549,10 @@ impl Hub {
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
+                    provenance: super::digest::listed_provenance(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    ),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,

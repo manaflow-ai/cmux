@@ -19,8 +19,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// says where what is shown starts instead of when the session started.
         case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
-        /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's bubble.
-        case incoming(AgentIncoming, at: Date)
+        /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's
+        /// bubble, with the images and files the prompt carried.
+        case incoming(AgentIncoming, attachments: [AgentAttachment], at: Date)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -173,7 +174,7 @@ final class ChatTranscriptBuilder {
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
         if turn.incoming?.messages.isEmpty != true {
             rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                                kind: turn.incoming.map { .incoming($0, at: turn.promptAt) }
+                                kind: turn.incoming.map { .incoming($0, attachments: turn.attachments, at: turn.promptAt) }
                                     ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                                 gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
         }
