@@ -1720,6 +1720,22 @@ let package = Package(
         self.assertIn("has 2 process-scan line(s), baseline 1", output)
         self.assertEqual(self.remote_head(), before)
 
+    def test_a_direct_run_takes_a_row_added_for_sites_already_on_the_base(self):
+        # #37531: a base red's fix adds the row for process-scan sites already on the base and touches no source. The
+        # trees held only changed files, so the head read 0 sites against the new row and refused the fix.
+        self.write(self.SCAN, self.scan_source(1))
+        self.commit("base: a process-scan line with no row")
+        self.set_scan_row(1)
+        self.commit("adds its row")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("now has 0 process-scan line(s)", output)
+
     def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)
         gate = importlib.util.module_from_spec(spec)
