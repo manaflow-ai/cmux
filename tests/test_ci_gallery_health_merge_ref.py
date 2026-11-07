@@ -216,9 +216,12 @@ class GalleryHealthPathRouting(unittest.TestCase):
     the same time, like doing a lot of goofy stuff and, like, keeping around a lot of baggage."
     """
 
-    def test_a_pull_request_and_a_push_route_on_the_same_paths(self) -> None:
+    def test_the_base_renders_only_through_the_nightly_dispatch(self) -> None:
+        # The per-push renders of feat-cmux-next are gone: main's cmux-next-gallery-health-dispatch.yml
+        # renders the base in full once a day.
         on = triggers()
-        self.assertEqual(on["pull_request"]["paths"], on["push"]["paths"])
+        self.assertNotIn("push", on)
+        self.assertIn("workflow_dispatch", on)
         self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
 
     def test_what_the_render_reads_triggers_it(self) -> None:
