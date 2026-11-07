@@ -1,3 +1,4 @@
+import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
@@ -680,6 +681,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
     pending: true,

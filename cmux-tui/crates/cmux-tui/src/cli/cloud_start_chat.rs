@@ -226,6 +226,8 @@ pub(super) fn parse(
     let mut target = None;
     let mut wait = false;
     let mut timeout = DEFAULT_TIMEOUT;
+    // The prompt came after `--`: text, so `-- -` is "-", not stdin.
+    let mut literal = false;
     let mut index = 0;
     while index < words.len() {
         let Some(word) = words.get(index).map(String::as_str) else { break };
@@ -260,12 +262,23 @@ pub(super) fn parse(
             }
             "--wait" => wait = true,
             "--no-wait" => wait = false,
+            // `-- TEXT`: the prompt, read as text even when it starts with `-`.
+            "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
+                Some([text]) if prompt.is_none() => {
+                    prompt = Some(text.clone());
+                    literal = true;
+                    break;
+                }
+                _ => return Err(UsageError::new("-- takes one prompt, in place of --prompt")),
+            },
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
     }
     let prompt = match prompt.as_deref() {
-        Some("-") => stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?,
+        Some("-") if !literal => {
+            stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?
+        }
         Some(text) => text.to_owned(),
         None => return Err(UsageError::new("--prompt TEXT is required")),
     };
