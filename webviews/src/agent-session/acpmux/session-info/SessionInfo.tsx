@@ -79,6 +79,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -699,8 +700,8 @@ export function useSessionInfo({
   // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
   const scopeId = subagent?.agent.id;
   useEffect(() => backFromAside(), [scopeId, backFromAside]);
-  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
-  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // Lucas, 2026-11-06: "In a narrow layout: it becomes a popover and starts closed." (Every new chat
+  // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
   // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
@@ -1241,6 +1242,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
@@ -1351,19 +1357,24 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
-  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
-  // panel lists another agent, not each streamed token's copy.
+  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
   if (
-    galleryRows.current.length !== rows.length ||
+    galleryRows.current.any !== any ||
     galleryRows.current.artifacts !== artifacts ||
     galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
+    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -1539,6 +1550,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        outputFiles={outputFiles}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
@@ -1783,6 +1795,9 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// No files made (a stable value, so the sections' memo holds).
+const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
@@ -1813,6 +1828,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  outputFiles,
   plan,
   toolCalls,
   agents = [],
@@ -1881,6 +1897,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
+  outputFiles?: ReturnType<typeof chatOutputs>;
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -2072,7 +2090,7 @@ export function SessionInfo({
   // What the chat made for the person (chatOutputs.ts): the documents its replies link to and the
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
-  const madeFiles = useMemo(() => chatOutputs(rows, cwd), [rows, cwd]);
+  const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -2083,7 +2101,7 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -2178,19 +2196,20 @@ export function SessionInfo({
       title={t("rail.connectors")}
       open={hasConnectors && state.connectors}
       onOpenChange={hasConnectors ? fold("connectors") : undefined}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
         !hasConnectors
           ? t("sessionInfo.none")
-          : reconnect > 0
-            ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-            : mcp.length === 0 && imessage && imessage.data.status !== "connected"
-              ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+          : mcp.length === 0 && imessage
+            ? imessage.data.status === "connected"
+              ? t("rail.connected", { count: 1 })
+              : t("imessage.connect")
+            : connectorSummary.kind === "reconnect"
+              ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+              : connectorSummary.kind === "connecting"
+                ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+                : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
