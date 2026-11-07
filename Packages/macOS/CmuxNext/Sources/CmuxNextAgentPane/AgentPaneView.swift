@@ -61,6 +61,8 @@ public final class AgentPaneView: NSView {
     let crashRetry = AgentPageCrashRetry()
     /// The rect the window's toasts last heard this pane avoids, window coordinates (AgentPaneView+ToastAvoidance.swift).
     var lastToastAvoidance: NSRect = .zero
+    /// The window that rect was in: a move to another window at the same frame is a move too.
+    weak var lastToastAvoidanceWindow: NSWindow?
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -534,6 +536,8 @@ public final class AgentPaneView: NSView {
         super.viewDidHide()
         dictation.handle(.stop)
         popupHostStorage?.dismiss()
+        // Hidden, itself or an ancestor (a workspace switch): toasts stop avoiding its composer.
+        toastAvoidanceMoved()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -550,6 +554,12 @@ public final class AgentPaneView: NSView {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
         onNativeToolOwnerChange?()
+    }
+
+    /// Shown again, itself or a hidden ancestor (a workspace switch): toasts avoid its composer again.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        toastAvoidanceMoved()
     }
 
     public override func viewDidMoveToWindow() {
