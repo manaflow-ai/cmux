@@ -182,9 +182,10 @@ fn a_port_is_one_through_65535() {
     for bad in [json!(0), json!(65_536), json!("3000"), json!(3000.5)] {
         assert_eq!(port(&args(json!({"port": bad}))), Err(Said::key("invalidPort")));
     }
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: None };
     assert_eq!(
-        named_port(&args(json!({})), "open-browser"),
-        Err(Said::with("portInvalid", ["open-browser"]))
+        named_port(&args(json!({})), "open-browser", &names),
+        Err(Said::with("portInvalid", ["dev box", "vm-1", "open-browser"]))
     );
 }
 
@@ -217,13 +218,14 @@ fn an_id_argument_names_what_is_missing() {
 
 #[test]
 fn a_browser_path_is_slash_when_absent_and_never_has_spaces() {
-    assert_eq!(browser_path(&args(json!({}))), Ok("/".into()));
-    assert_eq!(browser_path(&args(json!({"path": "  "}))), Ok("/".into()));
-    assert_eq!(browser_path(&args(json!({"path": "/docs?x=1"}))), Ok("/docs?x=1".into()));
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
+    assert_eq!(browser_path(&args(json!({})), &names), Ok("/".into()));
+    assert_eq!(browser_path(&args(json!({"path": "  "})), &names), Ok("/".into()));
+    assert_eq!(browser_path(&args(json!({"path": "/docs?x=1"})), &names), Ok("/docs?x=1".into()));
     for bad in ["docs", "/a b", "/a\u{7}", &format!("/{}", "a".repeat(2048))] {
         assert_eq!(
-            browser_path(&args(json!({"path": bad}))),
-            Err(Said::key("portPathInvalid")),
+            browser_path(&args(json!({"path": bad})), &names),
+            Err(Said::with("portPathInvalid", ["dev box", "vm-1", "3000"])),
             "{bad}"
         );
     }
@@ -290,4 +292,31 @@ fn a_firewall_rule_is_a_json_object() {
 fn the_command_is_trimmed_and_required() {
     assert_eq!(command(&args(json!({"command": " ls -la\n"}))), Ok("ls -la".into()));
     assert_eq!(command(&args(json!({"command": "\n"}))), Err(Said::key("commandRequired")));
+}
+
+#[test]
+fn a_resize_takes_a_size_or_a_disk_in_four_gib_steps() {
+    let names = "large, medium, small, xlarge";
+    let resized = resize(&args(json!({"size": "xlarge", "disk": " 64 "}))).unwrap();
+    assert_eq!(
+        resized,
+        Resize {
+            size: Some("xlarge".into()),
+            cpu: Some(16),
+            memory_mb: Some(24_576),
+            disk_gib: Some(64),
+            storage_mb: Some(65_536),
+        }
+    );
+    assert_eq!(resize(&args(json!({"disk": 8}))).unwrap().size, None);
+    assert_eq!(resize(&args(json!({"size": "huge"}))), Err(Said::with("sizeMustBeOneOf", [names])));
+    assert_eq!(resize(&args(json!({"size": true}))), Err(Said::with("sizeMustBeOneOf", [names])));
+    for bad in [json!(true), json!(2), json!(6), json!(260), json!("x"), json!(8.5)] {
+        assert_eq!(
+            resize(&args(json!({"disk": bad}))),
+            Err(Said::with("resizeNeedsSizeOrDisk", [names])),
+            "{bad}"
+        );
+    }
+    assert_eq!(resize(&args(json!({}))), Err(Said::with("resizeNeedsSizeOrDisk", [names])));
 }
