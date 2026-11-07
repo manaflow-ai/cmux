@@ -1,7 +1,7 @@
 // Owns the diff viewer's review comments: saving, deleting and submitting them through the host
 // bridge or locally.
 import type { SelectedLineRange } from "@pierre/diffs";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
   deleteComment as bridgeDeleteComment,
@@ -37,6 +37,10 @@ export function useDiffComments({
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
+  // The prompt id of the last send that did not finish, with the comments it named: a retry of the
+  // same comments sends the same id, so a prompt the chat took before the host failed to clear it
+  // is delivered once (acpmux answers a repeated id with its first delivery) and the clear runs again.
+  const pendingSend = useRef<{ key: string; opid: string } | null>(null);
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
@@ -123,17 +127,23 @@ export function useDiffComments({
     }
     const targetRepoRoot = repoRoot;
     const ids = comments.map((comment) => comment.id);
+    const text = commentsPromptText(comments);
+    const key = `${targetRepoRoot}\n${ids.join("\n")}\n${text}`;
+    const opid = pendingSend.current?.key === key ? pendingSend.current.opid : `diff-comments-${crypto.randomUUID()}`;
+    pendingSend.current = { key, opid };
     setSendState("sending");
-    bridgeSendComments(targetRepoRoot, ids, commentsPromptText(comments), `diff-comments-${crypto.randomUUID()}`)
+    bridgeSendComments(targetRepoRoot, ids, text, opid)
       .then(() => {
-        if (activeRepoRoot.current !== targetRepoRoot) return;
+        pendingSend.current = null;
+        // Another repository is shown now: its button is idle, and its comments were never sent.
+        if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
         // Only the comments sent leave; one saved while it was on its way stays for the next send.
         dispatch({ type: "remove-comments", ids });
         setSendState("idle");
       })
       .catch((error) => {
         console.warn("cmux diff comments send failed", error);
-        if (activeRepoRoot.current === targetRepoRoot) setSendState("failed");
+        setSendState(activeRepoRoot.current === targetRepoRoot ? "failed" : "idle");
       });
   };
 

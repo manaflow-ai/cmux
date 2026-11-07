@@ -117,3 +117,52 @@ test("the reducer removes the sent comments together and keeps a newer one", asy
   const next = reducer(start, { type: "remove-comments", ids: ["c1", "c2"] });
   expect(next.comments.map((entry) => entry.id)).toEqual(["c3"]);
 });
+
+test("a retry of the same comments sends the same prompt id, so the chat gets the review once", async () => {
+  const { installPageDiffComments } = await import("../src/comments/bridge");
+  const { createRoot } = await import("react-dom/client");
+  const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
+  const { initialAppState } = await import("../src/diff-viewer/state");
+  const sends: Array<{ ids: unknown; opid?: string }> = [];
+  let clearFails = true;
+  installPageDiffComments({
+    call: async (_op: string, body: { method: string; params: Record<string, unknown> }, options?: { opid?: string }) => {
+      sends.push({ ids: body.params.ids, opid: options?.opid });
+      // The chat took the prompt, but the host could not clear the comments.
+      if (clearFails) throw Object.assign(new Error("store busy"), { code: "operation.failed" });
+      return {};
+    },
+  } as never);
+  const savedWebkit = (window as unknown as { webkit: unknown }).webkit;
+  (window as unknown as { webkit: unknown }).webkit = undefined;
+  try {
+    type Hook = ReturnType<typeof useDiffComments>;
+    const state = { current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] } };
+    state.current.comments = [comment("c1", "a.ts", 1)];
+    let hook!: Hook;
+    function Probe() {
+      hook = useDiffComments({
+        bridgeAvailable: true,
+        canSend: true,
+        dispatch: (() => {}) as never,
+        latestState: state as never,
+        repoRoot: "/repo",
+      });
+      return null;
+    }
+    const probe = createRoot(document.createElement("div"));
+    act(() => probe.render(<Probe />));
+    await act(async () => hook.send());
+    expect(hook.sendState).toBe("failed");
+    clearFails = false;
+    await act(async () => hook.send());
+    expect(hook.sendState).toBe("idle");
+    expect(sends.length).toBe(2);
+    expect(sends[0]!.opid).toBeDefined();
+    expect(sends[1]!.opid).toBe(sends[0]!.opid);
+    act(() => probe.unmount());
+  } finally {
+    installPageDiffComments(null);
+    (window as unknown as { webkit: unknown }).webkit = savedWebkit;
+  }
+});
