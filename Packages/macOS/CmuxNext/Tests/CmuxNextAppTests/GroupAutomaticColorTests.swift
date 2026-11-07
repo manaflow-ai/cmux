@@ -24,6 +24,6 @@ import Testing
     func underAPaletteANewGroupTakesTheNextColorBesideTheOthers(_ palette: GroupPalette) {
         #expect(CmuxNextSidebar.SidebarGroup.newTint(in: Self.sections([]), palette: palette) == .palette(.purple))
         let existing: [GroupTint] = [.palette(.purple), .none, .custom(ThemeRGB(hex: 0x336699))]
-        #expect(CmuxNextSidebar.SidebarGroup.newTint(in: Self.sections(existing), palette: palette) == .palette(.cyan))
+        #expect(CmuxNextSidebar.SidebarGroup.newTint(in: Self.sections(existing), palette: palette) == .palette(.orange))
     }
 }

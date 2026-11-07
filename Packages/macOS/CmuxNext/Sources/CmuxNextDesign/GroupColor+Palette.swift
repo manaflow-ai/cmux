@@ -8,7 +8,7 @@ extension GroupColor {
     /// The order new groups take their colors, each far in hue from the one before, so groups made one after
     /// another never sit in two near colors. No grey and no blue: an app-picked blue would read as the unread dot
     /// beside it (Leo 2026-11-06, an orange group over blue dots: "These colors aren't complementary").
-    nonisolated public static let paletteOrder: [GroupColor] = [.purple, .cyan, .red, .green, .pink, .yellow, .orange]
+    nonisolated public static let paletteOrder: [GroupColor] = [.purple, .orange, .cyan, .red, .green, .pink, .yellow]
 
     /// The color a new group takes: of ``paletteOrder``, the one the fewest `existing` groups have, the earlier on a
     /// tie. A custom color or no color counts for none.
@@ -46,12 +46,12 @@ extension GroupColor {
     nonisolated func grayscaleRGB(dark: Bool) -> ThemeRGB {
         let hex: UInt32 = switch self {
         case .purple: dark ? 0xE6E4E0 : 0xA6A4A0
-        case .cyan: dark ? 0x626B6E : 0x464F52
-        case .red: dark ? 0xD7CFC9 : 0x9D9590
-        case .green: dark ? 0x7E8791 : 0x5A636C
-        case .pink: dark ? 0xBCBDC4 : 0x88898F
-        case .yellow: dark ? 0x827874 : 0x615754
-        case .orange: dark ? 0xB6B0A6 : 0x857F76
+        case .orange: dark ? 0x827874 : 0x615754
+        case .cyan: dark ? 0xBCBDC4 : 0x88898F
+        case .red: dark ? 0x8A7A76 : 0x665856
+        case .green: dark ? 0xC9CFCB : 0x939A95
+        case .pink: dark ? 0x857A82 : 0x63585F
+        case .yellow: dark ? 0xD7CFC9 : 0x9D9590
         case .blue: dark ? 0x8B9C9D : 0x627273
         case .grey: dark ? 0xA1A1AA : 0x8E8E93
         }

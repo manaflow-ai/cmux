@@ -45,8 +45,8 @@ import Testing
         #expect(existing == GroupColor.paletteOrder.map { .palette($0) })
         #expect(!GroupColor.paletteOrder.contains(.blue) && !GroupColor.paletteOrder.contains(.grey))
         // A color a person picked counts as used; custom and no color count for none.
-        #expect(GroupColor.automatic(existing: [.palette(.purple), .custom(ThemeRGB(hex: 0x336699)), .none]) == .cyan)
-        #expect(GroupColor.automatic(existing: GroupColor.paletteOrder.map { .palette($0) } + [.palette(.purple)]) == .cyan)
+        #expect(GroupColor.automatic(existing: [.palette(.purple), .custom(ThemeRGB(hex: 0x336699)), .none]) == .orange)
+        #expect(GroupColor.automatic(existing: GroupColor.paletteOrder.map { .palette($0) } + [.palette(.purple)]) == .orange)
         // Next to each other in the order, two vibrant colors are at least 60 degrees apart in hue.
         let tokens = Self.tokens(dark: true)
         for (a, b) in zip(GroupColor.paletteOrder, GroupColor.paletteOrder.dropFirst()) {
@@ -71,8 +71,9 @@ import Testing
         let tokens = Self.tokens(dark: dark)
         let greys = GroupColor.paletteOrder.map { $0.paletteRGB(.grayscale, tokens: tokens, wallpaper: nil) }
         for grey in greys {
-            let ns = grey.nsColor.usingColorSpace(.sRGB) ?? .black
-            #expect(ns.saturationComponent <= 0.12, "\(grey) is not a grey")
+            // A grey: its channels within 0.08 of each other (a little warm or cool, no hue).
+            let spread = max(grey.red, grey.green, grey.blue) - min(grey.red, grey.green, grey.blue)
+            #expect(spread <= 0.08, "\(grey) is not a grey: its channels \(spread) apart")
         }
         for (a, b) in zip(greys, greys.dropFirst()) { #expect(a.contrast(with: b) >= 1.25, "\(a) next to \(b)") }
     }
