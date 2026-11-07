@@ -22,9 +22,6 @@ use super::{Args, Failure, Out, Outcome, messages, now, open_store, parse_durati
 const WATCH_COOLDOWN_SECONDS: u64 = 600;
 const WATCH_MAX_RUNS: u32 = 24;
 
-/// The options this file reads, valued.
-pub(super) const GATE_VALUED: &[&str] = &["if", "cooldown", "max-runs", "debounce"];
-
 /// `base` with `--if`, `--cooldown` and `--max-runs` applied. `--if ""`,
 /// `--cooldown 0` and `--max-runs 0` turn one off. `new_watch`: the watch
 /// defaults fill what no flag set.
