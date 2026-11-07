@@ -496,9 +496,10 @@ public final class TerminalSurfaceView: NSView {
         setSurfacePixels(pixels, on: surface)
         let size = ghostty_surface_size(surface)
         // The PTY's grid is the grid the view's committed bounds fit: what its pane shows. Never the size asked of Ghostty
-        // and not shown yet (`inFlight`), nor the size drawn ahead for the next refresh (`ahead`): those go to Ghostty's
-        // render only (its reflow preview), and a press that retargets the spring may never show them (resize owner,
-        // STATUS 14461). The presenter's landing calls this again with the new bounds (``frameDidLand()``).
+        // and not shown yet (`inFlight`): a press that retargets the spring may never show it (resize owner, STATUS 14461).
+        // The presenter's landing calls this again with the new bounds (``frameDidLand()``); in a key spring that landing
+        // holds this grid when the next size is drawn ahead after the pass, whose grid goes instead (RESIZE P0 8,
+        // ``reportGridDrawnAhead()``).
         guard let desired = shownGrid(on: surface, fallback: size) else { return publish(size: size, grid: nil) }
         publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
@@ -514,7 +515,8 @@ public final class TerminalSurfaceView: NSView {
         // then the final grid again (review of #35470, F1).
         let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: stale || (!forceReport && isInPaneMotion && !live))
+                                        holding: stale || (!forceReport && frameOwnership.reportsAhead)
+                                            || (!forceReport && isInPaneMotion && !live))
         // In the same main-thread turn as set_size: the frame of the new size draws at the next display pass, already
         // reflowed. A held or coalesced grid is reported later: the preview draws it meanwhile.
         updateReflowPreview(reporting: report != nil || geometry.held || gridReports.isWaiting)
@@ -556,6 +558,30 @@ public final class TerminalSurfaceView: NSView {
               ghostty_surface_fit_grid(surface, UInt32(shown.width), UInt32(shown.height), &columns, &rows),
               columns > 0, rows > 0 else { return nil }
         return TerminalGridSize(columns: Int(columns), rows: Int(rows))
+    }
+
+    /// RESIZE P0 8 (cause T): after a key spring's landing in the presenter's pass, the grid of the size drawn ahead for the
+    /// next refresh goes to the PTY in this turn, in place of the landed size's grid that ``updateSurfaceSize(forceReport:)``
+    /// held (``TerminalFrameOwnership/reportsAhead``). The program gets each grid one refresh before its frame shows, as
+    /// Chromium's renderer gets a size with the layout that makes it, before the browser needs the frame. With nothing drawn
+    /// ahead (the spring lands), the landed size's grid goes. A retarget's next landing reports its own grid; the landing's
+    /// flush ends at the final grid.
+    func reportGridDrawnAhead() { // perf-hot: 1ms motion-frame (each frame of a key resize, after the pass)
+        guard frameOwnership.reportsAhead else { return }
+        frameOwnership.reportsAhead = false
+        guard let surface, isShown else { return }
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        let pixels = frameOwnership.ahead.map { toBacking($0) }
+        let report: TerminalGridSize?
+        if let pixels, pixels.width >= 1, pixels.height >= 1,
+           ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows),
+           columns > 0, rows > 0 {
+            report = geometry.aheadSized(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
+        } else {
+            // Nothing drawn ahead after all: the held grid of the size shown goes.
+            report = geometry.desired.flatMap { geometry.viewSized($0) }
+        }
+        if let report { gridReports.coalesced(report) }
     }
 
     /// The model's grid: the owner's announced grid, else `shown` (the grid the committed bounds fit).
