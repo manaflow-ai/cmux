@@ -32,7 +32,9 @@ import Testing
         controller.sync(true)
         controller.setHome(ChiefPetHome(chat: Self.chat, title: "Coordinator", latest: "lane 2 merged"))
         #expect(controller.debug("type", ["text": "hi"])["error"] != nil, "no box yet")
-        #expect(controller.debug("open_reply", [:])["reply_open"] as? Bool == true)
+        #expect(controller.debug("open_reply", [:])["reply_held"] as? Bool == true)
+        controller.replyPanel?.resignKey()
+        #expect(controller.replyPanel?.isVisible == true, "held: losing the keys leaves it open")
         let typed = controller.debug("type", ["text": "status?"])
         #expect(typed["reply_text"] as? String == "status?")
         #expect(typed["reply_latest"] as? String == "lane 2 merged", "the chat's newest reply shows under the field")
@@ -43,6 +45,7 @@ import Testing
         let after = controller.debug("state", [:])
         #expect(after["reply_open"] as? Bool == true, "to the mini's chat the box stays open")
         #expect(after["reply_text"] as? String == "", "a sent message leaves the field")
+        #expect(controller.debug("close_reply", [:])["reply_open"] as? Bool == false)
     }
 
     @Test func aDragMovesThePanelAndHoldsUntilTheDrop() {

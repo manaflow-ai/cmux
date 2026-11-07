@@ -5,8 +5,10 @@
     "name": "Coordinator"
   },
   "settings": {
-    "home.chiefPetEnabled": true,
-    "home.chiefPetMascot": "captain"
+    "home": {
+      "chiefPetEnabled": true,
+      "chiefPetMascot": "mochi"
+    }
   },
   "steps": [
     {

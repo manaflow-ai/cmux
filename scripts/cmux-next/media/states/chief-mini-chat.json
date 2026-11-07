@@ -5,8 +5,10 @@
     "name": "Coordinator"
   },
   "settings": {
-    "home.chiefPetEnabled": true,
-    "home.chiefPetMascot": "captain"
+    "home": {
+      "chiefPetEnabled": true,
+      "chiefPetMascot": "mochi"
+    }
   },
   "steps": [
     {
@@ -170,11 +172,12 @@
       "wait": 1
     },
     {
-      "title": "Open the reply box (a click on the mini)",
+      "title": "Open the reply box (a click on the mini), held open: the capture app is never active, so another window takes the keys between calls",
       "rpc": {
         "method": "debug.chief_pet",
         "params": {
-          "action": "open_reply"
+          "action": "open_reply",
+          "hold": true
         }
       },
       "record": "file",

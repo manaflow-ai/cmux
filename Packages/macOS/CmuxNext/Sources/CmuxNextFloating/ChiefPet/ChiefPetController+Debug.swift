@@ -8,24 +8,28 @@ import UniformTypeIdentifiers
 /// (screen shares and recordings leave them out), so a capture cannot shoot them from the screen and the
 /// capture driver's clicks and keys reach only the main window: this renders and drives them instead.
 ///
-/// `action`: `state` (the default), `open_reply` (a click on the pet: its reply box), `type` (`text` into
-/// the reply field), `send` (Return in the field), `drag` (`dx`, `dy` in points, `steps`, `release`:
+/// `action`: `state` (the default), `open_reply` (a click on the pet: its reply box; `hold`, default true, keeps
+/// it open when it loses the keys, which closes it for a person: in a capture slot the app is never active and
+/// another window takes them between two calls), `close_reply`, `type` (`text` into the reply field), `send`
+/// (Return in the field), `drag` (`dx`, `dy` in points, `steps`, `release`:
 /// a press on the character moved through the view's own mouse handlers, so the panel moves and an
 /// animated character leans; `release: false` keeps the press for a still mid-drag), `drop` (the press's
-/// release), or `snapshot` (`window`: `pet` or `reply`; `path`: a PNG of that panel's layer tree, the
-/// character on the frame its animation shows now). Each answers the state after it, or `error`.
+/// release), or `snapshot` (`window`: `pet` or `reply`; `path`: a PNG of that panel: its views as AppKit draws
+/// them, and the pet's character on the frame its animation shows now; the glass behind them, which only the
+/// window server draws, is the window background color). Each answers the state after it, or `error`.
 extension ChiefPetController {
     public func debug(_ action: String, _ params: [String: Any]) -> [String: Any] {
         if action == "snapshot" { return debugSnapshot(params["window"] as? String ?? "pet", path: params["path"] as? String ?? "") }
         let failure: String? = switch action {
         case "state": nil
-        case "open_reply": debugOpenReply()
+        case "open_reply": debugOpenReply(hold: params["hold"] as? Bool ?? true)
+        case "close_reply": debugCloseReply()
         case "type": debugType(params["text"] as? String ?? "")
         case "send": debugSend()
         case "drag": debugDrag(dx: params["dx"] as? Double ?? 0, dy: params["dy"] as? Double ?? 0,
                                steps: max(1, min(params["steps"] as? Int ?? 8, 120)), release: params["release"] as? Bool ?? true)
         case "drop": debugDrop()
-        default: "unknown action \(action): state, open_reply, type, send, drag, drop or snapshot"
+        default: "unknown action \(action): state, open_reply, close_reply, type, send, drag, drop or snapshot"
         }
         if let failure { return ["error": failure] }
         return debugState()
@@ -47,14 +51,25 @@ extension ChiefPetController {
         if let replyPanel, replyPanel.isVisible {
             state["reply_text"] = replyPanel.field.stringValue
             state["reply_target"] = replyPanel.target.map(ChiefPetReply.title) ?? ""
+            state["reply_key"] = replyPanel.isKeyWindow
+            state["reply_held"] = replyPanel.debugHold
             if !replyPanel.latestLabel.isHidden { state["reply_latest"] = replyPanel.latestLabel.stringValue }
         }
         return state
     }
 
-    private func debugOpenReply() -> String? {
+    private func debugOpenReply(hold: Bool) -> String? {
         guard panel?.isVisible == true else { return "the pet is not shown (home.chiefPetEnabled)" }
+        // A click on the pet (`onClick`, its toggle) when the box is closed.
         openReply()
+        guard let replyPanel, replyPanel.isVisible else { return "the reply box did not open" }
+        replyPanel.debugHold = hold
+        return nil
+    }
+
+    private func debugCloseReply() -> String? {
+        replyPanel?.debugHold = false
+        closeReply()
         return nil
     }
 
@@ -108,31 +123,36 @@ extension ChiefPetController {
         return nil
     }
 
-    /// The panel's layer tree as the render server would draw it now (`render(in:)` draws model values, so the
-    /// character's sprite takes the frame its animation shows for the one render, then its model frame again,
-    /// within one transaction: nothing on screen changes).
+    /// The panel as AppKit draws it (`cacheDisplay`), over the window background color where its glass is (the
+    /// window server draws glass, which no in-process capture sees), and for the pet its character: the frame
+    /// the sprite's animation shows now (its presentation layer), else the still or the upload's first frame.
     private func debugSnapshot(_ which: String, path: String) -> [String: Any] {
         guard !path.isEmpty else { return ["error": "pass path"] }
         let window: NSWindow? = which == "reply" ? replyPanel : panel
         guard let window, window.isVisible, let view = window.contentView else { return ["error": "the \(which) panel is not shown"] }
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
-        guard let layer = view.layer else { return ["error": "the \(which) panel has no layer"] }
         let scale = window.backingScaleFactor
-        let width = Int((view.bounds.width * scale).rounded()), height = Int((view.bounds.height * scale).rounded())
+        let bounds = view.bounds
+        let width = Int((bounds.width * scale).rounded()), height = Int((bounds.height * scale).rounded())
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let views = view.bitmapImageRepForCachingDisplay(in: bounds)
         else { return ["error": "no bitmap context"] }
         context.scaleBy(x: scale, y: scale)
-        let sprite = window === panel ? panel?.pet.sprite.layer : nil
-        let model = sprite?.contents
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if let sprite, let now = sprite.presentation()?.contents { sprite.contents = now }
-        layer.render(in: context)
-        sprite?.contents = model
-        CATransaction.commit()
+        context.interpolationQuality = .none
+        let glass: CGRect? = window === panel ? panel.map { $0.pet.rail.frame } : bounds
+        if let glass {
+            window.effectiveAppearance.performAsCurrentDrawingAppearance {
+                context.addPath(CGPath(roundedRect: glass, cornerWidth: glass.height / 2, cornerHeight: glass.height / 2, transform: nil))
+                context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+                context.fillPath()
+            }
+        }
+        view.cacheDisplay(in: bounds, to: views)
+        if let drawn = views.cgImage { context.draw(drawn, in: bounds) }
+        if window === panel, let pet = panel?.pet { Self.drawCharacter(of: pet, in: context) }
         guard let image = context.makeImage(),
               let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)
         else { return ["error": "could not write \(path)"] }
@@ -143,6 +163,40 @@ extension ChiefPetController {
         state["width"] = width
         state["height"] = height
         return state
+    }
+
+    /// The character's frame now, fitted into its box as the layer's `resizeAspect` draws it, mirrored as its row is.
+    private static func drawCharacter(of pet: ChiefPetView, in context: CGContext) {
+        let sprite = pet.sprite.layer
+        let shown = sprite.presentation() ?? sprite
+        var mirrored = false
+        let image: CGImage?
+        if !sprite.isHidden, let contents = shown.contents ?? sprite.contents {
+            image = cgImage(contents)
+            mirrored = shown.affineTransform().a < 0
+        } else {
+            image = pet.characterContents.flatMap(cgImage)
+        }
+        guard let image, image.width > 0, image.height > 0 else { return }
+        let box = pet.characterFrame
+        let fit = min(box.width / CGFloat(image.width), box.height / CGFloat(image.height))
+        let size = CGSize(width: CGFloat(image.width) * fit, height: CGFloat(image.height) * fit)
+        let rect = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
+        context.saveGState()
+        if mirrored {
+            context.translateBy(x: rect.midX * 2, y: 0)
+            context.scaleBy(x: -1, y: 1)
+        }
+        context.draw(image, in: rect)
+        context.restoreGState()
+    }
+
+    /// A layer's contents as a CGImage: a CGImage, or an NSImage's.
+    private static func cgImage(_ contents: Any) -> CGImage? {
+        if let image = contents as? NSImage { return image.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+        let object = contents as AnyObject
+        guard CFGetTypeID(object) == CGImage.typeID else { return nil }
+        return unsafeBitCast(object, to: CGImage.self)
     }
 }
 #endif
