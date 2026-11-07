@@ -7717,10 +7717,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // event, the encoder turns the commit into the key's control sequence
         // and the text is lost. Send the committed text on its own, as Ghostty
         // does (ghostty-org/ghostty#12547). Then replay the key only when it
-        // is still terminal input: an arrow, which still moves, or a key the
-        // input method left to AppKit's key bindings, such as Ctrl-C typed
-        // while a Hangul syllable is composing. A key the input method
-        // consumed was its own command and is not encoded.
+        // is still terminal input: an arrow that ended the composition, which
+        // still moves, or a key the input method left to AppKit's key
+        // bindings, such as Ctrl-C typed while a Hangul syllable is composing.
+        // A key the input method consumed was its own command and is not
+        // encoded.
         if markedTextBefore, !accumulatedText.isEmpty,
            !event.modifierFlags.intersection([.control, .option, .command]).isEmpty {
             for text in accumulatedText where shouldSendText(text) {
@@ -7733,7 +7734,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             default:
                 isArrow = false
             }
-            if isArrow || keyReachedKeyBindings {
+            // An arrow that left part of the preedit marked moved inside the
+            // composition, so it stays out of the terminal.
+            if (isArrow && markedText.length == 0) || keyReachedKeyBindings {
                 keyEvent.composing = false
                 keyEvent.text = nil
                 _ = sendGhosttyKey(surface, keyEvent)
