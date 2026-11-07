@@ -21,6 +21,7 @@ import {
   statusGroups,
   type AssigneeChoice,
   type InboxGroupId,
+  type IntentKind,
   type Mirror,
 } from "./model";
 import {
@@ -87,6 +88,7 @@ export function TasksPage({ store, strings, layout, copy }: TasksPageProps) {
           </button>
         </div>
       ) : null}
+      <UnsentStrip store={store} state={state} strings={strings} />
       {layout === "list" ? <ListLayout store={store} state={state} strings={strings} /> : null}
       {layout === "board" ? <BoardLayout store={store} state={state} strings={strings} /> : null}
       {layout === "inbox" ? <InboxLayout store={store} state={state} strings={strings} /> : null}
@@ -198,6 +200,61 @@ function UnsentActions({
         {strings.t("change.discard")}
       </button>
     </span>
+  );
+}
+
+/** What an unsent change was: its task's key and the action, in the person's words. */
+function unsentLabel(state: TasksSnapshot, strings: Strings, kind: IntentKind): { key: string; action: string } {
+  if (kind.type === "create") return { key: "", action: strings.format("change.action.create", kind.title) };
+  const key = state.mirror.tasks.get(kind.task)?.key ?? "";
+  switch (kind.type) {
+    case "setStatus": {
+      const status = state.mirror.statuses.find((candidate) => candidate.id === kind.status);
+      return { key, action: strings.format("change.action.status", status?.name ?? kind.status) };
+    }
+    case "archive":
+      return { key, action: strings.t("change.action.archive") };
+    case "assign":
+      return {
+        key,
+        action: kind.person
+          ? strings.format("change.action.assign", shortName(kind.person))
+          : strings.t("change.action.unassign"),
+      };
+    case "delegate":
+      return { key, action: strings.format("change.action.delegate", agentName(kind.harness)) };
+    case "move":
+      return { key, action: strings.t("change.action.move") };
+  }
+}
+
+/** Every change whose outcome is unknown, in every layout and scope, with Retry and Discard: a row
+ * can be out of view (another scope, a collapsed list), so the row's own marker is not enough. */
+export function UnsentStrip({ store, state, strings }: LayoutProps) {
+  const unsent = state.pending.filter((intent) => intent.unsent);
+  if (!unsent.length) return null;
+  return (
+    <section className="tasks-unsent-strip" aria-label={strings.t("change.strip.title")}>
+      <span className="tasks-unsent-strip-title">{strings.t("change.strip.title")}</span>
+      <ul>
+        {unsent.map((intent) => {
+          const { key, action } = unsentLabel(state, strings, intent.kind);
+          return (
+            <li key={intent.key} className="tasks-unsent-item">
+              {key ? <span className="tasks-key">{key}</span> : null}
+              <span className="tasks-unsent-action">{action}</span>
+              <span className="tasks-spacer" />
+              <button type="button" className="tasks-link-button" onClick={() => store.retry(intent.key)}>
+                {strings.t("change.retry")}
+              </button>
+              <button type="button" className="tasks-link-button" onClick={() => store.discard(intent.key)}>
+                {strings.t("change.discard")}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

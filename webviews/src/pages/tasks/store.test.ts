@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MockTasksProvider } from "./mockProvider";
+import { statusGroups } from "./model";
 import { TasksStore } from "./store";
 import { TasksOps } from "./types";
 
@@ -112,7 +113,8 @@ describe("TasksStore", () => {
     store.setStatus("task_5", "st_done");
     await tick();
     expect(store.unsent("task_5")?.kind).toEqual({ type: "setStatus", task: "task_5", status: "st_done" });
-    expect(store.getSnapshot().tasks.find((t) => t.id === "task_5")?.status).toBe("st_done");
+    // Not drawn: the row keeps its confirmed status until the change settles.
+    expect(store.getSnapshot().tasks.find((t) => t.id === "task_5")?.status).not.toBe("st_done");
   });
 
   test("a create that committed before the link broke settles on reconnect, with no second create", async () => {
@@ -158,6 +160,31 @@ describe("TasksStore", () => {
     store.discard("k1");
     expect(store.unsent("task_3")).toBeUndefined();
     expect(store.getSnapshot().tasks.some((t) => t.id === "task_3")).toBe(true);
+  });
+
+  test("an unsent archive is listed as unsent and its row stays in the list", async () => {
+    const { store, provider } = await started();
+    provider.failNext.push({ code: "cmux.protocol.timeout" });
+    store.archive("task_3");
+    await tick();
+    expect(store.unsentAll().map((intent) => intent.kind)).toEqual([{ type: "archive", task: "task_3" }]);
+    const { shown, mirror } = store.getSnapshot();
+    expect(shown.some((t) => t.id === "task_3")).toBe(true);
+    const groups = statusGroups(mirror.statuses, shown);
+    expect(groups.some((group) => group.tasks.some((t) => t.id === "task_3"))).toBe(true);
+  });
+
+  test("an unsent cancel keeps its card in its board column", async () => {
+    const { store, provider } = await started();
+    const before = store.getSnapshot().mirror.tasks.get("task_5")!.status;
+    provider.failNext.push({ code: "cmux.operation.failed", owner: "tasks.owner_unreachable" });
+    store.setStatus("task_5", "st_canceled");
+    await tick();
+    await tick();
+    expect(store.unsent("task_5")?.kind).toEqual({ type: "setStatus", task: "task_5", status: "st_canceled" });
+    const { shown, mirror } = store.getSnapshot();
+    const column = statusGroups(mirror.statuses, shown).find((group) => group.status.id === before)!;
+    expect(column.tasks.some((t) => t.id === "task_5")).toBe(true);
   });
 
   test("a change made elsewhere arrives as an event and keeps the selection", async () => {

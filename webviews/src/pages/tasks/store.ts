@@ -434,6 +434,11 @@ export class TasksStore {
     }
   }
 
+  /** Every unsent intent, oldest first (the Unsent changes strip). */
+  unsentAll(): Intent[] {
+    return this.snapshot.pending.filter((intent) => intent.unsent);
+  }
+
   /** The unsent intent on `task` (a change whose outcome is unknown), if any. */
   unsent(task: string): Intent | undefined {
     return this.snapshot.pending.find((intent) => intent.unsent && intentTask(intent.kind) === task);

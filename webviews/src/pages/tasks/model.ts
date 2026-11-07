@@ -49,9 +49,10 @@ export interface Intent {
   /** The owner's sequence after the request (its reply); the intent leaves once the mirror has it. */
   settle?: number;
   /** The outcome is unknown (the link broke, the call timed out, or a retry lacked the person's
-   * gesture): the change may or may not have applied. It stays shown, marked unsent, until the mirror
-   * shows its result or its echo, or the person retries it (with the same key) or discards it. It is
-   * never sent again on its own: a Tasks change needs the person's gesture. */
+   * gesture): the change may or may not have applied. It is listed under Unsent changes and its row
+   * is marked, until the mirror shows its result or its echo, or the person retries it (with the same
+   * key) or discards it. It is not drawn over the rows, so an unsent archive or cancel never hides
+   * the row it names. It is never sent again on its own: a Tasks change needs the person's gesture. */
   unsent?: true;
 }
 
@@ -265,8 +266,10 @@ export function visibleTasks(mirror: Mirror, pending: readonly Intent[]): Task[]
   // Each pending create takes the next number in turn (the owner does not echo `next_number`).
   let nextNumber = Math.max(mirror.settings.next_number ?? 0, maxNumber(tasks) + 1);
   for (const { kind, unsent } of pending) {
-    // An unsent create is shown in the New Task field (its text and Retry), not as a row.
-    if (kind.type === "create" && unsent) continue;
+    // An unsent change is not drawn: its row keeps its confirmed state and place (an unsent archive
+    // or cancel would hide it), and the Unsent changes strip lists it. An unsent create's text is
+    // back in the New Task field.
+    if (unsent) continue;
     if (kind.type === "move") {
       moves.push(kind);
       continue;

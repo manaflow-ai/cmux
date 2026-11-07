@@ -233,7 +233,7 @@ describe("unsent intents", () => {
     expect(committedIn(m, { type: "move", task: "task_5" })).toBe(false);
   });
 
-  test("an unsent create is not drawn as a row; other unsent changes still show", () => {
+  test("unsent changes are not drawn: no row for a create, and an archived row stays", () => {
     const m = mirror();
     const pending: Intent[] = [
       { key: "a", kind: { type: "create", id: "task_new", title: "Draft" }, unsent: true },
@@ -241,7 +241,7 @@ describe("unsent intents", () => {
     ];
     const tasks = visibleTasks(m, pending);
     expect(tasks.some((t) => t.id === "task_new")).toBe(false);
-    expect(tasks.some((t) => t.id === "task_5")).toBe(false);
+    expect(tasks.some((t) => t.id === "task_5")).toBe(true);
   });
 });
 

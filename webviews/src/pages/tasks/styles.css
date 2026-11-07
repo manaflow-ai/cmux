@@ -93,6 +93,40 @@
   color: var(--page-text-2);
 }
 
+/* Unsent changes, above every layout: each with its task key, the action, Retry and Discard. */
+.tasks-unsent-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-caption);
+}
+
+.tasks-unsent-strip-title {
+  color: var(--page-text-3);
+}
+
+.tasks-unsent-strip ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks-unsent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.tasks-unsent-action {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A list row and its unsent actions side by side; the row keeps the width it had. */
 .tasks-row-slot {
   display: flex;
