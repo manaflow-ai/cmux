@@ -259,6 +259,21 @@ test("the stacked deck puts the newest in front and spreads while hovered", () =
   expect(deck.hasAttribute("data-expanded")).toBe(false);
 });
 
+test("a gathered deck's older cards are inert and hidden from assistive tech until it spreads (review F2)", () => {
+  const queue = createNoticeQueue();
+  for (const message of ["one", "two", "three"]) queue.show({ message, duration: 0 });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
+  const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
+  const concealed = () =>
+    cards().map((card) => card.hasAttribute("inert") && card.getAttribute("aria-hidden") === "true");
+  // Gathered: only the front card can be reached; focusing it spreads the deck.
+  expect(concealed()).toEqual([false, true, true]);
+  act(() => {
+    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(concealed()).toEqual([false, false, false]);
+});
+
 test("a new toast enters the deck's front; a closed one leaves (at once with no motion)", () => {
   const queue = createNoticeQueue();
   queue.show({ id: "a", message: "a", duration: 0 });

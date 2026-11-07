@@ -282,7 +282,7 @@
               "agentPane.display.code.family", "agentPane.display.code.scale"
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
-              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
+              "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -329,7 +329,7 @@
           "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
           "groups": [
             {"group": "settings.group.banners"},
-            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (NotificationSoundSettingsSchema); its per-level maps stay off the page."},
+            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
             {"group": "settings.group.dismissal"},
             {"group": "settings.group.attention"},
             {"group": "settings.group.feedMirror"},

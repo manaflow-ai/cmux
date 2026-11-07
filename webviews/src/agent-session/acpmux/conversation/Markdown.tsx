@@ -17,7 +17,8 @@ import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
-import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
+import { RemoteMedia } from "../chips/ReplyMedia";
+import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
@@ -28,9 +29,11 @@ import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { ForeignFileRef, linkedText, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { linkedText } from "../chips/linkedText";
 import { isBareFileName, ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
-import { SoftBroken, softBreakNodes } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreakNodes } from "./softBreaksModel";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
@@ -44,7 +47,8 @@ import {
 } from "../../../githubReferences";
 import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
-import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
+import { StartedSessionChip } from "../started/StartedSessionCard";
+import { useStartedMentions, type StartedMentions } from "../started/startedSessionCardModel";
 import { splitMentions } from "../started/startedSessions";
 import { splitSkillText } from "./skillWords";
 import { SkillWord } from "./SkillWord";
@@ -54,7 +58,8 @@ import { animateScroll } from "../threadMinimap/scrollMotion";
 import { SessionRefCode } from "./SessionRef";
 import { agentRef } from "./sessionRefs";
 import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
-import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
+import { TimeHover } from "./timeHover";
+import { decorateTimes, splitTimeTokens } from "./timeHoverModel";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -518,11 +523,16 @@ function linkedGithubText(
   // transcript names its repository.
   const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
   const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
-  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
-  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
+  // A commit, a bare `#N` or a short name's `name#N` inside a URL or a path
+  // (`https://x.test/?q=#12`, `?repo=cmux#3`) is part of it.
+  const loose = (issue: GithubReference) => Boolean(issue.bare) || !issue.text.includes("/");
+  const spans = commits.length || issues.some(loose) ? textLinks(text) : [];
   const outside = (ref: { start: number; end: number }) =>
     !spans.some((span) => ref.start < span.end && span.start < ref.end);
-  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
+  const refs = [
+    ...issues.filter((issue) => !loose(issue) || ((bare || !issue.bare) && outside(issue))),
+    ...commits.filter(outside),
+  ]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);

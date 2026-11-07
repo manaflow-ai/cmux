@@ -16,13 +16,16 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, RetryButton, UploadProgress, type PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import type { PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -344,23 +347,28 @@ const InlineChip = memo(function InlineChip({
             ) : (
               <FileDoc size={14} className="acpmux-attachment-failed-icon" />
             )}
-            <RetryButton
-              className="acpmux-attachment-retry acpmux-md-inline-retry"
-              reason={pending!.failed}
-              onRetry={() => onRetry(id)}
-            />
+            {pending!.retryable && (
+              <RetryButton
+                className="acpmux-attachment-retry acpmux-md-inline-retry"
+                reason={pending!.failed}
+                onRetry={() => onRetry(id)}
+              />
+            )}
           </>
         ) : (
-          <PasteLoadingMark
-            look={look}
-            size={14}
-            className="acpmux-md-inline-spinner"
-            upload={
-              pending!.progress === undefined ? undefined : (
-                <UploadProgress value={pending!.progress} name={name} size={14} />
-              )
-            }
-          />
+          <>
+            {pending!.preview && <InstantPreview src={pending!.preview} />}
+            <PasteLoadingMark
+              look={look}
+              size={14}
+              className="acpmux-md-inline-spinner"
+              upload={
+                pending!.progress === undefined ? undefined : (
+                  <UploadProgress value={pending!.progress} name={name} size={14} />
+                )
+              }
+            />
+          </>
         )}
         {remove}
       </span>
@@ -398,6 +406,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      ref={chipRef(id)}
       {...(loaded.current ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip
