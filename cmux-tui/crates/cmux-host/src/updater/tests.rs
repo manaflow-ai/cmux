@@ -362,3 +362,21 @@ fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
     let left = role::held_for(before).expect("a resume holds the next flip");
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
+
+/// Review F1 of #37256: a resume while an update downloads or stages still
+/// holds that update's flip, which looks at the hold right before it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hold_that_starts_during_staging_holds_the_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut updater = role::UpdaterRole::new(image(dir.path()));
+    cmux_server_core::role::Role::on_event(
+        &mut updater,
+        &cmux_server_core::role::HostEvent::Resumed,
+    )
+    .unwrap();
+    match role::held_outcome(std::time::Instant::now()) {
+        Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
+        other => panic!("the flip is not held: {other:?}"),
+    }
+}

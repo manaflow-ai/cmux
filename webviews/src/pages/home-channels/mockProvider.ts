@@ -772,7 +772,16 @@ export class MockHomeProvider implements PageClient {
           conversation: id,
           pinned,
           markedUnread,
-          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+          ...(pinned
+            ? {
+                pinPosition:
+                  op === HomeOps.pin && typeof params.position === "number"
+                    ? params.position
+                    : op === HomeOps.pin && !current.pinned
+                      ? Date.now()
+                      : current.pinPosition,
+              }
+            : {}),
         };
         const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
         this.data.conversations[index] = updated;
