@@ -714,6 +714,8 @@ public struct AgentChatBottomStack: View {
                     ElevationCard(ask: ask, agentName: store.summary.agentName, sending: store.sendingElevation) { password in
                         withAnimation(.cmuxMobileSmooth) { store.answerElevation(ask, password: password) }
                     }
+                    // A new card is a new view: a password typed for one command never stays for the next.
+                    .id(ask.id)
                     .padding(16)
                     .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)

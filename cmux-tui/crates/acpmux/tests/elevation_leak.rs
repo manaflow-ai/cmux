@@ -294,6 +294,15 @@ async fn the_password_reaches_sudo_and_no_persisted_surface() {
         .await;
     assert!(forged.get("error").is_some(), "the agent approved its own card: {forged}");
 
+    // A value sudo cannot take (two lines) is refused and the card stays open: no decision is
+    // recorded for it (review F2).
+    let two_lines = person
+        .call(
+            "_acpmux/secret_submit",
+            json!({"sessionId": id, "secretId": card_id, "value": "a\nb"}),
+        )
+        .await;
+    assert!(two_lines.get("error").is_some(), "{two_lines}");
     let approved = person
         .call(
             "_acpmux/secret_submit",
@@ -335,6 +344,13 @@ async fn the_password_reaches_sudo_and_no_persisted_surface() {
 
     // The event store as a client reads it (the transcript), then every file on disk.
     let page = person.call("_acpmux/events", json!({"sessionId": id, "limit": 10000})).await;
+    let decisions: Vec<&Value> = page["result"]["events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| e["kind"] == "elevation_decision")
+        .collect();
+    assert_eq!(decisions.len(), 2, "one decision per card: {decisions:?}");
     let page = page.to_string();
     assert!(page.contains("elevation_run"), "no run record: {page}");
     assert!(!page.contains(SENTINEL), "an event holds the password");

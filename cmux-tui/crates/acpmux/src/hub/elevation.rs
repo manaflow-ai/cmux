@@ -17,7 +17,9 @@
 //! - One command per approval: `-k` makes sudo ignore a cached timestamp and not make one, and
 //!   `sudo -k` runs after, so no timestamp is left for anything else. The argv goes to sudo as
 //!   its own arguments, never through a shell. The run has a timeout ([`MAX_TIMEOUT`] at most):
-//!   past it sudo gets SIGTERM (it relays the signal to the command), then SIGKILL.
+//!   sudo leads its own process group; past the timeout the group gets SIGTERM (sudo relays it to
+//!   the command), then SIGKILL. A root process that ignores SIGTERM is past what this daemon (the
+//!   user) can kill: the agent gets `stillRunning: true` and says so.
 //! - sudo is the system's own `/usr/bin/sudo`, owned by root and setuid, never one from PATH: an
 //!   agent can put a `sudo` of its own on the user's PATH, and that one would read the password.
 //! - A deny is final for that request: the agent gets `denied` and the card is gone. The card
@@ -40,10 +42,11 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// How long sudo has after SIGTERM before SIGKILL.
 const TERM_GRACE: Duration = Duration::from_secs(5);
+/// How long the killed group may take to be reaped before it counts as still running.
+const KILL_SETTLE: Duration = Duration::from_secs(2);
 const MAX_ARGS: usize = 256;
 const MAX_ARG_BYTES: usize = 4096;
 const MAX_REASON_CHARS: usize = 500;
-const MAX_PASSWORD_BYTES: usize = 1024;
 /// fs_usage prints a lot: more than a secret's command gets.
 const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 const SUDO: &str = "/usr/bin/sudo";
@@ -54,6 +57,7 @@ const CARD: CardKind = CardKind {
     provided: "approved",
     declined: "denied",
     signed: true,
+    one_line: Some(1024),
 };
 
 /// The sudo this daemon runs: [`SUDO`], or in a debug build `ACPMUX_ELEVATION_SUDO`, the tests'
@@ -180,9 +184,6 @@ impl Hub {
         let Some(password) = password else {
             return Ok(json!({"outcome": outcome}));
         };
-        if password.len() > MAX_PASSWORD_BYTES || password.contains(['\n', '\r', '\0']) {
-            return Ok(json!({"outcome": "denied", "error": "the password was not one line"}));
-        }
         let mut result = run(&sudo, &ask, password).await;
         cmux_json::JsonSet::set(&mut result, "outcome", json!("approved"));
         self.append(
@@ -215,6 +216,10 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    // Its own process group: a timeout signals sudo and everything the command started that
+    // stayed in the group, not only sudo (`run_with_secret` does the same).
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -237,17 +242,20 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         tokio::spawn(
             async move { tokio::join!(read_capped(stdout, cap), read_capped(stderr, cap)) },
         );
+    let mut left_running = false;
     let status = match tokio::time::timeout(ask.timeout, child.wait()).await {
         Ok(status) => Some(status),
         Err(_) => {
-            signal(pid, libc::SIGTERM);
-            match tokio::time::timeout(TERM_GRACE, child.wait()).await {
-                Ok(_) => None,
-                Err(_) => {
-                    let _ = child.kill().await;
-                    None
-                }
-            }
+            // SIGTERM to the group: sudo relays it to the command, which runs as root.
+            signal_group(pid, libc::SIGTERM);
+            let _ = tokio::time::timeout(TERM_GRACE, child.wait()).await;
+            // Then SIGKILL to the whole group: sudo and every process of the group this daemon
+            // may signal. A root process that ignored SIGTERM is past what a user's daemon can
+            // kill; the agent is told so.
+            signal_group(pid, libc::SIGKILL);
+            let _ = child.kill().await;
+            left_running = group_left_after(pid, KILL_SETTLE).await;
+            None
         }
     };
     let (out, err) = match tokio::time::timeout(TERM_GRACE, reads).await {
@@ -263,24 +271,63 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     if let Some(Err(e)) = &status {
         stderr.push_str(&format!("\nwaiting for sudo: {e}"));
     }
+    if left_running {
+        stderr.push_str(
+            "\nacpmux: the command ignored SIGTERM past its timeout and still runs as root; \
+             this daemon cannot kill a root process. Tell the person.",
+        );
+    }
     json!({
         "exitCode": exit,
         "timedOut": status.is_none(),
+        "stillRunning": left_running,
         "stdout": mask_within(out, &password, MAX_OUTPUT_BYTES),
         "stderr": stderr,
     })
 }
 
+/// Sends `sig` to the process group sudo leads (its pid, `process_group(0)`).
 #[cfg(unix)]
-fn signal(pid: Option<u32>, sig: i32) {
-    if let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()) {
-        // SAFETY: kill has no memory preconditions; the pid is our own child, not yet reaped.
-        unsafe { libc::kill(pid, sig) };
+fn signal_group(pid: Option<u32>, sig: i32) {
+    if let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()).filter(|p| *p > 1) {
+        // SAFETY: killpg has no memory preconditions; the group is the child's own.
+        unsafe { libc::killpg(pid, sig) };
     }
 }
 
 #[cfg(not(unix))]
-fn signal(_: Option<u32>, _: i32) {}
+fn signal_group(_: Option<u32>, _: i32) {}
+
+/// Whether sudo's group is still there after `settle`: the killed processes the daemon did not
+/// spawn are reaped by init a moment after SIGKILL, so the group is checked a few times before it
+/// counts as left running. Bounded by `settle`.
+async fn group_left_after(pid: Option<u32>, settle: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + settle;
+    while group_alive(pid) {
+        if tokio::time::Instant::now() >= deadline {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// Whether any process of sudo's group is left: one this daemon may not signal (a root
+/// process) answers EPERM, which still means it runs.
+#[cfg(unix)]
+fn group_alive(pid: Option<u32>) -> bool {
+    let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()).filter(|p| *p > 1) else {
+        return false;
+    };
+    // SAFETY: signal 0 checks for the group and sends nothing.
+    let rc = unsafe { libc::killpg(pid, 0) };
+    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn group_alive(_: Option<u32>) -> bool {
+    false
+}
 
 /// `sudo -k`: no cached timestamp is left behind (`-k` on the run already made none).
 async fn forget_timestamp(sudo: &Path) {

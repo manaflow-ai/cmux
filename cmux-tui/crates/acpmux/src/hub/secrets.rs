@@ -64,6 +64,8 @@ struct Pending {
     /// The card's `decisionNonce`, for a card a phone may answer with a signature
     /// ([`CardKind::signed`]); None for the others, which only the person's connection answers.
     nonce: Option<String>,
+    /// [`CardKind::one_line`].
+    one_line: Option<usize>,
     reply: oneshot::Sender<Option<Zeroizing<String>>>,
 }
 
@@ -83,6 +85,10 @@ pub(super) struct CardKind {
     /// A phone's signed answer counts too (`Hub::card_answer_signed`): the request record carries a
     /// `decisionNonce` and this run's `personInstance`.
     pub signed: bool,
+    /// The value must be one line of at most this many bytes (a password): `secret_submit`
+    /// refuses another and the card stays open, so a decision is never recorded for a value the
+    /// asker cannot use.
+    pub one_line: Option<usize>,
 }
 
 /// The option a phone signs for a card's value (`approvers::message`, the card's id as the
@@ -95,6 +101,7 @@ const CARD_SECRET: CardKind = CardKind {
     provided: "provided",
     declined: "declined",
     signed: false,
+    one_line: None,
 };
 
 /// An environment variable name: what the card shows and `secret_run` sets.
@@ -242,7 +249,12 @@ impl Hub {
             let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             // Dropping the old card's reply answers its asker `cancelled`.
             pending.retain(|_, p| p.session != session.id);
-            let card = Pending { session: session.id.clone(), nonce: nonce.clone(), reply: tx };
+            let card = Pending {
+                session: session.id.clone(),
+                nonce: nonce.clone(),
+                one_line: kind.one_line,
+                reply: tx,
+            };
             pending.insert(secret_id.clone(), card);
         }
         // Stopped (`Hub::kill` marks it closing before it cancels the cards): a card that came
@@ -345,7 +357,17 @@ impl Hub {
         let pending = {
             let mut map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
             match map.get(secret_id) {
-                Some(p) if p.session == session.id => map.remove(secret_id),
+                Some(p) if p.session == session.id => {
+                    // A value the card cannot use leaves it open for another try.
+                    if let (Some(max), Some(v)) = (p.one_line, &value)
+                        && (v.len() > max || v.contains(['\n', '\r', '\0']))
+                    {
+                        return Err(RpcError::invalid_params(format!(
+                            "the password must be one line of at most {max} bytes"
+                        )));
+                    }
+                    map.remove(secret_id)
+                }
                 _ => None,
             }
         };

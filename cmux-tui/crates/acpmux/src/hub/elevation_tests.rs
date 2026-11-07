@@ -118,3 +118,27 @@ fn only_roots_setuid_sudo_is_trusted() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A command that ignores SIGTERM and leaves a child holding its pipes is ended with its whole
+/// process group at the timeout: nothing of it outlives the run (review F1).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_timeout_ends_the_whole_group_even_past_an_ignored_sigterm() {
+    let dir = temp("group");
+    let sudo = fake_sudo(&dir);
+    let started = std::time::Instant::now();
+    let script = format!(
+        "trap '' TERM; sleep 60 & echo $! > '{}'; wait; sleep 60",
+        dir.join("child").display()
+    );
+    let out =
+        run(&sudo, &ask(&["sh", "-c", &script], 1), Zeroizing::new(PASSWORD.to_owned())).await;
+    assert_eq!(out["timedOut"], true, "{out}");
+    assert_eq!(out["stillRunning"], false, "{out}");
+    assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
+    let child: i32 = std::fs::read_to_string(dir.join("child")).unwrap().trim().parse().unwrap();
+    // SAFETY: signal 0 checks for the process and sends nothing.
+    let alive = unsafe { libc::kill(child, 0) } == 0;
+    assert!(!alive, "the background child {child} outlived the timeout");
+    let _ = std::fs::remove_dir_all(&dir);
+}
