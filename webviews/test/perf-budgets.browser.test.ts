@@ -97,7 +97,10 @@ await requireBrowserLane("perf-budgets.browser.test.ts", async () => {
     expect(warnings[0]).toContain("dom-breadth: 1000 children over the budget of 300 children at ul.projects");
     expect(warnings[0]).toContain("VirtualList");
     const moved = await run("layout-move", "warn");
-    expect(moved.warnings.some((warning) => /layout-shift: 40 px .* at div\.moving-box/.test(warning))).toBe(true);
-    expect(new Set(moved.warnings).size).toBe(moved.warnings.length);
+    // Every violation is printed once, in order.
+    expect(moved.warnings).toEqual(moved.violations.map((violation) => violation.message));
+    expect(moved.violations.map((violation) => `${violation.kind} ${violation.measured} ${violation.site}`)).toContain(
+      "layout-shift 40 div.moving-box",
+    );
   });
 });
