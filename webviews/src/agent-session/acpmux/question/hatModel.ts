@@ -182,10 +182,18 @@ export type HatQuestionInput = {
 
 export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
   const out: HatQuestion[] = [];
+  // The chat's own questions: the one its card shows, then every other one acpmux holds open for it
+  // (subagents asking side by side), oldest first, so each can be stepped to and answered.
   const own = ownQuestion(input.permission);
   if (own) out.push(own);
+  if (input.sessionId)
+    for (const watched of input.asks) {
+      if (watched.sessionId !== input.sessionId || watched.permission.permissionId === own?.id) continue;
+      const more = ownQuestion(watched.permission);
+      if (more) out.push(more);
+    }
   // A tagged ask is the end of a finished turn: while the chat's own question waits, a turn runs.
-  const next = own ? undefined : nextStepQuestion(liveNextStep(input.rows));
+  const next = out.length > 0 ? undefined : nextStepQuestion(liveNextStep(input.rows));
   if (next) out.push(next);
   if (input.sessionId) out.push(...childQuestions(input.sessionId, input.sessions, input.asks));
   return out;

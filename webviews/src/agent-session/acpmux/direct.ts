@@ -6289,6 +6289,13 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The composer is about to decline question `permissionId` for a reply the person typed
+  /// (App.tsx `withdrawForTypedReply`): its record reads "Answered in chat" even when the reply waits
+  /// in the queue behind the turn, whose echo would come too late for `answeredInChat`.
+  markAnsweredInChat(permissionId: string): void {
+    if (this.askedQuestions.has(permissionId)) this.repliedWhileAsked.add(permissionId);
+  }
+
   /// The person wrote a prompt of their own: a question waiting now, or one declined just before it,
   /// was answered in the chat rather than on its card (Leo, 2026-11-07: "what happens if they respond
   /// to it in another way, right?"). The composer hat declines a waiting question for a typed reply

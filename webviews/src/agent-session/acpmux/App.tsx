@@ -1040,10 +1040,15 @@ const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 
 /// Declines the chat's own waiting question for a reply the person typed instead (the composer's
 /// send). Never rejects: a decline that failed leaves the question waiting, and the reply still goes.
-function withdrawForTypedReply(permission: AcpmuxPermission | undefined): Promise<unknown> {
+function withdrawForTypedReply(
+  permission: AcpmuxPermission | undefined,
+  client: { markAnsweredInChat(permissionId: string): void } | undefined,
+): Promise<unknown> {
   const question = permission?.question;
   const sent = question && isPending(question) ? declineReply(question) : undefined;
-  return sent ? callNative("chat.permission", replyParams(sent)).catch(() => undefined) : Promise.resolve();
+  if (!sent || !permission) return Promise.resolve();
+  client?.markAnsweredInChat(permission.permissionId);
+  return callNative("chat.permission", replyParams(sent)).catch(() => undefined);
 }
 
 /// What the hat's buttons do (question/HatQuestions.tsx). The chat's own question is answered as its
@@ -9849,7 +9854,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // A typed reply while the chat's own question waits answers it in the chat: the
                 // question is declined first, so the agent reads the reply instead of waiting on it
                 // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
-                void withdrawForTypedReply(individualPermission)
+                void withdrawForTypedReply(individualPermission, sentOn)
                   .then(() => callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }))
                   .then(
                     () => {

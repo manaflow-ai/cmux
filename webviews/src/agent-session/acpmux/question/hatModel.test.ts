@@ -76,6 +76,23 @@ describe("the questions the composer hat holds", () => {
     expect(shown!.answers.map((answer) => answer.key)).toEqual(["recap.yes", "recap.notNow"]);
   });
 
+  test("every question acpmux holds for the chat is in the hat, the card's first, each once", () => {
+    const asked = fixture("pending-single");
+    const ask = (id: string, sessionId = "chat"): WatchedAsk => ({
+      sessionId,
+      permission: permission(asked, id),
+      at: 1,
+    });
+    const list = hatQuestions({
+      sessionId: "chat",
+      permission: permission(asked, "perm-2"),
+      rows: [],
+      sessions: [],
+      asks: [ask("perm-1"), ask("perm-2"), ask("perm-3"), ask("perm-x", "other")],
+    });
+    expect(list.map((question) => question.id)).toEqual(["perm-2", "perm-1", "perm-3"]);
+  });
+
   test("while the chat's own question waits, no tagged ask shows: a turn is running", () => {
     const list = hatQuestions({
       sessionId: "chat",
