@@ -62,10 +62,56 @@ import Testing
         #expect(TopRowLine(centerY: 4).pillTop(stripTop: 0, stripHeight: 41, tabHeight: 35, scale: 2) == TopRowLine.pillMinTopGap)
     }
 
+    /// A strip that starts below the window's top (a pane padding, floating panes' gutter) never
+    /// moves its pills above its own top: the strip masks its tabs to its bounds (review of #37619:
+    /// Compact with `layout.panePadding: 12` asked for -8 and clipped the tabs' upper 8 pt).
+    @Test(arguments: modes) func thePillNeverRisesAboveItsStrip(_ mode: Mode) {
+        for stripTop in [1, 2, 4, 6, 8, 12, 16, 24] as [CGFloat] {
+            for scale in [1, 2] as [CGFloat] {
+                let top = TopRowLine(centerY: Self.lights).pillTop(stripTop: stripTop, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale)
+                #expect(top >= 0, "\(mode.name) stripTop \(stripTop) @\(scale)x: \(top)")
+                #expect(top + mode.tab <= mode.strip, "\(mode.name) stripTop \(stripTop) @\(scale)x: \(top)")
+            }
+        }
+    }
+
+    @Test func aPaddedOrFloatingStripKeepsItsPillsInside() {
+        let line = TopRowLine(centerY: 16)
+        // Compact with `layout.panePadding: 12`: the strip starts at 12, at or below where the pill would start.
+        #expect(line.pillTop(stripTop: 12, stripHeight: 28, tabHeight: 24, scale: 2) == 0)
+        // Floating panes: the card (and its strip) start one gutter down.
+        #expect(line.pillTop(stripTop: 8, stripHeight: 28, tabHeight: 24, scale: 2) == 0)
+        // A small padding still reaches the line: 2 + 2 + 24 / 2 = 16.
+        #expect(line.pillTop(stripTop: 2, stripHeight: 28, tabHeight: 24, scale: 2) == 2)
+        // Spacious under a 2 pt padding: the window-top gap is already met by the padding.
+        #expect(line.pillTop(stripTop: 2, stripHeight: 41, tabHeight: 35, scale: 2) == 0)
+    }
+
     @Test func theVariantsResolveTheirOwnLines() {
-        #expect(TopRowLine.resolve(.lights, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 16)
-        #expect(TopRowLine.resolve(.off, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 16)
-        #expect(TopRowLine.resolve(.tabs, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 18)
-        #expect(TopRowLine.resolve(.titlebar, lightsCenterY: 16, stripHeight: 36, titlebarHeight: 40).centerY == 20)
+        let metrics = PaneChromeMetrics(stripHeight: 36, tabHeight: 30, panePadding: 0)
+        let tabs = TopRowLine.tabsCenterY(metrics, scale: 2)
+        #expect(tabs == 18)
+        #expect(TopRowLine.resolve(.lights, lightsCenterY: 16, tabsCenterY: tabs, titlebarHeight: 40).centerY == 16)
+        #expect(TopRowLine.resolve(.off, lightsCenterY: 16, tabsCenterY: tabs, titlebarHeight: 40).centerY == 16)
+        #expect(TopRowLine.resolve(.tabs, lightsCenterY: 16, tabsCenterY: tabs, titlebarHeight: 40).centerY == 18)
+        #expect(TopRowLine.resolve(.titlebar, lightsCenterY: 16, tabsCenterY: tabs, titlebarHeight: 40).centerY == 20)
+    }
+
+    /// The `tabs` line is where the strip's pills already sit on their own padding, so it moves
+    /// nothing: the card stays at the window's top and each strip keeps its own pill top (review
+    /// of #37619: the line was the strip's bare middle, off by the pane padding).
+    @Test func theTabsLineIsWhereTheStripsOwnPaddingPutsThePills() {
+        for padding in [0, 2, 6, 12] as [CGFloat] {
+            for mode in Self.modes {
+                for scale in [1, 2] as [CGFloat] {
+                    let metrics = PaneChromeMetrics(stripHeight: mode.strip, tabHeight: mode.tab, panePadding: padding)
+                    let line = TopRowLine(centerY: TopRowLine.tabsCenterY(metrics, scale: scale))
+                    #expect(metrics.cardTop(centeringPillOn: line.centerY, scale: scale) == 0, "\(mode.name) padding \(padding) @\(scale)x")
+                    let stripTop = PaneChromeMetrics.snap(padding, scale)
+                    #expect(line.pillTop(stripTop: stripTop, stripHeight: mode.strip, tabHeight: mode.tab, scale: scale) == metrics.pillTop(scale: scale),
+                            "\(mode.name) padding \(padding) @\(scale)x")
+                }
+            }
+        }
     }
 }
