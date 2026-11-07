@@ -54,6 +54,7 @@ use cmux_remote::crypto::StaticIdentity;
 use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -112,6 +113,11 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
+    // The handlers are in place before the bind, so a SIGTERM or SIGINT
+    // that comes once the socket exists always takes the path that removes
+    // it.
+    let terminate = signal(SignalKind::terminate()).ok();
+    let interrupt = signal(SignalKind::interrupt()).ok();
     let listener = match OwnedUnixListener::bind(socket.clone()).await {
         Ok(listener) => listener,
         Err(error) => return super::usage(&error.to_string()),
@@ -121,7 +127,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
     let mut backoff = UnixAcceptBackoff::new();
-    let ended = ended(shared.http.clone());
+    let ended = ended(shared.http.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
         tokio::select! {
@@ -160,20 +166,19 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
 
 /// Ends when stdin ends or fails, or on SIGTERM or SIGINT. Until then each
 /// stdin line is read as a credential for later dials.
-async fn ended(source: Arc<HttpSource>) {
-    use tokio::signal::unix::{SignalKind, signal};
-    async fn on(kind: SignalKind) {
-        match signal(kind) {
-            Ok(mut signal) => {
+async fn ended(source: Arc<HttpSource>, terminate: Option<Signal>, interrupt: Option<Signal>) {
+    async fn on(signal: Option<Signal>) {
+        match signal {
+            Some(mut signal) => {
                 signal.recv().await;
             }
-            Err(_) => std::future::pending().await,
+            None => std::future::pending().await,
         }
     }
     tokio::select! {
         () = read_stdin(&source) => {}
-        () = on(SignalKind::terminate()) => {}
-        () = on(SignalKind::interrupt()) => {}
+        () = on(terminate) => {}
+        () = on(interrupt) => {}
     }
 }
 

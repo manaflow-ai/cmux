@@ -179,3 +179,20 @@ fn a_daemon_that_is_not_the_pinned_one_fails_the_handshake() {
     assert!(route.contains("phase=connect outcome=handshake"), "{route}");
     assert_eq!(code, Some(5));
 }
+
+/// The desktop is the machine owner's alone: this test's grants carry no
+/// `vmk`, so the daemon refuses the desktop stream and the dial says so.
+#[test]
+fn a_desktop_dial_without_the_owner_grant_is_refused_as_a_service() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let mut child = dial_with(&world, &["--service", "desktop"]);
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "service_refused", "{reply}");
+    assert!(
+        reply["error_detail"].as_str().unwrap().contains("does not allow local-socket"),
+        "{reply}"
+    );
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(6));
+}

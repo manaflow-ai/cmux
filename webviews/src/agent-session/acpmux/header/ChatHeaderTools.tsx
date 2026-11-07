@@ -423,8 +423,10 @@ export function ChatHeaderTools({
     clearTimeout(intent.current);
     setPreview(undefined);
   };
+  // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
   const buttons =
     webButtons &&
+    shown.length > 0 &&
     shown.map((tool) => {
       const shortcut = tool.title ? undefined : shortcuts[tool.id];
       return (
