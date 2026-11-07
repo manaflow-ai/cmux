@@ -16,7 +16,7 @@ afterEach(() => {
 /// Runs `command` with only stub programs on PATH (`npm` too when `withNpm`); each stub appends
 /// its name, arguments and the env it cares about to a log. `curl` prints a script, the pipe's
 /// reader (`bash` or `sh`) records it.
-function run(command: string, withNpm: boolean): { code: number; log: string[] } {
+function run(command: string, withNpm: boolean, curlExit = 0): { code: number; log: string[] } {
   const dir = mkdtempSync(join(tmpdir(), "harness-install-"));
   dirs.push(dir);
   const log = join(dir, "log");
@@ -25,7 +25,10 @@ function run(command: string, withNpm: boolean): { code: number; log: string[] }
     writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(dir, name), 0o755);
   };
-  stub("curl", `echo "curl $*" >> "${log}"; echo 'echo installer'`);
+  const curlScript = curlExit
+    ? `echo "curl: simulated download failure" >&2; exit ${curlExit}`
+    : "echo 'echo installer'";
+  stub("curl", `echo "curl $*" >> "${log}"; ${curlScript}`);
   // Only builtins: PATH holds nothing but these stubs.
   stub("bash", `IFS= read -r script; echo "bash <$script>" >> "${log}"`);
   stub("sh", `IFS= read -r script; echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"`);
@@ -51,6 +54,17 @@ test("without npm, Install runs each vendor's own installer", () => {
     code: 0,
     log: ["curl -fsSL https://opencode.ai/install", "bash <echo installer>"],
   });
+});
+
+// The script reader succeeds with an empty input; a failed curl must still fail Install.
+test("without npm, offline and HTTP failures are reported by every vendor installer", () => {
+  for (const harness of ["claude", "codex", "opencode"] as const) {
+    for (const curlExit of [6, 22]) {
+      const result = run(INSTALL_COMMANDS[harness]!, false, curlExit);
+      expect(result.code).toBe(curlExit);
+      expect(result.log.some((line) => line.startsWith("curl -fsSL "))).toBe(true);
+    }
+  }
 });
 
 test("with npm, Install keeps npm, and never also runs a vendor installer", () => {
