@@ -172,6 +172,26 @@ struct PaletteSettingRowStateTests {
         }
     }
 
+    /// On a family page a style that puts the state in the title (`titleSuffix`) reads the new state
+    /// after a flip too, not only the trailing word.
+    @Test func aFamilyPageRowRestylesItsTitleWhenItFlips() async throws {
+        _ = NSApplication.shared
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(PaletteTunables.all)
+        try #require(TunableStore.shared.set(PaletteTunables.toggleStyle.key, PaletteToggleStyle.titleSuffix.tunableValue)
+            == PaletteToggleStyle.titleSuffix.tunableValue)
+        defer { _ = TunableStore.shared.set(PaletteTunables.toggleStyle.key, nil) }
+        let focusRing = Switch(false)
+        let registry = Self.registry(focusRing)
+        let items = RegistryPaletteProvider(registry: registry).makeItems()
+        let member = try #require(items.first { $0.actionID == "focusRing.toggle" })
+        let page = StaticPaletteProvider(id: "family:paneChrome", items: [member])
+        #expect(page.immediateItems?.first?.title == PaletteStrings.titleWithState("Focus Ring", PaletteStrings.off))
+        focusRing.isOn = true
+        #expect(page.immediateItems?.first?.title == PaletteStrings.titleWithState("Focus Ring", PaletteStrings.on))
+        #expect(page.immediateItems?.first?.toggleState == true)
+    }
+
     /// A row named by its setting is still found by the verb people type.
     @Test func aSettingRowIsFoundByToggle() async throws {
         _ = NSApplication.shared

@@ -54,7 +54,12 @@ public final class StaticPaletteProvider: PaletteProvider {
         return items.map { item in
             guard let read = item.readsToggleState else { return item }
             var item = item
-            item.toggleState = read()
+            let isOn = read()
+            guard isOn != item.toggleState else { return item }
+            item.toggleState = isOn
+            if let base = item.toggleBase {
+                (item.title, item.symbol) = PaletteTunables.toggleStyle.value.apply(title: base.title, symbol: base.symbol, isOn: isOn)
+            }
             return item
         }
     }

@@ -45,15 +45,15 @@ public final class AgentChatRailActions {
 
     /// Binds the three rows and their palette checks into `registry`.
     public func bind(into registry: ActionRegistry) {
-        toggle(Self.showMinimap, Self.minimapPath, in: registry, isOn: { Self.isMinimapShown(Self.display($0)) }) { settings in
-            Self.isMinimapShown(Self.display(settings)) ? .string("off") : nil
+        toggle(Self.showMinimap, Self.minimapPath, in: registry, isOn: { Self.isMinimapShown(Self.display($0)) }) { on in
+            on ? nil : .string("off")
         }
-        toggle(Self.railOnRight, Self.railSidePath, in: registry, isOn: { Self.isRailOnRight(Self.display($0)) }) { settings in
-            Self.isRailOnRight(Self.display(settings)) ? nil : .string("right")
+        toggle(Self.railOnRight, Self.railSidePath, in: registry, isOn: { Self.isRailOnRight(Self.display($0)) }) { on in
+            on ? .string("right") : nil
         }
         toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry, isSetting: true,
-               isOn: { $0.map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false }) { settings in
-            .string((SidebarSurfaceSetting.effective(in: settings.snapshot) == .same ? SidebarSurface.separate : .same).rawValue)
+               isOn: { $0.map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false }) { on in
+            .string((on ? SidebarSurface.same : .separate).rawValue)
         }
     }
 
@@ -71,26 +71,35 @@ public final class AgentChatRailActions {
         settings.map { AgentPaneDisplaySetting(fileRoot: $0.fileRoot) } ?? .fallback
     }
 
-    /// Binds `id` to write `next(settings)` at `path` (nil removes the key), and its palette state to
-    /// `isOn`. The write lands after the run returns: until it does, the palette row reads the state the
-    /// run asked for, and the open palette reads its rows again once it lands or fails
-    /// (`ActionRegistry.paletteStateDidChange`), as a Settings row does (`SettingsPaletteSource`).
+    /// Binds `id` to flip its state and write `value(on)` at `path` (nil removes the key), and its palette
+    /// state to `isOn`. The write lands after the run returns: until it does, the palette row reads the
+    /// state the run asked for, and the open palette reads its rows again once it lands or fails
+    /// (`ActionRegistry.paletteStateDidChange`), as a Settings row does (`SettingsPaletteSource`). A run
+    /// before an earlier write landed flips from the state that write asked for, and the writes land in
+    /// order, so two quick runs end where they started.
     private func toggle(_ id: ActionID, _ path: [String], in registry: ActionRegistry, isSetting: Bool = false,
                         isOn: @escaping @MainActor (SettingsController?) -> Bool,
-                        next: @escaping @MainActor (SettingsController) -> JSONValue?) {
+                        value: @escaping @MainActor (Bool) -> JSONValue?) {
         let (settings, managed, notLoaded, logger) = (settings, managed, notLoaded, Self.logger)
         // The registry keeps these closures and with them this object (the App binds one and drops it).
         registry.bindEffect(id) { [weak registry] invocation in
             guard let settings = settings() else { return .refused(notLoaded) }
             if let key = settings.managedKey(forPath: path)?.key { return .refused(managed(key)) }
-            let value = next(settings), writer = SettingWriter(invocation.origin)
-            let token = self.markPending(id, !(self.pending[id]?.isOn ?? isOn(settings)))
-            // task-owner: one settings write; ends when cmux.json is written
-            Task {
-                do { try await settings.setSetting(at: path, to: value, by: writer) } catch {
+            let on = !(self.pending[id]?.isOn ?? isOn(settings)), writer = SettingWriter(invocation.origin)
+            let token = self.markPending(id, on)
+            let earlier = self.writing[id]
+            // task-owner: one settings write, after this row's earlier one; ends when cmux.json is written
+            let write = Task {
+                await earlier?.value
+                do { try await settings.setSetting(at: path, to: value(on), by: writer) } catch {
                     logger.error("palette setting toggle failed: \(String(describing: error), privacy: .public)")
                 }
+            }
+            self.writing[id] = write
+            Task {
+                await write.value
                 guard self.pending[id]?.token == token else { return }
+                self.writing[id] = nil
                 self.pending[id] = nil
                 registry?.paletteStateDidChange?()
             }
@@ -107,6 +116,8 @@ public final class AgentChatRailActions {
     /// The state each row's write asked for while it has not landed, with that write's token.
     private var pending: [ActionID: (token: Int, isOn: Bool)] = [:]
     private var writes = 0
+    /// Each row's last write, which its next one waits for.
+    private var writing: [ActionID: Task<Void, Never>] = [:]
 
     private func markPending(_ id: ActionID, _ isOn: Bool) -> Int {
         writes += 1

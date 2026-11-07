@@ -83,8 +83,11 @@ public struct PaletteItem: Identifiable {
     public var toggleState: Bool?
     /// Reads ``toggleState`` now. A page that lists rows built earlier (a family page such as Pane
     /// Borders and Focus Ring…) shows each one's state as it is when the page loads, so a row flipped
-    /// in place reads its new state there too (``StaticPaletteProvider``).
+    /// in place reads its new state there too (``StaticPaletteProvider``), with the title and icon
+    /// ``PaletteToggleStyle`` gives that state (``toggleBase``).
     public var readsToggleState: (@MainActor () -> Bool)?
+    /// The title and icon of a row with ``readsToggleState`` before its style adds the state.
+    public var toggleBase: (title: String, symbol: String?)?
 
     public init(
         id: String,

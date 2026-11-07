@@ -78,4 +78,34 @@ import Testing
         #expect(SidebarSurfaceSetting.effective(in: settings.snapshot) == .separate)
         #expect(state() == false, "the stored value agrees")
     }
+
+    /// Two runs before the first write lands end where they started: the second flips from the state the
+    /// first asked for, and its write lands after the first one's.
+    @Test func twoQuickRunsEndWhereTheyStarted() async throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-match-bg-twice-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        services.settings = settings
+        await settings.reload()
+        let registry = services.registry
+        final class Count { var value = 0 }
+        let reloads = Count()
+        registry.paletteStateDidChange = { reloads.value += 1 }
+        func state() -> Bool? { registry.action(for: "palette.toggleMatchTerminalBackground")?.paletteState?() }
+
+        #expect(registry.perform("palette.toggleMatchTerminalBackground", invocation: ActionInvocation()))
+        #expect(registry.perform("palette.toggleMatchTerminalBackground", invocation: ActionInvocation()))
+        #expect(state() == true, "two flips read as the start")
+        let deadline = ContinuousClock.now + .seconds(10)
+        while reloads.value == 0, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(SidebarSurfaceSetting.effective(in: settings.snapshot) == .same, "the last write is the second run's")
+        #expect(state() == true)
+    }
 }
