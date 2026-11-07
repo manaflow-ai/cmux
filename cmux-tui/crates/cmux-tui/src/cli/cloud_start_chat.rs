@@ -127,14 +127,42 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global) };
-    let outcome = run(&mut runner, &request);
-    Some(report(&outcome, global.output))
+    Some(start(&global, &request))
+}
+
+/// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
+/// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
+pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    let outcome = run(&mut runner, request);
+    report(&outcome, global.output)
+}
+
+/// Whether the app is signed in to cmux Cloud now, as its own machine list answers
+/// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
+pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
+    app_machines(global)
+        .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false)))
+}
+
+/// The app's `cloud list-machines` answer, or its error.
+pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
 /// one of this command's own flags (`--prompt --json`) stays a value.
 pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {
+    lift_output_of(rest, output, TAKES_VALUE)
+}
+
+/// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+pub(super) fn lift_output_of(
+    rest: &[String],
+    output: &mut OutputMode,
+    takes_value: &[&str],
+) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
     for word in rest {
@@ -148,7 +176,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
-                value_next = TAKES_VALUE.contains(&word.as_str());
+                value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
         }
@@ -431,6 +459,7 @@ fn signed_out(error: &Value) -> bool {
         || code == "auth.required"
         || message.contains("sign in to use cloud")
         || message.contains("cmux cloud sign-in")
+        || message.contains("cmux login")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -526,7 +555,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 
 /// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
 /// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
-/// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
+/// failure after that says it in `details` (`machine_id`, `new_machine: true`). A caller (the start matrix) may
+/// delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut made = None;
     let mut timed = Timed::new(runner);
@@ -545,6 +575,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
+                // A failure after this run made its machine names it, so the caller can delete it.
+                if let Some(id) = made {
+                    details.insert("machine_id".to_owned(), json!(id));
+                    details.insert("new_machine".to_owned(), json!(true));
+                }
             }
         }
     }
@@ -621,8 +656,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
-            "cmux is signed out: run `cmux cloud sign-in`, then this command again",
-            json!({"sign_in": "cmux cloud sign-in"}),
+            "cmux is signed out: run `cmux login`, then this command again",
+            json!({"sign_in": "cmux login"}),
             1,
         );
     }
@@ -1033,8 +1068,8 @@ fn app_failure(error: Value) -> Outcome {
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
-            format!("{message} (run `cmux cloud sign-in`, then this command again)"),
-            json!({"sign_in": "cmux cloud sign-in", "app": error}),
+            format!("{message} (run `cmux login`, then this command again)"),
+            json!({"sign_in": "cmux login", "app": error}),
             1,
         );
     }

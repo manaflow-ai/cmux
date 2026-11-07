@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { chatPlace } from "./chatMachine";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -679,9 +680,7 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
-    useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2023,7 +2022,6 @@ export function Composer({
   const escapeStop = useEscapeStop({
     stoppable: running && !stopping,
     session: sessionId,
-    double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
     onStop: stopTurn,
   });
@@ -2286,6 +2284,9 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
+  // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
+  // keys its lists on the name this gives, not on this object.
+  const route = chatPlace(snapshot);
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
@@ -2319,6 +2320,7 @@ export function Composer({
         })
       }
       localName={localName}
+      route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
     />
