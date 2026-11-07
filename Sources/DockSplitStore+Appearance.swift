@@ -65,7 +65,8 @@ extension DockSplitStore {
     /// Resolves Dock Bonsplit chrome against the mounted window backdrop when available.
     static func makeAppearance(
         from config: GhosttyConfig,
-        windowAppearance: WindowAppearanceSnapshot?
+        windowAppearance: WindowAppearanceSnapshot?,
+        tabBarLayout: SurfaceTabBarLayoutSettings = SurfaceTabBarLayoutSettings()
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
         let renderingMode = windowAppearance?.terminalRenderingMode
@@ -83,8 +84,10 @@ extension DockSplitStore {
                 backgroundOpacity: config.backgroundOpacity
             )
         return BonsplitConfiguration.Appearance(
-            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+            tabBarHeight: tabBarLayout.height,
+            tabMaxWidth: tabBarLayout.maxTabWidth,
             tabTitleFontSize: config.surfaceTabBarFontSize,
+            tabWidthMode: tabBarLayout.widthMode.bonsplitTabWidthMode,
             // The Dock lives in the narrow right sidebar. Bonsplit's default
             // 100pt pane minimum leaves a side-by-side split almost no divider
             // travel in a ~220-300pt-wide sidebar (the divider clamps to roughly
