@@ -33,7 +33,7 @@ mod directory;
 mod proxy;
 mod session;
 
-use std::io::{Seek as _, Write as _};
+use std::io::Seek as _;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
