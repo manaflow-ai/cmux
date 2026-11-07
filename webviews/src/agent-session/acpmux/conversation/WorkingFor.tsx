@@ -1,6 +1,5 @@
-// The line over a running turn's work, with the Codex-style turn off (Debug toggles codexToolRuns
-// or liveLineBelow; with both on, the default, the turn's one live line at its bottom is
-// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt,
+// The older "Working for" line over a running turn's work (a `working` row; the transcript now
+// draws the turn's one live line at its bottom instead, Thinking.tsx, with the same counts): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
@@ -18,8 +17,7 @@
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
 //
-// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
-// has no rule under it and its clock never stops while the turn runs, and before any output
+// Drawn as the turn's last row (`row.below`), it has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext } from "react";
 import { type Translate, useT } from "../i18n";

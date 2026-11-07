@@ -87,6 +87,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# The Cloud API calls the daemon's cloud.* ops answer (server/cloud_api.rs).
+cmux-cloud-api.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
@@ -94,6 +96,10 @@ tokio.workspace = true
 # client the cmux-tui binary already links for cmux.wire/1.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+# The SDK's raw client drives the cloud.* operations in server/cloud_api_tests.rs.
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

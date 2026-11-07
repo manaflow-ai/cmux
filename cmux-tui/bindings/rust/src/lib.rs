@@ -64,6 +64,8 @@ use client::{CmuxClient, CmuxStream};
 use presence::{Nullable, Optional};
 use raw_support::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
-pub use chat_target::{CHAT_CAPABILITY, ChatTarget, ChatTargetRefusal, resolve_chat_target};
+pub use chat_target::{
+    CHAT_CAPABILITY, ChatTarget, ChatTargetRefusal, catalog_machines, resolve_chat_target,
+};
 pub use client::{CmuxError as Error, Result};
 pub use resource::*;

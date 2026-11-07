@@ -36,6 +36,8 @@ export interface MenuProps {
     model: NativePopupDescription;
     onEvent?(event: NativePopupEvent): void;
     onDismiss?(): void;
+    /** The host refused to draw the rows; when set, the menu stays open for the owner's fallback. */
+    onRefused?(): void;
   };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
@@ -85,7 +87,8 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       native?.onEvent?.(event);
       if (action && !action.keepOpen) setMenuOpen(false);
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      if (reason === "refused" && native?.onRefused) return native.onRefused();
       if (open === undefined) setInternalOpen(false);
       onOpenChange?.(false);
       native?.onDismiss?.();
