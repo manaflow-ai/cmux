@@ -357,10 +357,10 @@ async fn a_restarted_holder_erases_a_machine_delivered_after_the_last_list() {
 
 /// cmux#37306 review: the off switch started a new holder with Cloud already off, so the restore
 /// took nothing back and the off switch retired nothing; the access stayed and could renew once
-/// Cloud was on again. Now the restore under the fence marks it for erasure, and the next list
-/// after Cloud is on erases it instead of renewing it.
+/// Cloud was on again. Now a restore under the fence ends the scope, which erases it at once, and
+/// nothing renews once Cloud is on again. An off line said again changes nothing.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_holder_restarted_while_cloud_is_off_erases_once_it_is_on() {
+async fn a_holder_restarted_while_cloud_is_off_erases_and_never_renews() {
     let world = World::new();
     world.delivered_by_a_holder_that_ended().await;
     let mut pipe = Pipe::start(&world.files);
@@ -374,25 +374,32 @@ async fn a_holder_restarted_while_cloud_is_off_erases_once_it_is_on() {
     // A request after the restore answers only once the restore is done.
     pipe.send(json!({"op": "pending_cleanup", "id": 2})).await;
     assert_eq!(pipe.reply(2).await["ok"], true);
-    let record = crate::record::Record::new(&crate::adapter::home(
-        &world.root.path().join("cloud"),
-        &Scope::new("user-1", Some("team-1")),
-    ));
-    assert_eq!(record.entries(), HashMap::from([("vm_1".to_owned(), true)]), "marked for erasure");
-    assert!(world.delivered(), "nothing reaches a machine while Cloud is off");
+    assert!(!world.delivered(), "the off switch erased it");
 
-    // The app's own off line after the start: said again, it still retires (order-independent).
     pipe.send(json!({"op": "available", "enabled": false, "current": scope()})).await;
     pipe.send(json!({"op": "available", "enabled": true, "current": scope()})).await;
     pipe.send(json!({"op": "listed", "live": ["vm_1"], "current": scope()})).await;
-    let erased = async {
-        while world.delivered() {
-            // Answers the pass's own questions (owner, live) while it erases.
-            pipe.send(json!({"op": "pending_cleanup", "id": 3})).await;
-            pipe.reply(3).await;
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    };
-    tokio::time::timeout(Duration::from_secs(10), erased).await.expect("erased, not renewed");
+    pipe.send(json!({"op": "pending_cleanup", "id": 3})).await;
+    assert_eq!(pipe.reply(3).await["ok"], true);
+    assert!(!world.delivered(), "nothing renews it");
+    pipe.quit().await;
+}
+
+/// cmux#37306 review: a holder that ended before it read a team switch; the next one opens under
+/// the new team. The old team's scope is among those replayed, so it ends now and its delivered
+/// access is erased, not left until it expires.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_switch_the_last_holder_never_read_still_erases_the_old_teams_access() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = Pipe::start(&world.files);
+    pipe.send(world.config()).await;
+    let new_team = json!({"user": "user-1", "team": "team-2"});
+    pipe.send(json!({"op": "restore", "scopes": [scope(), new_team], "live": ["vm_1"],
+        "current": new_team, "acpmux": world.acpmux}))
+        .await;
+    pipe.send(json!({"op": "pending_cleanup", "id": 2})).await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    assert!(!world.delivered(), "the old team's access is erased");
     pipe.quit().await;
 }

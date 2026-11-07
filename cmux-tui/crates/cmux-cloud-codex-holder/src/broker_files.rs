@@ -440,7 +440,9 @@ impl Broker {
                 return;
             }
         }
-        if !self.in_scope() || target.is_live().await != Ok(true) {
+        // Erasing only removes this holder's own file, so it needs no current scope: a scope that
+        // ended (a switch, a sign-out) still erases what it left. Renewing does.
+        if (!erase && !self.in_scope()) || target.is_live().await != Ok(true) {
             return;
         }
         let pending = {

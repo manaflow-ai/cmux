@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use cmux_cloud_api::machine_io::{
-    Answer, Op, Request, RouteChoice, Spool, http_client, now_ms, perform,
+    Answer, Op, Request, RouteChoice, Spool, http_client, now_ms, perform, scrub,
 };
 use cmux_cloud_api::session::secure_origin;
 use cmux_cloud_codex_holder::{App, Config, ExecResult, Machines, VmError};
@@ -105,6 +105,8 @@ impl MachineIo {
         };
         fill(&mut request);
         let (_route, answer) = perform(client, &request, now_ms).await;
+        // As both machine-io entries do: a refusal never carries the credential onward.
+        let answer = scrub(answer, &request.credential);
         if (200..300).contains(&answer.status) {
             return Ok(answer);
         }
@@ -244,6 +246,19 @@ mod tests {
         .unwrap();
         assert_eq!(read_bytes(answer(Value::Null, Some(Spool::Json(spooled)))).unwrap(), b"j");
         assert!(read_bytes(answer(json!({}), None)).is_err());
+    }
+
+    /// cmux#37306 review: a refusal that echoes the credential never reaches the app's text.
+    #[test]
+    fn a_refusal_never_carries_the_credential() {
+        let refused = Answer {
+            status: 403,
+            body: json!({"error": {"code": "denied", "message": "bad token secret-token-1"}}),
+            code: None,
+            file: None,
+        };
+        let text = scrub(refused, "secret-token-1").body.to_string();
+        assert!(!text.contains("secret-token-1"), "{text}");
     }
 
     #[test]
