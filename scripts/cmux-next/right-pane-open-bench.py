@@ -108,6 +108,10 @@ parser.add_argument("--drag", action="store_true",
 parser.add_argument("--drag-right", choices=("terminal", "browser"), default="terminal",
                     help="--drag: what the header opens first on the chat's right: terminal (then split down) or browser "
                          "(then the header's Terminal, which splits below it)")
+parser.add_argument("--drag-stream", action="store_true",
+                    help="--drag: the chat streams a long turn (chat_open_agent's bloat) during every round")
+parser.add_argument("--drag-modifiers", default="",
+                    help="--drag: comma list of modifier sets cycled over the rounds, e.g. ',shift,ctrl' (empty: none)")
 parser.add_argument("--drag-step", type=float, default=4, help="--drag: points per move")
 parser.add_argument("--drag-moves", type=int, default=40, help="--drag: moves of each leg (left, right twice as far, left)")
 parser.add_argument("--tag", default="rpopen")
@@ -625,7 +629,7 @@ def drag_layout(run, chat):
     return right
 
 
-def drag_round(run, label, refresh_s):
+def drag_round(run, label, refresh_s, modifiers=(), stream=None):
     start = chat_divider(run)
     if not start:
         return {"error": "no vertical divider"}
@@ -636,21 +640,25 @@ def drag_round(run, label, refresh_s):
     run.rpc("debug.hangs", {"clear": True})
     run.rpc("debug.frames", {"action": "start"})
     time.sleep(0.15)  # test script: frames at rest before the press
-    run.rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+    keys = {"modifiers": list(modifiers)} if modifiers else {}
+    streaming = stream() if stream else None
+    run.rpc("debug.mouse", {"action": "down", "x": x0, "y": y0, **keys})
     x, trips = x0, []
     next_at = time.monotonic()
     for delta in path:
         sent = time.monotonic()
         run.rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
-                                "press": False, "release": False})
+                                "press": False, "release": False, **keys})
         trips.append((time.monotonic() - sent) * 1000)
         x += delta
         next_at += refresh_s
         pause = next_at - time.monotonic()
         if pause > 0:
             time.sleep(pause)  # bench script: one pointer move per display frame
-    run.rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+    run.rpc("debug.mouse", {"action": "up", "x": x, "y": y0, **keys})
     time.sleep(0.8)  # test script: the release's spring lands
+    if streaming:
+        streaming.wait(timeout=120)
     frames = run.rpc("debug.frames", {"action": "stop"}) or {}
     trace = run.rpc("debug.motion", {"action": "trace_stop"}) or {}
     hangs = sorted([{"ms": round(h.get("duration_ms") or 0, 1), "kind": h.get("kind"),
@@ -678,7 +686,7 @@ def drag_round(run, label, refresh_s):
     # Where the divider was when the pointer turned: the leftmost it got before it first moved right again.
     left_index = min(range(len(xs)), key=lambda i: xs[i])
     record = {
-        "label": label, "x0": round(x0, 1), "pointer_travel_pt": travel,
+        "label": label, "modifiers": list(modifiers), "streaming": bool(streaming), "x0": round(x0, 1), "pointer_travel_pt": travel,
         "reach_left": round((first - min(xs)) / travel, 3), "reach_right": round((max(xs) - first) / travel, 3),
         "gap_pt": round(abs((first - travel) - xs[left_index]), 1), "end_offset_pt": round(xs[-1] - first, 1),
         "stall_frames": stall, "longest_stall_ms": round(longest, 1), "moving_frames": len(moving), "samples": len(samples),
@@ -698,10 +706,17 @@ def run_drags(run, chat, condition, results):
         records.append({"error": f"layout: {str(error)[:400]}"})
         return
     refresh_s = (float((run.rpc("debug.frames", {"action": "stop"}) or {}).get("refresh_ms") or 8.33)) / 1000
+    sets = [tuple(m for m in group.split("+") if m) for group in opts.drag_modifiers.split(",")] if opts.drag_modifiers else [()]
+    stream = None
+    if opts.drag_stream:
+        env = bm.FakeChats(run.app, APP, AGENT).env
+        stream = lambda: subprocess.Popen([run.app.cli_path, "acp", "send", chat.session, "bloat: 6 120 6"],  # noqa: E731
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
     for index in range(opts.runs):
-        record = drag_round(run, f"{condition}-drag-{index}", refresh_s)
+        record = drag_round(run, f"{condition}-drag-{index}", refresh_s, sets[index % len(sets)], stream)
         records.append(record)
-        say(f"right-pane-open: {condition} drag {index}: reach {record.get('reach_left')}/{record.get('reach_right')} "
+        say(f"right-pane-open: {condition} drag {index} mods={'+'.join(record.get('modifiers') or []) or 'none'}"
+            f" stream={record.get('streaming')}: reach {record.get('reach_left')}/{record.get('reach_right')} "
             f"gap {record.get('gap_pt')} pt stalls {record.get('stall_frames')} (longest {record.get('longest_stall_ms')} ms) "
             f"frames {json.dumps(record.get('frames'))} mouse rpc {json.dumps(record.get('mouse_rpc_ms'))}"
             + (f" error={record['error']}" if record.get("error") else ""))
@@ -952,7 +967,8 @@ def run_condition(condition, runs, home, chats, load, results, info):
         results["app_version"] = (run.app.identify() or {}).get("version")
     time.sleep(5)  # test script: let launch work end before the chat opens
     chat = Chat(run)
-    chat.open(drag_chat(run) if opts.drag else chats[condition])
+    chat.session = drag_chat(run) if opts.drag else chats[condition]
+    chat.open(chat.session)
     if condition == "stress":
         stress = chat.stress
         stress.busy_where = "elsewhere"
