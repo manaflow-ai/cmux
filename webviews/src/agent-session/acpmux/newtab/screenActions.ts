@@ -161,11 +161,14 @@ export function newTabScreenActions(deps: {
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    // `inPlace`: it takes this page's tab, never a split (picks still go where links do).
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
-          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+          kind === "terminal"
+            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

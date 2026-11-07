@@ -285,7 +285,7 @@ mod remote_cli_docs {
         let args =
             strings(&["cloud", "exec", "--target", "machine:builder", "--arg", "command=uname -a"]);
         assert!(app::parse(&args).is_ok());
-        assert!(cloud_help::overview(false).contains("cloud <action>"));
+        assert!(cloud_help::overview(false).contains("vm <action>"));
         assert!(AGENT_HELP.contains("agent open-tab"));
         assert!(AGENT_HELP.contains("agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]"));
     }

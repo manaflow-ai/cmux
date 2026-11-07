@@ -154,6 +154,72 @@ struct WindowDockWindowTests {
         }
     }
 
+    // MARK: - A relaunch (cmux#37365)
+
+    /// `tree()` with `k0` as the store's Home (`kind` "home"), as the relaunch check reads it.
+    static func homeTree() -> DaemonTree {
+        var tree = tree()
+        tree.workspaces[0].kind = "home"
+        return tree
+    }
+
+    /// The window's saved record as JSON; `legacy` strips `by_link`, as a build before cmux#37365 saved it.
+    static func record(_ f: Fixture, legacy: Bool = false) throws -> String {
+        let record = try #require(f.services.windows.registry.value.record(f.state.id, state: f.state, order: 0))
+        var json = try #require(String(data: try JSONEncoder().encode(record), encoding: .utf8))
+        if legacy {
+            json = json.replacingOccurrences(of: #","by_link":true"#, with: "").replacingOccurrences(of: #","by_link":false"#, with: "")
+            json = json.replacingOccurrences(of: #""by_link":true,"#, with: "").replacingOccurrences(of: #""by_link":false,"#, with: "")
+        }
+        return json
+    }
+
+    /// The Chief docked by a link (an older build's default) comes back undocked after a relaunch, with
+    /// `home.chiefDock.openBeside` unset; a dock the person made of another workspace stays.
+    @Test(arguments: [false, true]) func aRelaunchUndocksAChiefTheLinkDocked(legacy: Bool) async throws {
+        try await Self.withDocks {
+            let f = try await Fixture(keys: Self.keys, tree: Self.homeTree())
+            f.controller.armChiefDock(home: "k0", edge: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state) // the link's jump
+            f.frame()
+            f.controller.dockWorkspace("k2", at: .bottom) // Dock Workspace Bottom: the person's choice
+            f.frame()
+            try #require(f.state.docks.dock(at: .left)?.workspace == "k0" && f.state.docks.dock(at: .left)?.byLink == true)
+            try #require(f.state.docks.dock(at: .bottom)?.workspace == "k2")
+            let json = try Self.record(f, legacy: legacy)
+            #expect(legacy || json.contains(#""by_link":true"#), "the link's dock is not marked in the record: \(json)")
+            f.close()
+
+            let again = try await Fixture(keys: Self.keys, record: json, tree: Self.homeTree())
+            defer { again.close() }
+            #expect(!again.state.docks.isDocked("k0"), "the relaunch kept the Chief docked: \(again.state.docks.all.map(\.workspace))")
+            #expect(!again.shown.contains("k0") || again.state.workspaceID == "k0", "the Chief is still on screen: \(again.shown)")
+            #expect(again.state.docks.dock(at: .bottom)?.workspace == "k2", "the relaunch dropped a dock the person made")
+            #expect(again.state.docks.all.map(\.workspace) == ["k2"], "the saved state still holds the Chief's dock")
+            #expect(!again.state.restoredDocksUnchecked, "the relaunch check did not run once")
+        }
+    }
+
+    /// The Chief docked on purpose (Open Chief Dock, Cmd-I) stays docked across a relaunch, also after a link from it
+    /// docked it first: Cmd-I makes that dock the person's.
+    @Test func aRelaunchKeepsAChiefThePersonDocked() async throws {
+        try await Self.withDocks {
+            let f = try await Fixture(keys: Self.keys, tree: Self.homeTree())
+            f.controller.armChiefDock(home: "k0", edge: .left)
+            f.services.windows.show(workspaceID: "k1", in: f.state)
+            f.frame()
+            f.controller.openChiefDock("k0", edge: .left) // Cmd-I on the docked Chief
+            f.frame()
+            #expect(f.state.docks.dock(at: .left)?.byLink == false)
+            let json = try Self.record(f)
+            f.close()
+
+            let again = try await Fixture(keys: Self.keys, record: json, tree: Self.homeTree())
+            defer { again.close() }
+            #expect(again.state.docks.dock(at: .left)?.workspace == "k0", "the relaunch undocked a Chief the person docked")
+        }
+    }
+
     // MARK: - Cmd-Shift-P actions
 
     /// Show/Hide Dock Tab Bar gives the dock the Home Chief pane's mode (one tab: no bar), per dock; Move Dock to

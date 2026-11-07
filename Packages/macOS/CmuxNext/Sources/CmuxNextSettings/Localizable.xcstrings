@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.chief.permissionMode": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Permission Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefの権限モード"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع أذونات Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungsmodus des Chiefs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de permisos del Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode d’autorisations du Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 권한 모드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 权限模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 權限模式"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način dozvola za Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiefs tilladelsestilstand"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità permessi del Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបសិទ្ធិរបស់ Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsesmodus for Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb uprawnień Chiefa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de permissões do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим разрешений Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดสิทธิ์ของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief İzin Modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим дозволів Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ quyền của Chief"
+          }
+        }
+      }
+    },
+    "settings.chief.permissionMode.help": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief自身のターンが権限をどう扱うか。バイパスはすべてのコマンドを確認なしで実行します。自動は安全チェックが各コマンドを判断します。手動は承認が必要な変更をすべて拒否します。次のターンから適用されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تتعامل أدوار Chief نفسه مع الأذونات. التجاوز ينفّذ كل أمر دون سؤال. التلقائي يترك فحص أمان يقرر كل أمر. اليدوي يرفض كل تغيير يحتاج إلى موافقة. يُطبَّق من الدور التالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie die eigenen Züge des Chiefs mit Berechtigungen umgehen. Umgehen führt jeden Befehl ohne Rückfrage aus. Automatisch lässt eine Sicherheitsprüfung jeden Befehl entscheiden. Manuell lehnt jede Änderung ab, die eine Freigabe bräuchte. Gilt ab dem nächsten Zug."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo gestionan los permisos los turnos propios del Chief. Omitir ejecuta cada comando sin preguntar. Automático deja que una comprobación de seguridad decida cada comando. Manual rechaza cada cambio que necesitaría aprobación. Se aplica desde el siguiente turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment les tours du Chief gèrent les autorisations. Contourner exécute chaque commande sans demander. Automatique laisse une vérification de sécurité décider de chaque commande. Manuel refuse chaque modification qui demanderait une approbation. S’applique dès le tour suivant."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 자체 턴이 권한을 처리하는 방식입니다. 우회는 모든 명령을 묻지 않고 실행합니다. 자동은 안전 검사가 각 명령을 판단합니다. 수동은 승인이 필요한 모든 변경을 거부합니다. 다음 턴부터 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 自己的回合如何处理权限。绕过会不经询问运行每条命令。自动由安全检查决定每条命令。手动会拒绝每个需要批准的更改。从下一回合起生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 自己的回合如何處理權限。略過會不經詢問執行每個指令。自動由安全檢查決定每個指令。手動會拒絕每個需要核准的變更。從下一回合起生效。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako Chiefovi vlastiti potezi rukuju dozvolama. Zaobilaženje pokreće svaku komandu bez pitanja. Automatski pušta sigurnosnu provjeru da odluči o svakoj komandi. Ručno odbija svaku promjenu koja bi trebala odobrenje. Primjenjuje se od sljedećeg poteza."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan Chiefs egne ture håndterer tilladelser. Omgå kører hver kommando uden at spørge. Automatisk lader et sikkerhedstjek afgøre hver kommando. Manuel afviser hver ændring, der ville kræve godkendelse. Gælder fra næste tur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come i turni del Chief gestiscono i permessi. Ignora esegue ogni comando senza chiedere. Automatica lascia decidere ogni comando a un controllo di sicurezza. Manuale rifiuta ogni modifica che richiederebbe un'approvazione. Si applica dal turno successivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលវេនផ្ទាល់របស់ Chief គ្រប់គ្រងសិទ្ធិ។ រំលង ដំណើរការពាក្យបញ្ជានីមួយៗដោយមិនសួរ។ ស្វ័យប្រវត្តិ ឱ្យការត្រួតពិនិត្យសុវត្ថិភាពសម្រេចពាក្យបញ្ជានីមួយៗ។ ដោយដៃ បដិសេធការផ្លាស់ប្ដូរនីមួយៗដែលត្រូវការការអនុម័ត។ អនុវត្តចាប់ពីវេនបន្ទាប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan Chiefs egne turer håndterer tillatelser. Omgå kjører hver kommando uten å spørre. Automatisk lar en sikkerhetssjekk avgjøre hver kommando. Manuell avviser hver endring som ville trengt godkjenning. Gjelder fra neste tur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak własne tury Chiefa obsługują uprawnienia. Pomijanie uruchamia każde polecenie bez pytania. Automatyczny pozwala kontroli bezpieczeństwa decydować o każdym poleceniu. Ręczny odrzuca każdą zmianę, która wymagałaby zgody. Działa od następnej tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como os turnos do próprio Chief lidam com permissões. Ignorar executa cada comando sem perguntar. Automático deixa uma verificação de segurança decidir cada comando. Manual recusa cada alteração que precisaria de aprovação. Vale a partir do próximo turno."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как собственные ходы Chief обрабатывают разрешения. Обход выполняет каждую команду без вопросов. Авто позволяет проверке безопасности решать по каждой команде. Вручную отклоняет каждое изменение, которому нужно одобрение. Применяется со следующего хода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีที่เทิร์นของ Chief เองจัดการสิทธิ์ ข้าม จะรันทุกคำสั่งโดยไม่ถาม อัตโนมัติ ให้การตรวจสอบความปลอดภัยตัดสินแต่ละคำสั่ง ด้วยตนเอง จะปฏิเสธการเปลี่ยนแปลงทุกครั้งที่ต้องได้รับอนุมัติ มีผลตั้งแต่เทิร์นถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'in kendi turlarının izinleri nasıl ele aldığı. Atla, her komutu sormadan çalıştırır. Otomatik, her komuta bir güvenlik denetiminin karar vermesine izin verir. Elle, onay gerektirecek her değişikliği reddeder. Sonraki turdan itibaren geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як власні ходи Chief обробляють дозволи. Обхід виконує кожну команду без запитань. Авто дає перевірці безпеки вирішувати щодо кожної команди. Вручну відхиляє кожну зміну, якій потрібне схвалення. Застосовується з наступного ходу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách các lượt của chính Chief xử lý quyền. Bỏ qua chạy mọi lệnh mà không hỏi. Tự động để một bước kiểm tra an toàn quyết định từng lệnh. Thủ công từ chối mọi thay đổi cần phê duyệt. Áp dụng từ lượt tiếp theo."
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.bypass": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイパス"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاوز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umgehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contourner"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우회"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绕过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaobilaženje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omgå"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignora"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omgå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomijanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обход"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้าม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обхід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.auto": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatica"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Авто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefPermissionMode.manual": {
+      "comment": "Chief turn permission mode (cmux#37392).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោយដៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ręczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo manual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thủ công"
+          }
+        }
+      }
+    },
     "settings.placeholder.wordOrPhrase": {
       "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
       "extractionState": "manual",
@@ -67280,127 +67940,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Tab Button"
+            "value": "+ Button Visibility"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新規タブボタン"
+            "state": "translated",
+            "value": "+ ボタンの表示"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "زر علامة تبويب جديدة"
+            "state": "translated",
+            "value": "ظهور زر +"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dugme za novu karticu"
+            "state": "translated",
+            "value": "Vidljivost dugmeta +"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Knap til ny fane"
+            "state": "translated",
+            "value": "Synlighed af knappen +"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Taste „Neuer Tab“"
+            "state": "translated",
+            "value": "Sichtbarkeit der Taste +"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Botón de nueva pestaña"
+            "state": "translated",
+            "value": "Visibilidad del botón +"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bouton Nouvel onglet"
+            "state": "translated",
+            "value": "Visibilité du bouton +"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulsante Nuova scheda"
+            "state": "translated",
+            "value": "Visibilità del pulsante +"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ប៊ូតុងផ្ទាំងថ្មី"
+            "state": "translated",
+            "value": "ការបង្ហាញប៊ូតុង +"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 탭 버튼"
+            "state": "translated",
+            "value": "+ 버튼 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Knapp for ny fane"
+            "state": "translated",
+            "value": "Synlighet for +-knappen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Przycisk nowej karty"
+            "state": "translated",
+            "value": "Widoczność przycisku +"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Botão de nova aba"
+            "state": "translated",
+            "value": "Visibilidade do botão +"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Кнопка новой вкладки"
+            "state": "translated",
+            "value": "Видимость кнопки +"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปุ่มแท็บใหม่"
+            "state": "translated",
+            "value": "การแสดงปุ่ม +"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni Sekme Düğmesi"
+            "state": "translated",
+            "value": "+ düğmesinin görünürlüğü"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Кнопка нової вкладки"
+            "state": "translated",
+            "value": "Видимість кнопки +"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nút thẻ mới"
+            "state": "translated",
+            "value": "Hiển thị nút +"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新建标签页按钮"
+            "state": "translated",
+            "value": "+ 按钮的显示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新增分頁按鈕"
+            "state": "translated",
+            "value": "+ 按鈕的顯示"
           }
         }
       }
@@ -101037,127 +101697,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Tab Position"
+            "value": "New Tab Position (Cmd-T)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブの位置"
+            "value": "新規タブの位置 (Cmd-T)"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "موضع علامة التبويب الجديدة"
+            "state": "translated",
+            "value": "موضع علامة التبويب الجديدة (Cmd-T)"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Položaj nove kartice"
+            "state": "translated",
+            "value": "Položaj nove kartice (Cmd-T)"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Placering af ny fane"
+            "state": "translated",
+            "value": "Placering af ny fane (Cmd-T)"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Position neuer Tabs"
+            "state": "translated",
+            "value": "Position neuer Tabs (Cmd-T)"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Posición de la nueva pestaña"
+            "state": "translated",
+            "value": "Posición de la nueva pestaña (Cmd-T)"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Position du nouvel onglet"
+            "state": "translated",
+            "value": "Position du nouvel onglet (Cmd-T)"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Posizione della nuova scheda"
+            "state": "translated",
+            "value": "Posizione della nuova scheda (Cmd-T)"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ទីតាំងផ្ទាំងថ្មី"
+            "state": "translated",
+            "value": "ទីតាំងផ្ទាំងថ្មី (Cmd-T)"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 탭 위치"
+            "state": "translated",
+            "value": "새 탭 위치 (Cmd-T)"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Plassering av ny fane"
+            "state": "translated",
+            "value": "Plassering av ny fane (Cmd-T)"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Położenie nowej karty"
+            "state": "translated",
+            "value": "Położenie nowej karty (Cmd-T)"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Posição da nova aba"
+            "state": "translated",
+            "value": "Posição da nova aba (Cmd-T)"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Положение новой вкладки"
+            "state": "translated",
+            "value": "Положение новой вкладки (Cmd-T)"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ตำแหน่งแท็บใหม่"
+            "state": "translated",
+            "value": "ตำแหน่งแท็บใหม่ (Cmd-T)"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni sekme konumu"
+            "state": "translated",
+            "value": "Yeni sekme konumu (Cmd-T)"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Розташування нової вкладки"
+            "state": "translated",
+            "value": "Розташування нової вкладки (Cmd-T)"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vị trí thẻ mới"
+            "state": "translated",
+            "value": "Vị trí thẻ mới (Cmd-T)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新标签页位置"
+            "state": "translated",
+            "value": "新标签页位置 (Cmd-T)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新標籤頁位置"
+            "state": "translated",
+            "value": "新標籤頁位置 (Cmd-T)"
           }
         }
       }
@@ -101168,127 +101828,389 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+            "value": "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-T と + ボタンで開く新規タブの位置です。タブのメニューの「右に新規タブ」は、常にそのタブの後ろに開きます。"
+            "value": "Cmd-T で開く新規タブの位置です。タブのメニューの「右に新規タブ」は、常にそのタブの後ろに開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المكان الذي يضع فيه Cmd-T وزر + علامة التبويب الجديدة. يضعها الأمر «علامة تبويب جديدة إلى اليمين» في قائمة علامة التبويب دائمًا بعد تلك العلامة."
+            "value": "المكان الذي يضع فيه Cmd-T علامة التبويب الجديدة. يضعها الأمر «علامة تبويب جديدة إلى اليمين» في قائمة علامة التبويب دائمًا بعد تلك العلامة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdje Cmd-T i dugme + stavljaju novu karticu. Novi tab desno u meniju kartice uvijek je stavlja iza te kartice."
+            "value": "Gdje Cmd-T stavlja novu karticu. Novi tab desno u meniju kartice uvijek je stavlja iza te kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-T og knappen + placerer den nye fane. Ny fane til højre i en fanes menu placerer den altid efter den fane."
+            "value": "Hvor Cmd-T placerer den nye fane. Ny fane til højre i en fanes menu placerer den altid efter den fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wo Cmd-T und die Taste + den neuen Tab einfügen. „Neuer Tab rechts“ im Menü eines Tabs fügt ihn immer hinter diesem Tab ein."
+            "value": "Wo Cmd-T den neuen Tab einfügt. „Neuer Tab rechts“ im Menü eines Tabs fügt ihn immer hinter diesem Tab ein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dónde colocan Cmd-T y el botón + la nueva pestaña. «Nueva pestaña a la derecha» en el menú de una pestaña siempre la coloca después de esa pestaña."
+            "value": "Dónde coloca Cmd-T la nueva pestaña. «Nueva pestaña a la derecha» en el menú de una pestaña siempre la coloca después de esa pestaña."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Où Cmd-T et le bouton + placent le nouvel onglet. « Nouvel onglet à droite » dans le menu d’un onglet le place toujours après cet onglet."
+            "value": "Où Cmd-T place le nouvel onglet. « Nouvel onglet à droite » dans le menu d’un onglet le place toujours après cet onglet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dove Cmd-T e il pulsante + mettono la nuova scheda. «Nuova scheda a destra» nel menu di una scheda la mette sempre dopo quella scheda."
+            "value": "Dove Cmd-T mette la nuova scheda. «Nuova scheda a destra» nel menu di una scheda la mette sempre dopo quella scheda."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងដែល Cmd-T និងប៊ូតុង + ដាក់ផ្ទាំងថ្មី។ «ផ្ទាំងថ្មីនៅខាងស្ដាំ» ក្នុងម៉ឺនុយផ្ទាំង តែងតែដាក់វានៅបន្ទាប់ពីផ្ទាំងនោះ។"
+            "value": "កន្លែងដែល Cmd-T ដាក់ផ្ទាំងថ្មី។ «ផ្ទាំងថ្មីនៅខាងស្ដាំ» ក្នុងម៉ឺនុយផ្ទាំង តែងតែដាក់វានៅបន្ទាប់ពីផ្ទាំងនោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T와 + 버튼이 새 탭을 두는 위치입니다. 탭 메뉴의 오른쪽에 새 탭은 항상 그 탭 뒤에 둡니다."
+            "value": "Cmd-T가 새 탭을 두는 위치입니다. 탭 메뉴의 오른쪽에 새 탭은 항상 그 탭 뒤에 둡니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-T og +-knappen plasserer den nye fanen. Ny fane til høyre i en fanes meny plasserer den alltid etter den fanen."
+            "value": "Hvor Cmd-T plasserer den nye fanen. Ny fane til høyre i en fanes meny plasserer den alltid etter den fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdzie Cmd-T i przycisk + umieszczają nową kartę. Polecenie „Nowa karta po prawej” w menu karty zawsze umieszcza ją za tą kartą."
+            "value": "Gdzie Cmd-T umieszcza nową kartę. Polecenie „Nowa karta po prawej” w menu karty zawsze umieszcza ją za tą kartą."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onde Cmd-T e o botão + colocam a nova aba. Nova aba à direita, no menu de uma aba, sempre a coloca depois dessa aba."
+            "value": "Onde Cmd-T coloca a nova aba. Nova aba à direita, no menu de uma aba, sempre a coloca depois dessa aba."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куда Cmd-T и кнопка + ставят новую вкладку. «Новая вкладка справа» в меню вкладки всегда ставит её после этой вкладки."
+            "value": "Куда Cmd-T ставит новую вкладку. «Новая вкладка справа» в меню вкладки всегда ставит её после этой вкладки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตำแหน่งที่ Cmd-T และปุ่ม + วางแท็บใหม่ แท็บใหม่ทางขวาในเมนูของแท็บจะวางไว้หลังแท็บนั้นเสมอ"
+            "value": "ตำแหน่งที่ Cmd-T วางแท็บใหม่ แท็บใหม่ทางขวาในเมนูของแท็บจะวางไว้หลังแท็บนั้นเสมอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T ve + düğmesinin yeni sekmeyi koyduğu yer. Bir sekmenin menüsündeki Sağa yeni sekme onu her zaman o sekmeden sonra koyar."
+            "value": "Cmd-T'nin yeni sekmeyi koyduğu yer. Bir sekmenin menüsündeki Sağa yeni sekme onu her zaman o sekmeden sonra koyar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куди Cmd-T і кнопка + ставлять нову вкладку. «Нова вкладка праворуч» у меню вкладки завжди ставить її після цієї вкладки."
+            "value": "Куди Cmd-T ставить нову вкладку. «Нова вкладка праворуч» у меню вкладки завжди ставить її після цієї вкладки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nơi Cmd-T và nút + đặt thẻ mới. Tab mới bên phải trong menu của một thẻ luôn đặt nó sau thẻ đó."
+            "value": "Nơi Cmd-T đặt thẻ mới. Tab mới bên phải trong menu của một thẻ luôn đặt nó sau thẻ đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T 和 + 按钮放置新标签页的位置。标签页菜单中的“在右侧新建标签页”总是放在该标签页之后。"
+            "value": "Cmd-T 放置新标签页的位置。标签页菜单中的“在右侧新建标签页”总是放在该标签页之后。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-T 和 + 按鈕放置新標籤頁的位置。標籤頁選單中的「在右側新增分頁」一律放在該標籤頁之後。"
+            "value": "Cmd-T 放置新標籤頁的位置。標籤頁選單中的「在右側新增分頁」一律放在該標籤頁之後。"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabButtonPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Position (+ Button)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブの位置 (+ ボタン)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع علامة التبويب الجديدة (زر +)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Položaj nove kartice (dugme +)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placering af ny fane (knappen +)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position neuer Tabs (Taste +)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición de la nueva pestaña (botón +)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position du nouvel onglet (bouton +)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione della nuova scheda (pulsante +)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងផ្ទាំងថ្មី (ប៊ូតុង +)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭 위치 (+ 버튼)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plassering av ny fane (+-knappen)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Położenie nowej karty (przycisk +)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição da nova aba (botão +)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Положение новой вкладки (кнопка +)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งแท็บใหม่ (ปุ่ม +)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sekme konumu (+ düğmesi)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування нової вкладки (кнопка +)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí thẻ mới (nút +)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页位置（+ 按钮）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新標籤頁位置（+ 按鈕）"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabButtonPosition.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のタブの後ろにある + ボタンで開く新規タブの位置です。Cmd-T は「新規タブの位置 (Cmd-T)」に従います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المكان الذي يضع فيه زر + بعد آخر علامة تبويب علامة التبويب الجديدة. يتبع Cmd-T إعداد «موضع علامة التبويب الجديدة (Cmd-T)»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje dugme + iza posljednje kartice stavlja novu karticu. Cmd-T prati Položaj nove kartice (Cmd-T)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor knappen + efter den sidste fane placerer den nye fane. Cmd-T følger Placering af ny fane (Cmd-T)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo die Taste + hinter dem letzten Tab den neuen Tab einfügt. Cmd-T folgt „Position neuer Tabs (Cmd-T)“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde coloca la nueva pestaña el botón + tras la última pestaña. Cmd-T sigue Posición de la nueva pestaña (Cmd-T)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où le bouton + après le dernier onglet place le nouvel onglet. Cmd-T suit Position du nouvel onglet (Cmd-T)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove il pulsante + dopo l’ultima scheda mette la nuova scheda. Cmd-T segue Posizione della nuova scheda (Cmd-T)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលប៊ូតុង + នៅបន្ទាប់ពីផ្ទាំងចុងក្រោយ ដាក់ផ្ទាំងថ្មី។ Cmd-T ធ្វើតាម ទីតាំងផ្ទាំងថ្មី (Cmd-T)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 탭 뒤의 + 버튼이 새 탭을 두는 위치입니다. Cmd-T는 새 탭 위치 (Cmd-T)를 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor +-knappen etter den siste fanen plasserer den nye fanen. Cmd-T følger Plassering av ny fane (Cmd-T)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie przycisk + za ostatnią kartą umieszcza nową kartę. Cmd-T stosuje Położenie nowej karty (Cmd-T)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde o botão + depois da última aba coloca a nova aba. Cmd-T segue Posição da nova aba (Cmd-T)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Куда кнопка + после последней вкладки ставит новую вкладку. Cmd-T следует настройке «Положение новой вкладки (Cmd-T)»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่ปุ่ม + หลังแท็บสุดท้ายวางแท็บใหม่ Cmd-T ใช้ตำแหน่งแท็บใหม่ (Cmd-T)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son sekmeden sonraki + düğmesinin yeni sekmeyi koyduğu yer. Cmd-T, Yeni sekme konumu (Cmd-T) ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Куди кнопка + після останньої вкладки ставить нову вкладку. Cmd-T дотримується налаштування «Розташування нової вкладки (Cmd-T)»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi nút + sau thẻ cuối cùng đặt thẻ mới. Cmd-T theo Vị trí thẻ mới (Cmd-T)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最后一个标签页后的 + 按钮放置新标签页的位置。Cmd-T 遵循“新标签页位置 (Cmd-T)”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後一個標籤頁後的 + 按鈕放置新標籤頁的位置。Cmd-T 遵循「新標籤頁位置 (Cmd-T)」。"
           }
         }
       }

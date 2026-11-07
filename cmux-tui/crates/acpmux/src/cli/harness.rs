@@ -70,6 +70,23 @@ pub fn example(name: &str) -> Option<&'static str> {
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
+        HarnessCmd::Install { id } => {
+            let installed = crate::harness_install::install(&id, |step, state, detail| {
+                if json_out {
+                    println!("{}", json!({"step": step, "state": state, "detail": detail}));
+                } else {
+                    println!("{step}: {state} {detail}");
+                }
+            })
+            .await?;
+            // A running daemon finds the new CLI without a restart, as after `codex-runtime install`.
+            let value = with_daemon_reloaded(installed, reload_daemon().await);
+            println!(
+                "{}",
+                if json_out { value.to_string() } else { serde_json::to_string_pretty(&value)? }
+            );
+            Ok(())
+        }
         HarnessCmd::CodexRuntime { action } => {
             let value = match action {
                 // A running daemon read its harness profiles before the runtime existed: it

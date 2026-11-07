@@ -417,7 +417,7 @@ USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
   cmux cloud <action> --help
 
-These actions run through the cmux app, signed in (`cmux cloud sign-in`).
+These actions run through the cmux app, signed in (`cmux login`).
 An action on one machine needs --target machine:MACHINE_ID, even with one
 machine: `cmux cloud list-machines` prints each machine's target. Without the
 app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
@@ -426,14 +426,12 @@ directly.
 QUICK START
   Start a Cloud chat, send it a prompt and print the reply, in one command
   (it answers reply, machine_id, session_id, workspace_id and tab_id;
-  `cmux cloud start-chat --help` has every flag):
-  cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  `cmux chat --help` has every flag):
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  Then, the next prompt to that chat and its reply (SESSION_ID from the answer):
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   Machines:
   cmux cloud list-machines --json
@@ -449,7 +447,7 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
   cmux cloud <アクション> --help
 
-これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
+これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
 （CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
@@ -457,14 +455,12 @@ const INTRO_JA: &str = "\
 クイックスタート
   Cloud チャットを開始し、プロンプトを送り、返信を表示する（1 コマンド。
   reply、machine_id、session_id、workspace_id、tab_id を返す。
-  全フラグは `cmux cloud start-chat --help`）:
-  cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-  cmux cloud start-chat --name dev --prompt 'Run the tests' --json
+  全フラグは `cmux chat --help`）:
+  cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
+  cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  続けて同じチャットに次のプロンプトを送り、返信を表示する（SESSION_ID は返答から）:
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   マシン:
   cmux cloud list-machines --json
@@ -525,6 +521,8 @@ usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
+This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
+older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
@@ -537,16 +535,14 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait.
+plus reply with --wait, and new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
-FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+FOLLOW-UPS (SESSION_ID from the answer)
+  cmux chat send SESSION_ID 'next prompt' --wait
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
@@ -566,9 +562,9 @@ fn find(name: &str) -> Option<&'static Verb> {
 fn usage_line(verb: &Verb) -> String {
     let flags = verb.usage.replace("{target}", TARGET);
     if flags.is_empty() {
-        format!("cmux cloud {}", verb.name)
+        format!("cmux vm {}", verb.name)
     } else {
-        format!("cmux cloud {} {flags}", verb.name)
+        format!("cmux vm {} {flags}", verb.name)
     }
 }
 
@@ -595,7 +591,8 @@ pub(super) fn overview(japanese: bool) -> String {
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
-    text
+    // `cmux cloud` is now `cmux vm` (vm.rs `cloud_alias`); the texts keep one spelling.
+    text.replace("cmux cloud ", "cmux vm ").replace("cmux cloud`", "cmux vm`")
 }
 
 /// `cmux cloud <verb> --help`: that verb's usage and what it does. `None` for
@@ -612,9 +609,9 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     let usage = usage_line(verb);
     let note = renamed(name).map_or_else(String::new, |new| {
         if japanese {
-            format!("`cmux cloud {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
+            format!("`cmux vm {name}` は `{new}` の旧名です（`{new} --help`）。\n\n")
         } else {
-            format!("`cmux cloud {name}` is the old name of `{new}` (`{new} --help`).\n\n")
+            format!("`cmux vm {name}` is the old name of `{new}` (`{new} --help`).\n\n")
         }
     });
     Some(

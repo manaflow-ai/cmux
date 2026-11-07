@@ -211,7 +211,9 @@ it have no tabbar, ensure cmd shift p actions for it too".
 - A workspace, tab, agent link or subagent pill clicked in the Chief while Home fills the window arms the dock
   (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefDock`): the show that follows docks Home first, so Home's content
   controller and view stay mounted (same instance: draft, selection, scroll kept) and the target goes on the stage.
-  The arm lapses after 10 s, so a later sidebar pick never docks Home. `home.chiefDock.openBeside` (on) turns it off.
+  The arm lapses after 10 s, so a later sidebar pick never docks Home. Only with `home.chiefDock.openBeside` on (off by default, cmux#37365: the Chief is never pinned unless the
+  person docks it). A dock a link made is marked `by_link` in the record; on relaunch, a Home dock marked so, or
+  saved by a build before the mark, is dropped unless `openBeside` is on (`WindowController.dropUnchosenChiefDocks`).
 - A stage switch never touches a dock: the docked view is not hidden, moved or re-mapped (W8 extended to switches).
 - Per dock, the Home Chief pane's no-tab-bar mode: a pane of the dock showing one tab draws no tab bar; a second tab
   dragged in brings it back (`WindowDocks.Dock.hidesTabBar`, read in `PaneController.structure`).

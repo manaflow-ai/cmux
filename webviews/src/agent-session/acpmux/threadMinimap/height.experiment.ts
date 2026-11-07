@@ -9,7 +9,10 @@ import { DEFAULT_RAIL_HEIGHT, RAIL_HEIGHTS, type RailHeightArm, type RailHeightC
 /// size." and "the height of the left scroll rail should never be affected by anything". The `fixed-*`
 /// arms are one height for every chat, whatever its prompt count or the pane's height; `fixed-240`
 /// shipped. Leo, 2026-11-05: "this can maybe be proportionally like double of what it is rn";
-/// `fixed-480` now ships with twice the height and tick pitch. Dogfood switches from `cmux.experiments` with this experiment id.
+/// `fixed-480` shipped with twice the height and tick pitch, which spread a short chat's ticks 20 px
+/// apart. Leo, 2026-11-05: "the rail, ok keep it at this max size, but don't reduce the density. y'all
+/// reduced the density": the `fit-*` arms draw the ticks at the 10 px pitch in a rail as tall as they
+/// are, up to their maximum, and `fit-480` ships (top anchored, so the rail only grows down). Dogfood switches from `cmux.experiments` with this experiment id.
 export const threadMinimapHeight = defineExperiment({
   id: "thread-minimap-height",
   title: "Thread minimap height",
@@ -30,6 +33,24 @@ export const threadMinimapHeight = defineExperiment({
     "fixed-480": {
       label: "Fixed 480px / 20px pitch",
       description: "Twice the original height and tick spacing, with the same resting tick lengths and tones.",
+    },
+    "fit-480": {
+      label: "Fits its ticks, up to 480px (top)",
+      description:
+        "Ticks at the 10px pitch; a short chat has a short rail at the top of the 480px slot, so it only grows down.",
+    },
+    "fit-480-center": {
+      label: "Fits its ticks, up to 480px (centered)",
+      description: "As fit-480, centered in its slot: it moves up half a row with each prompt until it fills the slot.",
+    },
+    "fit-480-bottom": {
+      label: "Fits its ticks, up to 480px (bottom)",
+      description:
+        "As fit-480, at the foot of its slot: its top moves up a row with each prompt until it fills the slot.",
+    },
+    "fit-240": {
+      label: "Fits its ticks, up to 240px (top)",
+      description: "As fit-480 with the earlier 240px maximum.",
     },
     "fixed-280": {
       label: "Fixed 280px",

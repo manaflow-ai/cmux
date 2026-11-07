@@ -90,7 +90,7 @@ public extension WindowDockFrame {
               !frameDocks.isDocked(leave.home), !frameDocks.isDocked(target) else { return }
         let keep = frameDocks.dock(at: leave.edge)
         frameDocks.dock(leave.home, at: leave.edge, mode: keep?.mode ?? .docked,
-                        extentPermille: keep?.extentPermille ?? WindowDocks.defaultExtentPermille)
+                        extentPermille: keep?.extentPermille ?? WindowDocks.defaultExtentPermille, byLink: true)
         frameStageWorkspaceID = target
     }
 
@@ -100,6 +100,7 @@ public extension WindowDockFrame {
     func openChiefDock(_ home: String, edge: DockEdge) {
         if frameDocks.isDocked(home) {
             _ = frameDocks.reveal(home)
+            frameDocks.choose(home) // Cmd-I on a Home a link docked: now the person's choice (cmux#37365).
         } else {
             dockWorkspace(home, at: edge)
         }
