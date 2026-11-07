@@ -2,6 +2,7 @@
 import CmuxHomeCore
 import CmuxNextChiefPetWiring
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 import Foundation
 

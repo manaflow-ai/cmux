@@ -12,7 +12,7 @@
 //   and the new fading in, never a positional jump.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs, foldMotion } from "../conversation/fold";
 
@@ -73,7 +73,7 @@ export function playTrayExit(card: HTMLElement): void {
   ghost.removeAttribute(TRAY_ENTER_ATTR);
   // Only the copy's own exit runs: a line still rising in, or words still ticking, hold where they are
   // drawn (the stylesheet stops every animation inside the copy). A handful at most: what animates.
-  const moving = "[data-enter], .acpmux-tick__in, .acpmux-tick__out";
+  const moving = "[data-enter], .acpmux-tick__in, .acpmux-tick__out, .acpmux-tick__roll-in, .acpmux-tick__roll-out";
   const view = card.ownerDocument.defaultView;
   const live = card.querySelectorAll<HTMLElement>(moving);
   const copies = ghost.querySelectorAll<HTMLElement>(moving);
@@ -250,48 +250,107 @@ export function useTrayMotion(
 /// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
 /// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
 ///
-/// `steadyCounts`: a change in its numbers alone ("9 subagents" to "10 subagents") swaps in place,
-/// with no fade, so the running tray's header never flickers as each subagent or command joins (Leo,
-/// 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command"). Its
-/// words changing still tick.
+/// `steadyCounts`: a change in its numbers alone ("9 subagents" to "10 subagents") keeps the words in
+/// place, so the running tray's header never flickers as each subagent or command joins (Leo,
+/// 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command"): only the
+/// numbers that changed roll, the old one up and out as the new one rises in its place (Leo,
+/// 2026-11-07, on a new command or subagent joining the hat: "I think it could look really pretty").
+/// Its words changing still tick.
+///
+/// `slide`: a change of words moves like a status line handing over (Leo, 2026-11-07, on the hat's
+/// line turning from thinking to a tool call to another: "That animation, I like that"): the old words
+/// slide up and out as the new slide up from below, on one baseline, and the cell's width eases from
+/// the old words' to the new ones' on the same clock, so what follows them glides instead of jumping.
+/// Without it a change fades in place.
 export function Tick({
   text,
   className,
   steadyCounts = false,
+  slide = false,
 }: {
   text: string;
   className?: string;
   steadyCounts?: boolean;
+  slide?: boolean;
 }): ReactNode {
   // `previous` is the leaving words, `entering` whether the new ones still rise; each part settles
   // on its own animation's end (or cancel), so the shorter exit never cuts the entrance short.
-  type TickState = { text: string; previous?: string; entering: boolean; turn: number };
-  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0 });
+  // `rolled` is the text whose numbers are rolling out, for a numbers-only change.
+  // `turn` counts every change; `slid` only those of the words, which key the sliding spans: a count
+  // that rolls mid-slide keeps them, so the slide plays on instead of starting over.
+  type TickState = {
+    text: string;
+    previous?: string;
+    rolled?: string;
+    entering: boolean;
+    turn: number;
+    slid: number;
+  };
+  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0, slid: 0 });
   const cell = useRef<HTMLSpanElement>(null);
+  // The words' drawn width before this change: the cell's width eases from it (`slide`).
+  const widthFrom = useRef<number | undefined>(undefined);
   let shown = state;
   if (state.text !== text && steadyCounts && sameWords(state.text, text)) {
-    // Only the numbers moved: the cell keeps its parts (an entrance still playing plays on).
-    shown = { ...state, text };
+    // Only the numbers moved: the words keep their place (an entrance still playing plays on), and
+    // the numbers that changed roll.
+    const moves = cell.current ? motionAllowed(cell.current) : false;
+    shown = { ...state, text, rolled: moves ? state.text : undefined, turn: state.turn + 1 };
     setState(shown);
   } else if (state.text !== text) {
     const moves = cell.current ? motionAllowed(cell.current) : false;
-    shown = { text, previous: moves ? state.text : undefined, entering: moves, turn: state.turn + 1 };
+    if (moves && slide) widthFrom.current = cell.current?.getBoundingClientRect().width;
+    shown = {
+      text,
+      previous: moves ? state.text : undefined,
+      entering: moves,
+      turn: state.turn + 1,
+      slid: state.slid + 1,
+    };
     setState(shown);
   }
   const turn = shown.turn;
-  const settled = (part: "previous" | "entering") => () =>
+  const slid = shown.slid;
+  // The cell's width eases from the old words' to the new ones' while they slide. One animation per
+  // change on the cell alone (a short row), on the slide's own clock; it ends with the slide, a newer
+  // change replaces it, and the motion gate's 0 ms token or Reduce Motion skip it.
+  useLayoutEffect(() => {
+    const from = widthFrom.current;
+    widthFrom.current = undefined;
+    const node = cell.current;
+    if (from === undefined || !node || !slide || typeof node.animate !== "function") return undefined;
+    // The new words' own width, not their span's: both spans fill one grid cell, which the leaving
+    // words still hold wide, so a long-to-short change would read the old width. A range over the
+    // text measures the words alone; the cell's padding (none today) would add to it.
+    const incoming = node.querySelector<HTMLElement>(":scope > .acpmux-tick__in");
+    if (!incoming) return undefined;
+    const range = node.ownerDocument.createRange();
+    range.selectNodeContents(incoming);
+    const text = range.getBoundingClientRect?.().width;
+    const to = text ? Math.ceil(text) : incoming.scrollWidth;
+    if (Math.abs(to - from) < 1) return undefined;
+    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 180;
+    if (duration <= 0) return undefined;
+    const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
+    const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });
+    return () => width.cancel();
+  }, [turn, slide]);
+  const settled = (part: "previous" | "entering" | "rolled") => () =>
     setState((current) =>
-      current.turn !== turn
+      (part === "rolled" ? current.turn !== turn : current.slid !== slid)
         ? current
         : part === "previous"
           ? { ...current, previous: undefined }
-          : { ...current, entering: false },
+          : part === "rolled"
+            ? { ...current, rolled: undefined }
+            : { ...current, entering: false },
     );
   return (
-    <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"}>
+    <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"} data-slide={slide || undefined}>
       {shown.previous !== undefined && (
         <span
-          key={`out-${turn}`}
+          key={`out-${slid}`}
           className="acpmux-tick__out"
           aria-hidden="true"
           ref={onAnimationDone(settled("previous"))}
@@ -300,14 +359,38 @@ export function Tick({
         </span>
       )}
       <span
-        key={`in-${turn}`}
+        key={`in-${slid}`}
         className={shown.entering ? "acpmux-tick__in" : undefined}
         ref={shown.entering ? onAnimationDone(settled("entering")) : undefined}
       >
-        {shown.text}
+        {shown.rolled !== undefined ? rolling(shown.rolled, shown.text, settled("rolled")) : shown.text}
       </span>
     </span>
   );
+}
+
+/// `text` with each number that differs from the same number in `from` rolling: the old one leaves up
+/// as the new one rises, in one cell sized by tabular figures. The words between never move. `done`
+/// runs on the first roll's end (they share one clock).
+function rolling(from: string, text: string, done: () => void): ReactNode {
+  const before = from.split(/(\d+)/);
+  let first = true;
+  return text.split(/(\d+)/).map((part, index) => {
+    const old = before[index];
+    if (index % 2 === 0 || old === undefined || old === part) return part;
+    const ref = first ? onAnimationDone(done) : undefined;
+    first = false;
+    return (
+      <span key={index} className="acpmux-tick__roll">
+        <span className="acpmux-tick__roll-out" aria-hidden="true">
+          {old}
+        </span>
+        <span className="acpmux-tick__roll-in" ref={ref}>
+          {part}
+        </span>
+      </span>
+    );
+  });
 }
 
 /// A ref that calls `done` when the node's own animation ends or is cancelled (React has no
