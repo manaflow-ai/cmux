@@ -8,7 +8,11 @@
 //!
 //! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
 //!   starts it (a chat tab in the app, in this machine's acpmux);
-//! - `--on cloud`: cmux Cloud, today a new Cloud VM;
+//! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
+//!   none (`my_vm`);
+//! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
+//!   kind of namespace will be a bit reserved"). Today that is `--on vm`'s VM; the answer's
+//!   `placement` (`vm:ID`) names what it chose, so nothing depends on `cloud` meaning a VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
 //!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
@@ -19,7 +23,7 @@
 //!   device list of its own.
 //!
 //! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
-//! what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
+//! what to run next. `cloud`, `here`, `vm` and `vm:…` are selectors, never device names: a device called
 //! "cloud" is reached by its id.
 
 use std::time::Duration;
@@ -54,7 +58,8 @@ usage: cmux chat [--on TARGET] [--agent AGENT] [--model MODEL] [--cwd DIR]
 Starts an agent chat, right here unless --on names another target:
 
   --on here          This machine, as a tab in the cmux app (the default)
-  --on cloud         cmux Cloud (a new Cloud VM)
+  --on cloud         cmux Cloud runs it; where may change (the answer's placement says)
+  --on vm            Your Cloud VM, or a new one when you have none
   --on vm:new        A new Cloud VM
   --on vm:ID|NAME    Your Cloud VM with that id or name (`cmux vm list-machines`)
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
@@ -77,7 +82,8 @@ EXAMPLES
 
 Messages to a chat: cmux chat send|read|wait|list (`cmux chat send --help`).
 A refused target exits 1 and says what to run next (chat_target.unknown_device,
-ambiguous_device, unknown_vm, not_permitted, unavailable, signed_out, no_route).
+ambiguous_device, unknown_vm, which_vm, vm_starting, not_permitted, unavailable,
+signed_out, no_route).
 Exit codes: 0 ok, 1 refused, 2 bad arguments.
 ";
 
@@ -194,7 +200,7 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
                 let on = value()?.trim().to_owned();
                 if on.is_empty() {
                     return Err(UsageError::new(
-                        "--on needs a target: here, cloud, vm:new, vm:ID|NAME or a device",
+                        "--on needs a target: here, cloud, vm, vm:new, vm:ID|NAME or a device",
                     ));
                 }
                 start.on = Some(on);
@@ -254,11 +260,13 @@ where
     if on == "here" {
         return Ok(Route::Here);
     }
-    if on == "cloud" {
-        return match cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)()) {
-            Ok(_) => Ok(Route::Cloud(Machine::New)),
-            Err(refusal) => Err(refused(&refusal)),
-        };
+    // `cloud` is cmux Cloud's choice of place; today it is `vm`'s (module docs).
+    if on == "cloud" || on == "vm" {
+        if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
+        {
+            return Err(refused(&refusal));
+        }
+        return my_vm(&(reads.cloud_machines)()?).map(Route::Cloud);
     }
     if let Some(vm) = on.strip_prefix("vm:") {
         if vm == "new" {
@@ -269,6 +277,10 @@ where
         // Signed out, the app lists no VMs: say to sign in, not that the VM is unknown.
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
             return Err(refused(&ChatTargetRefusal::SignedOut));
+        }
+        // Not loaded yet, the app lists no VMs: say to retry, not that the VM is unknown.
+        if let Some(error) = not_loaded(&listed) {
+            return Err(error);
         }
         return existing_vm(vm, Some(vm), &listed).map(Route::Cloud).map_err(|found| {
             refusal(
@@ -290,16 +302,21 @@ where
         Ok(ChatTarget::Device { local: true, .. }) => Ok(Route::Here),
         Ok(ChatTarget::Device { id, local: false }) => match (origin, record) {
             ("cloud", Some(machine)) => {
-                existing_vm(&id, text(machine, "name"), &(reads.cloud_machines)()?)
-                    .map(Route::Cloud)
-                    .map_err(|found| {
+                let listed = (reads.cloud_machines)()?;
+                // Not loaded yet, the app lists no VMs: say to retry, as `vm` and `vm:NAME` do.
+                if let Some(error) = not_loaded(&listed) {
+                    return Err(error);
+                }
+                existing_vm(&id, text(machine, "name"), &listed).map(Route::Cloud).map_err(
+                    |found| {
                         refusal(
                             "chat_target.unavailable",
                             format!("device {id} is a Cloud VM the app does not list as one VM"),
                             LIST_VMS,
                             json!({"device": id, "matches": found}),
                         )
-                    })
+                    },
+                )
             }
             _ => Err(refusal(
                 "chat_target.no_route",
@@ -311,6 +328,80 @@ where
             )),
         },
     }
+}
+
+/// A retryable refusal when the app has not loaded its VM list yet (`loaded: false`).
+fn not_loaded(listed: &Value) -> Option<Value> {
+    (listed.get("loaded") == Some(&Value::Bool(false))).then(|| {
+        retryable(refusal(
+            "chat_target.unavailable",
+            "the cmux app has not loaded your Cloud VMs yet".to_owned(),
+            "run this command again in a moment",
+            json!({}),
+        ))
+    })
+}
+
+/// `error`, marked retryable.
+fn retryable(mut error: Value) -> Value {
+    if let Some(map) = error.as_object_mut() {
+        map.insert("retryable".to_owned(), json!(true));
+    }
+    error
+}
+
+/// The VM statuses `--on vm` does not reuse: a VM that is failing or going away.
+const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
+
+/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07; and `--on cloud` today): the one VM
+/// of yours the app lists, a new one when you have none, or the one running VM of several. Several VMs and not
+/// one running is refused with their names, never guessed; a paused VM resumes when the chat
+/// starts on it (the app's `start-chat --target`).
+fn my_vm(listed: &Value) -> Result<Machine, Value> {
+    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
+        return Err(refused(&ChatTargetRefusal::SignedOut));
+    }
+    if let Some(error) = not_loaded(listed) {
+        return Err(error);
+    }
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    let usable: Vec<&Value> = rows
+        .iter()
+        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .collect();
+    let running: Vec<&Value> =
+        usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
+    // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
+    let making = listed
+        .get("creating")
+        .and_then(Value::as_array)
+        .is_some_and(|rows| rows.iter().any(|row| text(row, "status") != Some("failed")));
+    let id = match (usable.as_slice(), running.as_slice()) {
+        ([], _) if making => {
+            return Err(retryable(refusal(
+                "chat_target.vm_starting",
+                "your Cloud VM is still being made".to_owned(),
+                "run this command again once `cmux vm list-machines` lists it",
+                json!({}),
+            )));
+        }
+        ([], _) => return Ok(Machine::New),
+        ([only], _) | (_, [only]) => text(only, "machine_id"),
+        _ => None,
+    };
+    if let Some(id) = id {
+        return Ok(Machine::Target(id.to_owned()));
+    }
+    let names: Vec<&str> = usable
+        .iter()
+        .map(|row| text(row, "title").or(text(row, "machine_id")).unwrap_or(""))
+        .collect();
+    Err(refusal(
+        "chat_target.which_vm",
+        format!("you have {} Cloud VMs: {}", usable.len(), names.join(", ")),
+        "name one with --on vm:NAME (`cmux vm list-machines`), or use --on vm:new",
+        json!({"names": names}),
+    ))
 }
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its

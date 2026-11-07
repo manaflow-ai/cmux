@@ -170,11 +170,22 @@ fn only_an_https_cmux_link_is_an_upgrade_url() {
         url("https://www.cmux.com/pricing").as_deref(),
         Some("https://www.cmux.com/pricing")
     );
+    assert_eq!(
+        url("https://CMUX.com:443/pricing").as_deref(),
+        Some("https://CMUX.com:443/pricing")
+    );
     for other in [
         "http://cmux.com/pricing",
         "https://cmux.com.evil.invalid/",
         "https://evilcmux.com/",
         "https://evil.invalid/?cmux.com",
+        "https://evil.invalid\\@cmux.com/pricing",
+        "https://evil.invalid\\.cmux.com/pricing",
+        "https://user@cmux.com/pricing",
+        "https://evil.invalid@cmux.com/pricing",
+        "https://cmux.com:/pricing",
+        "https://cmux.com:443x/pricing",
+        "https://cmux.com%2eevil.invalid/",
     ] {
         assert_eq!(url(other), None, "{other}");
     }

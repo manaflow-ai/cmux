@@ -5,6 +5,9 @@ use serde_json::{Map, Value, json};
 
 use super::{Failure, Request, optional_int, text};
 
+/// How long a preview call (refresh, create or revoke a link) may take.
+pub(crate) const PREVIEW_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub(crate) async fn run(
     request: &Request,
     call: &str,
@@ -20,30 +23,36 @@ pub(crate) async fn run(
     )
     .map_err(|e| Failure::Transport(e.to_string()))?;
     let machine = text(args, "machine")?;
-    let answer = match call {
-        "previews.refresh" => {
-            client.cloud_previews_refresh(machine).await.map(|r| json!(r.into_inner()))
-        }
-        "previews.create_link" => {
-            let port = port(args)?;
-            let body = cmux_cloud_client::types::CloudPreviewsCreateLinkBody {
-                expires_at: positive(args, "expiresAt"),
-                max_uses: positive(args, "maxUses"),
-            };
-            client
-                .cloud_previews_create_link(machine, &port, &body)
-                .await
-                .map(|r| json!(r.into_inner()))
-        }
-        "previews.revoke_link" => {
-            let port = port(args)?;
-            let link = text(args, "linkId")?;
-            client
+    if !matches!(call, "previews.refresh" | "previews.create_link" | "previews.revoke_link") {
+        return Err(Failure::Transport(format!("no cloud api call {call:?}")));
+    }
+    let port = if call == "previews.refresh" { String::new() } else { port(args)? };
+    let link = if call == "previews.revoke_link" { text(args, "linkId")? } else { "" };
+    let path = format!("/v1/cloud/machines/{machine}/previews");
+    let sent = async {
+        match call {
+            "previews.refresh" => {
+                client.cloud_previews_refresh(machine).await.map(|r| json!(r.into_inner()))
+            }
+            "previews.create_link" => {
+                let body = cmux_cloud_client::types::CloudPreviewsCreateLinkBody {
+                    expires_at: positive(args, "expiresAt"),
+                    max_uses: positive(args, "maxUses"),
+                };
+                client
+                    .cloud_previews_create_link(machine, &port, &body)
+                    .await
+                    .map(|r| json!(r.into_inner()))
+            }
+            _ => client
                 .cloud_previews_revoke_link(machine, &port, link)
                 .await
-                .map(|r| json!(r.into_inner()))
+                .map(|r| json!(r.into_inner())),
         }
-        other => return Err(Failure::Transport(format!("no cloud api call {other:?}"))),
+    };
+    // Each preview call has its own deadline, not the generated client's longer default.
+    let Ok(answer) = tokio::time::timeout(PREVIEW_TIMEOUT, sent).await else {
+        return Err(Failure::TimedOut(path));
     };
     match answer {
         Ok(body) => Ok(body),
@@ -53,7 +62,12 @@ pub(crate) async fn run(
             Err(Failure::NoBackend)
         }
         Err(error) => {
-            let error = cmux_cloud_client::ApiError::from_api(error).await;
+            let Ok(error) =
+                tokio::time::timeout(PREVIEW_TIMEOUT, cmux_cloud_client::ApiError::from_api(error))
+                    .await
+            else {
+                return Err(Failure::TimedOut(path));
+            };
             Err(match error.status {
                 Some(status) => Failure::http(status, error.code, Some(error.message)),
                 None => Failure::Transport(error.message),
