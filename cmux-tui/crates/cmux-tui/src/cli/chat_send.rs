@@ -106,19 +106,56 @@ fn words_of(command: &[String]) -> Option<&[String]> {
     if scope != "chat" {
         return None;
     }
-    let names_a_chief = |words: &[String]| {
-        words.iter().any(|word| word == "--to" || word.starts_with("--to=") || word == "--text")
-    };
     match rest.split_first() {
         Some((verb, after)) if verb == "send" => {
-            let session = after.iter().any(|word| !word.starts_with('-'));
-            (session && !names_a_chief(after)).then_some(after)
+            let (flags, positional) = scan(after);
+            let names_a_chief = flags.iter().any(|flag| ["--to", "--text"].contains(flag));
+            (positional && !names_a_chief).then_some(after)
         }
-        _ => rest
-            .iter()
-            .any(|word| word == "--resume" || word.starts_with("--resume="))
-            .then_some(rest),
+        _ => scan(rest).0.contains(&"--resume").then_some(rest),
     }
+}
+
+/// The flags `words` give in flag position (a flag's value, and anything after `--`, is text:
+/// `cmux chat --prompt --resume` is a start), each without its `=value`; and whether a word
+/// stands alone before `--` (a session id).
+fn scan(words: &[String]) -> (Vec<&str>, bool) {
+    // This file's, chat_start.rs's and chief/chat_scope.rs's flags that take a value.
+    const VALUED: &[&str] = &[
+        "--on",
+        "--timeout",
+        "--prompt",
+        "-p",
+        "--resume",
+        "--agent",
+        "--harness",
+        "--model",
+        "--cwd",
+        "--name",
+        "--to",
+        "--text",
+        "--from",
+        "--class",
+    ];
+    let mut flags = Vec::new();
+    let mut positional = false;
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            break;
+        }
+        if !word.starts_with('-') || word == "-" {
+            positional = true;
+            continue;
+        }
+        let (flag, inline) =
+            word.split_once('=').map_or((word.as_str(), false), |(f, _)| (f, true));
+        if VALUED.contains(&flag) && !inline {
+            words.next();
+        }
+        flags.push(flag);
+    }
+    (flags, positional)
 }
 
 pub(super) fn parse(words: &[String], send_verb: bool) -> Result<Parsed, UsageError> {
