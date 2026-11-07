@@ -175,7 +175,10 @@ public final class PairInviteCardProvider: WebCard {
             return .null
         case Self.copyOp:
             try Self.requireGesture(context)
-            guard let invite else { throw PageError.invalidParams("no invite shows") }
+            // Only an unused invite that still runs shows its code; an ended one copies nothing.
+            guard let invite, socket != nil, arrivedCode == nil, invite.expiresAt > Date() else {
+                throw PageError.invalidParams("no invite shows")
+            }
             switch params["target"]?.stringValue {
             case "code": copyText(invite.displayCode)
             case "line": copyText(invite.line)
@@ -223,6 +226,8 @@ public final class PairInviteCardProvider: WebCard {
         let id = nextListener
         nextListener += 1
         listeners[id] = onEvent
+        // A page that subscribed after a change still reads the state it would have missed.
+        onEvent(.object([:]))
         let approver = approver
         // task-owner: lives as long as the page's subscription; event-driven (Observation).
         let task = Task { [weak self] in
