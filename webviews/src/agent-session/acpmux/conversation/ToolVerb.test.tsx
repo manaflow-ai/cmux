@@ -165,6 +165,20 @@ test("Find skips a command row's verb and the space after it, and counts the com
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
+// A lone call draws as a ToolRow. A named action is no command line, even one whose words hold the
+// command ("Checked git status"): Find skips it as it does on a command row, and counts the line a
+// command the table does not know draws.
+test("Find skips a lone command's named action, whatever its words hold, and counts an unnamed line", async () => {
+  const named = await render(<ColumnRows row={turn([call("git status", "execute", { command: "git status" })])} />);
+  const label = named.querySelector(".cv-tool__text")!;
+  expect(label.textContent).toBe("Checked git status");
+  expect(findText(label)).toBe("");
+  await act(async () => root!.unmount());
+  root = undefined;
+  const line = await render(<ColumnRows row={turn([call("make lint", "execute", { command: "make lint" })])} />);
+  expect(findText(line.querySelector(".cv-tool__text")!)).toContain("make lint");
+});
+
 test("a group's line reads as words: its count is never pushed out to the verb column", async () => {
   // Leo, 2026-10-29: "Why is there space between ran and two?"
   const container = await render(

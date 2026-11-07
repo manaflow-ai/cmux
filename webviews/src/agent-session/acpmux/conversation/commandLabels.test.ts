@@ -79,6 +79,9 @@ const CASES: [command: string, label: string][] = [
   ["ls -la webviews/src", "Listed webviews/src"],
   ["ls", "Listed files"],
   [`find . -name '*.gallery.ts' | wc -l`, "Listed files"],
+  // With no root, find lists from where it runs: a predicate is never the folder it lists.
+  [`find -name '*.ts'`, "Listed files"],
+  ["find -L src -type f", "Listed src"],
   ["fd -e ts toolPaths src", "Listed src"],
   ["cat skills/cmux-localization/SKILL.md", "Read SKILL.md"],
   ["sed -n '380,460p' webviews/src/agent-session/acpmux/conversation/toolGroups.ts", "Read toolGroups.ts"],
@@ -134,6 +137,14 @@ test("a running command reads as its cleaned line until it finishes", () => {
 });
 
 const commands = (...lines: string[]) => lines.map((line) => shell(line));
+
+// Its launch completed, but it still runs in the background: it has done nothing yet either.
+test("a command running in the background reads as its line, alone or in a group", () => {
+  expect(label(shell("git status", { background: { state: "running" } }))).toBe("Ran git status");
+  const group = commands("git status", "git status");
+  group[1]!.tool!.background = { state: "running" };
+  expect(toolGroupLabel(t, "commands", group)).not.toBe("Checked git status twice");
+});
 
 test("a group of the same search says how many times", () => {
   const leo = commands(
