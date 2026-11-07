@@ -311,7 +311,6 @@
         "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHistoryDaemon",
-        "CmuxNextHistoryPages",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHostPressure",
@@ -443,7 +442,6 @@
         "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHistoryDaemon",
-        "CmuxNextHistoryPages",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHostedChief",
@@ -1284,19 +1282,6 @@
       ],
       "packages": []
     },
-    "CmuxNextHistoryPages": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryPages",
-      "targets": [
-        "CmuxNextBrowserAutomation",
-        "CmuxNextDaemonService",
-        "CmuxNextDesign",
-        "CmuxNextPages",
-        "CmuxNextSettings",
-        "CmuxNextStash"
-      ],
-      "packages": []
-    },
     "CmuxNextHome": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
@@ -2019,7 +2004,8 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
-        "CmuxNextDaemonService"
+        "CmuxNextDaemonService",
+        "CmuxNextHistory"
       ],
       "packages": []
     },
