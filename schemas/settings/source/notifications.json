@@ -88,7 +88,8 @@
             "step": 5,
             "unit": "seconds"
           },
-          "default": 30
+          "default": 30,
+          "keywords": []
         },
         {
           "key": "notifications.sources.agent.dismissal",
@@ -147,6 +148,7 @@
             "key": "settings.default.sameAsAbove",
             "text": "Same as above"
           },
+          "keywords": [],
           "swift_enum": {
             "name": "NotificationDismissal",
             "generated": false
@@ -209,6 +211,7 @@
             "key": "settings.default.sameAsAbove",
             "text": "Same as above"
           },
+          "keywords": [],
           "swift_enum": {
             "name": "NotificationDismissal",
             "generated": false
@@ -271,6 +274,7 @@
             "key": "settings.default.sameAsAbove",
             "text": "Same as above"
           },
+          "keywords": [],
           "swift_enum": {
             "name": "NotificationDismissal",
             "generated": false
@@ -324,6 +328,7 @@
             }
           ],
           "default": "unlessFocused",
+          "keywords": [],
           "swift_enum": {
             "name": "DesktopNotificationMode",
             "generated": false
@@ -336,7 +341,8 @@
             "text": "Sound"
           },
           "kind": "sound",
-          "default": "default"
+          "default": "default",
+          "keywords": []
         },
         {
           "key": "notifications.quietHours",
@@ -380,7 +386,8 @@
             "step": 1,
             "unit": "seconds"
           },
-          "default": 0
+          "default": 0,
+          "keywords": []
         },
         {
           "key": "status.runNotifyMinimumSeconds",
@@ -405,6 +412,7 @@
             "unit": "seconds"
           },
           "default": 10,
+          "keywords": [],
           "swift_owner": {
             "type": "StatusBehaviorSettings",
             "prefixed": true
@@ -418,6 +426,7 @@
           },
           "kind": "toggle",
           "default": false,
+          "keywords": [],
           "swift_owner": {
             "type": "StatusBehaviorSettings",
             "prefixed": true
@@ -430,7 +439,8 @@
             "text": "Unread Count on Dock Icon"
           },
           "kind": "toggle",
-          "default": true
+          "default": true,
+          "keywords": []
         },
         {
           "key": "notifications.dockBounce",
@@ -729,7 +739,8 @@
           "default_label": {
             "key": "settings.choice.themeAccent",
             "text": "Theme Accent"
-          }
+          },
+          "keywords": []
         },
         {
           "key": "notifications.attention.terminals",
@@ -838,7 +849,8 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 1
+          "default": 1,
+          "keywords": []
         },
         {
           "key": "notifications.attention.width",
@@ -853,7 +865,8 @@
             "step": 0.5,
             "unit": "points"
           },
-          "default": 2
+          "default": 2,
+          "keywords": []
         },
         {
           "key": "notifications.attention.blinkCount",
@@ -868,7 +881,8 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 2
+          "default": 2,
+          "keywords": []
         },
         {
           "key": "notifications.attention.duration",
@@ -885,7 +899,8 @@
             "step": 0.5,
             "unit": "seconds"
           },
-          "default": 3
+          "default": 3,
+          "keywords": []
         },
         {
           "key": "notifications.attention.persist",
@@ -894,7 +909,8 @@
             "text": "Keep Ring Until Read"
           },
           "kind": "toggle",
-          "default": true
+          "default": true,
+          "keywords": []
         },
         {
           "key": "notifications.attention.flash",
@@ -937,7 +953,8 @@
             "text": "Mark the Tab"
           },
           "kind": "toggle",
-          "default": true
+          "default": true,
+          "keywords": []
         },
         {
           "key": "notifications.attention.showOnSidebar",
@@ -946,7 +963,8 @@
             "text": "Mark the Sidebar Row"
           },
           "kind": "toggle",
-          "default": true
+          "default": true,
+          "keywords": []
         },
         {
           "key": "notifications.attention.moveToTop",
