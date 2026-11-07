@@ -291,10 +291,19 @@ public final class ConsentGate: Sendable {
         self.screenLocked = screenLocked
     }
 
-    /// The login session's lock as the window server reports it (as `NotificationPreviews` reads it).
+    /// Whether the screen is locked, or its lock state unknown, as the window server reports
+    /// it: a tool runs only on a screen known to be unlocked.
     @Sendable public static func screenIsLocked() -> Bool {
-        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-        return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
+        lockFlag(session: CGSessionCopyCurrentDictionary() as? [String: Any])
+    }
+
+    /// The window server sets `CGSSessionScreenIsLocked` only while locked: no key is
+    /// unlocked. No session dictionary, or a key that is not a Boolean, is unknown: locked.
+    static func lockFlag(session: [String: Any]?) -> Bool {
+        guard let session else { return true }
+        guard let value = session["CGSSessionScreenIsLocked"] else { return false }
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return true }
+        return number.boolValue
     }
 
     /// The requirement for `name`, from the driver's own inventory

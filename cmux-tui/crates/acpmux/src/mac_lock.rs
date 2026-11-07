@@ -60,15 +60,28 @@ pub fn locked() -> bool {
     lock() == Lock::Locked
 }
 
-/// Whether Computer Use waits in `lock`. Stub: only a known lock holds it.
+/// Whether Computer Use waits in `lock`: unless the screen is known to be unlocked. An unknown
+/// state (no session dictionary, a failed read) waits like a lock, since a screenshot or a click
+/// then might land on the lock screen; off a Mac there is no screen to lock.
 pub fn holds_computer_use(lock: Lock) -> bool {
-    lock == Lock::Locked
+    matches!(lock, Lock::Locked | Lock::Unknown)
 }
 
-/// `CGSSessionScreenIsLocked` in a session dictionary that was read: absent, a Boolean, or
-/// some other type. Stub: anything but `true` is unlocked.
+/// Whether Computer Use waits now ([`holds_computer_use`] of [`lock`]).
+pub fn computer_use_held() -> bool {
+    holds_computer_use(lock())
+}
+
+/// `CGSSessionScreenIsLocked` in a session dictionary that was read: absent (`None`), a
+/// Boolean (`Some(Some(b))`), or some other type (`Some(None)`). The window server sets the key
+/// only while locked, so absent is unlocked; a value of another type is unknown.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn classify(value: Option<Option<bool>>) -> Lock {
-    if value == Some(Some(true)) { Lock::Locked } else { Lock::Unlocked }
+    match value {
+        None | Some(Some(false)) => Lock::Unlocked,
+        Some(Some(true)) => Lock::Locked,
+        Some(None) => Lock::Unknown,
+    }
 }
 
 /// One held `PreventUserIdleSystemSleep` assertion, released on drop. `None` when it
@@ -154,16 +167,15 @@ mod imp {
         }
         // SAFETY: `session` is a valid CFDictionary and `key` a valid CFString; the value
         // is borrowed from the dictionary, read before the dictionary is released.
-        let locked = unsafe {
+        let value = unsafe {
             let value = CFDictionaryGetValue(session, key.0);
-            let locked = !value.is_null()
-                && CFGetTypeID(value) == CFBooleanGetTypeID()
-                && CFBooleanGetValue(value) != 0;
+            let read = (!value.is_null()).then(|| {
+                (CFGetTypeID(value) == CFBooleanGetTypeID()).then(|| CFBooleanGetValue(value) != 0)
+            });
             CFRelease(session);
-            locked
+            read
         };
-        // The key is present (true) only while locked.
-        if locked { Lock::Locked } else { Lock::Unlocked }
+        super::classify(value)
     }
 
     pub(crate) struct Hold(u32);

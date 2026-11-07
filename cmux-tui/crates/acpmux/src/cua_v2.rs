@@ -323,7 +323,7 @@ where
     C: Fn() -> F,
     F: std::future::Future<Output = Result<Helper<S>>>,
 {
-    serve_gated(input, output, connect, crate::mac_lock::locked).await
+    serve_gated(input, output, connect, crate::mac_lock::computer_use_held).await
 }
 
 /// [`serve`] with the screen lock read passed in.

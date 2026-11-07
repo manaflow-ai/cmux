@@ -86,7 +86,9 @@ Narrowing it to -34018 is a Swift change for its own PR.
 ### 3. Anything that needs the screen or a person waits, typed, and is never auto-approved
 
 - **Computer Use.** A locked screen shows only the lock screen: a screenshot sees it, and a click or a
-  keystroke lands in its password field. While the screen is locked, every Computer Use tool call
+  keystroke lands in its password field. While the screen is locked, or its lock state is unknown
+  (no session dictionary, or a lock flag that is not a Boolean: Computer Use runs only on a screen
+  known to be unlocked), every Computer Use tool call
   gets an error result `{"structuredContent": {"error": "mac_locked"}, "isError": true}` with the text
   "mac_locked: this Mac's screen is locked ...", and never reaches the helper. That holds for every
   form of a call: one sent as a notification (no `id`) is dropped, a batch that holds a call is

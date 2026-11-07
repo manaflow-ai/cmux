@@ -204,6 +204,17 @@ import Testing
         #expect(tools.executed.withLock { $0 }.isEmpty, "nothing executed")
     }
 
+    /// Review of #37239 at fda360ba: a tool runs only on a screen known to be unlocked. No
+    /// session dictionary, or a lock flag that is not a Boolean, counts as locked.
+    @Test func anUnknownLockStateCountsAsLocked() {
+        #expect(ConsentGate.lockFlag(session: nil))
+        #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": "yes"]))
+        #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": NSNumber(value: 1)]))
+        #expect(ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": true]))
+        #expect(!ConsentGate.lockFlag(session: ["CGSSessionScreenIsLocked": false]))
+        #expect(!ConsentGate.lockFlag(session: ["kCGSSessionOnConsoleKey": true]))
+    }
+
     /// Grants everything, and locks the screen as it answers.
     final class LockingAuthority: MachineConsentAuthority {
         let locked: OSAllocatedUnfairLock<Bool>

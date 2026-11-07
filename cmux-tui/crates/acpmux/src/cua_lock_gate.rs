@@ -1,7 +1,8 @@
 //! Computer Use waits while this Mac's screen is locked (design/lock-bridge.md, item 3).
 //!
 //! A locked screen shows only the lock screen: a screenshot would see it, and a click or a
-//! keystroke would land on it (its password field). So while [`crate::mac_lock::locked`], every
+//! keystroke would land on it (its password field). So while [`crate::mac_lock::computer_use_held`]
+//! (locked, or a lock state the window server did not report), every
 //! `tools/call` an agent sends to a Computer Use server is answered here with the typed
 //! [`MAC_LOCKED`](crate::mac_lock::MAC_LOCKED) result and never reaches the helper; `tools/list`
 //! and everything else pass. This holds whatever `sessions.keepAwakeWhenLocked` says: it is the
@@ -89,7 +90,7 @@ pub async fn run(args: &[String]) -> Result<()> {
         args.split_first().ok_or_else(|| anyhow!("{COMMAND}: no server command"))?;
     crate::parent_watch::exit_with_parent();
     let stdin = BufReader::new(stdin_feed());
-    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::locked).await
+    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::computer_use_held).await
 }
 
 /// This process's stdin, read on a thread of its own. Tokio's stdin reads on its blocking pool,
