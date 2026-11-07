@@ -568,7 +568,9 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             // The turns' own read (brain/reaction_wake.rs): an unreadable
             // settings file shows Manual, as the turns run.
             let user = match std::env::var_os("HOME") {
-                Some(h) => crate::agent_memory::settings::document_checked(std::path::Path::new(&h)),
+                Some(h) => {
+                    crate::agent_memory::settings::document_checked(std::path::Path::new(&h))
+                }
                 None => Ok(None),
             };
             let user = user_permission_mode_checked(user.as_ref().map(Option::as_ref));
