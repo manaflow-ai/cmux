@@ -145,7 +145,7 @@ await requireBrowserLane("send-stop-morph.browser.test.ts", async () => {
     if (!captureDir) return;
     await set(page, change);
     await page.waitForTimeout(at); // fixed-wait: a still `at` ms into the 180 ms morph; the time is the subject.
-    await page.locator(".acpmux-composer-bar").screenshot({ path: path.join(captureDir, `${name}.png`) });
+    await page.locator(".acpmux-composer-box").screenshot({ path: path.join(captureDir, `${name}.png`) });
   }
 
   const startTurn: State = { working: true };
