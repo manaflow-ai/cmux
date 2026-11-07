@@ -108,6 +108,21 @@ import Testing
         }
     }
 
+    /// Page script with no click or key behind it runs nothing: New Workspace, Add Machine and the menus
+    /// need the person's own gesture.
+    @Test func actionsWithoutAPersonsGestureAreRefused() async throws {
+        let box = Box()
+        let provider = Self.provider(box)
+        let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
+        for (op, params) in [(MachineSectionPageProvider.newWorkspaceOp, ["machine": "local"] as JSONValue),
+                             (MachineSectionPageProvider.addMachineOp, .object([:])),
+                             (MachineSectionPageProvider.menuOp, ["row": "local", "menu": "row"] as JSONValue)] {
+            await #expect(throws: PageError.self) { try await provider.call(op, params: params, context: scripted) }
+        }
+        #expect(box.ran.isEmpty)
+        #expect(box.presented.isEmpty)
+    }
+
     /// The row's native menu: New Workspace on This Machine from the registry, off while the link is down.
     @Test func aRowsMenuIsTheRegistrysNewWorkspaceRow() {
         let registry = ActionRegistry.standard()

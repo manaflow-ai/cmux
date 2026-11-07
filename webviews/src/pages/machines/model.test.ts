@@ -124,6 +124,9 @@ describe("words", () => {
     expect(healthHelp(machine("h", "ssh", { health: "failing", healthStep: "signed-in" }), strings)).toBe(
       "Last check: Signed in to cmux failed",
     );
+    // Every hyphenated step reads its camelCase key, not only signed-in (peer-back was shown raw).
+    expect(stepText("peer-back", strings)).toBe(t("addMachine.step.peerBack"));
+    expect(stepText("peer-back", strings)).not.toBe("peer-back");
     expect(stepText("some-new-step", strings)).toBe("some-new-step");
   });
 
