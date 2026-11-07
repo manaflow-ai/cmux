@@ -119,7 +119,9 @@ final class BrowserImportOfferService {
 
     /// Show Import Cookies Banner (palette, CLI, MCP): turns it on again and shows it on the person's
     /// browser tab on screen. It reads no browser data: Import on the card is still the person's click.
+    /// After cookies came over it changes nothing: the banner never asks again (Leo 2026-11-07).
     func showNow() {
+        guard !state.imported else { return }
         banner?.set(true)
         shownThisLaunch = false
         guard let entry = services?.cache.browsers.values.first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
