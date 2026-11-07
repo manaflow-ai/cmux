@@ -444,7 +444,7 @@ async fn write(
     }
     let staged = fs(client, grant, "stage", path, &[], None).await?;
     let stage = staged.get("stage").and_then(Value::as_str).ok_or(Direct::Fallback)?.to_owned();
-    let mut sent = 0;
+    let mut sent: usize = 0;
     for chunk in data.chunks(STDIN_MAX) {
         if let Err(direct) =
             fs(client, grant, "append", &stage, &[sent.to_string()], Some(chunk)).await
