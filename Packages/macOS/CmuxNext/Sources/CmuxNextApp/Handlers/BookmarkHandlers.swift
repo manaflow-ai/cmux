@@ -77,7 +77,7 @@ enum BookmarkHandlers {
         registry.bind("bookmark.manager", run: { _ in services.bookmarkPages.open() })
         registry.bind("bookmark.import", run: { invocation in
             let profile = resolver.profile(invocation)
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+            guard let path = invocation.callerNamedSource("path") else {
                 return BookmarkFiles(services: services).chooseImport(profile: profile)
             }
             BookmarkFiles(services: services).importFile(URL(filePath: (path as NSString).expandingTildeInPath), profile: profile)
@@ -85,7 +85,7 @@ enum BookmarkHandlers {
         registry.bind("bookmark.importFromBrowser", run: { invocation in
             let profile = resolver.profile(invocation)
             let window = context.activeWindow?.window
-            guard let browser = invocation["browser"]?.stringValue, !browser.isEmpty else {
+            guard let browser = invocation.callerNamedSource("browser") else {
                 return BookmarkBrowserImport(services: services).choose(profile: profile, window: window)
             }
             // CLI and agents (bookmarks are not secrets, I5): name the browser, optionally the profile.
@@ -104,7 +104,7 @@ enum BookmarkHandlers {
         })
         registry.bind("bookmark.export", run: { invocation in
             let profile = resolver.profile(invocation)
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+            guard let path = invocation.callerNamedSource("path") else {
                 return BookmarkFiles(services: services).chooseExport(profile: profile)
             }
             BookmarkFiles(services: services).exportFile(URL(filePath: (path as NSString).expandingTildeInPath), profile: profile)
