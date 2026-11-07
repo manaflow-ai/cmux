@@ -38,7 +38,7 @@ extension BrowserChromeTabSwitch {
     /// the next tab.
     func release(_ state: BrowserChromeTabState) {
         guard chrome.boundState === state else { return }
-        chrome.extensionToolbar.hidePopups()
+        chrome.extensionActions.hidePopups()
         chrome.pageInfoIfMade?.close()
         chrome.hideNotice()
         // Its cookie import offer goes (a moved tab's shows on its new chrome); one held for another tab stays.

@@ -20,7 +20,7 @@ protocol BrowserRoundedOcclusionHosting: BrowserOcclusionHosting {
 }
 
 /// Tabs that expose Chrome extension toolbar actions. `BrowserChromeView`
-/// fills its `extensionSlot` from this automatically.
+/// draws its extension actions from this automatically (`ExtensionActions`).
 public protocol BrowserExtensionActionHosting: AnyObject, Observable {
     /// Current actions, observable.
     var extensionActions: [CEFExtensionAction] { get }

@@ -59,7 +59,7 @@ public final class BrowserChromeTabState: Sendable {
     public var profileName: String? { didSet { chrome?.toolbarButtons.profileName = profileName } }
     public var onToolbarPress: ((BrowserToolbarButton) -> Void)? { didSet { chrome?.toolbarButtons.onPress = onToolbarPress } }
     /// The toolbar's other per-tab sources (shortcut hints, the tab's downloads, media, pins), set on each bind.
-    public var configureToolbar: ((BrowserToolbarButtonsView) -> Void)? {
+    public var configureToolbar: ((BrowserToolbarButtons) -> Void)? {
         didSet {
             guard let buttons = chrome?.toolbarButtons else { return }
             buttons.batchSources { configureToolbar?(buttons) }
@@ -84,8 +84,11 @@ public final class BrowserChromeTabState: Sendable {
 
     /// The notice over the tab's page, shown or waiting (diagnostics, the import offer's check).
     public var noticeText: String? { chrome?.noticeText ?? pendingNotice?.text }
-    /// The omnibar as the tab left it: its address, or the text typed and left there, with its selection.
-    var omnibar: OmnibarState?
+    /// The tab's slot in the toolbar page, which keeps the omnibar as the tab left it (its address, or
+    /// the text typed and left there, with its selection; `OmniboxView::SaveStateToTab`).
+    let slot = UUID().uuidString
+    /// The address the omnibar showed for the tab when it left (the next render compares with it).
+    var shownURL: URL?
     /// The find pill showed, with this query and match-case setting.
     var find: (query: String, matchCase: Bool)?
     var isOmnibarHidden = false
@@ -161,9 +164,9 @@ struct BrowserChromeTabSwitch {
     /// The tab that leaves: what its toolbar shows goes into its state.
     func save(into state: BrowserChromeTabState) {
         let bar = chrome.addressBar
-        if bar.field.currentEditor() != nil, let window = chrome.window { window.makeFirstResponder(nil) }
-        if bar.controller.state.hasFocus { bar.controller.send(.focusLost) }
-        state.omnibar = bar.controller.state
+        // The field stops editing (the page also ends it when its tab slot changes).
+        if let window = chrome.window, bar.holdsKeys(in: window) { window.makeFirstResponder(nil) }
+        state.shownURL = bar.reportedURL
         if let shown = chrome.shownFindBar {
             state.find = (shown.pill.query, shown.pill.matchCase)
             shown.isHidden = true
@@ -187,7 +190,7 @@ struct BrowserChromeTabSwitch {
 
     /// The tab that shows: its own toolbar state, before the page binds and renders.
     private func restore(from state: BrowserChromeTabState) {
-        chrome.addressBar.restore(state.omnibar ?? OmnibarState())
+        chrome.addressBar.showTab(state.slot, shownURL: state.shownURL)
         chrome.isOmnibarHidden = state.isOmnibarHidden
         chrome.wakingAddress = state.wakingAddress
         chrome.loads = state.loads
@@ -205,11 +208,17 @@ struct BrowserChromeTabSwitch {
     }
 }
 
-extension AddressBarView {
-    /// Puts back the resting omnibar a tab left; the reported address becomes that tab's, so the next page render
-    /// compares with the tab's own address, not the other tab's (which would clear the text it left).
-    func restore(_ resting: OmnibarState) {
-        reportedURL = resting.pageURL
-        controller.restore(resting)
+extension BrowserToolbarWebView {
+    /// Shows tab slot `slot`: the page puts back the resting omnibar that tab left. The reported
+    /// address becomes that tab's, so the next page render compares with the tab's own address.
+    func showTab(_ slot: String, shownURL: URL?) {
+        reportedURL = shownURL
+        tabSlot = slot
+    }
+
+    /// The row's page has the keys in `window`.
+    func holdsKeys(in window: NSWindow) -> Bool {
+        guard let content else { return false }
+        return window.firstResponder === content.focusView
     }
 }

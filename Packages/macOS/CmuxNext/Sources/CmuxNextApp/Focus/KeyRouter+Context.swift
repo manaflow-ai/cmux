@@ -187,7 +187,7 @@ extension KeyRouter {
     }
 
     /// The focused pane's address bar while it has the keyboard.
-    private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
+    private func focusedAddressBar(in controller: WindowController) -> BrowserToolbarWebView? {
         guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
         return entry.chrome?.addressBar

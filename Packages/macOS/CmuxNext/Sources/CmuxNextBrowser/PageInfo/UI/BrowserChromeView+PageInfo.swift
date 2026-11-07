@@ -23,6 +23,7 @@ extension BrowserChromeView {
     /// window list for as long as anything still holds this chrome.
     public func closePopupPanels() {
         pageInfoIfMade?.closePanel()
-        extensionToolbar.closeMenuPanel()
+        extensionActions.closeMenuPanel()
+        addressBar.close()
     }
 }

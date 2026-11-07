@@ -18,7 +18,7 @@ public import CmuxNextDesign
 /// - A toolbar that is only the location bar
 ///   (`ToolbarView::DisplayMode::kLocation`, `kLocationBarHeight` 34 pt),
 ///   then a 1 pt separator and the page. The location bar is the browser
-///   tab's omnibar (`OmnibarToolbarView`/`AddressBarView`, the same view,
+///   tab's omnibar (`OmnibarToolbarView`/`BrowserToolbarWebView`, the same page,
 ///   chip, URL styling, selection, suggestions and keys; user, 2026-10-19:
 ///   "omnibar for popover web windows need to reuse the same omnibar code").
 ///   A page popup's address is editable like a tab's; a system sign-in
@@ -53,7 +53,7 @@ public final class BrowserPopupWindow: NSWindow {
     /// The toolbar row: the browser tab's omnibar.
     public let locationBar: OmnibarToolbarView
     /// The omnibar of the row.
-    public var addressBar: AddressBarView { locationBar.addressBar }
+    public var addressBar: BrowserToolbarWebView { locationBar.addressBar }
     /// Connects the omnibar to the page (URL, security, page info, loads).
     public let omnibar: OmnibarTabBinding
     private var observation: Task<Void, Never>?

@@ -87,7 +87,7 @@ enum DebugOmnibar {
 
     /// `debug.omnibar_type`. Params: `text`, `commit` (default true),
     /// `pane`, `window`. Focuses the omnibar, types `text` through its field
-    /// editor and presses Return there (`AddressBarView.debugTypeAndCommit`):
+    /// editor and presses Return there (`BrowserToolbarWebView.debugTypeAndCommit`):
     /// the path typed keys take once they reach the field, without
     /// activating the app or making the window key. Reports the omnibar
     /// after, plus `typed` (false when the field did not start editing).
@@ -101,7 +101,7 @@ enum DebugOmnibar {
     }
     #endif
 
-    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
+    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> BrowserToolbarWebView? {
         entry(params, services: services)?.chrome?.addressBar
     }
 
