@@ -15,7 +15,7 @@ import Testing
 
     /// An empty Pinned over five loose rows: on the list's own sections, or (`document`) on the sidebar document with
     /// Home's block on top, as the nightly draws it.
-    static func list(document: Bool, pins: [LayoutItem] = [], extra: [LayoutSection] = []) -> (SidebarListView, NSWindow) {
+    static func list(document: Bool, pins: [LayoutItem] = [], extra: [LayoutSection] = [], refusesPins: Bool = false) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let rows = SidebarSection(kind: .machine(machine), nodes: loose.map { .workspace(SidebarWorkspace(id: $0, title: $0.rawValue)) })
         let extraSections = extra.map { SidebarSection(kind: .custom(SidebarCustomSection(id: $0.id.rawValue)), nodes: []) }
@@ -44,6 +44,7 @@ import Testing
             }, begin: { dragged in
                 Dictionary(uniqueKeysWithValues: keys.map { key in
                     (key, dragged.contains(key) ? SidebarDocAcceptance(before: false, into: false, after: false, refusal: "self")
+                        : refusesPins && key == pinned.id.rawValue ? SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area")
                         : SidebarDocAcceptance(before: true, into: true, after: true))
                 })
             }, drop: { _, _ in })
@@ -250,7 +251,31 @@ import Testing
 
     /// A group dragged up to an empty titled section above it opens that section's zone and drops there: its plan,
     /// made again with the zone open, keeps the group's own place as its origin, so the release is no cancel.
-    @Test func aGroupDropsIntoAnEmptySectionAboveIt() throws {
+    /// The document's Pinned refuses an item from outside it, as `SidebarDocRecords.keepingPinned` does (Pin is the
+    /// way in): it opens no zone that would take nothing, at the lift or at the top edge.
+    @Test func aPinnedThatRefusesOpensNoZone() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let (list, window) = Self.list(document: true, refusesPins: true)
+        defer { window.close() }
+        let before = Self.ys(list, except: [Self.dragged])
+        let (drag, start) = try Self.lift(list)
+        #expect(!drag.zones.contains { $0.id == SidebarDocStore.pinnedSection }, "a zone for a Pinned that refuses the drag")
+        var y = start.y
+        while y > 2 {
+            y = max(2, y - 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        #expect(drag.openZone == nil, "the top edge opened \(drag.openZone ?? "")")
+        #expect(!Self.zoneShows(list), "the refused Pinned zone shows")
+        list.cancelDrag()
+        list.layoutSubtreeIfNeeded()
+        for (key, y) in Self.ys(list, except: []) where before[key].map({ abs($0 - y) > 0.5 }) == true {
+            Issue.record("\(key) at y \(y) after the drag, was \(before[key] ?? 0)")
+        }
+    }
+
+    @Test(arguments: [false, true]) func aGroupDropsIntoAnEmptySectionAboveIt(collapsed: Bool) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         _ = NSApplication.shared
@@ -267,8 +292,9 @@ import Testing
         let list = SidebarListView(model: model)
         var metrics = SidebarRegionMetrics.standard
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
-        list.blocks = SidebarListBlocks(sections: [later.id.rawValue: later], infos: [:], collapsed: [], look: .quiet, metrics: metrics,
-                                        drawsLines: false, appHeights: [:])
+        if collapsed { model.collapsedLayoutSections = [later.id] }
+        list.blocks = SidebarListBlocks(sections: [later.id.rawValue: later], infos: [:], collapsed: model.collapsedLayoutSections, look: .quiet,
+                                        metrics: metrics, drawsLines: false, appHeights: [:])
         var drops: [([String], SidebarDocTarget)] = []
         let keys = ["sec_later", "sec_m_local", "itm_a", "itm_b", "itm_g1", "itm_g"]
         model.docDrag = SidebarDocDrag(item: { key in
@@ -311,7 +337,7 @@ import Testing
             y = max(title, y - 6)
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
         }
-        #expect(drag.openZone == "sec_later", "the group at the title did not open its zone")
+        #expect(drag.openZone == "sec_later", "the group at the title did not open its zone (collapsed: \(collapsed))")
         let plan = try #require(drag.group)
         #expect(plan.slot != plan.plan.origin, "the zone's slot is taken for the group's own place")
         list.finishDrag()

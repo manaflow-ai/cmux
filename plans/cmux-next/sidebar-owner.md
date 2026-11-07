@@ -1526,6 +1526,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
 - A block tile's drag opens zones too; a Pinned that keeps items opens none (the drop goes among its items); the
   half-row reach is the height of the row the zone opens above (density, status and detail lines).
+- A collapsed empty section opens its zone too (its title is all it draws). A section the document refuses the drag
+  into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
 
 ## Reviewed behavior-only commits
 

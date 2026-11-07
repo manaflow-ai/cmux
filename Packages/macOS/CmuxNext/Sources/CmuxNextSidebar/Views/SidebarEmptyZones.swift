@@ -62,8 +62,8 @@ import AppKit
         let shown = list.displayed.rows.filter { !drag.hiddenKeys.contains($0.key) }
         let height = list.metrics.emptySectionHeight + list.displayed.rowSpacing
         if let blocks = list.blocks, onDocument {
-            let collapsed = Set(list.model.collapsedLayoutSections.map(\.rawValue))
-            for (id, section) in blocks.sections where section.items.isEmpty && !collapsed.contains(id) {
+            // A collapsed one too: its title is all it draws, and the drag still drops into it.
+            for (id, section) in blocks.sections where section.items.isEmpty && takes(drag, id) {
                 guard let block = shown.first(where: { $0.key == .block(id) }), block.height > 0,
                       !shown.contains(where: { $0.key == .emptySection(.custom(id)) }) else { continue }
                 let under = shown.first { $0.y >= block.maxY - 0.5 && $0.key != block.key }
@@ -71,7 +71,7 @@ import AppKit
             }
         }
         let pinnedItems = list.blocks?.sections[SidebarDocStore.pinnedSection]?.items ?? []
-        if !zones.contains(where: { $0.id == SidebarDocStore.pinnedSection }), !drag.keepsPinned,
+        if !zones.contains(where: { $0.id == SidebarDocStore.pinnedSection }), !drag.keepsPinned, takes(drag, SidebarDocStore.pinnedSection),
            pinnedItems.allSatisfy({ drag.docItems?.contains($0.id.rawValue) == true }),
            !list.displayed.rows.contains(where: { isPinnedZone($0.key) }) {
             drag.openZone = SidebarDocStore.pinnedSection
@@ -94,6 +94,12 @@ import AppKit
         case let .section(id), let .emptySection(id): id == .pinned || id == .custom(SidebarDocStore.pinnedSection)
         default: false
         }
+    }
+
+    /// The document takes the drag into section `id` (a section the table lacks takes it, as its slot does). Pinned
+    /// refuses an item from outside it (`keepingPinned`: Pin is the way in), so it opens no zone for one.
+    private static func takes(_ drag: SidebarListDrag, _ id: String) -> Bool {
+        drag.docItems == nil || drag.docAcceptance.isEmpty || (drag.docAcceptance[id]?.into ?? true)
     }
 
     private static func isWorkspaces(_ payload: DragPayload) -> Bool {
