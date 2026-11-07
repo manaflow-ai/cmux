@@ -327,4 +327,23 @@ mod tests {
         let update = json!({"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk"}});
         assert!(s.heard(method::SESSION_UPDATE, &update).is_none());
     }
+
+    /// A steered turn that failed typed (`auth.signed_out` and its recovery on the turn's end)
+    /// fails the steer's wait with them, as the turn's own prompt does (#37541), not text only.
+    #[test]
+    fn a_typed_turn_failure_keeps_its_kind_and_recovery() {
+        let msg = json!({"turnId": "t1", "status": "failed", "error": "Failed to authenticate.",
+            "errorKind": "auth.signed_out", "recovery": "Sign in to Claude."});
+        let (_, end) = turn_end(method::MUX_EVENT, &event("turn_result", msg)).unwrap();
+        let e = end.unwrap_err();
+        assert_eq!(e.to_string(), "Failed to authenticate.");
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
+        let data = data.expect("the failure keeps the turn's typed fields");
+        assert_eq!(data["errorKind"], "auth.signed_out");
+        assert_eq!(data["recovery"], "Sign in to Claude.");
+        // An untyped failure stays text.
+        let msg = json!({"turnId": "t1", "status": "failed", "error": "agent said no"});
+        let (_, end) = turn_end(method::MUX_EVENT, &event("turn_result", msg)).unwrap();
+        assert!(end.unwrap_err().downcast_ref::<crate::client::DaemonError>().is_none());
+    }
 }
