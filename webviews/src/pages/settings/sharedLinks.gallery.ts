@@ -35,7 +35,14 @@ const many: SharesState = {
       invite_url: null,
       guests: [
         { guest_id: "g2", name: "Riley", joined_at: GALLERY_NOW - 60_000, state: "active" },
-        { guest_id: "g3", name: "Avery", joined_at: GALLERY_NOW - 30_000, state: "active", account: "@avery", role: "talk" },
+        {
+          guest_id: "g3",
+          name: "Avery",
+          joined_at: GALLERY_NOW - 30_000,
+          state: "active",
+          account: "@avery",
+          role: "talk",
+        },
       ],
       invitees: [],
     },

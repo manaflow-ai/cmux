@@ -30,7 +30,8 @@ afterEach(() => {
 });
 
 const card = () => page!.container.querySelector<HTMLElement>('[data-card="sharedLinks"]')!;
-const rowIds = () => [...card().querySelectorAll<HTMLElement>("[data-shared-link]")].map((row) => row.dataset.sharedLink);
+const rowIds = () =>
+  [...card().querySelectorAll<HTMLElement>("[data-shared-link]")].map((row) => row.dataset.sharedLink);
 
 async function open(setup?: (provider: MockSettingsProvider) => void, path = "/settings/privacy") {
   page = await renderPage({ path, setup });

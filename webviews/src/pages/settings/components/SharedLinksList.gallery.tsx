@@ -41,7 +41,10 @@ export default componentEntry<Props>({
   load,
   styles: () => import("../page.css"),
   variants: {
-    rows: { note: "Shipped: the chat over one detail line (kind, shared, ends) and who is in it now.", props: { layout: "rows" } },
+    rows: {
+      note: "Shipped: the chat over one detail line (kind, shared, ends) and who is in it now.",
+      props: { layout: "rows" },
+    },
     table: { note: "ChatGPT-style columns: kind, shared and ends each get a column.", props: { layout: "table" } },
     compact: { note: "One line per chat; dates and guests only in the tooltip.", props: { layout: "compact" } },
   },

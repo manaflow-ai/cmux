@@ -39,6 +39,7 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
     }
   };
   const unavailable = drawn && (state === null || !state.available);
+  const confirmTitle = t("settingsPage.sharedLinks.revokeAllTitle");
   return (
     <section className="group" data-card="sharedLinks" id="shared-links" ref={card}>
       <h3 className="group-title">{t("settingsPage.sharedLinks.title")}</h3>
@@ -58,13 +59,8 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
       {rows.length > 1 &&
         (confirming ? (
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          <div
-            className="accounts-form"
-            data-shared-links-confirm=""
-            role="group"
-            aria-label={t("settingsPage.sharedLinks.revokeAllTitle")}
-          >
-            <div className="row-title">{t("settingsPage.sharedLinks.revokeAllTitle")}</div>
+          <div className="accounts-form" data-shared-links-confirm="" role="group" aria-label={confirmTitle}>
+            <div className="row-title">{confirmTitle}</div>
             <div className="row-help">{t("settingsPage.sharedLinks.revokeAllBody")}</div>
             <div className="accounts-buttons">
               <Button

@@ -504,7 +504,8 @@ export class MockSettingsProvider {
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
       "cmux.settings.shares.list": () => this.shares,
-      "cmux.settings.shares.revoke": (params) => this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
+      "cmux.settings.shares.revoke": (params) =>
+        this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       "cmux.settings.harnesses.state": () => this.harnesses,
@@ -688,7 +689,9 @@ export class MockSettingsProvider {
     this.shares = {
       ...this.shares,
       shares: this.shares.shares?.map((row) =>
-        row.share_id === id ? { ...row, state: "revoked", guests: row.guests.map((g) => ({ ...g, state: "left" })) } : row,
+        row.share_id === id
+          ? { ...row, state: "revoked", guests: row.guests.map((g) => ({ ...g, state: "left" })) }
+          : row,
       ),
     };
     return { share_id: id, state: "revoked" };
