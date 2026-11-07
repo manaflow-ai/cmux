@@ -368,6 +368,11 @@ export interface EventsParams {
    */
   promptIndex?: (boolean | null);
   sessionId: string;
+  /**
+   * Only this subagent's own records: the updates acpmux tagged with it and those that start
+   * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
+   */
+  subagent?: (string | null);
 }
 
 export type EventsResult = {
