@@ -334,11 +334,24 @@ impl X11Desktop {
         delivery: Delivery,
         f: impl FnOnce(&Self, Route) -> DResult<()>,
     ) -> DResult<ActionOutcome> {
-        let (route, name) = match self.xtest_route(c, delivery, None)? {
-            Some(name) => (Route::XTest, name),
-            None => (Route::Send(self.focus_in(c).unwrap_or(c.win)), "xsendevent"),
+        let (route, name, lend_focus) = match self.xtest_route(c, delivery, None)? {
+            Some(name) => (Route::XTest, name, false),
+            None => match self.focus_in(c) {
+                Some(focus) => (Route::Send(focus), "xsendevent", false),
+                None => (Route::Send(c.win), "xsendevent", true),
+            },
         };
+        // A window without the keyboard focus: toolkits that track focus from
+        // FocusIn (Tk, Motif) drop keys they get while they think they lack it.
+        // Tell only this window it has the focus for these keys, then take it
+        // back; the server's real focus, the person's, never moves.
+        if lend_focus {
+            self.send_focus(c.win, true)?;
+        }
         let result = f(self, route);
+        if lend_focus {
+            let _ = self.send_focus(c.win, false);
+        }
         self.restore_keymap();
         result?;
         self.flush()?;
@@ -621,6 +634,19 @@ impl X11Desktop {
         };
         let mask = EventMask::POINTER_MOTION | EventMask::BUTTON_MOTION;
         self.conn.send_event(true, win, mask, ev).map_err(xerr)?;
+        Ok(())
+    }
+
+    /// A synthetic FocusIn (or FocusOut) to one window only.
+    fn send_focus(&self, win: XWindow, focus_in: bool) -> DResult<()> {
+        let ev = xproto::FocusInEvent {
+            response_type: if focus_in { xproto::FOCUS_IN_EVENT } else { xproto::FOCUS_OUT_EVENT },
+            detail: xproto::NotifyDetail::NONLINEAR,
+            sequence: 0,
+            event: win,
+            mode: xproto::NotifyMode::NORMAL,
+        };
+        self.conn.send_event(false, win, EventMask::FOCUS_CHANGE, ev).map_err(xerr)?;
         Ok(())
     }
 
