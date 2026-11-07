@@ -794,6 +794,7 @@ jobs:
     outputs:
       product: ${{ steps.product.outcome }}
       boot_image: ${{ steps.product.outputs.boot_image }}
+      done_at: ${{ steps.product.outputs.done_at }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -877,10 +878,10 @@ jobs:
   # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
   #   roll      green (the product create booted the image) records it. Anything else (failed, cancelled, timed
   #             out, skipped) lands a rollback commit that takes the image out of both lists
-  #             (image-roll-push.sh rollback), unless the tip's first image is no longer this one: then a newer
-  #             roll or rollback commit owns production. A cancel alone is no supersede: the deploy queue never
-  #             cancels a running deploy, so a cancel is a person or a timeout and the image may be live.
-  #   rollback  verified when the product create booted the deployed first entry, not the rolled-back image.
+  #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
+  #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
+  #             deploy queue never cancels a running deploy, so a cancel is a person or a timeout.
+  #   rollback  verified when the deployed list no longer has the image and the create booted its first entry.
   #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
   #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
   #             rollback commit, so a rollback cannot loop.
@@ -1004,6 +1005,7 @@ jobs:
           DEPLOY: ${{ needs.deploy-production.result }}
           PRODUCT: ${{ needs.smoke-production.outputs.product }}
           BOOT: ${{ needs.smoke-production.outputs.boot_image }}
+          SMOKE_DONE_AT: ${{ needs.smoke-production.outputs.done_at }}
           ROLLBACK: ${{ steps.rollback.outputs.result }}
           ROLLBACK_SHA: ${{ steps.rollback.outputs.sha }}
           RETRY: ${{ steps.retry.outcome }}
@@ -1017,8 +1019,9 @@ jobs:
           if [ "$KIND" = roll ]; then
             jq -n --arg now "$now" --arg run "$RUN_URL" --arg commit "$GITHUB_SHA" --arg deploy "$DEPLOY" --arg product "${PRODUCT:-}" \
               --arg boot "${BOOT:-}" --arg outcome "$OUTCOME" --arg rollback "${ROLLBACK:-}" --arg rollback_sha "${ROLLBACK_SHA:-}" \
+              --arg smoke_done "${SMOKE_DONE_AT:-$now}" \
               '{production: {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), boot_image: $boot,
-                  smoke_done_at: $now, green: ($outcome == "green"), superseded: ($outcome == "superseded")},
+                  smoke_done_at: $smoke_done, green: ($outcome == "green"), superseded: ($outcome == "superseded")},
                 rolled_back: ($rollback == "pushed"),
                 rollback: (if $outcome != "rollback" then null else {result: (if $rollback == "" then "failed" else $rollback end), commit: $rollback_sha, at: $now} end)}' \
               | bash images/cmux-vm/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"

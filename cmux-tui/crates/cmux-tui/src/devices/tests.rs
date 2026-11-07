@@ -496,3 +496,31 @@ fn output_flags_may_come_before_device_or_the_verb() {
     assert_eq!(split(&["--json"]), ("help".to_owned(), words(&["--json"])));
     assert_eq!(split(&["remove", "x"]), ("remove".to_owned(), words(&["x"])));
 }
+
+/// `cmux device --help` prints the device verbs (it fell through to the resource grammar), and
+/// the usage names the verbs `device` runs as `machine …` and sends VMs to `cmux vm`
+/// (cmuxterm-hq#7487 item 6). `device add` without `--yes` stays the app's Add Device card.
+#[test]
+fn device_help_names_every_device_verb_and_points_vms_at_vm() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    for help in ["--help", "-h", "help"] {
+        assert_eq!(super::device_args(&words(&["device", help])), Some(words(&[help])), "{help}");
+        assert_eq!(super::verb_and_args(&words(&[help])).0, help);
+    }
+    assert_eq!(super::device_args(&words(&["device", "add", "studio"])), None);
+    assert_eq!(super::device_args(&words(&["device", "mac-mini", "show"])), None);
+    assert_eq!(super::device_args(&words(&["device", "revoke", "m_1"])), None);
+    for verb in [
+        "device list",
+        "device add",
+        "device invite",
+        "device remove",
+        "SELECTOR show",
+        "device revoke|rotate",
+        "device doctor",
+        "cmux vm --help",
+        "`cmux machine` is the old name",
+    ] {
+        assert!(super::USAGE.contains(verb), "{verb} missing:\n{}", super::USAGE);
+    }
+}

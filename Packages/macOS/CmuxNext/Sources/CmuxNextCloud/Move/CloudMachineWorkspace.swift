@@ -33,12 +33,20 @@ public struct CloudMachineWorkspace {
     /// tree that never comes within `limit` throws `notConnected`: never "none", which would make one.
     public static func existing(in store: DaemonStore, within limit: Duration = .seconds(10), notConnected: @autoclosure () -> any Error,
                                 listedElsewhere: (String) -> Bool = { _ in false }) async throws -> String? {
+        guard await live(store, within: limit) else { throw notConnected() }
+        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+    }
+
+    /// Whether `store` is connected with this connection's tree applied, waiting up to `limit` for it: what
+    /// ``existing(in:within:notConnected:listedElsewhere:)`` reads before it trusts the list. A connection that is
+    /// down and dialing again by itself is not live, though the daemon still holds it.
+    public static func live(_ store: DaemonStore, within limit: Duration) async -> Bool {
         let current = { @MainActor @Sendable in
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !(await current()), await !CloudWait.holds(within: limit, until: current) { throw notConnected() }
-        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+        if current() { return true }
+        return await CloudWait.holds(within: limit, until: current)
     }
 
     /// ``existing(in:within:notConnected:listedElsewhere:)``, else a workspace `create` makes (nil:
