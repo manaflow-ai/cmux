@@ -20,6 +20,8 @@ import Testing
         var busy: Set<String> = []
         /// Chats whose composer holds a draft (the page's `holdsDraft`).
         var drafts: Set<String> = []
+        /// Chats whose page holds an edit outside the composer (the page's `holdsEdits`).
+        var edits: Set<String> = []
         /// Releases asked for, in order.
         var requested: [String] = []
         var released: [String] = []
@@ -50,7 +52,7 @@ import Testing
             for key in queue {
                 guard let planner, let started = planner.beginRelease(key) else { continue }
                 planner.endRelease(key)
-                let wake = AgentPaneWakeState(holdsDraft: drafts.contains(key))
+                let wake = AgentPaneWakeState(holdsDraft: drafts.contains(key), holdsEdits: edits.contains(key))
                 if let reason = AgentPaneWakeState.keepReason(wake, hasHandshake: true, keepsDraft: started.byChatPolicy) {
                     kept[key] = reason
                     planner.keptForNow(key)
@@ -170,6 +172,27 @@ import Testing
                                                  setting: BrowserHibernationSetting(mode: .aggressive))
         Self.hide("tab_browser", byBrowser, browserHost)
         browserHost.drafts = ["tab_browser"]
+        Self.advance(11 * 60, byBrowser, browserHost)
+        #expect(browserHost.released == ["tab_browser"], "browser.hibernation's own release changed")
+    }
+
+    /// Review F1 on #37895: a queued message being edited lives only in the page, with the composer empty.
+    @Test func anUnsavedEditKeepsTheChatOnlyWhenThePolicyMadeItDue() {
+        let (planner, host) = Self.make(HiddenChatDiscardSetting(enabled: true, afterMinutes: 5))
+        Self.hide("tab_edit", planner, host)
+        host.edits = ["tab_edit"]
+        Self.advance(6 * 60, planner, host)
+        #expect(host.released.isEmpty, "a chat holding an unsaved edit was let go")
+        #expect(host.kept["tab_edit"] == "holds an unsaved edit")
+
+        host.edits = []
+        Self.advance(HiddenChatPages<Host>.keptRecheck + 1, planner, host)
+        #expect(host.released == ["tab_edit"])
+
+        let (byBrowser, browserHost) = Self.make(HiddenChatDiscardSetting(enabled: true, afterMinutes: 60),
+                                                 setting: BrowserHibernationSetting(mode: .aggressive))
+        Self.hide("tab_browser", byBrowser, browserHost)
+        browserHost.edits = ["tab_browser"]
         Self.advance(11 * 60, byBrowser, browserHost)
         #expect(browserHost.released == ["tab_browser"], "browser.hibernation's own release changed")
     }

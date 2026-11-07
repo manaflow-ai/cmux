@@ -627,7 +627,7 @@ import {
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
-import { holdWebSwap, pageReleaseHold } from "../../pages/shared/webSwap";
+import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
@@ -7929,6 +7929,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
             return {
               ...composer,
+              // An edit only this page holds (a queued message being edited): a release by
+              // agents.hiddenChats.discard keeps the page for it, as for a draft.
+              ...(quitting !== true && pageEditHold() ? { holdsEdits: true } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(subagentDrafts ? { subagentDrafts } : {}),
               ...(folds ? { folds } : {}),

@@ -30,6 +30,9 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// The composer holds a typed draft or chips (webviews Composer.tsx `wakeState`). Only a release
     /// that `agents.hiddenChats.discard` alone makes keeps such a page (``keepReason(_:hasHandshake:keepsDraft:)``).
     public var holdsDraft: Bool?
+    /// An edit only the page holds, outside the kept composer (a queued message being edited; webviews
+    /// webSwap.ts `pageEditHold`). Kept like ``holdsDraft``, by an `agents.hiddenChats.discard` release only.
+    public var holdsEdits: Bool?
     /// The transcript's open folds (tool cards, thoughts, "Worked for", subagent groups), handed back so
     /// a page built again opens them as they were (webviews conversation/wakeFolds.ts, bounded there).
     public var folds: Folds?
@@ -96,7 +99,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
                 scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
                 holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil,
-                holdsDraft: Bool? = nil, folds: Folds? = nil) {
+                holdsDraft: Bool? = nil, holdsEdits: Bool? = nil, folds: Folds? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
@@ -106,6 +109,7 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         self.holdsPageState = holdsPageState
         self.subagentDrafts = subagentDrafts
         self.holdsDraft = holdsDraft
+        self.holdsEdits = holdsEdits
         self.folds = folds
     }
 
@@ -178,6 +182,7 @@ extension AgentPaneWakeState {
         if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
         if wake?.holdsPageState == true { return "holds page state" }
         if keepsDraft, wake?.holdsDraft == true { return "holds a draft" }
+        if keepsDraft, wake?.holdsEdits == true { return "holds an unsaved edit" }
         return nil
     }
 
