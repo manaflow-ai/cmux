@@ -298,7 +298,7 @@ struct AgentPaneCloudStartTests {
         let generation = model.cloudSignInGeneration
         let reply = await model.respond(to: request)
         #expect(Self.code(reply) == "not_signed_in")
-        #expect(((reply["error"] as? [String: Any])?["message"] as? String)?.contains("timed out") == true)
+        #expect(((reply["error"] as? [String: Any])?["userMessage"] as? String)?.contains("timed out") == true)
         // Ended the way a cancel ends it: a new generation, no kept click, no wait, and the hold is gone.
         #expect(model.cloudSignInGeneration == generation + 1)
         #expect(model.cloudSignInGrant == nil)
