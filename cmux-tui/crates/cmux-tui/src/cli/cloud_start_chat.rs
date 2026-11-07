@@ -185,6 +185,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
 }
 
 /// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+/// Every word from `--` on is text (`cmux chat send S -- --json` sends "--json").
 pub(super) fn lift_output_of(
     rest: &[String],
     output: &mut OutputMode,
@@ -192,8 +193,9 @@ pub(super) fn lift_output_of(
 ) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
+    let mut text = false;
     for word in rest {
-        if value_next {
+        if text || value_next {
             value_next = false;
             words.push(word.clone());
             continue;
@@ -203,6 +205,7 @@ pub(super) fn lift_output_of(
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
+                text = word == "--";
                 value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
