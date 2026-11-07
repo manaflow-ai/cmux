@@ -18,8 +18,9 @@ public protocol UsageRecordingHost: AnyObject, Sendable {
     var usageSidebarWidth: Double { get }
     /// The app is active.
     var usageAppActive: Bool { get }
-    /// The local daemon's connection now (nil: not connected).
-    var usageConnection: DaemonConnection? { get }
+    /// The local daemon's connection, once the first one is made (nil: startup gave up). The
+    /// recorder's first decision comes from the settings load, before the daemon connects.
+    func usageConnection() async -> DaemonConnection?
     /// Whether tab `id` is an agent chat.
     func usageIsChat(_ id: String) -> Bool
     /// The confirm card on the sidebar's notice card: true for `yes`.

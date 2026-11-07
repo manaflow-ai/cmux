@@ -84,9 +84,11 @@ public final class UsageRecorder {
     private var queue: UsageEventQueue?
     private var lastFocus: Focus?
     private var lastActive: Bool?
-    /// The daemon's switch as last sent; nil before the first decision (then it is sent either way,
-    /// so a marker an earlier run left on goes off when this one does not record).
+    /// The daemon's switch as last confirmed; nil before the first decision (then it is sent either
+    /// way, so a marker an earlier run left on goes off when this one does not record).
     private var switchSent: Bool?
+    /// The switch on its way to the daemon, not yet answered.
+    private var switchPending: Bool?
     private var launchRecorded = false
     private var askedThisLaunch = false
 
@@ -105,7 +107,7 @@ public final class UsageRecorder {
     /// - Parameter host: The app's forwards (``UsageRecordingHost``).
     public convenience init(host: any UsageRecordingHost) {
         let connected: @Sendable () async throws -> DaemonConnection = { [weak host] in
-            guard let connection = await host?.usageConnection else { throw DaemonError.notConnected }
+            guard let connection = await host?.usageConnection() else { throw DaemonError.notConnected }
             return connection
         }
         let ports = Ports(
@@ -200,22 +202,34 @@ public final class UsageRecorder {
     func apply(_ on: Bool) {
         if on, queue == nil { begin() }
         if !on, queue != nil { end() }
-        guard switchSent != on else { return }
-        switchSent = on
+        guard switchSent != on, switchPending != on else { return }
+        switchPending = on
         let setEnabled = ports.setEnabled
         let queue = queue
         let logger = logger
-        // task-owner: one switch of the daemon's marker, then (on) the first batch, which the daemon
-        // records only once the marker is on; ends when the daemon answers.
-        Task {
+        // task-owner: one switch of the daemon's marker (after its first connection), then (on) the
+        // first batch, which the daemon records only once the marker is on; ends when the daemon answers.
+        Task { [weak self] in
             do {
                 try await setEnabled(on)
                 await queue?.flush()
+                self?.switched(on, queue: queue, ok: true)
             } catch {
-                // An older daemon, or none: nothing would be written, so nothing is kept.
                 logger.error("usage-set-enabled \(on) failed: \(String(describing: error), privacy: .public)")
-                queue?.stop()
+                self?.switched(on, queue: queue, ok: false)
             }
+        }
+    }
+
+    /// The daemon answered the switch to `on`. Only an answered switch counts as sent, so the next
+    /// decision sends a failed one again. A failed switch-on (an older daemon, or none) ends this
+    /// on-period: nothing would be written, so nothing is kept or tapped.
+    private func switched(_ on: Bool, queue: UsageEventQueue?, ok: Bool) {
+        if switchPending == on { switchPending = nil }
+        if ok {
+            switchSent = on
+        } else if on, let queue, queue === self.queue {
+            end()
         }
     }
 

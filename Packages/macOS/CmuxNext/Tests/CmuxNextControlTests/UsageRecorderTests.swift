@@ -169,6 +169,39 @@ import Testing
         #expect(recorder.waitingEvents == 0)
     }
 
+    /// The first decision comes before the daemon connects (Swift review of 3c85b08bff3): a switch
+    /// the daemon did not answer is not counted as sent, so the next decision sends it again, and a
+    /// failed switch-on ends the on-period instead of leaving a stopped queue that looks on.
+    @Test func aFailedSwitchIsSentAgainAndAFailedSwitchOnStopsRecording() async {
+        let log = PortLog()
+        let failing = PortLog()
+        failing.calls.withLock { $0 = ["refuse"] }
+        let ports = UsageRecorder.Ports(
+            channel: "dev", build: "1", previousRun: { "clean" }, counts: { UsageCounts() }, appActive: { true },
+            ask: { _, _, _, _ in false },
+            setEnabled: { on in
+                if !failing.all.isEmpty { throw Refused() }
+                log.calls.withLock { $0.append("set-enabled \(on)") }
+            },
+            record: { _, _ in })
+        let recorder = UsageRecorder(ports: ports, managedDisables: { false },
+                                     defaults: UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard)
+        recorder.apply(true)
+        for _ in 0..<20 where recorder.isRecording { await Task.yield() }
+        #expect(!recorder.isRecording)
+        #expect(log.all.isEmpty)
+
+        failing.calls.withLock { $0 = [] }
+        recorder.apply(true)
+        for _ in 0..<20 where log.all.isEmpty { await Task.yield() }
+        #expect(recorder.isRecording)
+        #expect(log.all == ["set-enabled true"])
+
+        recorder.apply(false)
+        for _ in 0..<20 where log.all.count < 2 { await Task.yield() }
+        #expect(log.all == ["set-enabled true", "set-enabled false"])
+    }
+
     // MARK: Queue
 
     @Test func aStoppedQueueKeepsAndSendsNothing() async {
