@@ -138,12 +138,12 @@ fn percent_decoded(text: &str) -> Option<String> {
     let mut at = 0;
     while let Some(&byte) = bytes.get(at) {
         if byte == b'%' {
-            let hex = text.get(at + 1..at + 3)?;
+            let hex = text.get(at.saturating_add(1)..at.saturating_add(3))?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
-            at += 3;
+            at = at.saturating_add(3);
         } else {
             out.push(byte);
-            at += 1;
+            at = at.saturating_add(1);
         }
     }
     String::from_utf8(out).ok()
@@ -249,13 +249,17 @@ pub fn parse(raw: &str) -> Result<Repo, Invalid> {
     let mut r#ref: Option<String> = None;
     // `@REF` is the first `@` in the path: a URL's or scp form's login comes before it.
     let path_start = match text.find("://") {
-        Some(at) => text.get(at + 3..).and_then(|rest| rest.find('/')).map(|p| at + 3 + p),
+        Some(at) => {
+            let after = at.saturating_add(3);
+            text.get(after..).and_then(|rest| rest.find('/')).map(|p| after.saturating_add(p))
+        }
         None => Some(text.find(':').unwrap_or(0)),
     };
     if let Some(start) = path_start
-        && let Some(at) = text.get(start..).and_then(|rest| rest.find('@')).map(|p| start + p)
+        && let Some(at) =
+            text.get(start..).and_then(|rest| rest.find('@')).map(|p| start.saturating_add(p))
     {
-        r#ref = text.get(at + 1..).map(str::to_owned);
+        r#ref = text.get(at.saturating_add(1)..).map(str::to_owned);
         text.truncate(at);
     }
     let parts: Vec<String>;
