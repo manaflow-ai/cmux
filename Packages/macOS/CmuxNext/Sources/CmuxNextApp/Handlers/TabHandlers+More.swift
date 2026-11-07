@@ -89,7 +89,7 @@ extension TabHandlers {
     }
 
     /// Move Tab to New Workspace / Window of `tabs` (`tab` first): read now; the move answers once its window is placed (nil) or why not.
-    static func newWorkspaceMove(of tab: TabModel, with tabs: [TabModel], newWindow: Bool, services: AppServices) -> @MainActor () async -> String? {
+    static func newWorkspaceMove(of tab: TabModel, with tabs: [TabModel], newWindow: Bool, services: AppServices) -> @MainActor () async -> ActionWorkFailure? {
         let windows = services.windows, origin = windows.moveOrigin(of: services.workspaceID(ofTab: tab))
         // Read before the await: whether this run may change the view (another's run opens the window behind), and its window.
         let allowed = ActionRunScope.viewChangeAllowed()
