@@ -11,6 +11,7 @@
 
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -1178,6 +1179,11 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Settings > Agents > Worktree Setup, through the host's page relay to the session host's
+   * `project.list`, `project.update` (field `worktree`) and `git.worktree.setup`. */
+  "cmux.project.list": [{ include_hidden?: boolean; limit?: number }, unknown];
+  "cmux.project.update": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
+  "cmux.git.worktree.setup": [{ path: string }, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

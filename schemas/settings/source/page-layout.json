@@ -31,7 +31,8 @@
     {"id": "contextMenus", "note": "Settings > Menus: every right-click menu's rows, arranged by the person (ContextMenuLayout)."},
     {"id": "server", "note": "Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10)."},
     {"id": "cloudEnvironments", "note": "Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
-    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."}
+    {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."},
+    {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."}
   ],
   "section_actions": {
     "general": ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop", "palette.clearSearchHistory"],
@@ -298,7 +299,7 @@
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
             {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."}
           ],
-          "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations"]
+          "trail": ["computerUse", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
         },
         {
           "id": "chief",
