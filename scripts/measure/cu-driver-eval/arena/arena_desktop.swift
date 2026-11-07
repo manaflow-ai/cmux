@@ -27,7 +27,7 @@ func num(_ i: Int) -> Double {
   guard args.count > i, let v = Double(args[i]) else { fail("arena-desktop: argument \(i) is not a number") }
   return v
 }
-func pause() { usleep(30_000) }
+func settle() { usleep(30_000) }
 
 func mouse(_ type: CGEventType, _ point: CGPoint, _ button: CGMouseButton, clicks: Int64 = 1) {
   let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button)
@@ -76,7 +76,9 @@ case "screenshot":
       finished.signal()
     }
   }
-  finished.wait()
+  if finished.wait(timeout: .now() + 10) == .timedOut {
+    fail("arena-desktop: ScreenCaptureKit gave no screenshot in 10 s")
+  }
   guard let image = shot.image else { fail("arena-desktop: no screen capture (Screen Recording granted?) \(shot.failure)") }
   guard let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
@@ -97,29 +99,29 @@ case "click":
   let (down, up): (CGEventType, CGEventType) = button == .right ? (.rightMouseDown, .rightMouseUp)
     : button == .center ? (.otherMouseDown, .otherMouseUp) : (.leftMouseDown, .leftMouseUp)
   mouse(.mouseMoved, point, button)
-  pause()
+  settle()
   for i in 1...count {
     mouse(down, point, button, clicks: Int64(i))
     mouse(up, point, button, clicks: Int64(i))
-    pause()
+    settle()
   }
 case "move":
   mouse(.mouseMoved, CGPoint(x: num(2), y: num(3)), .left)
 case "drag":
   let from = CGPoint(x: num(2), y: num(3)), to = CGPoint(x: num(4), y: num(5))
   mouse(.mouseMoved, from, .left)
-  pause()
+  settle()
   mouse(.leftMouseDown, from, .left)
   for step in 1...10 {
     let t = Double(step) / 10
     mouse(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t), .left)
-    pause()
+    settle()
   }
   mouse(.leftMouseUp, to, .left)
 case "scroll":
   guard args.count == 6, let amount = Int32(args[5]) else { fail("usage: arena-desktop scroll X Y DIRECTION AMOUNT") }
   mouse(.mouseMoved, CGPoint(x: num(2), y: num(3)), .left)
-  pause()
+  settle()
   let (dy, dx): (Int32, Int32) = switch args[4] {
   case "up": (amount, 0)
   case "down": (-amount, 0)
@@ -129,7 +131,7 @@ case "scroll":
   for _ in 0..<3 {
     CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)?
       .post(tap: .cgSessionEventTap)
-    pause()
+    settle()
   }
 case "type":
   guard args.count == 3 else { fail("usage: arena-desktop type TEXT") }
@@ -156,7 +158,7 @@ case "key":
       event?.flags = flags
       event?.post(tap: .cgSessionEventTap)
     }
-    pause()
+    settle()
   }
 default:
   fail("arena-desktop: unknown command \(args[1])")

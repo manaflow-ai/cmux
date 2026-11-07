@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 600,
   "sections": [
     {
       "id": "general",
@@ -551,6 +551,14 @@
             "top",
             "bottom"
           ]
+        },
+        {
+          "key": "chat.on",
+          "title": "Default Chat Target",
+          "help": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+          "kind": "text",
+          "default": "",
+          "group": "Chats"
         },
         {
           "key": "computerUse.driver",
