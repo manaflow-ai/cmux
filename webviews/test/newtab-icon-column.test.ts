@@ -12,19 +12,18 @@ import { newTabIconColumn } from "../src/agent-session/acpmux/newtab/iconColumn.
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.new-tab-icon-column";
-const ALL = process.env.NEWTAB_ICON_COLUMN_ALL === "1";
-const ARMS = process.env.NEWTAB_ICON_COLUMN_ARMS?.split(",") ?? (ALL ? Object.keys(newTabIconColumn.arms) : [newTabIconColumn.defaultArm]);
-const STATES = ["no-project", "project", "machine"];
-const WIDTHS = ALL ? [320, 430, 760, 1040] : [320, 760];
-const THEMES = ALL
-  ? { light: "Apple System Colors Light", dark: "Apple System Colors" }
-  : { dark: "Apple System Colors" };
-
 type Measured = Record<string, number | null>;
 
 await requireBrowserLane("newtab-icon-column.test.ts", async () => {
   setDefaultTimeout(240_000);
+  const ENTRY = "agent-pane.new-tab-icon-column";
+  const ALL = process.env.NEWTAB_ICON_COLUMN_ALL === "1";
+  const ARMS = process.env.NEWTAB_ICON_COLUMN_ARMS?.split(",") ?? (ALL ? Object.keys(newTabIconColumn.arms) : [newTabIconColumn.defaultArm]);
+  const STATES = ["no-project", "project", "machine"];
+  const WIDTHS = ALL ? [320, 430, 760, 1040] : [320, 760];
+  const THEMES = ALL
+    ? { light: "Apple System Colors Light", dark: "Apple System Colors" }
+    : { dark: "Apple System Colors" };
   const webviews = path.resolve(import.meta.dir, "..");
   const outDir = path.join(webviews, "artifacts", "newtab-icon-column");
   const { createServer } = await import("vite");

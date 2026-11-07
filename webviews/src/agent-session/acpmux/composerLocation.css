@@ -202,9 +202,9 @@
   padding-inline-start: var(--ui-ghost-inset);
 }
 .nt-composer[data-icon-column="shift"] .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
-  margin-inline-start: calc(var(--acpmux-location-icon-center) - var(--ui-ghost-inset) - var(--acpmux-project-badge-size, 20px) / 2);
+  translate: calc(var(--acpmux-location-icon-center) - var(--ui-ghost-inset) - var(--acpmux-project-badge-size, 20px) / 2) 0;
 }
-.nt-composer[data-icon-column="shrink"] .acpmux-location-button > .acpmux-project-badge:first-child {
+.nt-composer[data-icon-column="shrink"] .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
   --acpmux-project-badge-size: var(--ui-ghost-icon-size);
 }
 .nt-composer[data-icon-column="shrink"] .acpmux-location-button > .acpmux-project-badge:first-child > :is(img, svg) {
