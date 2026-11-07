@@ -37,7 +37,10 @@ import Testing
         let above = try #require(rules.bulkClose("palette.closeWorkspacesAbove"))
         #expect(above.plan == "aroundSelection" && above.nothingToClose == "noWorkspacesAbove")
         #expect(rules.bulkCloseIDs().count == 8)
+        // `window_workspace_survivor` answers `{"window": index}`: a window stays, then every window closes.
         #expect(rules.survivor(active: 0, windows: [["a"], ["b", "c"]], closing: ["a", "b"]) == 1)
+        #expect(rules.survivor(active: 1, windows: [["a"], ["b", "c"]], closing: ["a"]) == 1)
+        #expect(rules.survivor(active: 0, windows: [["a"], ["b", "c"]], closing: ["a", "b", "c"]) == nil)
         #expect(rules.rowsWindow(["w", nil, "v"]).spans)
         let prompt = try #require(rules.closePrompt(.init(count: 2, programs: ["vim", "top"], askWithoutUndo: false, incognito: false, titled: false)))
         #expect(prompt.title == .count(2) && prompt.body == .running(["top", "vim"]) && prompt.suppressesWarning)

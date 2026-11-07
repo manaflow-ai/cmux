@@ -31,7 +31,8 @@ extension WindowRules {
     /// closes, the active one first; nil when every window closes.
     public func survivor(active: Int?, windows: [[String]], closing: [String]) -> Int? {
         struct Request: Encodable { var active: Int?, windows: [[String]], closing: [String] }
-        return call("window_workspace_survivor", Request(active: active, windows: windows, closing: closing), as: Index.self)?.index
+        struct Reply: Decodable { var window: Int? }
+        return call("window_workspace_survivor", Request(active: active, windows: windows, closing: closing), as: Reply.self)?.window
     }
 
     /// The one window that lists every closing row (`owners`: each row's window); `spans` when they span windows.
