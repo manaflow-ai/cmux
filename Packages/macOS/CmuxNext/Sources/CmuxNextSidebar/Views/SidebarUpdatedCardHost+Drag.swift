@@ -55,6 +55,8 @@ extension SidebarUpdatedCardHost {
         guard heldOffset != nil else { return }
         (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
         dropsHiddenDrag = true
+        // Laid out at its rest, so it shows there when it comes back.
+        onHeightChange?()
     }
 
     /// The view's frame for a card resting at `rest`: where the page holds it, else on its way from

@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
+  so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
+  drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
+  you can drag that up to the top if you wanted to?" Regression: `UpdatedCardDragTests`.
 - 2026-11-07: the Updated card drag and preview, review follow-ups of #37669, #37743, #37790, #37802 and #37894.
   Taking the card away resets its settle, so it comes back at its rest. A card hidden mid-drag (a card of higher
   priority took the slot) is not held when it comes back, and the page's late moves and release for that press

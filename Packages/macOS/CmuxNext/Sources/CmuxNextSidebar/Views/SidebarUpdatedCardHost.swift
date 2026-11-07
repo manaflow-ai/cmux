@@ -225,6 +225,8 @@ final class SidebarUpdatedCardHost: NSView {
             }
             (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
             (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
+            // Its page went with it: no late drag message of the old page will come.
+            dropsHiddenDrag = false
             // A card that comes back starts at its rest, not on the way from an old drop.
             settleX.reset()
             settleY.reset()
