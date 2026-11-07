@@ -124,26 +124,32 @@ import Testing
     }
 
     /// Router review F2: under the Wallpaper palette, a new desktop picture's color repaints a header already drawn, with
-    /// no other event (`DesignSettings.groupWallpaperTint` is read under the header's observation).
+    /// no other event (`DesignSettings.groupWallpaperTint` is read under the header's observation): the solid bar's color
+    /// follows the new picture after one turn of the run loop, with no paint call from the test.
     @Test func aNewWallpaperColorRepaintsTheHeaders() async throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        let before = DesignSettings.shared.sidebarSections.groupPalette
+        let glassKey = SidebarGroupGlass.tunable.key, before = DesignSettings.shared.sidebarSections.groupPalette
         defer {
+            TunableStore.shared.set(glassKey, nil)
             DesignSettings.shared.sidebarSections.groupPalette = before
             DesignSettings.shared.groupWallpaperTint = nil
         }
+        try #require(TunableStore.shared.set(glassKey, SidebarGroupGlass.solid.tunableValue) == SidebarGroupGlass.solid.tunableValue)
         DesignSettings.shared.sidebarSections.groupPalette = .wallpaper
         DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.15, green: 0.3, blue: 0.75)
         let (sidebar, headers) = try Self.headers(in: Self.latte())
         defer { sidebar.window?.close() }
         let header = try #require(headers.first { $0.1 == .red }?.0)
-        // Off screen, so no display pass of the window's clears the flag the observation sets.
-        sidebar.window?.orderOut(nil)
-        header.displayIfNeeded()
-        #expect(!header.needsDisplay)
+        let fromBlue = try Fixture.rgb(header.pill.backgroundColor)
         DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.8, green: 0.2, blue: 0.15)
-        for _ in 0 ..< 20 where !header.needsDisplay { await Task.yield() }
-        #expect(header.needsDisplay, "the header did not hear of the new wallpaper color")
+        var now = fromBlue
+        for _ in 0 ..< 40 where now == fromBlue {
+            await Task.yield()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            header.displayIfNeeded()
+            now = try Fixture.rgb(header.pill.backgroundColor)
+        }
+        #expect(now != fromBlue, "the header still draws the old picture's color \(fromBlue)")
     }
 }
