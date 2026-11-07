@@ -61,6 +61,7 @@ FIRST_PARTY_GPL = {
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
+    "cmux-window-rules",
 }
 
 BANNED = [

@@ -39,6 +39,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_send;
+#[cfg(unix)]
 mod chat_start;
 #[cfg(unix)]
 mod chief;
@@ -504,7 +506,24 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
-    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` is `machine`'s old name).
+    // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
+    // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
+    #[cfg(unix)]
+    let device_alias_args;
+    #[cfg(unix)]
+    let args = match vm::device_alias(args) {
+        Some(vm::DeviceRoute::Machine(rewritten)) => {
+            device_alias_args = rewritten;
+            device_alias_args.as_slice()
+        }
+        Some(vm::DeviceRoute::Vm(verb)) => {
+            let output = parse_globals(args).map(|(global, _)| global.output).unwrap_or_default();
+            let message = format!("cmux: {}", vm::device_vm_refusal(&verb));
+            return app::failure("usage.invalid", &message, output, 2);
+        }
+        None => args,
+    };
+    // `vm add|revoke|rotate|doctor` is `machine …` (`vm` was `machine`'s old name).
     #[cfg(unix)]
     let alias_args;
     #[cfg(unix)]
@@ -551,6 +570,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send SESSION` and `chat --resume SESSION`: the next prompt to a running agent chat,
+    // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
+    #[cfg(unix)]
+    if let Some(code) = chat_send::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -1199,15 +1224,16 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
         (Some("machine"), Surface::Cmux) => {
-            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
+            Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER))
         }
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => {
             let root = catalog.local_server.cmux_root_help;
+            // `vm` is the one noun that makes and runs VMs (CMUX-43: `cmux cloud` is `cmux vm`).
             let cloud = if root.contains("SCOPES") {
-                "  cloud         Run Cloud machine actions (`cmux cloud --help`)\n"
+                "  vm            Cloud VMs: new, run, pause, resume, rm (`cmux vm --help`)\n"
             } else {
-                "  cloud         Cloud マシンのアクション (`cmux cloud --help`)\n"
+                "  vm            Cloud VM: new、run、pause、resume、rm (`cmux vm --help`)\n"
             };
             Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
         }
@@ -1238,7 +1264,7 @@ fn scope_help_for(
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server restart" => Cow::Borrowed(catalog.local_server.restart_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
-        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::MACHINE_VM_HELP)),
+        "machine" => Cow::Owned(format!("{MACHINE_HELP}\n{}", surface::VM_POINTER)),
         "session" => Cow::Owned(session_help(&catalog.session_reset, &catalog.local_server)),
         "client" => Cow::Borrowed(CLIENT_HELP),
         "workspace" => Cow::Borrowed(WORKSPACE_HELP),

@@ -156,6 +156,58 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     report(&outcome, global.output)
 }
 
+/// `cmux chat send SESSION` for a chat on a Cloud VM (chat_send.rs): the prompt to the chat
+/// `session` already running on machine `machine_id`, and with `wait` its reply.
+pub(super) fn send_existing(
+    global: &GlobalArgs,
+    machine_id: &str,
+    session: &str,
+    prompt: String,
+    wait: bool,
+    timeout: Option<Duration>,
+) -> i32 {
+    let request = Request {
+        prompt: Some(prompt),
+        agent: String::new(),
+        cwd: None,
+        login: None,
+        environment: None,
+        machine: Machine::Target(machine_id.to_owned()),
+        wait,
+        timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
+    };
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+}
+
+/// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
+/// deadline from its start; a step that answered after it is that phase's timeout, as in [`run`].
+fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session: &str) -> Outcome {
+    let answer = json!({
+        "machine_id": machine_id,
+        "target": format!("machine:{machine_id}"),
+        "session_id": session,
+        "follow_up": follow_ups(machine_id, session),
+    });
+    let Some(prompt) = request.prompt.as_deref() else { return Outcome::Done(answer) };
+    let deadline = Deadline::of(request, runner.now());
+    let mut progress = Progress {
+        machine: Some(Machine::Target(machine_id.to_owned())),
+        chat: Some((machine_id.to_owned(), session.to_owned(), answer.clone())),
+        ..Progress::default()
+    };
+    let outcome = send_prompt(
+        runner,
+        request,
+        machine_id,
+        session,
+        (prompt, answer),
+        deadline,
+        &mut progress,
+    );
+    if deadline.passed(runner) { progress.late(request) } else { outcome }
+}
+
 /// Whether the app is signed in to cmux Cloud now, as its own machine list answers
 /// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
 pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
@@ -976,11 +1028,25 @@ fn steps(
         return Outcome::Done(answer);
     };
     // start-session answered after the deadline: the chat is there, and nothing is sent to it.
-    let chat = Machine::Target(machine_id.to_owned());
     if deadline.passed(runner) {
-        return out_of_time(request, &chat, answer);
+        return out_of_time(request, &Machine::Target(machine_id.to_owned()), answer);
     }
-    // 4. The prompt: inside the command when it fits there, else from a file on the machine.
+    send_prompt(runner, request, machine_id, session, (prompt, answer), deadline, progress)
+}
+
+/// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
+/// a file on the machine; then, with `--wait`, its turn (step 5). `answer` is the answer so far. Each
+/// step starts only before `deadline`, as in [`steps`].
+fn send_prompt(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    (prompt, mut answer): (&str, Value),
+    deadline: Deadline,
+    progress: &mut Progress,
+) -> Outcome {
+    let chat = Machine::Target(machine_id.to_owned());
     let quoted = shell_quote(prompt);
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
@@ -1000,7 +1066,7 @@ fn steps(
                 return failed(
                     "chat.send_failed",
                     format!(
-                        "the chat started, but the prompt did not reach its machine: {}",
+                        "the prompt did not reach the chat's machine: {}",
                         at(&error, "message").as_str().unwrap_or("cloud exec failed")
                     ),
                     json!({"answer": answer, "app": error}),
@@ -1042,7 +1108,7 @@ fn steps(
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
             "chat.send_failed",
-            format!("the chat started, but the prompt did not reach it: {}", output.trim()),
+            format!("the prompt did not reach the chat: {}", output.trim()),
             json!({"answer": answer}),
             1,
         );
@@ -1650,7 +1716,7 @@ fn follow_ups(machine: &str, session: &str) -> Value {
         format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
     };
     json!({
-        "send": on(format!("{GUEST_CMUX} acp send --no-wait {session} 'PROMPT'")),
+        "send": format!("cmux chat send {session} 'PROMPT' --wait"),
         "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
         "last": on(format!("{GUEST_CMUX} acp last {session}")),
     })
@@ -1884,13 +1950,22 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
             match at(answer, "reply").as_str() {
                 // Text from the machine: no terminal controls reach this terminal.
                 Some(reply) => println!("{}", super::wire::sanitize_remote_text(reply)),
-                None => println!(
-                    "{} {} on {} (machine:{}).",
-                    if at(answer, "sent").as_bool() == Some(false) { "Started" } else { "Sent to" },
-                    at(answer, "session_id").as_str().unwrap_or_default(),
-                    at(answer, "machine_name").as_str().unwrap_or_default(),
-                    at(answer, "machine_id").as_str().unwrap_or_default()
-                ),
+                None => {
+                    let machine = at(answer, "machine_id").as_str().unwrap_or_default();
+                    let on = match at(answer, "machine_name").as_str() {
+                        Some(name) => format!("{name} (machine:{machine})"),
+                        None => format!("machine:{machine}"),
+                    };
+                    println!(
+                        "{} {} on {on}.",
+                        if at(answer, "sent").as_bool() == Some(false) {
+                            "Started"
+                        } else {
+                            "Sent to"
+                        },
+                        at(answer, "session_id").as_str().unwrap_or_default()
+                    );
+                }
             }
             eprintln!(
                 "machine_id {}  session_id {}  tab_id {}",

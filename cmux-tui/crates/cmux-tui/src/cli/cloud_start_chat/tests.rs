@@ -353,7 +353,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     }
     assert_eq!(answer["sent"], true);
     assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
-    assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
+    assert_eq!(answer["follow_up"]["send"], json!("cmux chat send sess-1 'PROMPT' --wait"));
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
     // The app had no relay chat: the link path, on the machine just made.
@@ -510,9 +510,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
         // Two steps of the fake's five seconds each, from the command's start.
         assert_eq!(answer["ready_ms"], 10_000);
         assert!(answer.get("reply").is_none());
-        let send = answer["follow_up"]["send"].as_str().unwrap();
-        assert!(send.contains("acp send --no-wait sess-1"), "{send}");
-        assert!(send.starts_with("cmux cloud exec --target machine:vm-1 "), "{send}");
+        // The first message, by the chat's session (#37477's `cmux chat send`).
+        assert_eq!(answer["follow_up"]["send"], json!("cmux chat send sess-1 'PROMPT' --wait"));
     }
 }
 
@@ -2077,4 +2076,43 @@ fn a_fresh_name_has_sixteen_random_hex_characters() {
     unique.sort();
     unique.dedup();
     assert_eq!(unique.len(), names.len());
+}
+
+#[test]
+fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
+    let mut fake = Fake::new(vec![
+        exec_out(
+            "@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n@@send\nd-2\n@@exit 0\n",
+        ),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":4,\"status\":\"completed\",\"endedAt\":12}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"5\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = Request {
+        prompt: Some("And 2+3?".into()),
+        agent: String::new(),
+        cwd: None,
+        login: None,
+        environment: None,
+        machine: Machine::Target("vm-1".into()),
+        wait: true,
+        timeout: Duration::from_secs(60),
+    };
+    let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
+        panic!("{:?}", fake.ran)
+    };
+    // The reply of the turn after the one before the send, never the older one.
+    assert_eq!(answer["reply"], "5");
+    assert_eq!(
+        (answer["session_id"].as_str(), answer["sent"].as_bool()),
+        (Some("sess-1"), Some(true))
+    );
+    // No list, no start: only the two runs on the machine.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+    assert!(
+        fake.ran
+            .iter()
+            .all(|ran| ran[..4] == strings(&["cloud", "exec", "--target", "machine:vm-1"]))
+    );
 }
