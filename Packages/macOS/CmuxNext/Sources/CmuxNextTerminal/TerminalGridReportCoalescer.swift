@@ -88,15 +88,16 @@ final class TerminalGridReportCoalescer {
     }
 
     /// The view's fit grid is now `grid`: while frames run and this refresh sent nothing, it goes at once; else it waits
-    /// for the open window, or opens one.
-    func viewSized(_ grid: TerminalGridSize) {
+    /// for the open window, or opens one. `waitsForRefresh`: a grid of a size no frame shows yet (a view shown into a
+    /// key hold, before its pane's layout gives it its frame) never goes at once; the layout's grid replaces it.
+    func viewSized(_ grid: TerminalGridSize, waitsForRefresh: Bool = false) {
         if pending != nil {
             pending = grid
             return
         }
         guard grid != lastSent else { return }
         let source = ticks()
-        if source != nil, !spent {
+        if source != nil, !spent, !waitsForRefresh {
             // Frames run and this refresh sent nothing: the grid goes in the turn that showed its size.
             deliver(grid)
             return
