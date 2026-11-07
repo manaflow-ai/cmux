@@ -25,10 +25,16 @@ fn reads_both_link_forms() {
     let page = format!("https://share.cmux.dev/g/{SHARE}");
     let encoded: String = url::form_urlencoded::byte_serialize(page.as_bytes()).collect();
     for scheme in ["cmux", "cmux-dev", "cmux-nightly", "cmux-dev-my-tag"] {
-        assert_eq!(parse(&format!("{scheme}://share?link={encoded}#{SECRET}")).as_ref(), Some(&https), "{scheme}");
+        assert_eq!(
+            parse(&format!("{scheme}://share?link={encoded}#{SECRET}")).as_ref(),
+            Some(&https),
+            "{scheme}"
+        );
     }
     // An old workers.dev link and an invite (no secret, whatever a fragment holds).
-    let old = parse(&format!("https://cmux-platform-production.debussy.workers.dev/g/{SHARE}#{SECRET}")).unwrap();
+    let old =
+        parse(&format!("https://cmux-platform-production.debussy.workers.dev/g/{SHARE}#{SECRET}"))
+            .unwrap();
     assert_eq!(old.origin, "https://cmux-platform-production.debussy.workers.dev");
     let invite = parse(&format!("https://share.cmux.dev/i/{SHARE}#{SECRET}")).unwrap();
     assert_eq!((invite.page, invite.secret), ("i", None));
@@ -76,7 +82,10 @@ fn a_token_goes_only_to_the_configured_rooms_deployment() {
     // The same deployment's either host.
     assert!(takes_token(&at("https://share-staging.cmux.dev"), staging));
     assert!(takes_token(&at("https://cmux-platform-staging.debussy.workers.dev"), staging));
-    assert!(takes_token(&at("https://share-staging.cmux.dev"), Some("https://share-staging.cmux.dev")));
+    assert!(takes_token(
+        &at("https://share-staging.cmux.dev"),
+        Some("https://share-staging.cmux.dev")
+    ));
     // Another deployment's link opens, signed out.
     assert!(known(&at("https://share.cmux.dev"), staging));
     assert!(!takes_token(&at("https://share.cmux.dev"), staging));
@@ -135,10 +144,19 @@ fn opens_signed_in_through_the_rooms_hand_off_and_never_sends_the_secret() {
     )
     .unwrap();
     assert_eq!(opened["signed_in"], json!(true));
-    assert_eq!(opened["url"], json!(format!("{url}/g/{SHARE}?in_app=1&cmux_handoff={CODE}#{SECRET}")));
+    assert_eq!(
+        opened["url"],
+        json!(format!("{url}/g/{SHARE}?in_app=1&cmux_handoff={CODE}#{SECRET}"))
+    );
     let request = seen.recv().unwrap();
-    assert!(request.starts_with(&format!("POST /v1/chat-shares/{SHARE}/handoff HTTP/1.1\r\n")), "{request}");
-    assert!(request.to_ascii_lowercase().contains("authorization: bearer person-token"), "{request}");
+    assert!(
+        request.starts_with(&format!("POST /v1/chat-shares/{SHARE}/handoff HTTP/1.1\r\n")),
+        "{request}"
+    );
+    assert!(
+        request.to_ascii_lowercase().contains("authorization: bearer person-token"),
+        "{request}"
+    );
     assert!(request.ends_with(r#"{"page":"g"}"#), "{request}");
     assert!(!request.contains(SECRET), "the secret reached the room: {request}");
 }
@@ -149,12 +167,16 @@ fn opens_signed_out_when_the_room_refuses_or_there_is_no_token() {
     let shares = LinkShares::default();
     assert!(shares.bridge.configure(Some(&url), room::Timing::default()));
     let link = format!("{url}/i/{SHARE}");
-    let refused = open(&shares, OpenLink { link: link.clone(), token: Some("person-token".into()) }).unwrap();
+    let refused =
+        open(&shares, OpenLink { link: link.clone(), token: Some("person-token".into()) }).unwrap();
     assert_eq!(refused, json!({"url": format!("{url}/i/{SHARE}?in_app=1"), "signed_in": false}));
     let anonymous = open(&shares, OpenLink { link, token: None }).unwrap();
     assert_eq!(anonymous["signed_in"], json!(false));
     assert_eq!(
-        open(&shares, OpenLink { link: format!("https://share.example.com/g/{SHARE}"), token: None }),
+        open(
+            &shares,
+            OpenLink { link: format!("https://share.example.com/g/{SHARE}"), token: None }
+        ),
         Err("share.not_a_link")
     );
 }

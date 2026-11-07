@@ -58,7 +58,10 @@ mod tests {
             share_owner_api("https://share-dev.cmux.dev"),
             Some("https://cmux-api-development.debussy.workers.dev")
         );
-        assert_eq!(share_owner_api("https://share-staging.cmux.dev"), Some("https://cloud-api-staging.cmux.dev"));
+        assert_eq!(
+            share_owner_api("https://share-staging.cmux.dev"),
+            Some("https://cloud-api-staging.cmux.dev")
+        );
         assert_eq!(share_owner_api("https://share.cmux.dev"), Some("https://cloud-api.cmux.dev"));
         assert_eq!(share_owner_api("https://share.example.com"), None);
         assert_eq!(share_deployment("https://share.cmux.dev"), Some(PRODUCTION));

@@ -1327,7 +1327,9 @@ pub(super) fn handle(
             parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
         }
         // A share link the app was handed: the page to open in its web view, signed in when it may be.
-        "agent-session-share-open-link" => parse(params).and_then(|p: link::OpenLink| link::open(shares, p)),
+        "agent-session-share-open-link" => {
+            parse(params).and_then(|p: link::OpenLink| link::open(shares, p))
+        }
         "agent-session-share-redeem" => {
             parse(params).and_then(|p: Redeem| shares.redeem(directory, p))
         }

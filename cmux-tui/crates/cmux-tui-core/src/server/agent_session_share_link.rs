@@ -19,10 +19,14 @@ use crate::cloud_conversations::platform;
 use zeroize::Zeroizing;
 
 /// The share id and the secret as the daemon makes them (`token::<16>`, URL-safe), within the room's bounds.
-const ID: fn(&str) -> bool =
-    |s| (16..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-const SECRET: fn(&str) -> bool =
-    |s| (8..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+const ID: fn(&str) -> bool = |s| {
+    (16..=128).contains(&s.len())
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+};
+const SECRET: fn(&str) -> bool = |s| {
+    (8..=128).contains(&s.len())
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+};
 
 /// One hand-off mint. timeout: a room that never answers must not hold the open; the page then opens
 /// signed out, and the person can still join from it.
@@ -120,7 +124,8 @@ fn is_cmux_scheme(scheme: &str) -> bool {
         || scheme.strip_prefix("cmux-").is_some_and(|rest| {
             !rest.is_empty()
                 && rest.split('-').all(|part| {
-                    !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                    !part.is_empty()
+                        && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
                 })
         })
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSettings
 
@@ -181,21 +182,8 @@ final class ExternalOpenController {
             }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
-        case .shareLink(let url): openShareLink(url, in: pane)
+        case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
         case .deepLink, .unsupported: return
-        }
-    }
-
-    /// A chat share link: the daemon's page for it, signed in as the person's cmux account when it may be
-    /// (cmux-tui `agent_session_share_link.rs`), in a browser tab. A web address the daemon refuses still
-    /// opens as itself; an app link it refuses opens nothing.
-    private func openShareLink(_ url: URL, in pane: PaneController) {
-        let services = services
-        let fallback = url.scheme?.lowercased() == "https" ? url : nil
-        // task-owner: ExternalOpenController.openShareLink: one daemon request, then one tab; ends with it.
-        Task { @MainActor [weak pane] in
-            guard let page = await services.shareLinkPage(url) ?? fallback, let pane, pane.view.window != nil else { return }
-            pane.newBrowserTab(url: page)
         }
     }
 }
