@@ -3263,7 +3263,7 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 # cmux NEXT's nightly appcast (nightly.yml's NIGHTLY_NEXT_FEED_BASE). A nightly build number is its run id and a
 # two-digit attempt (4119158082902 is run 41191580829, attempt 2), and publish-nightly refuses a build no newer
 # than the feed's, so a nightly-next run older than the feed's newest build's run can never publish there.
-NEXT_FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+NEXT_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one cmux NIGHTLY feed (#36287); /next/ froze on 2026-11-05
 _FEED_VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 # glaeda's job-started hook refuses an owned-Mac signing job when scripts/ci/glaeda-signing-hooks.txt at the run's
 # own commit does not list the mini's hook. A re-run runs that same commit, so it is refused the same way every
