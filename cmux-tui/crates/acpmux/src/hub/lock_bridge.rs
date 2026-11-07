@@ -66,19 +66,58 @@ pub(crate) fn holds(i: Inputs) -> bool {
         && (i.running > 0 || (i.waiting > 0 && i.since_running < WAIT_GRACE))
 }
 
-/// How long the worker waits before it reads again: [`TICK`]. A status change ends the wait
-/// early.
-pub(crate) fn next_wait(_i: Inputs) -> Duration {
-    TICK
+/// How long the worker waits before it reads again: a [`TICK`], or less when the hold is due to
+/// end sooner (the [`CAP`], or the [`WAIT_GRACE`] of a waiting turn), so it never outlives
+/// either. A status change ends the wait early.
+pub(crate) fn next_wait(i: Inputs) -> Duration {
+    if !holds(i) {
+        return TICK;
+    }
+    let mut wait = TICK.min(CAP.saturating_sub(i.locked_for));
+    if i.running == 0 {
+        wait = wait.min(WAIT_GRACE.saturating_sub(i.since_running));
+    }
+    wait
 }
 
-/// Whether the settings document turns the bridge on: the toggle is true and `keepAwake` is not
-/// "off". Anything else (absent, not a boolean, an unreadable file) is off.
-pub(crate) fn setting_on(doc: Option<&Value>, _managed: &ManagedPreferences) -> bool {
-    let Some(doc) = doc else { return false };
-    let on = crate::user_settings::value(doc, SETTING) == Some(Value::Bool(true));
-    let keep_awake = crate::user_settings::value(doc, "sessions.keepAwake");
+/// The settings that decide the bridge: the toggle, and Keep Mac Awake that it extends.
+const KEEP_AWAKE: &str = "sessions.keepAwake";
+const KEYS: [&str; 2] = [SETTING, KEEP_AWAKE];
+
+/// One key's value as cmux applies it: an administrator's forced value, else the settings file's,
+/// else an administrator's recommended value (which only replaces the default).
+fn effective(doc: Option<&Value>, managed: &ManagedPreferences, key: &str) -> Option<Value> {
+    managed
+        .forced
+        .get(key)
+        .cloned()
+        .or_else(|| doc.and_then(|doc| crate::user_settings::value(doc, key)))
+        .or_else(|| managed.recommended.get(key).cloned())
+}
+
+/// Whether the settings turn the bridge on: the toggle is true and `keepAwake` is not "off", each
+/// as [`effective`] reads it under the managed values. Anything else (absent, not a boolean, an
+/// unreadable file with nothing forced) is off.
+pub(crate) fn setting_on(doc: Option<&Value>, managed: &ManagedPreferences) -> bool {
+    let on = effective(doc, managed, SETTING) == Some(Value::Bool(true));
+    let keep_awake = effective(doc, managed, KEEP_AWAKE);
     on && keep_awake.as_ref().and_then(Value::as_str) != Some("off")
+}
+
+/// The managed preferences of the two [`KEYS`] (MDM profiles, `com.manaflow.cmux`), read the way
+/// cmux-config reads every other managed setting. Off a Mac the bridge holds nothing.
+fn managed_now() -> ManagedPreferences {
+    #[cfg(target_os = "macos")]
+    {
+        use cmux_config::managed::{CfManagedReader, DOMAIN, ManagedReader};
+        let keys = KEYS.iter().map(|key| (*key).to_owned()).collect();
+        CfManagedReader { domain: DOMAIN.to_owned(), keys }.read()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = KEYS;
+        ManagedPreferences::default()
+    }
 }
 
 /// What the worker carries from one reading to the next, for the daemon's life: when a turn last
@@ -137,11 +176,15 @@ impl Tracker {
 }
 
 fn setting_now() -> bool {
+    let managed = managed_now();
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            setting_on(Some(&doc), &ManagedPreferences::default())
-        }
-        _ => false,
+        crate::user_settings::Settings::Parsed(doc) => setting_on(Some(&doc), &managed),
+        crate::user_settings::Settings::Missing => setting_on(None, &managed),
+        // A broken file may hold the person's off: only a forced value decides then.
+        crate::user_settings::Settings::Unreadable(_) => setting_on(
+            None,
+            &ManagedPreferences { forced: managed.forced, ..ManagedPreferences::default() },
+        ),
     }
 }
 

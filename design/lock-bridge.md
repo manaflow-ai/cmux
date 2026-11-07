@@ -15,6 +15,11 @@ extends that setting rather than adding a second mechanism:
 | While Plugged In (default) | awake on adapter while an agent works | same | same, and on battery too |
 | Always | awake while an agent works | same | same |
 
+An administrator's value applies as it does for every other setting: a value an MDM profile forces
+(`com.manaflow.cmux`, either key) wins over the settings file, and a recommended one only replaces the
+default. acpmux reads both keys itself through cmux-config's managed reader, so a forced off holds
+even while the app is quit. With the settings file unreadable, only a forced value turns it on.
+
 Before this, a MacBook on battery under the default idle-slept a few minutes after it locked, and the
 turn died with it. On adapter power the existing hold already kept a locked Mac up.
 
@@ -30,8 +35,9 @@ hold "cmux keeps agents running while this Mac is locked".
 
 ### 1. The hold is bounded
 
-The assertion is held only while all of these are true, checked on every session status change and
-every 15 s while a session runs or waits:
+The assertion is held only while all of these are true, checked on every session status change,
+every 15 s while a session runs or waits, and at the moment the 2 hour or 10 minute bound below is
+due, so the hold ends on time rather than up to one check later:
 
 - the toggle is on and Keep Mac Awake is not Off;
 - the screen is locked (an unknown lock state holds nothing);
@@ -82,9 +88,13 @@ Narrowing it to -34018 is a Swift change for its own PR.
 - **Computer Use.** A locked screen shows only the lock screen: a screenshot sees it, and a click or a
   keystroke lands in its password field. While the screen is locked, every Computer Use tool call
   gets an error result `{"structuredContent": {"error": "mac_locked"}, "isError": true}` with the text
-  "mac_locked: this Mac's screen is locked ...", and never reaches the helper. Both drivers go through
+  "mac_locked: this Mac's screen is locked ...", and never reaches the helper. That holds for every
+  form of a call: one sent as a notification (no `id`) is dropped, a batch that holds a call is
+  answered here in full, and the helper reads each message as the gate parsed it, so a line two
+  parsers read differently cannot slip through. A line that does not parse is dropped while locked. Both drivers go through
   it: the helper v2 bridge (`acpmux cua-mcp`) and the legacy `cmux-cua mcp`, which acpmux now starts
-  as `acpmux cua-lock-gate -- cmux-cua mcp ...` on a Mac (`src/cua_lock_gate.rs`). This applies
+  as `acpmux cua-lock-gate -- cmux-cua mcp ...` on a Mac (`src/cua_lock_gate.rs`); the gate ends
+  when the helper does. This applies
   **whether or not the toggle is on**: it is the safe answer on any locked Mac. `tools/list` still
   answers, so the agent knows the tools exist and can retry after the unlock.
 - **Permission prompts and questions.** Unchanged: a request waits until the person answers, on the Mac

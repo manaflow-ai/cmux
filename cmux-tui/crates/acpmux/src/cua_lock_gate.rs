@@ -9,8 +9,9 @@
 //!
 //! Both drivers go through it: the helper v2 bridge (`acpmux cua-mcp`, `cua_v2::serve`) asks
 //! [`gate`] for each request, and the legacy `cmux-cua mcp` proxy runs under
-//! `acpmux cua-lock-gate -- <cmux-cua> mcp ...` ([`run`]), which passes every other line through
-//! unchanged both ways. The gate only refuses: it never answers a call as done, never approves
+//! `acpmux cua-lock-gate -- <cmux-cua> mcp ...` ([`run`]), which passes every other message
+//! through both ways and ends with the helper. A call is gated in every form: a request, a
+//! notification, a batch. The gate only refuses: it never answers a call as done, never approves
 //! anything, and never reads the helper's tokens (they stay in the child's env).
 
 use anyhow::{Context, Result, anyhow};
@@ -42,25 +43,55 @@ pub enum Gated {
     Drop,
 }
 
-/// What happens to one agent message: a `tools/call` request while `locked()` says the screen
-/// is locked is answered here. Anything else passes (`locked` is only asked for a call).
+/// What happens to one agent message: while `locked()` says the screen is locked, a `tools/call`
+/// never passes, whatever its form. A request is answered here; one sent as a notification (no
+/// `id`) is dropped, since nothing waits for its answer; a batch that holds a call gets one answer
+/// per request in it, and none of it passes. Anything else passes (`locked` is only asked for a
+/// call).
 pub fn gate(message: &Value, locked: impl FnOnce() -> bool) -> Gated {
-    let Some(id) = message.get("id") else { return Gated::Pass };
-    if message["method"] != "tools/call" || !locked() {
+    let has_call = match message {
+        Value::Array(items) => items.iter().any(is_call),
+        _ => is_call(message),
+    };
+    if !has_call || !locked() {
         return Gated::Pass;
     }
-    Gated::Reply(json!({"jsonrpc": "2.0", "id": id, "result": locked_result()}))
+    match message {
+        Value::Array(items) => {
+            let replies: Vec<Value> = items.iter().filter_map(locked_reply).collect();
+            if replies.is_empty() { Gated::Drop } else { Gated::Reply(Value::Array(replies)) }
+        }
+        _ => locked_reply(message).map_or(Gated::Drop, Gated::Reply),
+    }
+}
+
+fn is_call(message: &Value) -> bool {
+    message["method"] == "tools/call"
+}
+
+/// The answer, while locked, to one request of a message that holds a call: a call gets the
+/// typed result, another request the same reason as an error. A notification gets none.
+fn locked_reply(message: &Value) -> Option<Value> {
+    let id = message.get("id")?;
+    message.get("method")?;
+    Some(if is_call(message) {
+        json!({"jsonrpc": "2.0", "id": id, "result": locked_result()})
+    } else {
+        json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": MAC_LOCKED_TEXT}})
+    })
 }
 
 /// `acpmux cua-lock-gate -- CMD ARGS`: runs CMD as the agent's MCP server, passing its stdio
-/// through line by line, and answers gated calls itself. Ends when either side closes.
+/// through line by line, and answers gated calls itself. Ends when either side closes: the
+/// process exits then, since a read of stdin cannot be cancelled and would hold it open.
 pub async fn run(args: &[String]) -> Result<()> {
     let args = args.strip_prefix(&["--".to_owned()]).unwrap_or(args);
     let (program, rest) =
         args.split_first().ok_or_else(|| anyhow!("{COMMAND}: no server command"))?;
     crate::parent_watch::exit_with_parent();
     let stdin = BufReader::new(tokio::io::stdin());
-    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::locked).await
+    run_with(program, rest, stdin, tokio::io::stdout(), crate::mac_lock::locked).await?;
+    std::process::exit(0)
 }
 
 /// [`run`] over the given agent side, with the screen lock read passed in.
@@ -104,17 +135,33 @@ where
             }
         }
     });
+    // The helper reads what the gate read: each message goes on as the gate parsed it, so a line
+    // two parsers read differently (a repeated key) cannot pass as one thing and act as another.
+    // A line that does not parse goes on as it is, unless the screen is locked.
     let mut lines = input.lines();
-    while let Some(line) = lines.next_line().await? {
-        let gated = serde_json::from_str::<Value>(&line)
-            .map_or(Gated::Pass, |message| gate(&message, &locked));
+    let mut from_server = from_server;
+    let mut server_ended = false;
+    loop {
+        let line = tokio::select! {
+            _ = &mut from_server => {
+                server_ended = true;
+                break; // the server is gone: so is the gate
+            }
+            line = lines.next_line() => line?,
+        };
+        let Some(line) = line else { break };
+        let (gated, text) = match serde_json::from_str::<Value>(&line) {
+            Ok(message) => (gate(&message, &locked), message.to_string()),
+            Err(_) if locked() => (Gated::Drop, String::new()),
+            Err(_) => (Gated::Pass, line),
+        };
         match gated {
             Gated::Reply(reply) => {
                 let _ = out_tx.send(format!("{reply}\n"));
             }
             Gated::Drop => {}
             Gated::Pass => {
-                if to_child.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                if to_child.write_all(format!("{text}\n").as_bytes()).await.is_err() {
                     break; // the server is gone
                 }
                 let _ = to_child.flush().await;
@@ -122,7 +169,11 @@ where
         }
     }
     drop(to_child); // stdin closed: the server ends
-    let _ = from_server.await;
+    if server_ended {
+        let _ = child.start_kill(); // it closed its output: nothing more comes from it
+    } else {
+        let _ = from_server.await;
+    }
     drop(out_tx);
     let _ = writer.await;
     let _ = child.wait().await;
@@ -166,7 +217,10 @@ mod tests {
         assert_eq!(replies.len(), 2, "one answer per request: {replies:?}");
         assert_eq!(replies[0]["result"]["structuredContent"]["error"], "mac_locked");
         assert_eq!(replies[1]["id"], 2);
-        assert_eq!(gate(&json!([{"jsonrpc": "2.0", "method": "tools/call"}]), || true), Gated::Drop);
+        assert_eq!(
+            gate(&json!([{"jsonrpc": "2.0", "method": "tools/call"}]), || true),
+            Gated::Drop
+        );
         assert_eq!(gate(&batch, || false), Gated::Pass);
         let list_only = json!([{"jsonrpc": "2.0", "id": 3, "method": "tools/list"}]);
         assert_eq!(gate(&list_only, || panic!("no call in it")), Gated::Pass);
