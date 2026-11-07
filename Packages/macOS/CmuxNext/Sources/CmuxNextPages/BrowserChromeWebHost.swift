@@ -24,6 +24,7 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         let descriptor: PageDescriptor
         switch surface {
         case .pageInfo: descriptor = .pageInfo
+        case .cookieImport: descriptor = .cookieImport
         }
         let provider = BrowserChromeWebProvider(namespace: descriptor.id + ".")
         guard let page = PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: provider.namespace, provider: provider)],

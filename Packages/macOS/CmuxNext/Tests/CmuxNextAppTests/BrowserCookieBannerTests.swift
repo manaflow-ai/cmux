@@ -178,6 +178,26 @@ import Testing
         #expect(!state.offers(Self.personalPage), "cookies came over: the banner is done")
     }
 
+    /// Leo, 2026-11-07: "why does it keep asking? ... If someone's, like, successfully imported it".
+    /// Cookies that came over through Import Cookies from Browser (`cmux browser import-cookies`, the
+    /// palette, an agent's run the person allowed) end the banner too, across launches, and close a
+    /// card on screen; a run that wrote nothing keeps it.
+    @Test func cookiesImportedByTheImportCookiesCommandEndTheBannerForGood() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let defaults = Self.freshDefaults()
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        offer.importFinished(ImportCounts(cookies: 0))
+        #expect(offer.state.offers(Self.personalPage), "a run that wrote no cookie keeps the banner")
+        #expect(page.chrome.currentCookieImportCard != nil)
+        offer.importFinished(ImportCounts(cookies: 42))
+        #expect(!offer.state.offers(Self.personalPage), "cookies came over: the banner is done")
+        #expect(page.chrome.currentCookieImportCard == nil, "and the card on screen goes")
+        let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!nextLaunch.state.offers(Self.personalPage), "never again, also after a relaunch")
+    }
+
     /// The old offer (bookmarks, history and passwords) was a different card: its answer does not
     /// hide the cookie banner.
     @Test func theOldOffersDismissalDoesNotHideTheCookieBanner() throws {
