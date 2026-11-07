@@ -102,6 +102,22 @@ struct ChatSlideOnRenderServerTests {
         for divider in view.dividerViews.values { #expect(screen.springs(on: divider).isEmpty) }
     }
 
+    /// The daemon's echo of the split with its own sizes lands mid-slide: the slide stays on the render server (its new
+    /// springs add to the running ones) instead of going back to main-thread frames, which stand still under load.
+    @Test func anEchoWithOtherSizesMidSlideStaysOnTheRenderServer() throws {
+        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        defer { screen.window.closeAfterTest() }
+        screen.show(Self.opened)
+        let view = try #require(screen.screen)
+        let chatHost = try #require(view.context.hosts["chat"])
+        let before = chatHost.layer?.animationKeys()?.filter { $0.hasPrefix(ServerSpring.key) }.count ?? 0
+        screen.show(.split("r", axis: .horizontal, ratio: 0.55, a: .leaf("chat"), b: .leaf("panel")))
+        #expect(!view.hasMotion, "the echo put the slide back on main-thread frames")
+        for (pane, frame) in view.paneFrames { #expect(frame.rect == frame.targetRect, "\(pane) springs on the main thread") }
+        let after = chatHost.layer?.animationKeys()?.filter { $0.hasPrefix(ServerSpring.key) }.count ?? 0
+        #expect(after > before, "the echo's move is not on the render server: \(before) springs, then \(after)")
+    }
+
     /// Reduce Motion turned on or the window out of sight mid-slide (`landMotion`) lands it: no spring is left to run
     /// or to play again when the window shows (review F1 at a5b95568).
     @Test func landingTheLayoutStopsARenderServerSlide() throws {

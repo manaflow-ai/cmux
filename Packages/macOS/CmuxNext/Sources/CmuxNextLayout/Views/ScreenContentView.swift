@@ -260,11 +260,13 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
-        // A render-server slide still running gives its frames back when this pass moves anything it carries elsewhere
-        // (another change, a resize, a snap): the change starts from what shows. A pass to the same rest (the daemon's
-        // echo of the split) leaves it running.
+        // A render-server slide still running: a retarget of the same panes (the daemon's echo of the split with its
+        // own sizes) stays on the render server, its springs adding to the running ones (below), so the slide never
+        // falls back to the main thread mid-way. Another change, a resize or a snap takes its frames back: the change
+        // starts from what shows. A pass to the same rest leaves it running.
         let retargets = baseGeometry.panes.contains { pane, target in paneFrames[pane].map { $0.targetRect != target } ?? false }
-        if structural || rebasing || !animated || retargets {
+        let serverCarriesOn = hasServerMotion && animated && !structural && !rebasing && !context.reduceMotion
+        if !serverCarriesOn, structural || rebasing || !animated || retargets {
             takeBackServerMotion()
         }
         let animate = animated && !context.reduceMotion && bounds.width > 0
@@ -462,6 +464,8 @@ final class ScreenContentView: NSView {
         // A chat's slide-in split moves on the render server, so a busy main thread never stops it (``ScreenServerMotion``).
         if structural, !arrivals.isEmpty, handoff == nil, !wasMoving, animateFrames, !covering, !returning, !departing {
             handOffToRenderServer(arrivals: arrivals)
+        } else if serverCarriesOn, retargets, animateFrames, !wasMoving {
+            handOffToRenderServer(arrivals: [:])
         }
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
