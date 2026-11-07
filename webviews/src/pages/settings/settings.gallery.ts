@@ -9,6 +9,7 @@ import type {
   ProviderAccount,
 } from "./ops";
 import { minutesAgo } from "../../gallery/clock";
+import type { Play, PlayContext } from "../../gallery/play";
 import { categories, homes } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -1580,6 +1581,113 @@ variants["github-connect-confirm"] = variant("accounts", {
     await ctx.click({ selector: '[data-github-action="disconnect"]' });
     await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
   },
+});
+
+// Leo, 2026-11-07, on the folds: "they dont overshoot but they decelerate at the end. i think that might be
+// the key". Every Settings fold opens and closes on the settle (--cmux-ease-settle over --cmux-motion-settle):
+// open at rest, and frozen 60 ms in, so the curve's fast start and soft tail read in a still.
+const settledFolds = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
+
+/// Clicks each toggle in turn, then waits until every fold has ended on its final layout.
+const foldOpen =
+  (...toggles: string[]): Play =>
+  async (ctx) => {
+    for (const selector of toggles) {
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+    }
+    await ctx.waitFor(() => settledFolds(ctx), { capMs: 3000 });
+    if (ctx.document.querySelector("[data-folding]")) throw new Error("A fold ended still clipped");
+    ctx.find({ selector: toggles.at(-1)! }).scrollIntoView({ block: "center" });
+  };
+
+/// Clicks each toggle, then holds every motion 60 ms in: the body partway, decelerating into its end.
+const foldMid =
+  (...toggles: string[]): Play =>
+  async (ctx) => {
+    for (const selector of toggles.slice(0, -1)) {
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+    }
+    await ctx.waitFor(() => settledFolds(ctx), { capMs: 3000 });
+    const last = toggles.at(-1)!;
+    await ctx.waitFor(() => ctx.document.querySelector(last));
+    ctx.find({ selector: last }).scrollIntoView({ block: "center" });
+    await ctx.click({ selector: last });
+    await ctx.waitFor(() => ctx.document.getAnimations().length > 0);
+    for (const animation of ctx.document.getAnimations()) {
+      animation.pause();
+      animation.currentTime = 60;
+    }
+  };
+
+/// A compared summary marker, as a style override on the chosen twisty.
+const markerLook =
+  (css: string, then: Play): Play =>
+  async (ctx) => {
+    const style = ctx.document.createElement("style");
+    style.textContent = css;
+    ctx.document.head.append(style);
+    await then(ctx);
+  };
+
+const PROFILE_TOGGLE = '[data-profile="p-work"] .host-toggle';
+const INTEGRATIONS_TOGGLE = '[data-card="agentIntegrations"] summary';
+const ENV_LOG_TOGGLE = '[data-card="cloudEnvironments"] [data-environment-log] summary';
+const DENSITY_DUPLICATE = '[data-density-action="duplicate"]';
+const DENSITY_EXACT = ".density-editor details summary";
+const TEAM_DETAILS = '[data-team="team-personal"] [data-team-button="team.details"]';
+
+variants["fold-settle-profile"] = variant("browser", {
+  note: "Chosen. A browser profile's form folds open under its row on the settle, the rows under it moving on the same frames.",
+  play: foldOpen(PROFILE_TOGGLE),
+});
+variants["fold-settle-profile-mid"] = variant("browser", {
+  note: "The same fold held 60 ms in: most of the way already, decelerating into its end, never past it.",
+  play: foldMid(PROFILE_TOGGLE),
+});
+variants["fold-settle-team"] = variant("accounts", {
+  accounts: withTeams(),
+  note: "Chosen. A team's details fold open under its row when the host sends them, on the settle.",
+  play: foldOpen(TEAM_DETAILS),
+});
+variants["fold-settle-team-mid"] = variant("accounts", {
+  accounts: withTeams(),
+  note: "The team's details held 60 ms into their fold.",
+  play: foldMid(TEAM_DETAILS),
+});
+variants["fold-settle-integrations"] = variant("agents", {
+  note: "Chosen. Agent integrations opens on the settle; Settings' twisty, in place of the browser's marker, turns down with it.",
+  play: foldOpen(INTEGRATIONS_TOGGLE),
+});
+variants["fold-settle-integrations-mid"] = variant("agents", {
+  note: "Agent integrations held 60 ms into its fold, its twisty partway through its turn.",
+  play: foldMid(INTEGRATIONS_TOGGLE),
+});
+variants["fold-settle-env-log"] = variant("accounts", {
+  environments: rowShapeEnvironments,
+  note: "Chosen. A failed environment's build log folds open under its status on the settle.",
+  play: foldOpen(ENV_LOG_TOGGLE),
+});
+variants["fold-settle-density-exact"] = variant("appearance", {
+  focus: "appearance.density",
+  note: "Chosen. A custom density's Exact sizes fold open on the settle, the editor's actions moving down with them.",
+  play: foldOpen(DENSITY_DUPLICATE, DENSITY_EXACT),
+});
+variants["fold-marker-twisty"] = variant("agents", {
+  note: "Chosen marker. Settings' own twisty (the context menus' folders) leads the summary, right closed and down open, turning on the settle as the body folds.",
+  play: foldMid(INTEGRATIONS_TOGGLE),
+});
+variants["fold-marker-native"] = variant("agents", {
+  note: "Compared, not chosen: the browser's own marker. It flips at once as the body starts to fold, so the summary does not move with the fold, and it is the one triangle in Settings.",
+  play: markerLook(
+    "details:has(> summary > .fold-twisty) > summary{display:list-item;list-style:revert}details:has(> summary > .fold-twisty) > summary::-webkit-details-marker{display:revert}.fold-twisty{display:none}",
+    foldMid(INTEGRATIONS_TOGGLE),
+  ),
+});
+variants["fold-marker-trailing"] = variant("agents", {
+  note: "Compared, not chosen: the twisty at the summary's end. It drifts with the title's length, so the folds in a card do not line their markers up.",
+  play: markerLook(".fold-twisty{order:1}", foldMid(INTEGRATIONS_TOGGLE)),
 });
 
 export default settingsPageEntry({

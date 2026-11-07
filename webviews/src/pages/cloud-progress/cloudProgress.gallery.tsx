@@ -29,6 +29,36 @@ const showProgress: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-progress__title"));
 };
 
+const TRIGGER = ".cloud-progress__disclosure .ui-disclosure-trigger";
+const PANEL = ".cloud-progress__disclosure .ui-disclosure-panel";
+const settled = (ctx: Parameters<Play>[0]) => ctx.document.getAnimations().length === 0;
+
+/// Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key".
+/// The status line opens the steps under it on the settle; they end on their final layout, nothing running.
+const stepsOpen: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(TRIGGER));
+  await ctx.click({ selector: TRIGGER });
+  await ctx.waitFor(() => ctx.document.querySelector(PANEL) && settled(ctx), { capMs: 3000 });
+};
+
+/// The failed page's steps (open) fold away into the status line, and are gone when the motion ends.
+const stepsClose: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(PANEL));
+  await ctx.click({ selector: TRIGGER });
+  await ctx.waitFor(() => !ctx.document.querySelector(PANEL) && settled(ctx), { capMs: 3000 });
+};
+
+/// The steps opening, every motion held 60 ms in: most of the way, decelerating into the end.
+const stepsMid: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(TRIGGER));
+  await ctx.click({ selector: TRIGGER });
+  await ctx.waitFor(() => ctx.document.getAnimations().length > 0);
+  for (const animation of ctx.document.getAnimations()) {
+    animation.pause();
+    animation.currentTime = 60;
+  }
+};
+
 export default componentEntry<Props>({
   id: "pages.cloud-progress",
   title: "Cloud machine progress",
@@ -90,6 +120,21 @@ export default componentEntry<Props>({
           ask: SAMPLE_ASKS.upgrade,
         }),
       },
+    },
+    "steps-fold-open": {
+      note: "Chosen. The status line opens the steps under it as one motion on the settle (--cmux-ease-settle over --cmux-motion-settle): their height and opacity together, the blocks under them moving on the same frames.",
+      props: { state: sampleState("booting") },
+      play: stepsOpen,
+    },
+    "steps-fold-mid": {
+      note: "The same fold held 60 ms in: fast at first, decelerating into its end, never past it.",
+      props: { state: sampleState("booting") },
+      play: stepsMid,
+    },
+    "steps-fold-close": {
+      note: "The failed page's steps fold away into the status line; nothing is left drawn when the motion ends.",
+      props: { state: sampleState("failed", { step: 2 }) },
+      play: stepsClose,
     },
     resuming: {
       note: "Resume pressed: cmux Cloud is starting the machine again.",

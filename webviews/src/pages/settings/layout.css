@@ -839,8 +839,8 @@
   }
 }
 
+/* A browser profile's form folds open on the settle instead (HostSections.tsx, useFollowedFold.ts). */
 .section,
-.host-form,
 .domain-panel {
   animation: settings-enter var(--motion-in) var(--motion-ease) both;
 }

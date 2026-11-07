@@ -25,6 +25,8 @@ import {
   type Density,
 } from "../density";
 import { t } from "../strings";
+import { FoldDetails } from "../../../agent-session/shared/FoldDetails";
+import { FoldTwisty } from "./FoldTwisty";
 
 const EXACT: ReadonlyArray<keyof typeof PAIRS> = ["sidebarRowHeight", "tabHeight", "itemCornerRadius", "iconSize"];
 
@@ -288,8 +290,15 @@ export function DensityCard() {
               step={0.5}
               onChange={(fontSize) => edit({ fontSize })}
             />
-            <details>
-              <summary>{t("settingsWindow.density.exactSizes")}</summary>
+            <FoldDetails
+              bodyClassName="fold-body"
+              summary={
+                <>
+                  <FoldTwisty />
+                  {t("settingsWindow.density.exactSizes")}
+                </>
+              }
+            >
               {EXACT.map((name) => (
                 <Slider
                   key={name}
@@ -301,7 +310,7 @@ export function DensityCard() {
                   onChange={(value) => edit({ tokens: { ...editing.tokens, [name]: value } })}
                 />
               ))}
-            </details>
+            </FoldDetails>
             <div className="density-actions">
               <Button
                 variant="solid"

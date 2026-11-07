@@ -140,6 +140,31 @@
   background: var(--page-hover);
 }
 
+/* The steps fold open under the status line and away into it as one motion (Leo, 2026-11-07: "they dont
+   overshoot but they decelerate at the end. i think that might be the key"): Base UI measures the panel
+   into --collapsible-panel-height and keeps the steps drawn until a close ends, and its height and
+   opacity move together on the settle (--cmux-ease-settle over --cmux-motion-settle), so the blocks under
+   it move on the same frames. Reduce Motion, or the page's motion off: one frame. */
+.cloud-progress__disclosure .ui-disclosure-panel {
+  height: var(--collapsible-panel-height);
+  overflow: clip;
+}
+
+.cloud-progress__disclosure .ui-disclosure-panel:is([data-starting-style], [data-ending-style]) {
+  height: 0;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .cloud-progress__disclosure
+    .ui-disclosure-panel {
+    transition:
+      height var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)),
+      opacity var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}
+
 /* card: the same blocks on one popover-glass card; a bar of five segments over the steps. */
 .cloud-progress__card {
   display: flex;

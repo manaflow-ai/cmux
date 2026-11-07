@@ -2187,3 +2187,27 @@ button.menu-disclosure {
   border-color: transparent;
   background: var(--accent-soft);
 }
+
+/* A <details> that folds on the settle (agent-session/shared/FoldDetails.tsx): its summary draws Settings'
+   twisty in place of the browser's marker, pointing right closed and down open, and turns it as the body
+   folds, on the same curve and duration as the body's height (Leo, 2026-11-07: "they dont overshoot but
+   they decelerate at the end. i think that might be the key"). It turns as the fold starts
+   (`data-fold-open`), not when the closing body leaves. Reduce Motion or motion off: one frame. */
+details:has(> summary > .fold-twisty) > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  list-style: none;
+}
+details:has(> summary > .fold-twisty) > summary::-webkit-details-marker {
+  display: none;
+}
+details:not([data-fold-open]) > summary > .fold-twisty {
+  transform: rotate(-90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .fold-twisty {
+    transition: transform var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}

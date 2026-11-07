@@ -10,6 +10,7 @@ import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireErro
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
+import { useFollowedFold } from "./useFollowedFold";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -425,6 +426,9 @@ function ProfileRow({
   const icon = draft.for === current ? draft.icon : (profile.icon ?? "");
   const run = (action: Parameters<typeof store.runAction>[0], args: Record<string, unknown> = {}) =>
     void store.runAction(action, args, target);
+  // The form folds open under its row and away into it on the settle, the rows under it moving with
+  // it, also when opening another profile closes this one (useFollowedFold.ts).
+  const fold = useFollowedFold<HTMLDivElement>(expanded);
   return (
     <div className="row" data-profile={profile.id}>
       <button type="button" className="row-main host-toggle" aria-expanded={expanded} onClick={onToggle}>
@@ -436,8 +440,8 @@ function ProfileRow({
           {profile.source && <span className="row-help"> {profile.source}</span>}
         </span>
       </button>
-      {expanded && (
-        <div className="host-form">
+      {fold.drawn && (
+        <div ref={fold.ref} className="host-form">
           <label className="host-field">
             <span className="row-help">{t("settingsWindow.profileName")}</span>
             <Input

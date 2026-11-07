@@ -9,6 +9,8 @@ import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import type { CloudEnvironmentRow, CloudEnvironmentsRun, CloudEnvironmentsState } from "../ops";
 import { t } from "../strings";
+import { FoldDetails } from "../../../agent-session/shared/FoldDetails";
+import { FoldTwisty } from "./FoldTwisty";
 
 const STATUS: Record<string, string> = {
   unbuilt: "settingsPage.cloudEnvironments.status.unbuilt",
@@ -105,10 +107,18 @@ function EnvironmentRow({
           </span>
           {row.error && <span className="row-help"> {row.error}</span>}
           {row.log_tail && (
-            <details data-environment-log="">
-              <summary>{t("settingsPage.cloudEnvironments.logTail")}</summary>
+            <FoldDetails
+              data-environment-log=""
+              bodyClassName="fold-body"
+              summary={
+                <>
+                  <FoldTwisty />
+                  {t("settingsPage.cloudEnvironments.logTail")}
+                </>
+              }
+            >
               <pre>{row.log_tail}</pre>
-            </details>
+            </FoldDetails>
           )}
         </span>
         <span className="row-control">

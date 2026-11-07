@@ -9,7 +9,9 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { FoldDetails } from "../../../agent-session/shared/FoldDetails";
 import { useStore } from "../context";
+import { FoldTwisty } from "./FoldTwisty";
 import type { IntegrationRow, IntegrationsRun, IntegrationsState } from "../ops";
 import { t } from "../strings";
 
@@ -145,21 +147,26 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
   const command = state?.command ?? "cmux agent hook install";
   return (
     <section className="group" data-card="agentIntegrations">
-      <details
-        ref={details}
+      {/* Its body folds open and closed on the settle (agent-session/shared/FoldDetails.tsx). */}
+      <FoldDetails
+        detailsRef={details}
         open={open}
-        onToggle={(event) => {
-          const now = event.currentTarget.open;
+        onOpenChange={(now) => {
           setOpen(now);
           if (now && !read.current) {
             read.current = true;
             void refresh();
           }
         }}
+        bodyClassName="fold-body"
+        summaryProps={{ className: "group-title cursor-default select-none", "data-integrations-toggle": "" }}
+        summary={
+          <>
+            <FoldTwisty />
+            {t("settingsWindow.agentIntegrations.title")}
+          </>
+        }
       >
-        <summary className="group-title cursor-default select-none" data-integrations-toggle="">
-          {t("settingsWindow.agentIntegrations.title")}
-        </summary>
         <div className="row-help">{t("settingsWindow.agentIntegrations.help")}</div>
         <div className="accounts-header">
           <Button
@@ -211,7 +218,7 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
             {t("settingsWindow.agentIntegrations.copy")}
           </Button>
         </div>
-      </details>
+      </FoldDetails>
     </section>
   );
 }

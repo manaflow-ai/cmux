@@ -8,6 +8,7 @@ import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
+import { useFollowedFold } from "./useFollowedFold";
 import type {
   AccountsButton,
   AccountsReceivedInvitations,
@@ -109,6 +110,13 @@ function TeamButton({ button, onRun }: { button: AccountsButton; onRun: () => vo
 
 function TeamRow({ row }: { row: AccountsTeamRow }) {
   const store = useStore();
+  // The host opens and closes a team's details (`team.details`); the change folds them open under the
+  // row and away into it on the settle (useFollowedFold.ts). Closing, the host sends no details: the
+  // last ones stay drawn until the fold has closed over them.
+  const fold = useFollowedFold<HTMLDivElement>(Boolean(row.detail));
+  const [last, setLast] = useState(row.detail);
+  if (row.detail && row.detail !== last) setLast(row.detail);
+  const detail = row.detail ?? (fold.drawn ? last : undefined);
   return (
     <div className="row accounts-row" data-team={row.id} data-team-open={row.open || undefined}>
       <div className="row-main">
@@ -134,7 +142,11 @@ function TeamRow({ row }: { row: AccountsTeamRow }) {
           </Button>
         </div>
       </div>
-      {row.detail && <TeamDetails team={row.id} detail={row.detail} />}
+      {fold.drawn && detail && (
+        <div ref={fold.ref}>
+          <TeamDetails team={row.id} detail={detail} />
+        </div>
+      )}
     </div>
   );
 }
