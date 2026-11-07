@@ -78,8 +78,12 @@ export function Palette({
     const rows = new Map(items.map((item) => [item.id, item]));
     return ranked.ids.flatMap((id) => rows.get(id) ?? []);
   }, [items, ranked]);
-  // Enter came before the current query's answer: run that answer's top row when it lands.
-  const submitWhenRanked = useRef(false);
+  // Enter came before the current query's answer: the query it was pressed for, whose answer's top
+  // row runs when it lands. An edit to the field before then cancels it.
+  const submitWhenRanked = useRef<string | null>(null);
+  // The submission now on its way came from Enter (set by onCommand in the same keydown), not from a
+  // click or tap on a row, which always runs the row it names.
+  const enterSubmits = useRef(false);
   useEffect(() => {
     // Each query or set of rows asks once; the effect's cleanup drops an answer that comes after
     // the next ask (an older query's) or after the palette closed.
@@ -96,8 +100,14 @@ export function Palette({
     };
   }, [entries, items, query, rank]);
   useEffect(() => {
-    if (!submitWhenRanked.current || ranked.query !== query) return;
-    submitWhenRanked.current = false;
+    const pending = submitWhenRanked.current;
+    if (pending === null) return;
+    if (pending !== query) {
+      submitWhenRanked.current = null;
+      return;
+    }
+    if (ranked.query !== query) return;
+    submitWhenRanked.current = null;
     const top = results[0];
     if (!top) return;
     onClose();
@@ -109,12 +119,15 @@ export function Palette({
     return new Set(results.filter((item) => !seen.has(item.group) && seen.add(item.group)).map((item) => item.id));
   }, [results]);
   const submit = (value: string) => {
-    // The list on screen answers an older query; its rows are not what the field now asks for.
-    if (ranked.query !== query) {
-      submitWhenRanked.current = true;
+    const fromEnter = enterSubmits.current;
+    enterSubmits.current = false;
+    // Enter while the list on screen answers an older query: its rows are not what the field now
+    // asks for, so wait for this query's answer. A clicked row runs itself; it is on screen.
+    if (fromEnter && ranked.query !== query) {
+      submitWhenRanked.current = query;
       return;
     }
-    const item = byId.get(value) ?? results[0];
+    const item = byId.get(value) ?? (fromEnter ? results[0] : undefined);
     if (!item) return;
     onClose();
     item.run();
@@ -122,6 +135,7 @@ export function Palette({
   // Tab would complete the field to an item id; the palette has nothing to complete.
   // Option-Up/Down move the list (useHomeKeys); they must not change the conversation behind it.
   const onCommand = (event: KeyboardEvent<HTMLInputElement>) => {
+    enterSubmits.current = event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.altKey;
     if (event.key === "Tab" || (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")))
       event.preventDefault();
   };
