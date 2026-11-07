@@ -67,8 +67,6 @@ mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
-#[cfg(unix)]
-mod inference_gateway;
 mod codex_app_server;
 mod command;
 #[cfg(unix)]
@@ -81,6 +79,8 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+#[cfg(unix)]
+mod inference_gateway;
 mod internal;
 mod launch_credential;
 mod lifecycle;
