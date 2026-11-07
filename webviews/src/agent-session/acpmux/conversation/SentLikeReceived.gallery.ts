@@ -21,7 +21,7 @@ const received = user("", 6, {
   incoming: {
     kind: "message",
     message: {
-      name: "lane-vm-09/acpmux-client-rust",
+      name: "dev-box/acpmux-client-rust",
       sessionId: "sub-acpmux-client-rust",
       text: RECEIVED,
       raw: RECEIVED,

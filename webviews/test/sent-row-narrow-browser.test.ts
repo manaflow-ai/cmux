@@ -2,7 +2,7 @@
 // cmux-web-test-timeout: 300
 //
 // A sent message's row (SentMessageLine.tsx) never runs past its pane (cmux#37879 review): in the
-// batch gallery's opened group, "Sent to acpmux-owner · gcp-lane" and its "Read at its next step"
+// batch gallery's opened group, "Sent to acpmux-owner · ci-box" and its "Read at its next step"
 // drew past the transcript's right edge at a narrow pane, as the status kept its room and the
 // recipient did not give way. The received line it matches cuts its sender and preview first and
 // keeps its chevron and actions in sight; the sent line does the same.

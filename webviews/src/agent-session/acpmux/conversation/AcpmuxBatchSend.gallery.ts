@@ -14,7 +14,7 @@ const bash = (command: string, description: string, status: string, output?: str
   tool(command.slice(0, 120), "execute", status, { command, description, ...(output !== undefined && { output }) });
 
 const FUNCTION_BATCH = bash(
-  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s gcp-lane/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
+  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s ci-box/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
   "Escalate legacy nightly, relay to owners",
   "completed",
   'queued\nsteered\nacpmux: no_session: no session matches "review-astra"',

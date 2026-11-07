@@ -97,7 +97,7 @@ const receivedLine = () => (
   <IncomingMessageLine
     id="row-received"
     message={{
-      name: "lane-vm-09/acpmux-client-rust",
+      name: "dev-box/acpmux-client-rust",
       text: "Rebased; ready for review.",
       raw: "<cmux-message from=acpmux-client-rust>\nRebased; ready for review.\n</cmux-message>",
     }}

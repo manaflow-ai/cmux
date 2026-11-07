@@ -85,6 +85,52 @@ await requireBrowserLane("agent-message-row-css-browser.test.ts", async () => {
       expect(sizes.label.scroll).toBeLessThanOrEqual(sizes.label.client);
     });
 
+    // A sent message draws as a received one (cmux#37879) on the one message row: its own rules in
+    // AgentMessageRow.css reach it. A merge once left a rule above them unclosed, nesting them all
+    // under a button's selector, where none of them matched (cmux#37653 review).
+    test("a sent row's own rules apply: the chip's pull, the sender's shrink, the status's room", async () => {
+      const styles = await page
+        .getByTestId("sent")
+        .locator(".cv-sent-msg > .cv-agentmsg__line")
+        .evaluate((line) => {
+          const style = (selector: string) => {
+            const node = line.querySelector(selector);
+            return node ? getComputedStyle(node) : undefined;
+          };
+          const chip = line.querySelector(".cv-received__sender > .cv-agent-tag");
+          return {
+            chipOpen: chip?.classList.contains("is-open") ?? false,
+            chipPull: style(".cv-received__sender > .cv-agent-tag")?.marginInlineStart,
+            senderShrink: style(":scope > .cv-agentmsg__sentence > .cv-received__sender")?.flexShrink,
+            trailShrink: style(":scope > .cv-tool__trail")?.flexShrink,
+            status: Boolean(line.querySelector(".cv-tool__trail .cv-row-status")?.textContent),
+          };
+        });
+      expect(styles).toEqual({
+        chipOpen: true,
+        chipPull: "0px",
+        senderShrink: "1",
+        trailShrink: "0",
+        status: true,
+      });
+    });
+
+    test("a failed send's mark is drawn in the failure colour", async () => {
+      const colors = await page
+        .getByTestId("sent-failed")
+        .locator(".cv-sent-msg")
+        .evaluate((row) => {
+          const probe = document.createElement("span");
+          probe.style.color = "var(--agent-status-failure)";
+          row.append(probe);
+          const failure = getComputedStyle(probe).color;
+          probe.remove();
+          const mark = row.querySelector(".cv-agentmsg__icon > .cv-received__mark.cv-tool__failed");
+          return { mark: mark ? getComputedStyle(mark).color : "none", failure };
+        });
+      expect(colors.mark).toBe(colors.failure);
+    });
+
     test("an opened message card holds its floated corner copy", async () => {
       const card = page.getByTestId("received").locator(".cv-agentmsg__card");
       await expect(card.evaluate((node) => getComputedStyle(node).display)).resolves.toBe("flow-root");
