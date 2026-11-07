@@ -1962,8 +1962,9 @@ function fallbackRowHeight(
         if (group.type === "sendGroup" && group.items.length > 1)
           steps +=
             messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    // A run line open from the start (`runOpen`) draws its summary line over the calls.
-    const line = row.runOpen && row.foldRun && isFoldedRun(items) ? toolRowHeight() : 0;
+    // A run line open from the start (`runOpen`) draws its line (the run's summary, or its one group's)
+    // over its calls; a run of one call is that call's row alone.
+    const line = row.runOpen && items.filter((item) => item.tool).length > 1 ? toolRowHeight() : 0;
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + line + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
