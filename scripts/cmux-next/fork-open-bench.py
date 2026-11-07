@@ -196,7 +196,9 @@ def acpmux_socket():
 class Run:
     def __init__(self, acpmux_home):
         self.home = acpmux_home
-        self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, {"ACPMUX_HOME": acpmux_home})
+        # Activated (no CMUX_NEXT_NO_ACTIVATE): the fork's composer must take the native keyboard, which a
+        # window of an app that never activates never has.
+        self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, {"ACPMUX_HOME": acpmux_home, "CMUX_NEXT_NO_ACTIVATE": None})
         self.app = bm.App(APP, self.sock)
         deadline = time.monotonic() + 60
         while not self.app.ping() and time.monotonic() < deadline:
@@ -418,8 +420,12 @@ def fork_once(run, placement, parent, before_sessions):
     # A new window's workspace is not the first window's: closed with the run's.
     after["fork_workspace"] = workspace_of(run, fork_pane) if fork_pane else None
     made = store_sessions(run.home) - before_sessions
-    # The pane the app reports focused, not the fork read by its own pane: the fork must be the one focused.
-    state = run.pane("chat_state")
+    # The focused session: the fork's, read from its own pane, only when that pane has the native keyboard
+    # (`composer_focused` native: its window, or its Chromium page window, is key with the first responder in
+    # it); else the pane the app reports focused. An untargeted read alone answers the first window's pane,
+    # never a New Window fork's.
+    state = (run.pane("chat_state", pane=fork_pane) if fork_pane and after.get("composer_focused")
+             else run.pane("chat_state"))
     record = {
         "placement": placement, "usable_ms": usable, "pane_ms": marks.get("pane_made"),
         "content_ms": trace.get("first_content_ms"), "timed_out": trace.get("timed_out"),
