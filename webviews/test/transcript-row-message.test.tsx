@@ -255,7 +255,8 @@ test("a sent message's line has no Copy; the status word, then the chevron, clos
 
 test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { AgentMessageRow, messagePreview } = await import("../src/agent-session/acpmux/conversation/AgentMessageRow");
+  const { AgentMessageRow } = await import("../src/agent-session/acpmux/conversation/AgentMessageRow");
+  const { messagePreview } = await import("../src/agent-session/acpmux/conversation/agentMessageRowModel");
   act(() => root?.unmount());
   root = createRoot(host);
   const opened: string[] = [];
