@@ -26,13 +26,37 @@ export interface PaletteRankReply {
   sections: PaletteRankedSection[];
 }
 
-// The daemon's caps (`palette.rank` in resource-operations-v2.json), in UTF-8 bytes.
+/** One `palette.rank` request as the page sends it: a batch of the rows and how to rank them. */
+export interface PaletteRankBatch extends PaletteRankRequest {
+  rowLimit: number;
+  highlightLimit: number;
+  /** Absent: the ranker decides alone; false and true: the batches decided it together. */
+  typoPass?: boolean;
+}
+
+/** `palette.rank`'s answer: the sections, and the rows its strict pass matched. */
+export interface PaletteRankBatchReply extends PaletteRankReply {
+  strictMatches?: number;
+}
+
+// The daemon's caps (`palette.rank` in resource-operations-v2.json), in UTF-8 bytes. They hold any
+// title and name the app allows: a 200-character title (the conversation owner's MAX_TITLE_CHARS)
+// with a channel's "#" is at most 801 bytes, and each of a conversation's 64 participants' names
+// (100 characters) at most 400.
 /** Most rows one request carries. */
 export const MAX_RANK_ENTRIES = 5000;
-const MAX_TITLE_BYTES = 512;
-const MAX_KEYWORDS = 32;
-const MAX_KEYWORD_BYTES = 256;
+const MAX_TITLE_BYTES = 1024;
+const MAX_KEYWORDS = 64;
+const MAX_KEYWORD_BYTES = 400;
 const MAX_QUERY_BYTES = 1024;
+/** Most JSON bytes of entries one request carries (an upper bound, see `entryBytes`): with the
+ * query and the envelope, under the daemon's 4 MiB WebSocket message. */
+const MAX_BATCH_BYTES = 3 * 1024 * 1024;
+// The ranker's defaults, sent so a merge of several batches cuts where one request would.
+const ROW_LIMIT = 400;
+const HIGHLIGHT_LIMIT = 60;
+/** The ranker's TYPO_PASS_THRESHOLD: the typo pass runs below this many strict matches. */
+const TYPO_PASS_THRESHOLD = 3;
 
 const encoder = new TextEncoder();
 
@@ -49,17 +73,109 @@ export function clipUtf8(text: string, max: number): string {
   return text.slice(0, end);
 }
 
-/** The request clipped to the daemon's caps, so a long title or a big list never fails the rank. */
+/** The request's text clipped to the daemon's caps, so a long title never fails the rank. Every
+ * row stays: `rankPalette` splits a long list into requests the daemon takes. */
 export function boundedRankRequest(request: PaletteRankRequest): PaletteRankRequest {
   return {
     ...request,
     query: clipUtf8(request.query, MAX_QUERY_BYTES),
-    entries: request.entries.slice(0, MAX_RANK_ENTRIES).map((entry) => ({
+    entries: request.entries.map((entry) => ({
       ...entry,
       title: clipUtf8(entry.title, MAX_TITLE_BYTES),
       keywords: entry.keywords?.slice(0, MAX_KEYWORDS).map((keyword) => clipUtf8(keyword, MAX_KEYWORD_BYTES)),
     })),
   };
+}
+
+/** At least the JSON bytes of `entry`: a UTF-16 unit takes at most 6 (`\u001f`), each string its
+ * quotes and comma, and the field names and numbers fit in the rest. */
+function entryBytes(entry: PaletteRankEntry): number {
+  let bytes = 96 + 6 * entry.title.length;
+  for (const keyword of entry.keywords ?? []) bytes += 3 + 6 * keyword.length;
+  return bytes;
+}
+
+/** The rows in runs of at most MAX_RANK_ENTRIES and MAX_BATCH_BYTES, each with its first index. */
+function batches(entries: readonly PaletteRankEntry[]): Array<{ start: number; entries: PaletteRankEntry[] }> {
+  const runs: Array<{ start: number; entries: PaletteRankEntry[] }> = [];
+  let run: { start: number; entries: PaletteRankEntry[] } | undefined;
+  let bytes = 0;
+  entries.forEach((entry, index) => {
+    const size = entryBytes(entry);
+    if (!run || run.entries.length >= MAX_RANK_ENTRIES || bytes + size > MAX_BATCH_BYTES) {
+      runs.push((run = { start: index, entries: [] }));
+      bytes = 0;
+    }
+    run.entries.push(entry);
+    bytes += size;
+  });
+  return runs.length ? runs : [{ start: 0, entries: [] }];
+}
+
+type Row = PaletteRankedSection["rows"][number];
+
+/**
+ * Ranks every row, in as many `palette.rank` requests as the daemon's caps need (`rankOne` sends
+ * one). A list that fits is one request. A longer one is ranked in batches whose merge is the
+ * answer one request over every row gives. The ranker scores each row on its own, except that its
+ * typo pass runs only when fewer than three rows match strictly: so each batch ranks strictly
+ * first, and when all of them together match fewer than three, all rank again with the typo pass.
+ * For the page's rows (no bias, usage, shortcut, handle or alias) the ranker orders rows by score,
+ * then index, and cuts them to the row limit before it groups them in sections; the merge does the
+ * same with the batches' rows. On the empty query every batch lists its rows in order by section.
+ */
+export async function rankPalette(
+  request: PaletteRankRequest,
+  rankOne: (batch: PaletteRankBatch) => Promise<PaletteRankBatchReply>,
+): Promise<PaletteRankReply> {
+  const bounded = boundedRankRequest(request);
+  const runs = batches(bounded.entries);
+  const ask = (typoPass?: boolean) =>
+    Promise.all(
+      runs.map((run) =>
+        rankOne({
+          ...bounded,
+          entries: run.entries,
+          rowLimit: ROW_LIMIT,
+          highlightLimit: HIGHLIGHT_LIMIT,
+          ...(typoPass === undefined ? {} : { typoPass }),
+        }),
+      ),
+    );
+  if (runs.length === 1) {
+    const [reply] = await ask();
+    return { sections: reply!.sections };
+  }
+  const typed = bounded.query.trim() !== "";
+  let replies = await ask(typed ? false : undefined);
+  if (typed && replies.reduce((sum, reply) => sum + (reply.strictMatches ?? 0), 0) < TYPO_PASS_THRESHOLD)
+    replies = await ask(true);
+  let rows: Array<{ section: number | null; row: Row }> = replies.flatMap((reply, at) =>
+    reply.sections.flatMap((section) =>
+      section.rows.map((row) => ({
+        section: section.sectionIndex,
+        row: { ...row, index: row.index + runs[at]!.start },
+      })),
+    ),
+  );
+  if (typed) {
+    rows.sort((a, b) => b.row.score - a.row.score || a.row.index - b.row.index);
+    rows = rows.slice(0, ROW_LIMIT);
+    rows.forEach((item, rank) => {
+      if (rank >= HIGHLIGHT_LIMIT) item.row.highlights = [];
+    });
+  }
+  // Sections in the order their first row comes; in section order when the request keeps it (the
+  // empty query always does).
+  const bySection = new Map<number | null, Row[]>();
+  for (const { section, row } of rows) {
+    let list = bySection.get(section);
+    if (!list) bySection.set(section, (list = []));
+    list.push(row);
+  }
+  const order = [...bySection.keys()];
+  if (!typed || bounded.keepsSectionOrder) order.sort((a, b) => (a ?? -1) - (b ?? -1));
+  return { sections: order.map((sectionIndex) => ({ sectionIndex, rows: bySection.get(sectionIndex)! })) };
 }
 
 /**

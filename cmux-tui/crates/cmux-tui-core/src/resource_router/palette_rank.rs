@@ -4,8 +4,21 @@
 //!
 //! The params are a `RankRequest` that carries its own entries and history
 //! (the JSON shape the ranker's C ABI takes); the result is `{sections}`,
-//! exactly what `cmux_palette_ranker::rank_request` returns. It is stateless:
+//! exactly what `cmux_palette_ranker::rank_request` returns, and
+//! `strictMatches`, the rows its strict pass matched. It is stateless:
 //! nothing is installed or kept between calls.
+//!
+//! A catalog past one request's caps ranks in several requests: each with
+//! `typoPass: false`, and all again with `typoPass: true` when their
+//! `strictMatches` sum to fewer than the ranker's `TYPO_PASS_THRESHOLD`.
+//! Their rows then merge by score and catalog order into the answer one
+//! request over the whole catalog gives (paletteRank.ts `rankPalette`).
+//!
+//! The entry caps hold any title and name the app allows: a 200-character
+//! title (`cmux_conversation::MAX_TITLE_CHARS`) with a channel's `#` is at
+//! most 801 UTF-8 bytes (title cap 1024), and a conversation's 64
+//! participants' 100-character names are at most 400 bytes each (keyword
+//! caps 64 and 400).
 //!
 //! The catalog caps every list and string a page can send (entries, their
 //! text, the query, pins and picks); the maps it cannot cap (the history's
@@ -14,7 +27,7 @@
 
 use std::sync::Arc;
 
-use cmux_palette_ranker::{RankRequest, rank_request};
+use cmux_palette_ranker::{RankRequest, rank_request_answer};
 use serde_json::{Map, Value, json};
 
 use super::{ParsedResourceRequest, ensure_session_route};
@@ -46,7 +59,8 @@ pub(crate) fn rank(mut fields: Map<String, Value>) -> Result<Value, ResourceErro
     cap_map(&fields, "aliases", None, MAX_ALIASED_ACTIONS)?;
     let request: RankRequest = serde_json::from_value(Value::Object(fields))
         .map_err(|error| ResourceError::validation_invalid(None, error.to_string()))?;
-    Ok(json!({ "sections": rank_request(&request) }))
+    let answer = rank_request_answer(&request);
+    Ok(json!({ "sections": answer.sections, "strictMatches": answer.strict_matches }))
 }
 
 /// Refuses a map field (`field`, or `field.inner`) with more than `maximum` keys.

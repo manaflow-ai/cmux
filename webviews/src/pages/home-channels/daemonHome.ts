@@ -13,7 +13,7 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
-import { boundedRankRequest, fixtureRank, type PaletteRankEntry, type PaletteRankReply } from "./paletteRank";
+import { fixtureRank, rankPalette, type PaletteRankBatchReply, type PaletteRankEntry } from "./paletteRank";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import {
@@ -1005,19 +1005,21 @@ export class DaemonHomeClient implements PageClient {
           throw pageError("cmux.page.unavailable", "Chief work is unavailable on this owner");
         return this.local.request("chief-work", { chief: params.chief });
       case HomeOps.paletteRank: {
-        const request = boundedRankRequest({
+        const request = {
           entries: Array.isArray(params.entries) ? (params.entries as PaletteRankEntry[]) : [],
           query: typeof params.query === "string" ? params.query : "",
           keepsSectionOrder: params.keepsSectionOrder === true,
-        });
+        };
         // A daemon from before palette-rank-v1 has no ranker to ask: the plain substring filter.
         if (!(await this.capable(PALETTE_RANK_CAPABILITY))) return fixtureRank(request);
-        const ranked = await this.local.operation<PaletteRankReply>("palette.rank", {
-          machine: "current",
-          session: "current",
-          ...request,
-        });
-        return { sections: ranked.sections };
+        // Every row, in as many requests as the daemon's caps need.
+        return rankPalette(request, (batch) =>
+          this.local.operation<PaletteRankBatchReply>("palette.rank", {
+            machine: "current",
+            session: "current",
+            ...batch,
+          }),
+        );
       }
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
