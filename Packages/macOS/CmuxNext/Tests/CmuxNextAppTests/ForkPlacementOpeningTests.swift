@@ -143,6 +143,33 @@ import Testing
         withExtendedLifetime(registry) {}
     }
 
+    /// Review of #37709 at f63b9573: with no hold (no window shows the chat's pane, as after a switch of workspace while the
+    /// fork was pending), `hold?.finish(moved: await …)` skipped the await, and a Left or Above fork took the keyboard
+    /// before its move landed. The fork waits for the store to list it outside the chat's pane, hold or not.
+    @Test(.timeLimit(.minutes(1)), arguments: [AgentForkDestination.left, .up])
+    func withNoHoldAMovedForkFocusesOnlyOnceItMoved(destination: AgentForkDestination) async throws {
+        let (_, tabs, chat, _) = try Self.chat(answering: true)
+        tabs.holdOutbound = { _, _ in nil }
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "tab.focus", title: "Focus", category: .other),
+                                                ActionDescriptor(id: "tab.moveToNewSplit", title: "Move", category: .other)])
+        let focuses = Focuses(), moves = Focuses()
+        registry.bind("tab.focus", invoke: { _ in focuses.count += 1; focuses.hear.yield() })
+        registry.bind("tab.moveToNewSplit", invoke: { _ in moves.count += 1; moves.hear.yield() })
+        tabs.actionRegistry = registry
+
+        #expect(tabs.openFork("s-fork-\(destination.rawValue)", at: destination, beside: chat))
+        if moves.count == 0 { for await _ in moves.heard { break } }
+        // The move is asked; the store still lists the fork in the chat's pane.
+        for _ in 0..<50 { await Task.yield() }
+        #expect(focuses.count == 0, "\(destination): the fork took the keyboard before its move landed")
+
+        // The store never lists it elsewhere here (the faked move does nothing): the fork focuses once that wait is
+        // over (TabMirror's bound), never before it.
+        if focuses.count == 0 { for await _ in focuses.heard { break } }
+        #expect(focuses.count == 1)
+        withExtendedLifetime(registry) {}
+    }
+
     @MainActor private final class Focuses {
         var count = 0
         let (heard, hear) = AsyncStream<Void>.makeStream()

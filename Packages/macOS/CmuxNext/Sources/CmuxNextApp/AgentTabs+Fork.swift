@@ -27,7 +27,7 @@ extension AgentTabStore {
             if destination == .workspace || destination == .window { guard await moveToNewWorkspace(tab.key, daemon.machineID, destination == .window) else { hold?.finish(moved: false); return focusForkComposer(tab.key) } } else if let move = destination.moveAction {
                 _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user))
             } else if case let .column(left) = TerminalForkPlacement(destination) { placeFork(tab.key, resolve(provisional), left) } else { placeFork(tab.key, resolve(provisional), nil) }
-            hold?.finish(moved: await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } }))
+            let moved = await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } }); hold?.finish(moved: moved)
             focusForkComposer(tab.key)
         }
         return true
