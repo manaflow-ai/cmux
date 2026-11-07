@@ -269,9 +269,12 @@ async function tickRun({
 type ProfileNode = {
   id: number;
   callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+  children?: number[];
 };
 /// The 25 source places with the most self time in a CDP CPU profile, with each one's share. Frames are
 /// mapped through the dev server's source maps back to the source line (the served module is transformed).
+/// A native call among them (`getBoundingClientRect`, where a forced layout lands) also names the source
+/// places that called it, since the layout it forces is the caller's cost.
 async function printProfile(
   server: ViteDevServer,
   turns: number,
@@ -292,25 +295,46 @@ async function printProfile(
     maps.set(url, consumer);
     return consumer;
   };
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const place = (node: ProfileNode) => {
+    const { functionName, url, lineNumber, columnNumber } = node.callFrame;
+    const original = url ? mapOf(url)?.originalPositionFor({ line: lineNumber + 1, column: columnNumber }) : undefined;
+    const file = (original?.source ?? url).split("/").slice(-2).join("/").split("?")[0] ?? "";
+    const line = original?.line ?? lineNumber + 1;
+    return `${functionName || "(anonymous)"} ${file}:${line}`;
+  };
   const self = new Map<string, number>();
+  const callers = new Map<string, Map<string, number>>();
   let total = 0;
   profile.samples.forEach((id, index) => {
     const node = byId.get(id);
     const ms = (profile.timeDeltas[index] ?? 0) / 1000;
     if (!node) return;
-    const { functionName, url, lineNumber, columnNumber } = node.callFrame;
+    const { functionName, url } = node.callFrame;
     if (functionName === "(idle)" || functionName === "(program)") return;
-    const original = url ? mapOf(url)?.originalPositionFor({ line: lineNumber + 1, column: columnNumber }) : undefined;
-    const file = (original?.source ?? url).split("/").slice(-2).join("/").split("?")[0] ?? "";
-    const line = original?.line ?? lineNumber + 1;
-    const key = `${functionName || "(anonymous)"} ${file}:${line}`;
+    const key = place(node);
     self.set(key, (self.get(key) ?? 0) + ms);
     total += ms;
+    if (url || functionName.startsWith("(")) return;
+    let up = parent.get(node.id);
+    while (up !== undefined && !byId.get(up)?.callFrame.url) up = parent.get(up);
+    const caller = up === undefined ? "(none)" : place(byId.get(up)!);
+    const of = callers.get(key) ?? new Map<string, number>();
+    of.set(caller, (of.get(caller) ?? 0) + ms);
+    callers.set(key, of);
   });
   const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 25);
+  const share = (ms: number) =>
+    `${(Math.round(ms * 10) / 10).toString().padStart(8)} ms ${((ms / total) * 100).toFixed(1).padStart(5)}%`;
   console.log(`wheel-tick-scaling profile turns=${turns} busy_ms=${Math.round(total)}`);
-  for (const [key, ms] of top)
-    console.log(`  ${(Math.round(ms * 10) / 10).toString().padStart(8)} ms ${((ms / total) * 100).toFixed(1).padStart(5)}%  ${key}`);
+  for (const [key, ms] of top) {
+    console.log(`  ${share(ms)}  ${key}`);
+    const of = callers.get(key);
+    if (!of || ms < total * 0.02) continue;
+    for (const [caller, callerMs] of [...of].sort((a, b) => b[1] - a[1]).slice(0, 4))
+      console.log(`  ${share(callerMs)}    <- ${caller}`);
+  }
 }
 
 // React's production build, as the app ships it: its development build spends most of a frame on its own
