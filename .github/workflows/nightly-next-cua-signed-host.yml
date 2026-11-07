@@ -28,7 +28,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 8
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    permissions: {}
+    permissions:
+      actions: read # the picker's queue-snapshot artifact read (SNAPSHOT_TOKEN)
     outputs:
       runner: ${{ steps.place.outputs.runner }}
       owned_jobs: ${{ steps.place.outputs.owned_jobs }}
@@ -97,8 +98,11 @@ jobs:
     # The picker offers an idle owned Mac first, then a moving Blacksmith slot.
     # If neither route has room, the job is skipped in pick; it never queues on
     # the saturated side-std label. The final label is unreachable on a normal
-    # skip, but remains a non-hosted Mac fallback for a placement race.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' cua-signed-host ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' cua-signed-host ') && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # skip, but remains a non-hosted Mac fallback for a placement race. A rerun of
+    # failed jobs keeps pick's attempt-1 outputs, so every placed route, the owned
+    # Mac included, holds only for the attempt pick ran in; a later attempt leaves
+    # the owned runner for the fallback label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' cua-signed-host ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' cua-signed-host ') && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.pick.outputs.owned_jobs != '' && needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 15
     permissions:
       contents: read
