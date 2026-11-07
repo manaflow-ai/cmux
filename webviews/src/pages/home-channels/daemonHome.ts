@@ -875,8 +875,12 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.pin: {
         const pinned = params.pinned === true;
-        // The pin time orders my pins across both owners (one merged list).
-        const op: Json = pinned ? { kind: "inbox.pin", pinned, position: Date.now() } : { kind: "inbox.pin", pinned };
+        // The pin time orders my pins across both owners (one merged list); a drag gives its own.
+        const position =
+          typeof params.position === "number" && Number.isSafeInteger(params.position) && params.position >= 0
+            ? params.position
+            : Date.now();
+        const op: Json = pinned ? { kind: "inbox.pin", pinned, position } : { kind: "inbox.pin", pinned };
         return this.inboxOp(str(params, "conversation"), this.key(params, options), op);
       }
       case HomeOps.markUnread:

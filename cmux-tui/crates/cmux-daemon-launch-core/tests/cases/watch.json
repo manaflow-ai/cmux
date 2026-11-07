@@ -1,0 +1,1419 @@
+[
+ {
+  "name": "it replaces only after two stuck ensures over the sustained window",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 1,
+     "owner": 41,
+     "enabled": true
+    },
+    "expect": {
+     "yes": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ },
+ {
+  "name": "one stuck ensure over the window is not enough",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": null
+    }
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ },
+ {
+  "name": "a busy owner is never replaced",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "busy"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 2,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "busy"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "busy"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 2,
+     "enabled": true
+    },
+    "expect": {}
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   }
+  ]
+ },
+ {
+  "name": "it replaces once per owner process",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 1,
+     "owner": 41,
+     "enabled": true
+    },
+    "expect": {
+     "yes": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 42
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 2,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 2,
+     "owner": 42
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 2,
+     "owner": 42,
+     "enabled": true
+    },
+    "expect": {
+     "yes": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 2,
+     "owner": 42
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 2
+   }
+  ]
+ },
+ {
+  "name": "the toggle off stops the window and on again needs a fresh one",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": false
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": false
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": false
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 2,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 2,
+     "owner": null
+    }
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ },
+ {
+  "name": "a window that passes with the toggle off replaces nothing",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": false
+    },
+    "expect": {}
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   }
+  ]
+ },
+ {
+  "name": "a stopped watch never replaces",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "stop",
+    "request": {},
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {}
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {}
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   }
+  ]
+ },
+ {
+  "name": "a replace queued before the owner recovered does not run, and is given back",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 1,
+     "owner": 41,
+     "enabled": true
+    },
+    "expect": {
+     "yes": false
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 2,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 2,
+     "owner": 41
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 2,
+     "owner": 41,
+     "enabled": true
+    },
+    "expect": {
+     "yes": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 2,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ },
+ {
+  "name": "a replace refused before its claim is given back",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 1,
+     "owner": 41,
+     "enabled": true
+    },
+    "expect": {
+     "yes": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ },
+ {
+  "name": "a claim that finds the toggle off ends the streak",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "ready",
+      "pid": 41
+     },
+     "enabled": true
+    },
+    "expect": {
+     "cancel": true
+    }
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": 41
+    }
+   },
+   {
+    "op": "claim",
+    "request": {
+     "streak": 1,
+     "owner": 41,
+     "enabled": false
+    },
+    "expect": {
+     "yes": false,
+     "cancel": true
+    }
+   },
+   {
+    "op": "finish",
+    "request": {
+     "streak": 1,
+     "owner": 41
+    },
+    "expect": {}
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 2,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 0
+   }
+  ]
+ },
+ {
+  "name": "the toggle is never read off between two reads: the streak goes on",
+  "steps": [
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "schedule": {
+      "streak": 1,
+      "afterMs": 30000
+     },
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "note",
+    "request": {
+     "ensure": {
+      "kind": "stuck"
+     },
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": null
+   },
+   {
+    "op": "window_passed",
+    "request": {
+     "streak": 1,
+     "enabled": true
+    },
+    "expect": {
+     "evaluate": true
+    }
+   },
+   {
+    "op": "evaluate",
+    "request": {
+     "enabled": true
+    },
+    "expect": {
+     "streak": 1,
+     "owner": null
+    }
+   },
+   {
+    "op": "replace_count",
+    "request": {},
+    "expect": 1
+   }
+  ]
+ }
+]
