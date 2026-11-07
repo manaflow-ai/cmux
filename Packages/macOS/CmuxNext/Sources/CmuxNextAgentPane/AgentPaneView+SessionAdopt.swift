@@ -71,6 +71,7 @@ extension AgentPaneView {
             guard let self, holdsPageAway else { return }
             holdsPageAway = false
             pageContent.frame = topBar.contentFrame(in: bounds)
+            applyNativeRects() // the tab row's holes, taken while it was away, follow it back
             needsLayout = true
             moved?()
         }

@@ -59,6 +59,7 @@ mod client;
 mod contract;
 mod noise_key;
 mod route_log;
+mod secrets;
 mod serve;
 
 use std::io::Write as _;
@@ -283,6 +284,9 @@ async fn open_desktop(
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "secrets") {
+        return secrets::run(args);
     }
     let Some(args) = parse(args) else {
         return usage(

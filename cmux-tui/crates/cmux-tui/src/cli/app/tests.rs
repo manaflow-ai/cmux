@@ -2125,11 +2125,14 @@ fn a_bounded_socket_probe_ends_at_its_deadline() {
         let _ = peer.read(&mut request);
         std::thread::sleep(Duration::from_secs(3));
     });
-    let global = GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
+    let global =
+        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
     let started = std::time::Instant::now();
     let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
     let took = started.elapsed();
-    let code = connected.err().and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
+    let code = connected
+        .err()
+        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
     assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
     assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
     silent.join().unwrap();
