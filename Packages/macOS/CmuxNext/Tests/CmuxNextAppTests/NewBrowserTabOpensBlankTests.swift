@@ -39,7 +39,10 @@ struct NewBrowserTabOpensBlankTests {
             try await PasswordManagerRouteTests.until({ !added().isEmpty }, report: { "no browser tab: \(PasswordManagerRouteTests.tabs(services).map { "\($0.kind) \($0.url ?? "-")" })" })
             let opened = try #require(added().first)
             #expect(added().count == 1)
-            #expect(BrowserNewTabPage.isNewTabPage(opened.url ?? ""), "New Browser Tab opened \(opened.url ?? "nothing"), not a blank tab")
+            // The New Tab page, or the page `browser.newTabPage` names when it is set.
+            let configured = services.settings?.snapshot.browserNewTabPage?.absoluteString
+            #expect(BrowserNewTabPage.isNewTabPage(opened.url ?? "") || (configured != nil && opened.url == configured),
+                    "New Browser Tab opened \(opened.url ?? "nothing"), not a blank tab")
             #expect(opened.url?.contains("17320") != true, "New Browser Tab opened the terminal's localhost link")
         }
     }
