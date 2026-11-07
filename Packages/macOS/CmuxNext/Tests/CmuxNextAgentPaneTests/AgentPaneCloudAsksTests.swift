@@ -122,6 +122,23 @@ struct AgentPaneCloudAsksTests {
         #expect(await waiting.value == nil)
     }
 
+    @Test func aPaneClosedRightAfterAReloadOpensNoDialog() async throws {
+        let asks = AgentPaneCloudAsks()
+        let stream = AsyncStream.makeStream(of: JSONValue.self)
+        let asked = AskedQuestions()
+        let dialog = AgentPaneCloudAsker { question in
+            asked.questions.append(question)
+            return "setUp"
+        }
+        let waiting = Task { await asks.ask(question(), start: key, fallback: dialog) { stream.continuation.yield($0) } }
+        await shown(stream.stream)
+        // Both run before the wait resumes: the pane is gone by the time it would ask in a dialog.
+        asks.pageReloaded()
+        asks.endAll()
+        #expect(await waiting.value == nil)
+        #expect(asked.questions.isEmpty)
+    }
+
     @Test func aNewerQuestionOfTheSameStartEndsTheEarlierOne() async throws {
         let asks = AgentPaneCloudAsks()
         let first = AsyncStream.makeStream(of: JSONValue.self), second = AsyncStream.makeStream(of: JSONValue.self)

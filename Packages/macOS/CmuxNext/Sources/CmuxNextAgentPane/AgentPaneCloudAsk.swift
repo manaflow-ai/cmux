@@ -97,10 +97,11 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
 
     /// By start key: one ask at a time per start.
     private var waiting: [String: Waiting] = [:]
-    /// Ask ids whose card went with a page reload: their wait goes on in the fallback's dialog.
-    private var moved: Set<String> = []
-    /// By start key: a moved question's dialog, ended with the start's wait.
-    private var dialogs: [String: Task<String?, Never>] = [:]
+    /// By start key: the ask whose card went with a page reload; its wait goes on in the fallback's
+    /// dialog unless the start ends first (``end(_:)``, ``endAll()``).
+    private var moved: [String: String] = [:]
+    /// By start key: a moved question's dialog and its ask id, ended with the start's wait.
+    private var dialogs: [String: (id: String, task: Task<String?, Never>)] = [:]
 
     public init() {}
 
@@ -117,13 +118,14 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
         // The stream's iterator ends with nil when the start's task is cancelled: no hop to end it.
         var iterator = answers.makeAsyncIterator()
         let answer = await iterator.next()
-        if moved.remove(ask.id) != nil {
+        if moved[key] == ask.id {
+            moved[key] = nil
             guard let fallback, !Task.isCancelled else { return nil }
             // Its own task, so the pane closing or the start asking again ends the dialog too.
             let dialog = Task { await fallback.ask(ask) }
-            dialogs[key] = dialog
+            dialogs[key] = (ask.id, dialog)
             let shown = await withTaskCancellationHandler { await dialog.value } onCancel: { dialog.cancel() }
-            if dialogs[key] == dialog { dialogs[key] = nil }
+            if dialogs[key]?.id == ask.id { dialogs[key] = nil }
             return shown
         }
         if waiting[key]?.ask.id == ask.id { waiting[key] = nil }
@@ -150,14 +152,15 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
     /// Ends start `key`'s wait with no answer.
     public func end(_ key: String) {
         waiting.removeValue(forKey: key)?.answered.finish()
-        dialogs.removeValue(forKey: key)?.cancel()
+        moved[key] = nil
+        dialogs.removeValue(forKey: key)?.task.cancel()
     }
 
     /// The pane's page loaded again: its cards are gone (the page keeps a start's card in its own
     /// state), so every waiting question moves to its dialog, and a click from an old card answers nothing.
     public func pageReloaded() {
         for (key, found) in waiting {
-            moved.insert(found.ask.id)
+            moved[key] = found.ask.id
             waiting[key] = nil
             found.answered.finish()
         }
@@ -165,7 +168,7 @@ public nonisolated struct AgentPaneCloudAnswer: Equatable, Sendable {
 
     /// The pane closed: every ask it shows ends with no answer.
     public func endAll() {
-        for key in Set(waiting.keys).union(dialogs.keys) { end(key) }
+        for key in Set(waiting.keys).union(dialogs.keys).union(moved.keys) { end(key) }
     }
 
     /// The asks waiting now (tests).
