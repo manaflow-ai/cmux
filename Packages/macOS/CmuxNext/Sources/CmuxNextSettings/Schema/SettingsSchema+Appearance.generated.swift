@@ -188,11 +188,11 @@ extension BordersSetting {
 
 extension PaneFocusSettings {
     /// `appearance.focusIndicator`.
-    public nonisolated static let focusIndicatorPath = ["appearance", "focusIndicator"]
-    public nonisolated static let focusIndicatorDefault: FocusIndicator = .tabs
+    nonisolated static let focusIndicatorPath = ["appearance", "focusIndicator"]
+    nonisolated static let focusIndicatorDefault: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`.
-    public nonisolated static let inactiveTabStylePath = ["focus", "inactiveTabStyle"]
-    public nonisolated static let inactiveTabStyleDefault: InactiveTabStyle = .fade
+    nonisolated static let inactiveTabStylePath = ["focus", "inactiveTabStyle"]
+    nonisolated static let inactiveTabStyleDefault: InactiveTabStyle = .fade
 }
 
 extension AnimationSpeedSetting {
@@ -227,48 +227,48 @@ extension AnimationKindsSetting {
 
 extension PaneChromeConfigParser {
     /// `layout.paneSeparation`: Unset follows the curved main pane (Metrics.defaultPaneSeparation).
-    public nonisolated static let paneSeparationPath = ["layout", "paneSeparation"]
+    nonisolated static let paneSeparationPath = ["layout", "paneSeparation"]
     /// `layout.panePadding`.
-    public nonisolated static let panePaddingPath = ["layout", "panePadding"]
-    public nonisolated static let panePaddingRange: ClosedRange<Double> = 0...16
-    public nonisolated static let panePaddingPlaceholder: Double = 4
+    nonisolated static let panePaddingPath = ["layout", "panePadding"]
+    nonisolated static let panePaddingRange: ClosedRange<Double> = 0...16
+    nonisolated static let panePaddingPlaceholder: Double = 4
     /// `layout.paneCornerRadius`.
-    public nonisolated static let paneCornerRadiusPath = ["layout", "paneCornerRadius"]
-    public nonisolated static let paneCornerRadiusRange: ClosedRange<Double> = 0...20
-    public nonisolated static let paneCornerRadiusPlaceholder: Double = 8
+    nonisolated static let paneCornerRadiusPath = ["layout", "paneCornerRadius"]
+    nonisolated static let paneCornerRadiusRange: ClosedRange<Double> = 0...20
+    nonisolated static let paneCornerRadiusPlaceholder: Double = 8
     /// `layout.cornerPadding`.
-    public nonisolated static let cornerPaddingPath = ["layout", "cornerPadding"]
-    public nonisolated static let cornerPaddingRange: ClosedRange<Double> = 0...12
-    public nonisolated static let cornerPaddingPlaceholder: Double = 2
+    nonisolated static let cornerPaddingPath = ["layout", "cornerPadding"]
+    nonisolated static let cornerPaddingRange: ClosedRange<Double> = 0...12
+    nonisolated static let cornerPaddingPlaceholder: Double = 2
     /// `layout.paneBorder`.
-    public nonisolated static let paneBorderPath = ["layout", "paneBorder"]
-    public nonisolated static let paneBorderDefault: PaneBorderStyle = .subtle
+    nonisolated static let paneBorderPath = ["layout", "paneBorder"]
+    nonisolated static let paneBorderDefault: PaneBorderStyle = .subtle
     /// `layout.paneBorderColor`.
-    public nonisolated static let paneBorderColorPath = ["layout", "paneBorderColor"]
+    nonisolated static let paneBorderColorPath = ["layout", "paneBorderColor"]
     /// `layout.paneBorderWidth`.
-    public nonisolated static let paneBorderWidthPath = ["layout", "paneBorderWidth"]
-    public nonisolated static let paneBorderWidthRange: ClosedRange<Double> = 0.5...4
+    nonisolated static let paneBorderWidthPath = ["layout", "paneBorderWidth"]
+    nonisolated static let paneBorderWidthRange: ClosedRange<Double> = 0.5...4
 }
 
 extension PaneRingConfigParser {
     /// `focusRing.enabled`.
-    public nonisolated static let focusRingEnabledPath = ["focusRing", "enabled"]
-    public nonisolated static let focusRingEnabledDefault = false
+    nonisolated static let focusRingEnabledPath = ["focusRing", "enabled"]
+    nonisolated static let focusRingEnabledDefault = false
     /// `focusRing.style`.
-    public nonisolated static let focusRingStylePath = ["focusRing", "style"]
-    public nonisolated static let focusRingStyleDefault: FocusRingStyle = .ring
+    nonisolated static let focusRingStylePath = ["focusRing", "style"]
+    nonisolated static let focusRingStyleDefault: FocusRingStyle = .ring
     /// `focusRing.contrast`.
-    public nonisolated static let focusRingContrastPath = ["focusRing", "contrast"]
-    public nonisolated static let focusRingContrastDefault: FocusRingContrast = .subtle
+    nonisolated static let focusRingContrastPath = ["focusRing", "contrast"]
+    nonisolated static let focusRingContrastDefault: FocusRingContrast = .subtle
     /// `focusRing.color`.
-    public nonisolated static let focusRingColorPath = ["focusRing", "color"]
+    nonisolated static let focusRingColorPath = ["focusRing", "color"]
     /// `focusRing.width`.
-    public nonisolated static let focusRingWidthPath = ["focusRing", "width"]
-    public nonisolated static let focusRingWidthDefault: Double = 1
-    public nonisolated static let focusRingWidthRange: ClosedRange<Double> = 0.5...8
+    nonisolated static let focusRingWidthPath = ["focusRing", "width"]
+    nonisolated static let focusRingWidthDefault: Double = 1
+    nonisolated static let focusRingWidthRange: ClosedRange<Double> = 0.5...8
     /// `focusRing.showWhenSinglePane`.
-    public nonisolated static let focusRingShowWhenSinglePanePath = ["focusRing", "showWhenSinglePane"]
-    public nonisolated static let focusRingShowWhenSinglePaneDefault = false
+    nonisolated static let focusRingShowWhenSinglePanePath = ["focusRing", "showWhenSinglePane"]
+    nonisolated static let focusRingShowWhenSinglePaneDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

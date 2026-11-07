@@ -82,6 +82,9 @@ range kind; the values ([String]) of a choice kind with no swift_enum. The hand-
 reads them, so no default literal is left in Swift. A section's Swift stays one file while it fits
 in MAX_LINES lines; past that it is split into <file>2.generated.swift and on (a list too long for
 one file becomes <var>Part1 + <var>Part2...), so a source of any size keeps the god-file limits.
+The constants are `public` when the owner type is: an owner declared without `public` in
+CmuxNextSettings (a section type, or a hand-written internal parser) gets internal constants, since
+a public constant on an internal type can name a type that is itself internal.
 
 A generated Swift file this script no longer writes (for example a choices file after a section
 lost its choice rows) counts as drift under --check and is deleted when writing.
@@ -89,7 +92,7 @@ lost its choice rows) counts as drift under --check and is deleted when writing.
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
 """
-import json, os, sys
+import json, os, re, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 RETIRED_SOURCE = "schemas/settings/retired-keys.json"
@@ -695,23 +698,49 @@ def default_constant(row):
     return "JSONValue", json_swift(default), "{c}"
 
 
-def constants_swift(row, names):
+SETTINGS_SWIFT_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+_TYPE_ACCESS = {}
+
+
+def owner_is_public(owner):
+    """True when CmuxNextSettings declares `owner` public (or does not declare it: a public type of
+    an imported module). A section type the generator declares itself is internal."""
+    if owner in {section["type"] for section in SECTIONS if section.get("type")}:
+        return False
+    if not _TYPE_ACCESS:
+        decl = re.compile(r"^\s*((?:public|package|internal|fileprivate|private|open)\s+)?"
+                          r"(?:(?:nonisolated|final|indirect)\s+)*(?:enum|struct|class|actor)\s+([A-Za-z_][A-Za-z0-9_]*)\b")
+        for base, _, files in os.walk(os.path.join(ROOT, SETTINGS_SWIFT_DIR)):
+            for name in sorted(files):
+                if not name.endswith(".swift") or name.endswith(".generated.swift"):
+                    continue
+                with open(os.path.join(base, name)) as handle:
+                    for line in handle:
+                        match = decl.match(line)
+                        if match:
+                            _TYPE_ACCESS.setdefault(match.group(2), (match.group(1) or "").strip() in ("public", "open"))
+        _TYPE_ACCESS.setdefault("", True)
+    return _TYPE_ACCESS.get(owner.split(".")[-1], True)
+
+
+def constants_swift(row, names, public=True):
     """The parser constants of one row, as lines of an extension body."""
     kind, out = row["kind"], []
+    access = "    public " if public else "    "
     out.append("    /// `%s`%s" % (row["key"], (": " + row["note"]) if row.get("note") else "."))
-    out.append("    public nonisolated static let %s = [%s]" % (names["path"], ", ".join(swift_string(p) for p in row["key"].split("."))))
+    out.append(access + "nonisolated static let %s = [%s]" % (names["path"], ", ".join(swift_string(p) for p in row["key"].split("."))))
     constant = default_constant(row)
     if constant:
         swift_type, literal, _ = constant
-        out.append("    public nonisolated static let %s%s = %s" % (names["default"], ": " + swift_type if swift_type else "", literal))
+        out.append(access + "nonisolated static let %s%s = %s" % (names["default"], ": " + swift_type if swift_type else "", literal))
     if kind in RANGE_KINDS:
         rng = row["range"]
-        out.append("    public nonisolated static let %s: ClosedRange<Double> = %s...%s"
+        out.append(access + "nonisolated static let %s: ClosedRange<Double> = %s...%s"
                    % (names["range"], number_literal(rng["min"]), number_literal(rng["max"])))
         if "placeholder" in rng:
-            out.append("    public nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
+            out.append(access + "nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
     if kind in CHOICE_KINDS and not row.get("swift_enum") and not row.get("choices_from"):
-        out.append("    public nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
+        out.append(access + "nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
     return out
 
 
@@ -802,7 +831,7 @@ def section_swift(section, data):
         blocks = {}
         for row in entry["rows"]:
             owner, names = constant_names(row, list_owner)
-            blocks.setdefault(owner, []).extend(constants_swift(row, names))
+            blocks.setdefault(owner, []).extend(constants_swift(row, names, owner_is_public(owner)))
         for owner, lines in blocks.items():
             constant_blocks.append(["extension %s {" % owner] + lines + ["}", ""])
     lists = []

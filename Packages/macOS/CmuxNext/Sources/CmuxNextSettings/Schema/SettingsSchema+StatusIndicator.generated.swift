@@ -5,37 +5,37 @@ public import CmuxNextDesign
 
 extension StatusIndicatorConfigParser {
     /// `appearance.statusIndicator.style`.
-    public nonisolated static let stylePath = ["appearance", "statusIndicator", "style"]
-    public nonisolated static let styleDefault: StatusIndicatorStyle = .arc
+    nonisolated static let stylePath = ["appearance", "statusIndicator", "style"]
+    nonisolated static let styleDefault: StatusIndicatorStyle = .arc
     /// `appearance.statusIndicator.animation`.
-    public nonisolated static let animationPath = ["appearance", "statusIndicator", "animation"]
-    public nonisolated static let animationDefault: StatusIndicatorAnimation = .animated
+    nonisolated static let animationPath = ["appearance", "statusIndicator", "animation"]
+    nonisolated static let animationDefault: StatusIndicatorAnimation = .animated
     /// `appearance.statusIndicator.size`.
-    public nonisolated static let sizePath = ["appearance", "statusIndicator", "size"]
-    public nonisolated static let sizeDefault: Double = 1
-    public nonisolated static let sizeRange: ClosedRange<Double> = 0.5...1.5
+    nonisolated static let sizePath = ["appearance", "statusIndicator", "size"]
+    nonisolated static let sizeDefault: Double = 1
+    nonisolated static let sizeRange: ClosedRange<Double> = 0.5...1.5
     /// `appearance.statusIndicator.thickness`.
-    public nonisolated static let thicknessPath = ["appearance", "statusIndicator", "thickness"]
-    public nonisolated static let thicknessDefault: Double = 1.5
-    public nonisolated static let thicknessRange: ClosedRange<Double> = 0.5...4
+    nonisolated static let thicknessPath = ["appearance", "statusIndicator", "thickness"]
+    nonisolated static let thicknessDefault: Double = 1.5
+    nonisolated static let thicknessRange: ClosedRange<Double> = 0.5...4
     /// `appearance.statusIndicator.color`.
-    public nonisolated static let colorPath = ["appearance", "statusIndicator", "color"]
+    nonisolated static let colorPath = ["appearance", "statusIndicator", "color"]
     /// `appearance.statusIndicator.showAgentWorkingOnTabs`.
-    public nonisolated static let showAgentWorkingOnTabsPath = ["appearance", "statusIndicator", "showAgentWorkingOnTabs"]
-    public nonisolated static let showAgentWorkingOnTabsDefault = true
+    nonisolated static let showAgentWorkingOnTabsPath = ["appearance", "statusIndicator", "showAgentWorkingOnTabs"]
+    nonisolated static let showAgentWorkingOnTabsDefault = true
     /// `appearance.statusIndicator.showPageLoading`.
-    public nonisolated static let showPageLoadingPath = ["appearance", "statusIndicator", "showPageLoading"]
-    public nonisolated static let showPageLoadingDefault = true
+    nonisolated static let showPageLoadingPath = ["appearance", "statusIndicator", "showPageLoading"]
+    nonisolated static let showPageLoadingDefault = true
     /// `appearance.statusIndicator.honorStatusStyle`: true honors every source's style; the file may also hold false or a list of sources (StatusIndicatorConfigParser.honoredSources).
-    public nonisolated static let honorStatusStylePath = ["appearance", "statusIndicator", "honorStatusStyle"]
-    public nonisolated static let honorStatusStyleDefault = true
+    nonisolated static let honorStatusStylePath = ["appearance", "statusIndicator", "honorStatusStyle"]
+    nonisolated static let honorStatusStyleDefault = true
     /// `status.inferCommandBusy`.
-    public nonisolated static let inferCommandBusyPath = ["status", "inferCommandBusy"]
-    public nonisolated static let inferCommandBusyDefault = false
+    nonisolated static let inferCommandBusyPath = ["status", "inferCommandBusy"]
+    nonisolated static let inferCommandBusyDefault = false
     /// `status.inferCommandBusyAfter`.
-    public nonisolated static let inferCommandBusyAfterPath = ["status", "inferCommandBusyAfter"]
-    public nonisolated static let inferCommandBusyAfterDefault: Double = 3
-    public nonisolated static let inferCommandBusyAfterRange: ClosedRange<Double> = 0...600
+    nonisolated static let inferCommandBusyAfterPath = ["status", "inferCommandBusyAfter"]
+    nonisolated static let inferCommandBusyAfterDefault: Double = 3
+    nonisolated static let inferCommandBusyAfterRange: ClosedRange<Double> = 0...600
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
