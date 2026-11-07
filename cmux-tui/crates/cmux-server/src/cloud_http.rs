@@ -88,11 +88,7 @@ impl JsonPoster {
 
     /// An authenticated POST without a request body. The carrier-ticket
     /// route distinguishes no body from the JSON object `{}`.
-    pub fn post_empty(
-        &self,
-        url: &str,
-        bearer: Option<&str>,
-    ) -> Result<(u16, Value), String> {
+    pub fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.send("POST", url, None, bearer)
     }
 
