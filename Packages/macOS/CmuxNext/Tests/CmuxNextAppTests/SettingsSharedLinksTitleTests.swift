@@ -35,7 +35,7 @@ struct SettingsSharedLinksTitleTests {
 
     @Test func theChatTabIsFoundOnItsStoredSurfaceWhenNoTabNamesItsSession() {
         let (services, chat, terminal) = Self.services()
-        #expect(SettingsSharedLinks.chatTab(services, session: nil, surface: SurfaceID(rawValue: 1)) === chat)
-        #expect(SettingsSharedLinks.chatTab(services, session: .string("no-such-session"), surface: SurfaceID(rawValue: 2)) === terminal)
+        #expect(services.shareChatTab(session: nil, surface: SurfaceID(rawValue: 1)) === chat)
+        #expect(services.shareChatTab(session: "no-such-session", surface: SurfaceID(rawValue: 2)) === terminal)
     }
 }
