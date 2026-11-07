@@ -18,8 +18,6 @@ public nonisolated enum QuitBehavior: String, Sendable, Hashable, CaseIterable {
 /// again" writes the chosen one. "end" (the first release's value) reads
 /// as "end-keep-layout" and is rewritten once (`migrateLegacyQuitBehavior`).
 public nonisolated enum QuitBehaviorSetting {
-    public static let configPath = ["app", "quitBehavior"]
-    public static let fallback: QuitBehavior = .ask
     /// The value "end-keep-layout" replaced.
     public static let legacyEnd = "end"
 
