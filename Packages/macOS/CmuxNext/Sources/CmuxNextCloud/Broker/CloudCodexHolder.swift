@@ -72,7 +72,14 @@ public import Foundation
     private var nextID = 0
     private var replies: [Int: CheckedContinuation<Reply, Never>] = [:]
     private var runs: [Int: Run] = [:]
-    private var asks: [Int: Task<Void, Never>] = [:]
+    /// Questions being answered, by the asking child's generation and its id (ids restart with
+    /// each child, so an old child's late answer never touches a new child's question).
+    private var asks: [AskKey: Task<Void, Never>] = [:]
+
+    private struct AskKey: Hashable {
+        let generation: Int
+        let id: Int
+    }
 
     public init(configuration: Configuration, answers: Answers) {
         self.answers = answers
@@ -215,10 +222,12 @@ public import Foundation
 
     private func take(_ event: CloudCodexHolderPipe.Event) {
         switch event {
-        case .ended(_, let ids):
+        case .ended(let generation, let ids):
             for id in ids { failed(id) }
-            for ask in asks.values { ask.cancel() }
-            asks = [:]
+            for (key, ask) in asks where key.generation == generation {
+                ask.cancel()
+                asks[key] = nil
+            }
         case .line(let generation, let data):
             guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             if let id = object["reply"] as? Int {
@@ -227,10 +236,10 @@ public import Foundation
                                                      code: object["error"] as? String ?? "failed",
                                                      message: object["message"] as? String ?? Self.unavailable.message))
             } else if let id = object["cancel_ask"] as? Int {
-                asks.removeValue(forKey: id)?.cancel()
+                asks.removeValue(forKey: AskKey(generation: generation, id: id))?.cancel()
             } else if let kind = object["ask"] as? String, let id = object["id"] as? Int {
                 let fields = Self.fields(object)
-                asks[id] = Task { [weak self] in
+                asks[AskKey(generation: generation, id: id)] = Task { [weak self] in
                     let value = await self?.answer(kind, fields: fields) ?? .null
                     self?.finishAsk(id, generation: generation, value: value)
                 }
@@ -250,7 +259,8 @@ public import Foundation
         case .text(let text): text
         case .null: NSNull()
         }
-        guard asks.removeValue(forKey: id) != nil, !Task.isCancelled,
+        // A cancelled answer leaves the entry alone: a cancel already removed it.
+        guard !Task.isCancelled, asks.removeValue(forKey: AskKey(generation: generation, id: id)) != nil,
               let data = try? JSONSerialization.data(withJSONObject: ["op": "answer", "id": id, "value": json]) else { return }
         outgoing.yield(.init(data: data, answerFor: generation))
     }

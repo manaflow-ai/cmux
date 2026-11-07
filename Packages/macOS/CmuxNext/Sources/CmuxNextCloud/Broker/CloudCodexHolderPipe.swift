@@ -65,9 +65,12 @@ actor CloudCodexHolderPipe {
             // An answer for a child that ended: the new child never asked it.
             guard owner == generation, process != nil else { return true }
         }
-        // Noted first: a holder started for this line opens under the scope it names.
+        // A holder started for this line opens with what the last one knew, before this line's
+        // own news (a team switch's new scope, say): the restore takes back the old scope's
+        // machines, then this line ends that scope and erases them.
+        let before = known
         if line.answerFor == nil { remember(line.data) }
-        if process == nil, !start(acpmux: acpmux) { return false }
+        if process == nil, !start(acpmux: acpmux, knowing: before) { return false }
         guard write(line.data) else { return false }
         if let id = line.id { sent.insert(id) }
         return true
@@ -90,7 +93,7 @@ actor CloudCodexHolderPipe {
 
     /// The `restore` line for a holder started again: what the last one knew, under the current
     /// scope it held. Nil for the first holder (nothing to replay).
-    private func replay() -> Data? {
+    private static func replay(_ known: Known) -> Data? {
         guard !known.scopes.isEmpty || !known.live.isEmpty else { return nil }
         let fields: [String: Any] = [
             "op": "restore", "scopes": Array(known.scopes.values), "live": known.live,
@@ -110,7 +113,7 @@ actor CloudCodexHolderPipe {
         return true
     }
 
-    private func start(acpmux: URL?) -> Bool {
+    private func start(acpmux: URL?, knowing known: Known) -> Bool {
         let inputPipe = Pipe(), outputPipe = Pipe()
         let writer = inputPipe.fileHandleForWriting
         // Close-on-exec: no other child of the app inherits the holder's stdin; a child that
@@ -157,7 +160,7 @@ actor CloudCodexHolderPipe {
         if let acpmux { hello["acpmux"] = acpmux.path }
         if let data = try? JSONSerialization.data(withJSONObject: hello) { opening.append(data) }
         // Config, availability, then what the last holder knew, before any line the app sends now.
-        if let restore = replay() { opening.append(restore) }
+        if let restore = Self.replay(known) { opening.append(restore) }
         return opening.allSatisfy { write($0) }
     }
 
