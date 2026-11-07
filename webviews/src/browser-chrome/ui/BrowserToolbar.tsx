@@ -17,9 +17,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import type { Strings } from "../../pages/shared/i18n";
 import { toolbarStrings } from "./strings";
+import { glyphRule, ToolbarGlyph, type GlyphLook, type GlyphRule, type GlyphScale } from "./toolbarGlyph";
 import {
   resolveLayout,
   shownButtons,
@@ -58,6 +58,8 @@ export type BrowserToolbarProps = {
   buttons?: readonly ToolbarButton[];
   onCommand: (command: BrowserToolbarCommand) => void;
   look?: OmnibarLook;
+  /** The glyph rule (toolbarGlyph.ts); `family` unless the gallery compares. */
+  glyphs?: GlyphLook;
   /** The pane's width; absent, the toolbar measures itself. */
   width?: number;
   /** The omnibox's field, drawn in place of the address text whenever given (at rest too). */
@@ -124,9 +126,12 @@ export function rowMetricsStyle(m: ToolbarRowMetrics): CSSProperties {
   } as CSSProperties;
 }
 
-/** Icon sizes: the Standard density's, or the host's. */
-type IconSizes = { toolbar: number; chip: number; trailing: number; star: number };
-const STANDARD_ICONS: IconSizes = { toolbar: 20, chip: 16, trailing: 18, star: 20 };
+/**
+ * The glyph boxes (the Standard density's, or the host's) and the one glyph rule every icon in the
+ * row draws by: one ink size, one line weight, centered on the box, so the boxes only place them.
+ */
+type IconSizes = { toolbar: number; chip: number; trailing: number; star: number; rule: GlyphRule };
+const STANDARD_ICONS: IconSizes = { toolbar: 20, chip: 16, trailing: 18, star: 20, rule: glyphRule(20) };
 
 /** A press that must not move DOM focus out of the field. */
 const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
@@ -244,6 +249,7 @@ type IconButtonProps = {
   rect?: string;
   holdsFocus?: boolean;
   iconSize?: number;
+  scale?: GlyphScale;
   pressed?: boolean;
   /** The control's accessibility identifier (the DOM id VoiceOver and UI automation read), as the native view's. */
   domId?: string;
@@ -303,6 +309,7 @@ function ToolbarIconButton({
   rect,
   holdsFocus,
   iconSize = STANDARD_ICONS.toolbar,
+  scale = STANDARD_ICONS.rule.button,
   pressed,
   holdMenu,
   domId,
@@ -337,7 +344,7 @@ function ToolbarIconButton({
           : undefined
       }
     >
-      <Icon name={icon} size={iconSize} />
+      <ToolbarGlyph name={icon} scale={scale} box={iconSize} />
       {progress !== undefined && <ProgressRing value={progress} />}
     </button>
   );
@@ -613,7 +620,7 @@ function Omnibar({
         }
         onClick={() => send({ type: "pageInfo" })}
       >
-        <Icon name={state.chip.icon} size={icons.chip} row />
+        <ToolbarGlyph name={state.chip.icon} scale={icons.rule.omnibar} box={icons.chip} />
         {label && <span className="bc-chip-label">{label}</span>}
       </button>
       <div
@@ -641,10 +648,10 @@ function Omnibar({
           onMouseDown={holdsFocus ? keepFocus : undefined}
           onClick={() => send({ type: "bookmark" })}
         >
-          {/* icon-scale-allow: the star draws at the toolbar glyph side, one ink box with the arrows and the puzzle (OmnibarMetrics.starIconSize) */}
-          <Icon
+          <ToolbarGlyph
             name={state.bookmark === "on" ? "browser.omnibox.star.active" : "browser.omnibox.star"}
-            size={icons.star}
+            scale={icons.rule.omnibar}
+            box={icons.star}
           />
         </button>
       )}
@@ -676,6 +683,7 @@ export function BrowserToolbar({
   buttons = [],
   onCommand: send,
   look = "flat",
+  glyphs = "family",
   width: fixedWidth,
   field,
   strings = toolbarStrings(),
@@ -705,9 +713,16 @@ export function BrowserToolbar({
       metrics,
     );
   const loading = navigation.loading;
-  const icons: IconSizes = metrics
-    ? { toolbar: metrics.toolbarIcon, chip: metrics.chipIcon, trailing: metrics.trailingIcon, star: metrics.starIcon }
-    : STANDARD_ICONS;
+  const icons: IconSizes =
+    metrics || glyphs !== "family"
+      ? {
+          toolbar: metrics?.toolbarIcon ?? STANDARD_ICONS.toolbar,
+          chip: metrics?.chipIcon ?? STANDARD_ICONS.chip,
+          trailing: metrics?.trailingIcon ?? STANDARD_ICONS.trailing,
+          star: metrics?.starIcon ?? STANDARD_ICONS.star,
+          rule: glyphRule(metrics?.toolbarIcon ?? STANDARD_ICONS.toolbar, glyphs),
+        }
+      : STANDARD_ICONS;
   const sizes = metrics ? rowMetricsStyle(metrics) : standardStyle;
   const hold = holdsFieldFocus;
   return (
@@ -717,7 +732,12 @@ export function BrowserToolbar({
       role="toolbar"
       data-look={look}
       data-measured={width === null ? undefined : true}
-      style={{ ...sizes, ...(fixedWidth === undefined ? null : { width: fixedWidth }), ...style }}
+      style={{
+        ...sizes,
+        ...({ "--bc-badge-size": `${icons.rule.badge}px` } as CSSProperties),
+        ...(fixedWidth === undefined ? null : { width: fixedWidth }),
+        ...style,
+      }}
     >
       {showsButtons && (
         <div className="bc-group bc-navigation">
@@ -728,6 +748,7 @@ export function BrowserToolbar({
             enabled={navigation.canGoBack}
             holdsFocus={hold}
             iconSize={icons.toolbar}
+            scale={icons.rule.button}
             onPress={() => send({ type: "goBack" })}
             onMenu={() => send({ type: "navigationMenu", direction: "back" })}
             holdMenu
@@ -740,6 +761,7 @@ export function BrowserToolbar({
               enabled={navigation.canGoForward}
               holdsFocus={hold}
               iconSize={icons.toolbar}
+              scale={icons.rule.button}
               onPress={() => send({ type: "goForward" })}
               onMenu={() => send({ type: "navigationMenu", direction: "forward" })}
               holdMenu
@@ -751,6 +773,7 @@ export function BrowserToolbar({
             label={t(loading ? "browser.toolbar.stop" : "browser.toolbar.reload")}
             holdsFocus={hold}
             iconSize={icons.toolbar}
+            scale={icons.rule.button}
             onPress={() => send({ type: loading ? "stop" : "reload" })}
             onMenu={() => send({ type: "navigationMenu", direction: "reload" })}
           />
@@ -788,6 +811,7 @@ export function BrowserToolbar({
               tooltip
               holdsFocus={hold}
               iconSize={icons.toolbar}
+              scale={icons.rule.button}
               onPress={() => send({ type: "reloadCrashedExtensions" })}
             />
           )}
@@ -799,6 +823,7 @@ export function BrowserToolbar({
               label={t("browser.toolbar.extensions")}
               holdsFocus={hold}
               iconSize={icons.toolbar}
+              scale={icons.rule.button}
               pressed={extensionsPressed}
               onPress={() => send({ type: "extensionsMenu" })}
             />
@@ -826,6 +851,7 @@ export function BrowserToolbar({
                   progress={button.progress}
                   holdsFocus={hold}
                   iconSize={icons.toolbar}
+                  scale={icons.rule.button}
                   onPress={() => send({ type: "toolbarButton", button: button.id })}
                   onMenu={button.opensMenu ? () => send({ type: "toolbarButton", button: button.id }) : undefined}
                 />
@@ -839,6 +865,8 @@ export function BrowserToolbar({
                     rect={`button:${button.id}`}
                     {...state}
                     holdsFocus={hold}
+                    iconSize={icons.toolbar}
+                    scale={icons.rule.button}
                     onPress={() => send({ type: "toolbarButton", button: button.id })}
                   />
                 );

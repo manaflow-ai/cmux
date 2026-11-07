@@ -3,9 +3,10 @@
 // native collapse order (trailing buttons into More, pinned extensions into the menu, then Forward).
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
+import { TEXT } from "../../ui/designTokens.generated";
 import { BrowserToolbar, type BrowserToolbarProps, type OmnibarLook } from "./BrowserToolbar";
 import { everyButton, secureOmnibar, toolbarProps } from "./fixtures";
-import { resolveChip } from "./toolbarModel";
+import { resolveChip, TOOLBAR_METRICS, type ToolbarRowMetrics } from "./toolbarModel";
 
 type Props = Omit<BrowserToolbarProps, "onCommand"> & { look?: OmnibarLook };
 
@@ -26,6 +27,33 @@ function ToolbarFixture(props: Props) {
   );
 }
 
+// The row Leo flagged (2026-11-07): nothing to go back to, a secure page, the profile monogram, the
+// star, the Extensions puzzle and More. The glyph variants draw it under each rule.
+const flaggedRow = toolbarProps({
+  navigation: { canGoBack: false, canGoForward: false, loading: false },
+  omnibar: {
+    text: "github.com/manaflow-ai/cmux/pull/37353",
+    host: [0, "github.com".length],
+    chip: resolveChip({ kind: "web", connection: "secure", displayName: "github.com" }),
+    bookmark: "off",
+  },
+  badges: { profile: { monogram: "D", name: "Default" } },
+  extensions: { shows: true, pinned: [] },
+  buttons: [],
+});
+
+/** The Comfortable density as the host sends it (OmnibarMetrics at level 1: the title text step). */
+const comfortable: ToolbarRowMetrics = {
+  ...TOOLBAR_METRICS,
+  bar: 34,
+  button: 34,
+  fontSize: TEXT.find((step) => step.name === "title")!.px,
+  toolbarIcon: 22,
+  trailingIcon: 20,
+  chipIcon: 15,
+  cornerRadius: 8,
+};
+
 const insecure = {
   kind: "web",
   connection: "insecure",
@@ -44,7 +72,7 @@ export default componentEntry<Props>({
   experimental: true,
   height: 120,
   widths: { narrow: 420, normal: 760, wide: 1100 },
-  covers: ["browser-chrome/ui/BrowserToolbar.tsx"],
+  covers: ["browser-chrome/ui/BrowserToolbar.tsx", "browser-chrome/ui/toolbarGlyph.tsx"],
   keywords: ["omnibar", "address bar", "back", "reload", "bookmark star", "extensions"],
   load: async () => ToolbarFixture,
   options: [
@@ -59,6 +87,17 @@ export default componentEntry<Props>({
       ],
       defaultValue: "flat",
     },
+    {
+      id: "glyphs",
+      label: "Glyphs",
+      kind: "choice",
+      choices: [
+        { value: "family", label: "One family (12.5)" },
+        { value: "text", label: "Smaller omnibar (11.5)" },
+        { value: "bold", label: "Bold (14)" },
+      ],
+      defaultValue: "family",
+    },
   ],
   variants: {
     idle: {
@@ -72,6 +111,22 @@ export default componentEntry<Props>({
     "idle-capsule": {
       props: { ...toolbarProps(), look: "capsule" },
       note: "Fully rounded bar and chip.",
+    },
+    "glyphs-family": {
+      props: flaggedRow,
+      note: "Recommended glyph rule: every glyph, the buttons and the omnibar's chip and star, at 12.5 px of ink with 1.5625 px lines (the app's icons at 20 px), centered on its box; the puzzle trimmed 6% for its filled body, the star grown 6% for its thin points; the monogram a 15 px disc. Before it the arrows drew 12 px, the chip 13, the star 14.4 and the puzzle 16, a pixel above the line.",
+    },
+    "glyphs-text": {
+      props: { ...flaggedRow, glyphs: "text" },
+      note: "The buttons as recommended; the chip and star a step smaller (11.5 px, 1.5 px lines), near the URL's cap height.",
+    },
+    "glyphs-bold": {
+      props: { ...flaggedRow, glyphs: "bold" },
+      note: "Every glyph at 14 px with 1.75 px lines and a 17 px monogram: Chrome's own heft in a 28 pt row.",
+    },
+    "glyphs-comfortable": {
+      props: { ...flaggedRow, metrics: comfortable },
+      note: "The recommended rule at the Comfortable density: 22 pt glyph boxes give 13.75 px of ink and 1.72 px lines.",
     },
     loading: {
       props: toolbarProps({
