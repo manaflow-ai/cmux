@@ -130,6 +130,8 @@ public final class BrowserToolbarWebView: NSView {
     /// tab-scoped command of another binding is dropped before it runs (`admits`): a commit typed in
     /// the tab that left never navigates the tab that came.
     private(set) var binding = 0
+    /// The Liquid Glass under the bar for a glass look (`updateBarGlass`); nil for a flat one.
+    var barGlass: NSView?
     /// SF Symbol profile icons drawn for the page (`badgesWire`).
     let profileSymbols = PageSymbolImages()
 
@@ -226,6 +228,7 @@ public final class BrowserToolbarWebView: NSView {
         var pushed = state
         pushed["revision"] = revision
         content.push(pushed)
+        updateBarGlass()
     }
 
     /// Queues a one-shot request for the page; it rides in every state until the page acks it.
@@ -267,7 +270,8 @@ public final class BrowserToolbarWebView: NSView {
             "extensions": extensionsWire,
             "buttons": buttonsWire,
             "omnibar": omnibarConfig,
-            "look": ["material": look.material.rawValue, "backgroundOpacity": look.backgroundOpacity, "coverage": coverage],
+            "look": ["material": look.material.rawValue, "backgroundOpacity": look.backgroundOpacity, "coverage": coverage,
+                     "glass": drawsBarGlass],
             "metrics": ToolbarRowMetrics.wire(scale: scale, withButtons: showsButtons, barTop: barTop(scale: scale)),
             "binding": binding,
             "events": events.map { ["seq": $0.seq, "binding": $0.binding, "event": $0.event] as [String: Any] },
@@ -285,13 +289,14 @@ public final class BrowserToolbarWebView: NSView {
     /// The badges part of the state: focus mode text, profile monogram and color, machine name.
     var badgesWire: [String: Any] {
         var badges: [String: Any] = [:]
-        badges["focusMode"] = focusModeBadge.map { ["text": $0] } ?? NSNull()
+        badges["focusMode"] = focusModeBadge.map { ["text": $0, "help": Strings.focusModeExitHelp(Strings.focusModeEscapeHint)] } ?? NSNull()
         if let badge = shownProfileBadge {
             let color: Any = badge.color.map { color in performWithTheme { GlassBackdropPayload.css(color.fill.cgColor) } } ?? NSNull()
             // A profile icon is an emoji, a letter, or an SF Symbol name, which the page cannot draw:
             // the symbol goes as a template image (`PageSymbolImages`, as the agent pane draws harness symbols).
             let symbol: Any = profileSymbols.dataURL(badge.monogram) ?? NSNull()
-            badges["profile"] = ["monogram": badge.monogram, "symbol": symbol, "color": color, "name": badge.name]
+            badges["profile"] = ["monogram": badge.monogram, "symbol": symbol, "color": color, "name": badge.name,
+                                 "help": BrowserProfileStrings.badgeHelp(badge.name)]
         } else {
             badges["profile"] = NSNull()
         }
@@ -339,6 +344,7 @@ public final class BrowserToolbarWebView: NSView {
             pendingSearch = false
             send(BrowserToolbarHostEvent.searchWithDefaultEngine)
         }
+        updateBarGlass()
         onStatusChange?()
     }
 
@@ -363,6 +369,7 @@ public final class BrowserToolbarWebView: NSView {
             if view.frame != rect { view.frame = rect }
         }
         followLayout()
+        updateBarGlass()
         onLayout?(report)
     }
 
@@ -413,6 +420,13 @@ public final class BrowserToolbarWebView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        setNeedsPush()
+    }
+
+    /// Reduce Transparency or the appearance changed: the glass is redrawn (or dropped for the flat fill).
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        lastPushed = nil
         setNeedsPush()
     }
 }

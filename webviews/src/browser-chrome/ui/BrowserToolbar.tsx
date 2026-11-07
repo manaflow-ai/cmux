@@ -8,6 +8,7 @@
 // number of pinned buttons. The live toolbar page (pages/browser-toolbar) passes the host's
 // resolved buttons, badges and density metrics, its own field, and its layout.
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -244,7 +245,50 @@ type IconButtonProps = {
   holdsFocus?: boolean;
   iconSize?: number;
   pressed?: boolean;
+  /** The control's accessibility identifier (the DOM id VoiceOver and UI automation read), as the native view's. */
+  domId?: string;
+  /** A press held `HOLD_MENU_MS` opens `onMenu` instead of pressing (long-press Back and Forward). */
+  holdMenu?: boolean;
 };
+
+/** How long a press on Back or Forward is held before its history menu opens (ChromeButton's hold timer). */
+export const HOLD_MENU_MS = 400;
+
+/**
+ * A press held for `HOLD_MENU_MS` opens the button's menu instead of pressing it (ChromeButton's
+ * `showHoldMenu`). The timer runs only while the button is held and stops on release, leave or cancel.
+ */
+export function useHoldMenu(onMenu: (() => void) | undefined, enabled: boolean) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opened = useRef(false);
+  const stop = () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stop, []);
+  if (!onMenu || !enabled) return null;
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
+      opened.current = false;
+      if (event.button !== 0) return;
+      stop();
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        opened.current = true;
+        onMenu();
+      }, HOLD_MENU_MS);
+    },
+    onPointerUp: stop,
+    onPointerLeave: stop,
+    onPointerCancel: stop,
+    /** The click that ends a press whose menu opened presses nothing. */
+    swallowsClick: () => {
+      const swallow = opened.current;
+      opened.current = false;
+      return swallow;
+    },
+  };
+}
 
 function ToolbarIconButton({
   icon,
@@ -260,10 +304,14 @@ function ToolbarIconButton({
   holdsFocus,
   iconSize = STANDARD_ICONS.toolbar,
   pressed,
+  holdMenu,
+  domId,
 }: IconButtonProps) {
+  const hold = useHoldMenu(holdMenu ? onMenu : undefined, enabled);
   return (
     <button
       type="button"
+      id={domId}
       className="bc-button"
       data-toolbar-button={id}
       data-rect={rect ?? id}
@@ -273,7 +321,13 @@ function ToolbarIconButton({
       data-active={active || pressed || undefined}
       tabIndex={holdsFocus ? -1 : undefined}
       onMouseDown={holdsFocus ? keepFocus : undefined}
-      onClick={onPress}
+      onPointerDown={hold?.onPointerDown}
+      onPointerUp={hold?.onPointerUp}
+      onPointerLeave={hold?.onPointerLeave}
+      onPointerCancel={hold?.onPointerCancel}
+      onClick={() => {
+        if (!hold?.swallowsClick()) onPress();
+      }}
       onContextMenu={
         onMenu
           ? (event) => {
@@ -319,9 +373,10 @@ function ExtensionButton({
   return (
     <button
       type="button"
+      id={`browser.extension.action.${action.id}`}
       className="bc-button bc-extension"
       data-rect={`action:${action.id}`}
-      aria-label={action.name}
+      aria-label={extensionLabel(action)}
       title={action.name}
       disabled={action.enabled === false}
       data-active={pressed || undefined}
@@ -367,6 +422,28 @@ function ExtensionButton({
   );
 }
 
+/**
+ * What VoiceOver reads for an extension's button: its name, then the badge the icon draws (the
+ * native button's accessibility value).
+ */
+export function extensionLabel(action: ExtensionAction): string {
+  const value = action.value || action.badge?.text;
+  return value ? `${action.label ?? action.name}, ${value}` : (action.label ?? action.name);
+}
+
+/**
+ * The drag image of a page dragged out of the chip: its title, else its URL, as one line of the
+ * bar's text (PageInfoChipButton's drag image). Laid out off screen for the snapshot, then removed.
+ */
+export function setChipDragImage(dataTransfer: DataTransfer, chipDrag: { url: string; title: string | null }): void {
+  const label = document.createElement("div");
+  label.className = "bc-drag-label";
+  label.textContent = chipDrag.title?.trim() || chipDrag.url;
+  document.body.append(label);
+  dataTransfer.setDragImage?.(label, 8, label.offsetHeight / 2);
+  setTimeout(() => label.remove(), 0);
+}
+
 export function AddressText({
   text,
   host,
@@ -392,6 +469,14 @@ export function AddressText({
   );
 }
 
+/** A right-click opens the same menu the press does (the native badges' `menu(for:)`). */
+function menuPress(open: () => void) {
+  return (event: ReactMouseEvent) => {
+    event.preventDefault();
+    open();
+  };
+}
+
 function Badges({
   badges,
   send,
@@ -407,26 +492,32 @@ function Badges({
       {badges.focusMode && (
         <button
           type="button"
-          className="bc-badge bc-badge-text"
+          id="cmux.browser.focusModeBadge"
+          className="bc-badge bc-badge-text bc-badge-focus"
           data-rect="badge:focusMode"
+          title={badges.focusMode.help}
           tabIndex={holdsFocus ? -1 : undefined}
           onMouseDown={press}
           onClick={() => send({ type: "focusModeBadge" })}
         >
+          {/* icon-scale-allow: the native badge's 12 pt keyboard glyph (FocusModeBadgeView) */}
+          <Icon name="keyboard" size={12} />
           {badges.focusMode.text}
         </button>
       )}
       {badges.profile && (
         <button
           type="button"
+          id="cmux.browser.profileBadge"
           className="bc-badge bc-badge-profile"
           data-rect="badge:profile"
-          aria-label={badges.profile.name}
-          title={badges.profile.name}
+          aria-label={badges.profile.help ?? badges.profile.name}
+          title={badges.profile.help ?? badges.profile.name}
           tabIndex={holdsFocus ? -1 : undefined}
           style={badges.profile.color ? ({ "--bc-profile": badges.profile.color } as CSSProperties) : undefined}
           onMouseDown={press}
           onClick={() => send({ type: "profileBadge" })}
+          onContextMenu={menuPress(() => send({ type: "profileBadge" }))}
         >
           {badges.profile.symbol ? (
             <span
@@ -445,12 +536,14 @@ function Badges({
           type="button"
           className="bc-badge bc-badge-text bc-badge-machine"
           data-rect="badge:machine"
+          aria-label={badges.machine.help}
           title={badges.machine.help}
           tabIndex={holdsFocus ? -1 : undefined}
           onMouseDown={press}
           onClick={() => send({ type: "machineBadge" })}
+          onContextMenu={menuPress(() => send({ type: "machineBadge" }))}
         >
-          {badges.machine.text}
+          <span className="bc-badge-label">{badges.machine.text}</span>
         </button>
       )}
     </>
@@ -514,6 +607,7 @@ function Omnibar({
                 event.dataTransfer.setData("text/uri-list", chipDrag.url);
                 event.dataTransfer.setData("text/plain", chipDrag.url);
                 event.dataTransfer.effectAllowed = "copyLink";
+                setChipDragImage(event.dataTransfer, chipDrag);
               }
             : undefined
         }
@@ -537,8 +631,10 @@ function Omnibar({
       {state.bookmark !== "hidden" && (
         <button
           type="button"
+          id="cmux.browser.bookmarkStar"
           className="bc-star"
           data-rect="star"
+          data-on={state.bookmark === "on" || undefined}
           aria-label={t(state.bookmark === "on" ? "browser.bookmark.edit" : "browser.bookmark.add")}
           aria-pressed={state.bookmark === "on"}
           tabIndex={holdsFocus ? -1 : undefined}
@@ -634,6 +730,7 @@ export function BrowserToolbar({
             iconSize={icons.toolbar}
             onPress={() => send({ type: "goBack" })}
             onMenu={() => send({ type: "navigationMenu", direction: "back" })}
+            holdMenu
           />
           {layout.showsForward && (
             <ToolbarIconButton
@@ -645,6 +742,7 @@ export function BrowserToolbar({
               iconSize={icons.toolbar}
               onPress={() => send({ type: "goForward" })}
               onMenu={() => send({ type: "navigationMenu", direction: "forward" })}
+              holdMenu
             />
           )}
           <ToolbarIconButton
@@ -684,6 +782,7 @@ export function BrowserToolbar({
           {extensionsCrashed && (
             <ToolbarIconButton
               id="extensionsCrashed"
+              domId="browser.extensions.crashed"
               icon="browser.toolbar.extensions.crashed"
               label={extensionsCrashed.label}
               tooltip
@@ -695,6 +794,7 @@ export function BrowserToolbar({
           {extensions.shows && (
             <ToolbarIconButton
               id="extensions"
+              domId="browser.extensions.button"
               icon="browser.toolbar.extensions"
               label={t("browser.toolbar.extensions")}
               holdsFocus={hold}
@@ -715,6 +815,7 @@ export function BrowserToolbar({
                 <ToolbarIconButton
                   key={button.id}
                   id={button.id}
+                  domId={`browser.toolbar.${button.id}`}
                   rect={`button:${button.id}`}
                   icon={button.icon}
                   label={button.label}

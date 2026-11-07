@@ -183,9 +183,10 @@ export type ResolvedToolbarButton = {
 
 /** The trailing badges inside the omnibar, before the star; the texts come localized. */
 export type OmnibarBadges = {
-  focusMode?: { text: string } | null;
+  /** `help`: how to leave it (the Escape hint), the badge's tooltip. */
+  focusMode?: { text: string; help?: string } | null;
   /** `symbol`: the host's template image of an SF Symbol monogram, drawn as a mask (else the monogram as text). */
-  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string } | null;
+  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string; help?: string } | null;
   machine?: { text: string; help: string } | null;
 };
 
@@ -211,7 +212,12 @@ export function collapseLevel(id: ToolbarButtonId): number | null {
 /** A pinned extension action. */
 export type ExtensionAction = {
   id: string;
+  /** The tooltip: the action's title, else the extension's name. */
   name: string;
+  /** What VoiceOver names it (the extension's name); absent: `name`. */
+  label?: string;
+  /** The badge the icon draws, read as the button's value; absent: none. */
+  value?: string;
   /** The action's icon (a data or extension URL); absent: the name's initial. */
   iconUrl?: string;
   badge?: { text: string; color?: string };

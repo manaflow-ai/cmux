@@ -50,21 +50,18 @@ export const BAR_STEPS = { rest: 7, hover: 10 } as const;
  * coverage (`backgroundOpacity`, raised to the host's legibility floor), with the text color's tonal
  * step over it. Coverage 0 keeps the window's transparency and still draws the step; 1 is an opaque
  * bar. The step is opaque, so `color-mix` with the under-layer composites the step over it (its
- * premultiplied mix is source-over). The transparent material draws no fill, only the hover.
+ * premultiplied mix is source-over). The transparent material, and a glass bar (`look.glass`: the
+ * host draws Liquid Glass under the page), draw no fill, only the see-through hover fill
+ * (OmnibarViews: `Palette.hoverFill` / `chipHoverFill`).
  */
 export function barFills(look: OmnibarLookWire): BarFills {
+  if (look.material === "transparent" || look.glass) return { fill: "transparent", hover: "var(--ds-color-hover)" };
   const requested = look.coverage ?? look.backgroundOpacity;
   const coverage = Number.isFinite(requested) ? Math.min(1, Math.max(0, requested)) : 0;
   const percent = Math.round(coverage * 1000) / 10;
   const under = percent > 0 ? `color-mix(in srgb, var(--ds-color-surface) ${percent}%, transparent)` : "transparent";
   const step = (value: number) => `color-mix(in srgb, var(--ds-color-fg) ${value}%, ${under})`;
-  return {
-    fill: look.material === "transparent" ? "transparent" : step(BAR_STEPS.rest),
-    hover:
-      look.material === "transparent"
-        ? `color-mix(in srgb, var(--ds-color-fg) ${BAR_STEPS.hover}%, transparent)`
-        : step(BAR_STEPS.hover),
-  };
+  return { fill: step(BAR_STEPS.rest), hover: step(BAR_STEPS.hover) };
 }
 
 /** The toolbar's command as the host takes it; null for one the page handles itself. */

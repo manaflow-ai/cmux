@@ -122,7 +122,10 @@ final class ExtensionActions {
     var wire: [String: Any] {
         var pinned: [[String: Any]] = []
         for action in Self.visible(actions) {
-            var item: [String: Any] = ["id": action.id, "name": action.title.isEmpty ? action.name : action.title, "enabled": action.isEnabled]
+            var item: [String: Any] = ["id": action.id, "name": action.title.isEmpty ? action.name : action.title, "enabled": action.isEnabled,
+                                       "label": action.name]
+            // The badge is in the icon; VoiceOver reads it as the value (ExtensionActionButton did).
+            if !action.badge.isEmpty { item["value"] = action.badge }
             if let icon = iconURL(for: action) { item["iconUrl"] = icon }
             pinned.append(item)
         }

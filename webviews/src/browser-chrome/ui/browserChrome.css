@@ -131,6 +131,10 @@
   padding-inline: var(--bc-chip-leading) var(--ds-space-1);
   border-radius: var(--bc-bar-radius);
   background: var(--bc-bar-fill);
+}
+/* Only the resting bar's hover eases; focus and the card switch at once, as a click expects
+   (OmnibarViews dropped that fade for click latency). */
+.bc-omnibar[data-surface="idle"] {
   transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
 }
 .bc-omnibar[data-surface="idle"]:hover {
@@ -293,7 +297,31 @@
   background: var(--ds-color-hover);
 }
 .bc-badge-machine {
+  max-width: 160px;
   color: var(--ds-color-muted);
+}
+/* A long machine name truncates within the native chip's 160 pt (MachineBadgeView). */
+.bc-badge-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Focus mode: a lit chip in the theme's accent with the keyboard glyph, fading in as it appears
+   (FocusModeBadgeView, AddressBarView's badge fade). */
+.bc-badge-focus {
+  gap: 4px;
+  padding-inline: 6px;
+  background: color-mix(in srgb, var(--ds-color-accent) 16%, transparent);
+  color: var(--ds-color-accent);
+  animation: bc-badge-in var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-badge-focus:hover {
+  background: color-mix(in srgb, var(--ds-color-accent) 22%, transparent);
+}
+@keyframes bc-badge-in {
+  from {
+    opacity: 0;
+  }
 }
 .bc-badge-profile {
   width: var(--bc-trailing-box);
@@ -325,6 +353,10 @@
 }
 .bc-star:hover {
   background: var(--ds-color-hover);
+}
+/* The hollow star is drawn dimmer than the filled one (BookmarkStarButton: secondary text). */
+.bc-star:not([data-on]) {
+  color: var(--ds-color-muted);
 }
 
 /* LOAD PROGRESS: a thin gray line at the toolbar's bottom edge that glides with progress. */
@@ -436,4 +468,23 @@
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
   :is(.bc-button, .bc-chip, .bc-star, .bc-omnibar, .bc-progress, .bc-progress[data-visible]) {
   transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .bc-badge-focus {
+  animation: none;
+}
+
+/* The drag image of a page dragged out of the chip (setChipDragImage): one line of the bar's text,
+   laid out off screen for the snapshot. */
+.bc-drag-label {
+  position: fixed;
+  top: -1000px;
+  left: 0;
+  max-width: 360px;
+  padding: 2px 4px;
+  overflow: hidden;
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-field);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

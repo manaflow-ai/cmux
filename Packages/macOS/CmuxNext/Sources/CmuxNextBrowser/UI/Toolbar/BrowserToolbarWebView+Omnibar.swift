@@ -186,14 +186,18 @@ extension BrowserToolbarWebView {
         ]
     }
 
-    /// Follows `suggestionEngine.display.showsFullURLs` into the page, now and on every change
-    /// (one loop per engine; a new engine replaces it). A push of an unchanged state is skipped.
+    /// Follows `suggestionEngine.display.showsFullURLs` and the bar's look (cmux.json
+    /// `browser.omnibar`: material, opacity, radius, tint, shadow; OmnibarViews followed it live)
+    /// into the page and its glass, now and on every change (one loop per engine; a new engine
+    /// replaces it). A push of an unchanged state is skipped.
     func followDisplay() {
         displayLoop?.cancel()
         displayLoop = ObservationLoop { [weak self] in
             guard let self else { return }
             _ = suggestionEngine.display.showsFullURLs
+            _ = OmnibarGlassAppearance.current.look
             setNeedsPush()
+            updateBarGlass()
         }
     }
 
@@ -202,11 +206,14 @@ extension BrowserToolbarWebView {
     /// The page's menu for the field, with the bar's own items: Paste and Go (or Paste and
     /// Search), Always Show Full URLs and Manage Search Engines.
     func editContextMenu(_ menu: NSMenu) {
+        // A right-click on a resting field focuses it first (all selected), as AddressField did, so
+        // its menu offers Paste and Go: the page's own focus request arrives after this menu.
+        if !isEditing, !isReadOnly, menuEventIsOnField() { giveKeys(source: "mouse") }
         if let title = pasteAndGoTitle() {
             let item = NSMenuItem(title: title, action: #selector(pasteAndGo(_:)), keyEquivalent: "")
             item.target = self
             let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
-            menu.insertItem(item, at: paste.map { $0 + 1 } ?? menu.items.count)
+            menu.insertItem(item, at: paste.map { $0 + 1 } ?? 0)
         }
         let display = suggestionEngine.display
         var extra: [NSMenuItem] = []
@@ -224,6 +231,12 @@ extension BrowserToolbarWebView {
         guard !extra.isEmpty else { return }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
         extra.forEach(menu.addItem)
+    }
+
+    /// The event opening the menu is over the field's text area (the page's `text` rect).
+    private func menuEventIsOnField() -> Bool {
+        guard let event = NSApp.currentEvent, event.window === window, let field = anchor("text") else { return false }
+        return field.bounds.contains(field.convert(event.locationInWindow, from: nil))
     }
 
     private func pastedText() -> String? {
