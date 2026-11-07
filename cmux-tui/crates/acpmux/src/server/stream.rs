@@ -42,6 +42,7 @@ pub(super) async fn serve_stream(
     stream: crate::local_stream::Stream,
     peer: Option<cmux_link::app_caller::PeerToken>,
     provisioner: bool,
+    peer_pid: Option<u32>,
 ) {
     let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
@@ -58,6 +59,7 @@ pub(super) async fn serve_stream(
         ConnAuth::LocalSocket,
         peer,
         provisioner,
+        peer_pid,
         None,
         None,
     )

@@ -19,6 +19,7 @@ import { InboxNoticeCard } from "../conversation/InboxNoticeCard";
 import { type InboxMessage } from "../conversation/inboxNotice";
 import { PendingSteer } from "../conversation/PendingSteer";
 import { DeliveryFailure } from "../conversation/PromptDelivery";
+import { SentFromLine } from "../conversation/SentFromLine";
 import { ReceivedResult } from "../offer/SuggestedTasks";
 import { callNative } from "../callNative";
 import { type RowProps } from "./rowProps";
@@ -177,7 +178,11 @@ export const MessageRow = memo(
             </>
           )}
           <DeliveryFailure row={row} />
-          {row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>}
+          {row.sentFrom ? (
+            <SentFromLine from={row.sentFrom} host={row.viaCli} />
+          ) : (
+            row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>
+          )}
           {row.agentText && (
             <div className="cv-user__status">
               {row.agentText.from

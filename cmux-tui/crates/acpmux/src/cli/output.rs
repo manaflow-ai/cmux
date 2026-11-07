@@ -153,6 +153,9 @@ pub(crate) struct PromptId {
     pub notice: Option<Value>,
     /// `--relay`: a relay's `fromRelay` and `fromHarness` (`cli/run/standard.rs` `relay_fields`).
     pub relay: Option<Value>,
+    /// The harness or app this send came from, as it reports itself (`_meta.acpmux.senderHarness`,
+    /// `sender_harness.rs`): provenance shown beside the prompt, never who sent it.
+    pub sender_harness: Option<Value>,
 }
 
 impl PromptId {
@@ -170,6 +173,7 @@ impl PromptId {
                 attachments: Vec::new(),
                 notice: None,
                 relay: None,
+                sender_harness: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -183,6 +187,7 @@ impl PromptId {
                 attachments: Vec::new(),
                 notice: None,
                 relay: None,
+                sender_harness: None,
             },
         }
     }
@@ -220,6 +225,9 @@ impl PromptId {
         }
         if let Some(notice) = &self.notice {
             mux.set("notice", notice.clone());
+        }
+        if let Some(claim) = &self.sender_harness {
+            mux.set(crate::sender_harness::META_KEY, claim.clone());
         }
         if let Some(Value::Object(relay)) = &self.relay {
             for (key, value) in relay {
