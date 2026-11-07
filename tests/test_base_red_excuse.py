@@ -3762,13 +3762,6 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
             self.judge()
 
-    def test_another_red_in_the_same_job_is_judged_as_before(self):
-        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
-        self.pr_files(*self.RUST)
-        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
-            self.judge()
-        self.assertEqual(self.graphql, [])
-
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
         self.gh.logs[1] = self.pin_log("##[error]Process completed with exit code 134.")
@@ -3784,7 +3777,26 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
             self.judge()
-        self.assertEqual(self.graphql, [])
+        self.assertEqual(len(self.graphql), 1)  # the path rule passed first
+
+    def test_a_swift_change_is_refused_even_when_another_red_is_shared_with_the_base(self):
+        # Review of d5c11dd8: beside a failing test the base shares, the base comparison sets error lines aside, so
+        # the pin's path rule is checked wherever the pin error shows.
+        name = "test_pin_paths (tests.test_x.T)"
+        shared = [f"FAIL: {name}", "Ran 1 test in 0.01s", "FAILED (failures=1)"]
+        self.gh.logs[1] = self.pin_log(*shared)
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.logs[2] = log(self.JOB, self.ROLLUP, *shared)
+        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+        with self.assertRaisesRegex(excuse.Refused, "its app FFI pin is red, and #37292 changes Swift"):
+            self.judge()
+
+    def test_other_reds_after_the_path_rule_passes_are_judged_as_before(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.assertEqual(len(self.graphql), 1)
 
     def test_the_pin_step_itself_may_report_its_failure(self):
         self.gh.jobs[1]["steps"].insert(1, {"name": self.PIN, "status": "completed", "conclusion": "failure"})

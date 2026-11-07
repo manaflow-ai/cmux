@@ -1004,25 +1004,27 @@ FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
                    log: str, github) -> str | None:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
-    rule above); None when its red is anything else: another failed step, a failing test, a crash. The caller asks
-    only after test_reds.read found no crash or cut-short run. Raises Refused when the pin is its only red but the
-    PR is not one the rule covers."""
-    if name != FFI_PIN_JOB or tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP}:
-        return None
+    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
+    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
+    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
+    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
+    only after test_reds.read found no crash or cut-short run."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
-    said = {error for error in errors if not error.startswith(pin)}
-    if not any(error.startswith(pin) for error in errors) or said - {rollup}:
+    if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None
     number, paths = pr_paths(repo, base, sha, github)
     if FFI_PIN_MANIFEST in paths:
-        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that "
-                      "moves the pin must pin a release built from its own sources")
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
+                      "the pin must pin a release built from its own sources")
     if swift := [path for path in paths if path.endswith(".swift")]:
-        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
                       "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
                       "the re-pin")
     if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
-        raise Refused(f"'{name}': only its app FFI pin is red, and #{number} changes no app FFI input")
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+    others = {error for error in errors if not error.startswith(pin)} - {rollup}
+    if tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others:
+        return None
     return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
             f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
             "publishes")
