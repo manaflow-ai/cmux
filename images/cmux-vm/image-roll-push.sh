@@ -4,7 +4,7 @@
 # repository. Each attempt starts from the newest tip and makes the change again there, so a moved
 # tip is never overwritten; at most 5 attempts.
 #
-#   TOKEN=... images/cmux-vm/image-roll-push.sh roll --candidate F --revision R --run ID [--pin SHA] [--message-file M] [--dry-run]
+#   TOKEN=... images/cmux-vm/image-roll-push.sh roll --candidate F --revision R --run ID --attempt N [--pin SHA] [--message-file M] [--dry-run]
 #   TOKEN=... images/cmux-vm/image-roll-push.sh rollback --image ID --message-file M [--dry-run]
 #
 # TOKEN pushes (the manaflow-cmux-pr-autofix App's token, so the push starts cmux-vm.yml's production
@@ -14,12 +14,13 @@
 # `result` and `sha` (GITHUB_OUTPUT) say the same.
 set -euo pipefail
 action="${1:?usage: image-roll-push.sh roll|rollback ...}"; shift
-candidate="" revision="" run="" pin="" image="" message_file="" dry_run=""
+candidate="" revision="" run="" attempt="" pin="" image="" message_file="" dry_run=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --candidate) candidate="$2"; shift 2 ;;
     --revision) revision="$2"; shift 2 ;;
     --run) run="$2"; shift 2 ;;
+    --attempt) attempt="$2"; shift 2 ;;
     --pin) pin="$2"; shift 2 ;;
     --image) image="$2"; shift 2 ;;
     --message-file) message_file="$2"; shift 2 ;;
@@ -49,7 +50,7 @@ for attempt in 1 2 3 4 5; do
     roll)
       if [ -n "$pin" ]; then bun images/cmux-vm/pin-cmux-tui.ts --commit "$pin" --write > /dev/null; fi
       set +e
-      bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" > "$RUNNER_TEMP/approve.json"
+      bun images/cmux-vm/auto-roll.ts approve --candidate "$candidate" --revision "$revision" --run "$run" --attempt "$attempt" > "$RUNNER_TEMP/approve.json"
       rc=$?
       set -e
       if [ "$rc" = 4 ]; then report nothing "the tip moved the image inputs since the bake; the next roll bakes them" ""; exit 0; fi

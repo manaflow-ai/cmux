@@ -162,7 +162,8 @@ jobs:
           printf '%s' "$CANDIDATE" > "$RUNNER_TEMP/candidate.json"
           printf '%s' "$PLAN" > "$RUNNER_TEMP/plan.json"
           tui="$(jq -r .cmuxTui "$RUNNER_TEMP/plan.json")"
-          image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}"
+          # The attempt too: a re-run bakes a new snapshot, a new image with its own id (auto-roll.ts rolledImage).
+          image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
           {
             echo "cmux-vm: image roll ${image} (cmux-tui ${tui:0:8}) first in production"
@@ -198,7 +199,7 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC2086
           images/cmux-vm/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
-            --run "$GITHUB_RUN_ID" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN | tee "$RUNNER_TEMP/push.out"
+            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN | tee "$RUNNER_TEMP/push.out"
           tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the roll commit's diff
         if: always()

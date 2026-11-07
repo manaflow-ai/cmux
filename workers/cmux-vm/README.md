@@ -391,14 +391,22 @@ production's `VM_BOOT_IMAGES`):
    the Native receiver image with the agent tools. Its 5-clone smoke and agent
    tools probe on the candidate snapshot are the gate: a red keeps nothing and
    production stays on its image.
-3. A bot commit (`cmux-vm: image roll cloud-native-auto-<cmux-tui>-<run> ...`)
+3. A bot commit (`cmux-vm: image roll cloud-native-auto-<cmux-tui>-<run>-<attempt> ...`)
    lands the pinned lock and the image, first in production and last in
    staging. Only the newest 6 `cloud-native-auto-*` entries stay in each list;
    hand-approved entries are never removed. Its push deploys production and
    runs `smoke-production`, whose product create boots that first image.
-4. `image-roll-settle` in `cmux-vm.yml`: a deploy or product smoke that isn't
-   green lands `cmux-vm: image rollback <id> ...`, which takes the image out of
-   both lists, so the entry before it boots again.
+4. `image-roll-settle` in `cmux-vm.yml` (`auto-roll.ts settle` decides): a
+   deploy or product smoke that isn't green, or a create that booted another
+   image, lands `cmux-vm: image rollback <id> ...`, which takes the image out of
+   both lists, so the entry before it boots again. A failed, cancelled or timed
+   out deploy all roll back; only a tip whose first image is no longer this one
+   (a newer roll or rollback commit owns production) skips it.
+5. The rollback's own deploy is settled too: its product create must boot the
+   entry now first. If not, `image-roll-settle` dispatches `deploy-production`
+   again, at most 3 production deploys in all, then records `rollback_failed`
+   and comments on the `cloud-image-roll` issue. A rollback never lands another
+   rollback commit.
 
 `images/cmux-vm/auto-roll.json` switches it: `off`, `dry-run` (bake and gate,
 then upload the commit's diff without pushing) or `live`. One roll runs at a

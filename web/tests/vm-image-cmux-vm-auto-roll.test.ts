@@ -1,21 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   AUTO_PREFIX,
   KEEP_AUTO,
+  ROLLBACK_DEPLOYS,
   approve,
   locate,
   modeOf,
   rollback,
   rolledImage,
+  settle,
   type BootImage,
+  type SettleInput,
 } from "../../images/cmux-vm/auto-roll";
 
 // images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
 const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
-const entry = (run: string): BootImage => rolledImage(candidate, `ci-${run}-1`, tui, run);
+const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
 
 /** The file with every VM_BOOT_IMAGES value cut out, to show nothing else moved. */
 const skeleton = (text: string) => text.replace(/"VM_BOOT_IMAGES": "(?:[^"\\\n]|\\.)*"/gu, '"VM_BOOT_IMAGES": ""');
@@ -32,7 +38,7 @@ describe("auto-roll approve", () => {
     expect(staging.at(-1)).toEqual({ ...entry("100"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
     expect(staging.slice(0, -1)).toEqual(before.staging);
     expect(skeleton(text)).toBe(skeleton(wrangler));
-    expect(prod[0]!.id).toBe(`${AUTO_PREFIX}12345678-100`);
+    expect(prod[0]!.id).toBe(`${AUTO_PREFIX}12345678-100-1`);
   });
 
   test("keeps only the newest auto-rolled entries and never trims a hand-approved one", () => {
@@ -41,7 +47,7 @@ describe("auto-roll approve", () => {
     const prod = locate(text, "production").images;
     const staging = locate(text, "staging").images;
     const autoIds = (list: BootImage[]) => list.filter((i) => i.id.startsWith(AUTO_PREFIX)).map((i) => i.id);
-    const newest = Array.from({ length: KEEP_AUTO }, (_, i) => `${AUTO_PREFIX}12345678-${KEEP_AUTO + 3 - i}`);
+    const newest = Array.from({ length: KEEP_AUTO }, (_, i) => `${AUTO_PREFIX}12345678-${KEEP_AUTO + 3 - i}-1`);
     expect(autoIds(prod)).toEqual(newest);
     expect(autoIds(staging)).toEqual([...newest].reverse());
     const hand = (list: BootImage[]) => list.filter((i) => !i.id.startsWith(AUTO_PREFIX));
@@ -52,6 +58,15 @@ describe("auto-roll approve", () => {
   test("refuses an id that is already approved", () => {
     const { text } = approve(wrangler, entry("7"));
     expect(() => approve(text, entry("7"))).toThrow(/already approved/);
+  });
+
+  test("a re-run of the roll run (a new attempt) approves its own image instead of colliding", () => {
+    const first = approve(wrangler, entry("9", "1")).text;
+    const rerun = approve(first, entry("9", "2"));
+    const prod = locate(rerun.text, "production").images;
+    expect(prod[0]!.id).toBe(`${AUTO_PREFIX}12345678-9-2`);
+    expect(prod[1]!.id).toBe(`${AUTO_PREFIX}12345678-9-1`);
+    expect(rerun.previousFirst).toBe(`${AUTO_PREFIX}12345678-9-1`);
   });
 
   test("refuses a list the Worker would reject (more than 32 entries)", () => {
@@ -96,7 +111,125 @@ describe("auto-roll inputs", () => {
   });
 
   test("a candidate without a snapshot id or a cmux-tui commit makes no entry", () => {
-    expect(() => rolledImage({ ...candidate, snapshot_id: "" }, "ci-1-1", tui, "1")).toThrow();
-    expect(() => rolledImage(candidate, "ci-1-1", "main", "1")).toThrow();
+    expect(() => rolledImage({ ...candidate, snapshot_id: "" }, "ci-1-1", tui, "1", "1")).toThrow();
+    expect(() => rolledImage(candidate, "ci-1-1", "main", "1", "1")).toThrow();
+    expect(() => rolledImage(candidate, "ci-1-1", tui, "1", "0")).toThrow(/attempt/);
+  });
+});
+
+describe("auto-roll settle", () => {
+  const image = entry("500").id;
+  const previous = locate(wrangler, "production").images[0]!.id;
+  const roll = (over: Partial<SettleInput>): SettleInput => ({
+    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, attempt: 1, ...over,
+  });
+  const back = (over: Partial<SettleInput>): SettleInput => ({
+    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, attempt: 1, ...over,
+  });
+
+  test("a roll whose deploy and product create booted the image is green", () => {
+    expect(settle(roll({})).outcome).toBe("green");
+  });
+
+  test("a cancelled, timed out or failed deploy rolls back while the image is still first at the tip", () => {
+    for (const deploy of ["cancelled", "failure", "skipped", ""]) expect(settle(roll({ deploy, product: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "failure" })).outcome).toBe("rollback");
+    // A green create that booted some other image proves nothing about this one.
+    expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
+  });
+
+  test("only a tip whose first image moved off this one is a supersede", () => {
+    const newer = entry("501").id;
+    expect(settle(roll({ deploy: "cancelled", product: "", tipFirst: newer })).outcome).toBe("superseded");
+    expect(settle(roll({ deploy: "failure", product: "", tipFirst: previous })).outcome).toBe("superseded");
+  });
+
+  test("a rollback is verified only when the create booted the deployed first entry, not the rolled-back image", () => {
+    expect(settle(back({})).outcome).toBe("verified");
+    expect(settle(back({ bootImage: image })).outcome).not.toBe("verified");
+    expect(settle(back({ deployedFirst: image, bootImage: image })).outcome).not.toBe("verified");
+    expect(settle(back({ bootImage: "" })).outcome).not.toBe("verified");
+  });
+
+  test("an unverified rollback retries its deploy, at most ROLLBACK_DEPLOYS deploys, then is rollback_failed", () => {
+    expect(ROLLBACK_DEPLOYS).toBe(3);
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++) {
+      expect(settle(back({ deploy: "failure", product: "", attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    }
+    expect(settle(back({ deploy: "cancelled", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback_failed");
+  });
+
+  test("a rollback's settle never asks for another rollback commit", () => {
+    for (const deploy of ["success", "failure", "cancelled"])
+      for (const attempt of [1, 2, 3, 4]) expect(settle(back({ deploy, product: "failure", attempt })).outcome).not.toBe("rollback");
+  });
+
+  test("the CLI reads the deployed and tip first entries from wrangler.jsonc files", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-settle-"));
+    try {
+      const rolled = approve(wrangler, entry("500")).text;
+      writeFileSync(path.join(dir, "deployed.jsonc"), rolled);
+      writeFileSync(path.join(dir, "tip.jsonc"), rolled);
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const run = (deploy: string) => {
+        const r = spawnSync("bun", [script, "settle", "--kind", "roll", "--image", image, "--deploy", deploy, "--product", "", "--boot-image", "",
+          "--deployed-wrangler", path.join(dir, "deployed.jsonc"), "--wrangler", path.join(dir, "tip.jsonc")], { encoding: "utf8" });
+        expect(r.status).toBe(0);
+        return JSON.parse(r.stdout) as { outcome: string; tipFirst: string; deployedFirst: string };
+      };
+      expect(run("cancelled")).toMatchObject({ outcome: "rollback", tipFirst: image, deployedFirst: image });
+      writeFileSync(path.join(dir, "tip.jsonc"), rollback(rolled, image).text);
+      expect(run("cancelled")).toMatchObject({ outcome: "superseded", tipFirst: previous });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// The workflows that run the decisions above: they read settle's outcome and never decide on their own.
+describe("auto-roll workflows", () => {
+  const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
+  type Step = { name?: string; id?: string; if?: string; run?: string; env?: Record<string, string> };
+  type Job = { if?: string; permissions?: Record<string, string>; steps: Step[] };
+  const load = (name: string) =>
+    YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+      jobs: Record<string, Job>;
+    };
+  const vm = load("cmux-vm.yml");
+  const settleJob = vm.jobs["image-roll-settle"]!;
+  const stepOf = (job: Job, id: string) => job.steps.find((s) => s.id === id)!;
+
+  test("settle runs after a roll commit, a rollback commit and a rollback's retried deploy", () => {
+    expect(settleJob.if).toContain("startsWith(github.event.head_commit.message, 'cmux-vm: image roll')");
+    expect(settleJob.if).toContain("inputs.action == 'deploy-production' && inputs.image_rollback != ''");
+    for (const input of ["image_rollback", "image_roll_run", "image_rollback_attempt"]) expect(vm.on.workflow_dispatch.inputs).toHaveProperty(input);
+  });
+
+  test("settle takes its outcome from auto-roll.ts settle, with no cancelled shortcut", () => {
+    const read = stepOf(settleJob, "roll").run!;
+    expect(read).toContain("auto-roll.ts settle");
+    expect(read).not.toMatch(/cancelled/);
+    expect(stepOf(settleJob, "rollback").if).toBe("steps.roll.outputs.outcome == 'rollback'");
+    expect(stepOf(settleJob, "push-token").if).toBe("steps.roll.outputs.outcome == 'rollback'");
+    const retry = stepOf(settleJob, "retry");
+    expect(retry.if).toBe("steps.roll.outputs.outcome == 'retry'");
+    expect(retry.run).toContain("-f action=deploy-production");
+    expect(retry.run).toContain('-f image_rollback_attempt="$NEXT"');
+    expect(settleJob.permissions).toMatchObject({ actions: "write" });
+  });
+
+  test("the product smoke boots the first image on a roll, a rollback and a retried rollback deploy, and says which", () => {
+    const smoke = vm.jobs["smoke-production"]!;
+    const product = stepOf(smoke, "product");
+    expect(product.env!["CMUX_VM_SMOKE_IMAGE"]).toContain("!startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == ''");
+    expect((smoke as unknown as { outputs: Record<string, string> }).outputs["boot_image"]).toBe("${{ steps.product.outputs.boot_image }}");
+  });
+
+  test("a roll's image id carries the run attempt", () => {
+    const roll = load("cloud-vm-image-roll.yml");
+    const promote = roll.jobs["promote"]!;
+    expect(stepOf(promote, "message").run).toContain('image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
+    expect(stepOf(promote, "push").run).toContain('--attempt "$GITHUB_RUN_ATTEMPT"');
   });
 });

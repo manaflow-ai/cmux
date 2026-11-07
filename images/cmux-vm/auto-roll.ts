@@ -8,12 +8,16 @@
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <native-image.json> --revision <ci-RUN-ATTEMPT>
-//       --run <roll run id> [--wrangler <path>] [--lock <path>]
+//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
 //   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
 //     Removes an auto-rolled image from both lists when it is still production's first entry, so the entry
 //     before it boots again. Prints what it did; never removes a hand-approved image.
+//   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
+//       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
+//     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
+//     (see settle() below). Prints the decision as JSON; changes nothing.
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
 import { spawnSync } from "node:child_process";
@@ -133,17 +137,75 @@ export function rollback(text: string, id: string): { text: string; rolledBack: 
   return { text: out, rolledBack: true, reason: `${id} removed; ${nextProd[0]!.id} boots again`, nowFirst: nextProd[0]!.id };
 }
 
-export function rolledImage(candidate: Candidate, revision: string, cmuxTui: string, run: string): BootImage {
+/**
+ * The id carries the run attempt: a re-run of a roll run bakes and gates a new snapshot, a different image, so it
+ * gets its own entry rather than colliding with (and being refused as) the first attempt's id. Treating "already
+ * approved" as success instead would either drop the re-run's new snapshot or need the same one, which a re-baked
+ * candidate never has.
+ */
+export function rolledImage(candidate: Candidate, revision: string, cmuxTui: string, run: string, attempt: string): BootImage {
   if (!/^sh-[0-9a-f]{32}$/u.test(candidate.snapshot_id)) throw new Error("candidate has no snapshot id");
   if (!/^[0-9a-f]{40}$/u.test(cmuxTui)) throw new Error("no cmux-tui commit");
   if (!/^[0-9]{1,20}$/u.test(run)) throw new Error("bad run id");
+  if (!/^[1-9][0-9]{0,3}$/u.test(attempt)) throw new Error("bad run attempt");
   return {
-    id: `${AUTO_PREFIX}${cmuxTui.slice(0, 8)}-${run}`,
+    id: `${AUTO_PREFIX}${cmuxTui.slice(0, 8)}-${run}-${attempt}`,
     revision,
-    displayName: `Cloud Native (cmux-tui ${cmuxTui.slice(0, 8)}, image roll ${run})`,
+    displayName: `Cloud Native (cmux-tui ${cmuxTui.slice(0, 8)}, image roll ${run}.${attempt})`,
     snapshotId: candidate.snapshot_id,
     services: [],
   };
+}
+
+// ---- settle: after a roll or rollback commit's production deploy and product smoke ----
+
+/** Production deploys a rollback gets: its commit's own push deploy, then at most 2 dispatched retries. */
+export const ROLLBACK_DEPLOYS = 3;
+
+export type SettleInput = {
+  kind: "roll" | "rollback";
+  /** The image the roll put first, or the one the rollback took out. */
+  image: string;
+  /** needs.deploy-production.result: success, failure, cancelled (a manual cancel or a timeout) or skipped. */
+  deploy: string;
+  /** The product create step's outcome in smoke-production ("" when it did not run). */
+  product: string;
+  /** The image the product create booted ("" when it did not run). */
+  bootImage: string;
+  /** Production's first entry in the deployed commit's wrangler.jsonc. */
+  deployedFirst: string;
+  /** Production's first entry at the feat-cmux-next tip now. */
+  tipFirst: string;
+  /** Rollback only: which production deploy of the rollback this was, 1 for the rollback commit's own. */
+  attempt: number;
+};
+export type SettleOutcome = "green" | "superseded" | "rollback" | "verified" | "retry" | "rollback_failed";
+export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: number };
+
+/**
+ * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
+ * else (failed, cancelled, timed out, skipped, another image booted) rolls back, unless the tip's first entry is no
+ * longer this image: then a newer roll or rollback commit moved production, and that commit's own deploy and settle
+ * own it (the rollback would be a no-op anyway). A cancelled deploy alone proves nothing: the production deploy
+ * queue never cancels a running deploy, so a cancel is a person or a timeout, and the image may be live.
+ *
+ * A rollback: verified when its deploy and product create are green and the create booted the deployed first entry,
+ * which is not the rolled-back image. Otherwise the deploy is retried until ROLLBACK_DEPLOYS, then rollback_failed.
+ * A rollback's settle never lands another rollback commit, so a rollback cannot loop.
+ */
+export function settle(s: SettleInput): Settle {
+  const done = (outcome: SettleOutcome, reason: string, nextAttempt = 0): Settle => ({ outcome, reason, nextAttempt });
+  const seen = `deploy ${s.deploy || "none"}, product smoke ${s.product || "not run"}, booted ${s.bootImage || "nothing"}`;
+  const smokeGreen = s.deploy === "success" && s.product === "success";
+  if (s.kind === "roll") {
+    if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
+    if (s.tipFirst !== s.image) return done("superseded", `${seen}; production's first image at the tip is ${s.tipFirst || "none"}, not ${s.image}: the newer commit's deploy owns production`);
+    return done("rollback", `${s.image} is not proven in production (${seen})`);
+  }
+  if (smokeGreen && s.deployedFirst !== "" && s.deployedFirst !== s.image && s.bootImage === s.deployedFirst)
+    return done("verified", `rollback of ${s.image}: ${s.deployedFirst} boots in production again (${seen})`);
+  if (s.attempt < ROLLBACK_DEPLOYS) return done("retry", `rollback of ${s.image} not verified on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying again`, s.attempt + 1);
+  return done("rollback_failed", `rollback of ${s.image} not verified after ${ROLLBACK_DEPLOYS} production deploys (${seen}); production may still boot it`);
 }
 
 // ---- plan ----
@@ -260,7 +322,7 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: the lock here (${digest.slice(0, 12)}) is not the lock the image was baked from (${candidate.lock_sha256.slice(0, 12)}); the tip moved its image inputs`);
       return 4;
     }
-    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"));
+    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
     const before = readFileSync(wrangler, "utf8");
     const { text, previousFirst } = approve(before, entry);
     writeFileSync(wrangler, text);
@@ -274,7 +336,26 @@ async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify({ rolledBack: result.rolledBack, reason: result.reason, nowFirst: result.nowFirst }, null, 2));
     return 0;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback ... (see the header)");
+  if (command === "settle") {
+    const kind = arg(rest, "--kind");
+    if (kind !== "roll" && kind !== "rollback") throw new Error("--kind must be roll or rollback");
+    const firstOf = (file: string) => locate(readFileSync(file, "utf8"), "production").images[0]?.id ?? "";
+    const attempt = Number(arg(rest, "--attempt", "1"));
+    if (!Number.isInteger(attempt) || attempt < 1) throw new Error("--attempt must be a positive integer");
+    const input: SettleInput = {
+      kind,
+      image: arg(rest, "--image"),
+      deploy: arg(rest, "--deploy", ""),
+      product: arg(rest, "--product", ""),
+      bootImage: arg(rest, "--boot-image", ""),
+      deployedFirst: firstOf(arg(rest, "--deployed-wrangler")),
+      tipFirst: firstOf(wrangler),
+      attempt,
+    };
+    console.log(JSON.stringify({ ...settle(input), deployedFirst: input.deployedFirst, tipFirst: input.tipFirst }, null, 2));
+    return 0;
+  }
+  console.error("usage: auto-roll.ts plan|approve|rollback|settle ... (see the header)");
   return 2;
 }
 
