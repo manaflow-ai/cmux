@@ -28,16 +28,16 @@ extension CEFTab {
     var pageBaseARGB: UInt32 {
         PageBackground.chromiumARGB(
             pastFirstRealPage: pastFirstRealPage,
-            documentSettled: documentSettled || !BrowserPageTunables.loadingBackground.value,
+            documentSettled: documentSettled,
             document: pageBackdropARGB,
             newTab: PageBackground.themeARGB(in: container, surface: .newTabPage),
             loading: PageBackground.themeARGB(in: container))
     }
 
     /// The theme base of a committed document that has not settled yet; nil
-    /// once it has, or with `BrowserPageTunables.loadingBackground` off.
+    /// once it has.
     var loadingBaseARGB: UInt32? {
-        guard BrowserPageTunables.loadingBackground.value, pastFirstRealPage, !documentSettled else { return nil }
+        guard pastFirstRealPage, !documentSettled else { return nil }
         return PageBackground.themeARGB(in: container)
     }
 
