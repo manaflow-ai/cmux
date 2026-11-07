@@ -14,7 +14,7 @@
 //   moves again or the list unmounts; the window listeners exist only while a drag runs (pointer up,
 //   pointer cancel, Escape and window blur end it). Reduce Motion or the host's motion switch
 //   (`data-agent-motion="off"`) moves everything in one frame.
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
@@ -22,20 +22,7 @@ import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { isAppId, MORE_LINE, moveTo, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
-
-type Reorder = {
-  dragging: SessionInfoSectionId | undefined;
-  start: (id: SessionInfoSectionId, event: React.PointerEvent<HTMLElement>) => void;
-  step: (id: SessionInfoSectionId, by: -1 | 1) => void;
-};
-
-const ReorderContext = createContext<Reorder | undefined>(undefined);
-
-/// The panel's reorder actions, for a section inside it; none outside (the gallery's lone sections).
-export function useReorder(): Reorder | undefined {
-  return useContext(ReorderContext);
-}
-
+import { type Reorder, ReorderContext } from "./sessionInfoGroupModel";
 type Drag = {
   id: SessionInfoSectionId;
   /// The pointer's clientY at the press and now.

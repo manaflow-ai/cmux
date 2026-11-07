@@ -87,7 +87,8 @@ import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionIn
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
-import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
   subagentBackLabel,
   subagentProcesses,
@@ -116,18 +117,21 @@ import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from 
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
-import { AlsoHereSection, useAlsoHere } from "./AlsoHereSection";
-import { sessionStatus } from "./ChildSessionRows";
+import { AlsoHereSection } from "./AlsoHereSection";
+import { useAlsoHere } from "./alsoHereSectionModel";
+import { sessionStatus } from "./childSessionRowsModel";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import { useStepAside } from "./stepAside";
 import { chatOutputs } from "./chatOutputs";
 import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
-import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { ProgressSection } from "./ProgressSection";
+import { currentPlan, planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
-import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
+import { usageMeta } from "./usageSectionModel";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";

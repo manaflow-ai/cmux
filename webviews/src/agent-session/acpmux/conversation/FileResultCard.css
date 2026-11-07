@@ -75,13 +75,16 @@ button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
   margin: var(--grid-half-step) 0 var(--ds-space-2);
   min-width: 0;
 }
-.cv-filematches[data-cut] {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 calc(100% - 56px),
-    transparent calc(100% - 24px)
-  );
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent calc(100% - 24px));
+/* The list holds the summary and files (FileResultCard.tsx); cut, its last rows fade out over 32px.
+   The fade is on the list only, never on the card, so Show all under it stays at full ink. */
+.cv-filematches__list {
+  display: grid;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cv-filematches[data-cut] > .cv-filematches__list {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
 }
 .cv-filematches__summary {
   color: var(--cv-text-muted);

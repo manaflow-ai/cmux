@@ -11,7 +11,7 @@
 //   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
 //   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
-// - the questions of the chats this one started (needsYou/JumpPill.tsx `pillAsks`): the pane can only
+// - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): the pane can only
 //   answer the chat it shows, so these open their chat.
 //
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question

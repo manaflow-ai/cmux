@@ -1,6 +1,6 @@
 import { pullRequestStateSince, type HeaderPullRequest } from "../header/headerState";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
-import type { PullRequestGlyphState } from "./PullRequestGlyph";
+import type { PullRequestGlyphState } from "./pullRequestGlyphModel";
 
 /// Rows shown before Show more (Claude Code desktop's Changes shows five).
 export const CHANGES_SHOWN = 5;
