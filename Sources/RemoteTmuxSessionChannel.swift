@@ -264,13 +264,15 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             verification?(true)
             return true
         }
-        let sessionName = scopedSessionName
+        let sessionTarget = scopedSessionId.map { "$\($0)" }
+            ?? RemoteTmuxHost.exactSessionTarget(scopedSessionName)
+            ?? scopedSessionName
         Task { @MainActor [weak self, weak sharedStream] in
             guard let self, let sharedStream else {
                 verification?(true)
                 return
             }
-            let target = RemoteTmuxHost.shellSingleQuoted(sessionName)
+            let target = RemoteTmuxHost.shellSingleQuoted(sessionTarget)
             let lines = await sharedStream.queryWithTimeout(
                 "list-windows -t \(target) -F '#{window_id}'",
                 timeout: 3,
@@ -343,6 +345,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         guard !mirrorEnvironment.isEmpty,
               let target = scopedSessionId.map({ "$\($0)" })
                 ?? RemoteTmuxHost.controlModeLineSafeName(scopedSessionName)
+                    .map({ RemoteTmuxHost.exactSessionTarget($0) ?? $0 })
                     .map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
         var pairs = mirrorEnvironment

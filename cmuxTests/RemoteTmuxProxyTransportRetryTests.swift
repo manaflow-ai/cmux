@@ -156,7 +156,7 @@ import Testing
     @Test func attachModesSpellOutTheirTmuxCommands() {
         #expect(
             RemoteTmuxControlAttachMode.attach.tmuxArguments(sessionName: "work")
-                == ["-CC", "attach-session", "-t", "work"]
+                == ["-CC", "attach-session", "-t", "=work"]
         )
         #expect(
             RemoteTmuxControlAttachMode.attachOrCreate.tmuxArguments(sessionName: "work")
@@ -672,7 +672,7 @@ import Testing
         // Quoted as data, so the shell cannot run the trailing command.
         #expect(command.contains("touch /tmp/cmux-et-injection"))
         #expect(!command.contains("; touch /tmp/cmux-et-injection'\""))
-        #expect(command.hasSuffix("'work '\\''session'\\''; touch /tmp/cmux-et-injection'"))
+        #expect(command.hasSuffix("'=work '\\''session'\\''; touch /tmp/cmux-et-injection'"))
     }
 
     /// The hash keys the attach single-flight, the transport registry, and mirror-to-host
@@ -1487,7 +1487,7 @@ import Testing
         #expect(profile.executablePath() == "/opt/site/bin/broker")
         #expect(argv.prefix(3) == ["-et", "-fallback", "somehost"])
         #expect(argv.contains("-p") == false)
-        #expect(argv.last == "exec 'tmux' '-CC' 'attach-session' '-t' 'work'")
+        #expect(argv.last == "exec 'tmux' '-CC' 'attach-session' '-t' '=work'")
     }
 }
 
