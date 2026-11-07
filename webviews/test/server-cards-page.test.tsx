@@ -124,13 +124,10 @@ test("a change event reads the status again: the arrived machine shows its words
   ]);
   await key("Enter");
   await flush();
-  // SECURITY: the page only leaves a slot for Confirm (the panel's native button draws over it):
-  // neither Return nor a press in the page approves anything.
-  const slot = host.querySelector("[data-person-click]");
-  expect(slot?.getAttribute("data-action")).toBe("confirm");
-  expect(slot?.classList.contains("server-card-person-slot")).toBe(true);
-  await press("[data-action='confirm']");
-  await flush();
+  // SECURITY: Confirm is the panel's native footer, not the page's: the page has no Confirm, and
+  // neither Return nor anything in it approves.
+  expect(host.querySelector("[data-action='confirm']")).toBeNull();
+  expect(host.querySelector("[data-action='cancel']")).not.toBeNull();
   expect(fake.calls.filter((call) => /confirm|approve/i.test(call.op))).toEqual([]);
   // The Name field reaches the host for the native Confirm.
   expect(ops(fake.calls, "cmux.pairInvite.setName").map((call) => call.params)).toEqual([{ name: "build-box" }]);

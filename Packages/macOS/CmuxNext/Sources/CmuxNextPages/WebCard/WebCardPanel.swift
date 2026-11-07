@@ -11,9 +11,9 @@ import Foundation
 /// the route, never loads a page.
 ///
 /// The page drives its own size and close (`cmux.card.*`, ``WebCardHostProvider``):
-/// - `cmux.card.resize {card, height, width?, guard?}` (CSS px): the page measured its content; the
-///   panel grows or shrinks downward, keeping its top edge where the person saw it. `guard` is the
-///   slot the page leaves for the card's click-only control (Confirm), where the panel draws it;
+/// - `cmux.card.resize {card, height, width?}` (CSS px): the page measured its content; the panel
+///   grows or shrinks downward, keeping its top edge where the person saw it (with its own footer
+///   under the page while a click-only control shows);
 /// - `cmux.card.close {card}`: the card's Cancel or Done ran; the panel hides;
 /// - stream `cmux.card.commands`: `{command: "cancel"}` when Escape reaches the panel outside the
 ///   page (the card runs its own Cancel).
@@ -39,8 +39,8 @@ public final class WebCardPanel: NSPanel {
     public let cards: [String: any WebCard]
     private let host: WebCardHostProvider
     private let glass: GlassPanelView
-    /// The glass's content: the page edge to edge, the native control over it.
-    private let surface = NSView()
+    /// The glass's content: the page above, the native footer under it while a control shows.
+    private let surface = WebCardSurface()
     /// The card the panel shows (its route without `#/`), nil before the first opening.
     public private(set) var card: String?
     /// The system's double-click interval, read at each click (tests stand in another).
@@ -64,12 +64,10 @@ public final class WebCardPanel: NSPanel {
     /// An opening waiting for its card's first size: where and how it shows.
     private var pending: (card: String, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent)?
     private let pendingTimeout = DemandTimer(owner: "web-card-first-size")
-    /// Each card's slot for its click-only control, in CSS px from the card's top left, as the page last laid it out.
-    private var slots: [String: CGRect] = [:]
     /// Each card's click-only control, as the card last named it.
     private var controls: [String: PersonControl] = [:]
-    /// The native click-only control, drawn over the shown card's slot.
-    let personButton = ThemedBezelButton(frame: .zero)
+    /// The native click-only control, laid out by the panel in its footer.
+    var personButton: ThemedBezelButton { surface.button }
 
     /// - Parameters:
     ///   - descriptor: The card page's descriptor; its namespaces must include `cmux.card.` and each card's prefix.
@@ -84,11 +82,8 @@ public final class WebCardPanel: NSPanel {
         self.page = page
         self.host = host
         self.cards = Dictionary(cards.map { ($0.card, $0) }, uniquingKeysWith: { first, _ in first })
-        // The page and, above it, the native click-only control, on the panel's glass.
-        page.frame = surface.bounds
-        page.autoresizingMask = [.width, .height]
-        surface.addSubview(page)
-        surface.addSubview(personButton)
+        // The page, and under it the native footer for a click-only control, on the panel's glass.
+        surface.page = page
         glass = Glass.makePanel(content: surface, style: .regular, cornerRadius: 14)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
@@ -106,10 +101,6 @@ public final class WebCardPanel: NSPanel {
         setAccessibilityIdentifier("cmux.webCard")
         glass.autoresizingMask = [.width, .height]
         contentView = glass
-        personButton.isHidden = true
-        // No action: the grant comes from the panel's dispatch of the person's click, never the button's.
-        personButton.refusesFirstResponder = true
-        personButton.setAccessibilityIdentifier("cmux.webCard.personControl")
         host.panel = self
         for card in cards { card.host = self }
     }
@@ -135,7 +126,7 @@ public final class WebCardPanel: NSPanel {
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let intent: WindowActivation.Intent = takeKeys ? .raise : .bringForward
         if let size = sizes[card] {
-            show(size: size, parent: window?.frame, visible: visible, intent: intent)
+            show(size: panelSize(size), parent: window?.frame, visible: visible, intent: intent)
             return
         }
         pending = (card, window?.frame, visible, intent)
@@ -172,12 +163,14 @@ public final class WebCardPanel: NSPanel {
         personClick.shown(at: uptime)
     }
 
-    /// Names the card's click-only control (nil: none shows). The button draws over the slot the
-    /// page leaves for it (`data-person-click`) while the card shows.
+    /// Names the card's click-only control (nil: none shows). While it shows, the panel lays it out
+    /// in its own footer under the page; the page's size covers only the content above.
     public func setPersonControl(_ control: PersonControl?, card: String) {
         guard controls[card] != control else { return }
         controls[card] = control
+        guard card == self.card else { return }
         placePersonControl()
+        if isVisible, let size = sizes[card] { fit(panelSize(size)) }
     }
 
     override public func sendEvent(_ event: NSEvent) {
@@ -200,34 +193,22 @@ public final class WebCardPanel: NSPanel {
         return personButton
     }
 
-    /// Draws the shown card's control over its slot, at its own size (at least ``minimumControl``),
-    /// centered on the slot and kept inside the card; hidden without a control or a slot.
+    /// Whether a control shows in the footer for the shown card.
+    private var hasFooter: Bool { card.flatMap { controls[$0] } != nil }
+
+    /// Shows the shown card's control in the footer (its title and state), or hides the footer.
     private func placePersonControl() {
-        guard let card, let control = controls[card], let slot = slots[card], isVisible || pending != nil else {
-            personButton.isHidden = true
-            return
-        }
-        let zoom = max(page.webKitView.pageZoom * page.webKitView.magnification, 0.01)
-        // The glass resizes with the panel at once (the surface fills it, by constraints, a pass later).
-        let bounds = glass.bounds
-        if personButton.title != control.title { personButton.title = control.title }
-        personButton.isEnabled = control.isEnabled
-        let fitting = personButton.fittingSize
-        let size = NSSize(width: min(max(fitting.width, Self.minimumControl.width), bounds.width),
-                          height: min(max(fitting.height, Self.minimumControl.height), bounds.height))
-        let center = CGPoint(x: slot.midX * zoom, y: bounds.height - slot.midY * zoom)
-        let frame = NSRect(x: min(max(center.x - size.width / 2, bounds.minX), bounds.maxX - size.width),
-                           y: min(max(center.y - size.height / 2, bounds.minY), bounds.maxY - size.height),
-                           width: size.width, height: size.height).integral
-        guard personButton.isHidden || personButton.frame != frame else { return }
-        personButton.frame = frame
-        personButton.isHidden = false
-        // The page moved it: a click begun before it has stayed put ``steadyControl`` is not taken.
+        let control = card.flatMap { controls[$0] }
+        surface.show(control)
         rearm()
     }
 
-    /// The smallest the native control draws, whatever slot the page reports.
-    static let minimumControl = NSSize(width: 72, height: 24)
+    /// The panel's size for a page content size: the footer under it while a control shows.
+    private func panelSize(_ content: NSSize) -> NSSize {
+        guard hasFooter else { return content }
+        return NSSize(width: content.width, height: content.height + surface.footerHeight)
+    }
+
     /// How long the native control stays put (and the card unchanged) before a click on it counts.
     static let steadyControl: TimeInterval = 0.5
 
@@ -250,19 +231,17 @@ public final class WebCardPanel: NSPanel {
 
     /// `cmux.card.resize`: `width` and `height` are in CSS px; the page is zoomed (the interface
     /// scale), so one CSS px is `pageZoom * magnification` points.
-    func pageResized(card: String, width: CGFloat?, height: CGFloat, control target: CGRect?) {
-        slots[card] = target
+    func pageResized(card: String, width: CGFloat?, height: CGFloat) {
         let zoom = page.webKitView.pageZoom * page.webKitView.magnification
         let size = NSSize(width: ceil((width ?? frame.width / zoom) * zoom), height: ceil(height * zoom))
         guard size.height > 0 else { return }
         sizes[card] = size
         guard card == self.card else { return }
         if let pending, pending.card == card {
-            show(size: size, parent: pending.parent, visible: pending.visible, intent: pending.intent)
+            show(size: panelSize(size), parent: pending.parent, visible: pending.visible, intent: pending.intent)
         } else if isVisible {
-            fit(size)
+            fit(panelSize(size))
         }
-        placePersonControl()
     }
 
     /// `cmux.card.close`: the card's Cancel or Done.
@@ -277,7 +256,6 @@ public final class WebCardPanel: NSPanel {
         setFrame(Self.placement(size: size, over: parent, in: visible), display: false)
         WindowActivation.show(self, intent)
         if intent == .raise { page.focusPage() }
-        rearm()
         placePersonControl()
     }
 
@@ -289,13 +267,69 @@ public final class WebCardPanel: NSPanel {
     }
 
     private func finish(_ card: String) {
-        personButton.isHidden = true
+        surface.show(nil)
         cards[card]?.closed()
     }
 }
 
+/// The panel's content: the page, and under it, while a click-only control shows, a native footer
+/// with that control at its own size at the trailing edge. The page never places the control.
+@MainActor
+final class WebCardSurface: NSView {
+    /// The native click-only control (Confirm, Try Again).
+    let button = ThemedBezelButton(frame: .zero)
+    private let footer = NSView()
+    var page: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let page { addSubview(page, positioned: .below, relativeTo: footer) }
+            needsLayout = true
+        }
+    }
+
+    /// Space around the control in the footer.
+    static let inset: CGFloat = 12
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        footer.isHidden = true
+        // No action: the grant comes from the panel's dispatch of the person's click, never the button's.
+        button.refusesFirstResponder = true
+        button.setAccessibilityIdentifier("cmux.webCard.personControl")
+        footer.addSubview(button)
+        addSubview(footer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    /// The footer's height: the control at its own height with the inset above and below.
+    var footerHeight: CGFloat { button.fittingSize.height + 2 * Self.inset }
+
+    /// Shows `control` in the footer, or hides the footer.
+    func show(_ control: PersonControl?) {
+        if let control {
+            if button.title != control.title { button.title = control.title }
+            button.isEnabled = control.isEnabled
+        }
+        footer.isHidden = control == nil
+        button.isHidden = control == nil
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        let footerHeight = footer.isHidden ? 0 : footerHeight
+        page?.frame = NSRect(x: 0, y: footerHeight, width: bounds.width, height: max(bounds.height - footerHeight, 0))
+        footer.frame = NSRect(x: 0, y: 0, width: bounds.width, height: footerHeight)
+        let size = button.fittingSize
+        button.frame = NSRect(x: footer.bounds.maxX - Self.inset - size.width, y: Self.inset, width: size.width, height: size.height)
+    }
+}
+
 /// A card's click-only control (Confirm, Try Again): its title and whether it can be pressed. The
-/// card names it; the panel draws it natively over the slot the page leaves for it.
+/// card names it; the panel lays it out natively in its own footer under the page.
 public struct PersonControl: Equatable, Sendable {
     public var title: String
     public var isEnabled: Bool
@@ -346,7 +380,7 @@ final class WebCardHostProvider: PageProvider {
         case Self.resizeOp:
             guard let height = params["height"]?.doubleValue, height.isFinite else { throw PageError.invalidParams("height is required") }
             let width = params["width"]?.doubleValue.flatMap { $0.isFinite && $0 > 0 ? CGFloat($0) : nil }
-            panel?.pageResized(card: card, width: width, height: CGFloat(height), control: Self.rect(params["guard"]))
+            panel?.pageResized(card: card, width: width, height: CGFloat(height))
         case Self.closeOp:
             panel?.pageClosed(card: card)
         default:
@@ -362,13 +396,6 @@ final class WebCardHostProvider: PageProvider {
         nextListener += 1
         listeners[id] = onEvent
         return PageSubscription { [weak self] in _ = self?.listeners.removeValue(forKey: id) }
-    }
-
-    /// `{x, y, width, height}` in CSS px, nil when absent or malformed.
-    static func rect(_ value: JSONValue?) -> CGRect? {
-        guard let x = value?["x"]?.doubleValue, let y = value?["y"]?.doubleValue, let width = value?["width"]?.doubleValue,
-              let height = value?["height"]?.doubleValue, [x, y, width, height].allSatisfy(\.isFinite), width > 0, height > 0 else { return nil }
-        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     /// Sends one command to the page; false when no page listens.

@@ -7,7 +7,6 @@ import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { cx } from "../../../ui/cx";
 import type { Strings } from "../../shared/i18n";
-import { PERSON_CLICK_ATTRIBUTE } from "../host";
 import {
   buttonsOf,
   clock,
@@ -37,7 +36,7 @@ export interface PairInviteCardProps {
   onRunChief(on: boolean): void;
   /** The Name field changed (the native Confirm reads it). */
   onNameChange?(name: string): void;
-  /** Draws Confirm and Try Again in their slots (the gallery); in the app the panel's native button does. */
+  /** Draws Confirm and Try Again in the card's footer (the gallery); in the app the panel's native footer does. */
   controlStandIn?: boolean;
 }
 
@@ -112,34 +111,22 @@ export function PairInviteCard({
       <footer className="server-card-footer">
         {step.kind === "approving" && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
-        {buttons.map((button) =>
-          isClickOnly(button.action) ? (
-            // SECURITY: only a slot. The panel draws the native Confirm over it; the page never approves.
+        {buttons
+          // Confirm and Try Again are the panel's native footer, never the page's (the gallery
+          // draws them in their place).
+          .filter((button) => controlStandIn || !isClickOnly(button.action))
+          .map((button) => (
             <DialogButton
               key={button.action}
-              dialogKey={null}
-              className={cx("server-card-button is-default", !controlStandIn && "server-card-person-slot")}
-              data-action={button.action}
-              {...{ [PERSON_CLICK_ATTRIBUTE]: "" }}
-              aria-hidden={!controlStandIn}
-              tabIndex={-1}
-              disabled={!isEnabled(button.action, step, status.approver)}
-            >
-              {buttonTitle(button.action, strings, copied)}
-            </DialogButton>
-          ) : (
-            <DialogButton
-              key={button.action}
-              dialogKey={button.key}
+              dialogKey={isClickOnly(button.action) ? null : button.key}
               className={cx("server-card-button", button.key === "return" && "is-default")}
               data-action={button.action}
               disabled={!isEnabled(button.action, step, status.approver)}
-              onClick={() => press(button.action)}
+              onClick={isClickOnly(button.action) ? undefined : () => press(button.action)}
             >
               {buttonTitle(button.action, strings, copied)}
             </DialogButton>
-          ),
-        )}
+          ))}
       </footer>
     </section>
   );
