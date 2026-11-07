@@ -184,11 +184,10 @@ final class DebugSettingsService: InternalPageProvider {
         return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
-    /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
-    /// default), else nil (the SwiftUI view). Its own window has a standard title bar
-    /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
+    /// The React page over `model`, or nil when the page cannot be made (the SwiftUI view then).
+    /// Its own window has a standard title bar (`DebugSettingsWindowController`), so the page needs
+    /// no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
-        guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

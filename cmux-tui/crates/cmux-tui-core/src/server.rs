@@ -3051,5 +3051,6 @@ mod creation_burst_tests;
 #[cfg(test)]
 mod tests;
 
+mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;

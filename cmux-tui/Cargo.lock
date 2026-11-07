@@ -1109,6 +1109,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-api"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "cmux-cloud-client",
+ "cmux-cloud-machine",
+ "cmux-json",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-cloud-cli"
 version = "0.1.0"
 
@@ -1139,6 +1159,17 @@ dependencies = [
 name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]
@@ -1153,6 +1184,14 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "cmux-cloud-machine"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1276,6 +1315,15 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-daemon-launch-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-local-auth",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1875,6 +1923,7 @@ dependencies = [
  "acpmux-build-id",
  "anyhow",
  "async-trait",
+ "axum",
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
@@ -1882,6 +1931,7 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
+ "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
  "cmux-cloud-environment",
@@ -1897,6 +1947,7 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1912,6 +1963,7 @@ dependencies = [
  "cmux-vm",
  "cmux-vnc",
  "cmux-wg",
+ "core-foundation 0.10.1",
  "crossbeam-channel",
  "crossterm",
  "diffy",
@@ -1931,6 +1983,8 @@ dependencies = [
  "rquickjs",
  "rusqlite",
  "rustls",
+ "security-framework",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1990,6 +2044,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-cloud-api",
  "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
@@ -2278,6 +2333,14 @@ dependencies = [
  "libc",
  "tokio",
  "x25519-dalek",
+]
+
+[[package]]
+name = "cmux-window-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

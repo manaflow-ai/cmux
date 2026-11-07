@@ -31,6 +31,14 @@ with live_apply.py's rules:
 SHA must be at or after the app's commit on its history: the swapped parts carry every change
 between the two, not only SHA's own. A SHA the app already contains is a no-op.
 
+--branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
+app's commit is sorted from the fork, and its Rust part applies only when the app's cmux-tui tree
+is the fork's, so the app has no Rust the branch lacks. Its web part is left to try-pr.sh, which
+serves the branch's web with web-overlay.sh follow (a branch has no published bundles).
+
+`plan` says whether CI published SHA's tree (`published`). `apply --binary PATH` swaps in PATH, a
+cmux built for SHA some other way, instead of the published one.
+
 `apply` applies the parts (`--parts` picks; default every part `plan` finds) and checks each:
 the app's bin/cmux hashes to the published sha256, a new daemon owner answers from it, and the
 overlay's manifest names SHA. A failed check puts back what was there before (exit 1). The last
@@ -66,6 +74,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -137,7 +146,9 @@ def sha256_file(path: Path) -> str:
 
 
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as answer:
+    # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
+    with urllib.request.urlopen(request, timeout=300) as answer:
         return answer.read()
 
 
@@ -194,7 +205,7 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
 
 
-def plan(repo: Path, app: Path, sha: str) -> dict:
+def plan(repo: Path, app: Path, sha: str, branch: bool = False) -> dict:
     base = app_commit(app, repo)
     for commit in (base, sha):
         if not have_commit(repo, commit):
@@ -203,16 +214,30 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     if is_ancestor(repo, sha, base):
         out["notes"].append("the app already contains SHA")
         return out
+    since = base
     if not is_ancestor(repo, base, sha):
-        out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
-        return out
-    result = live_apply.classify_range(str(repo), base, sha)
+        fork = git(repo, "merge-base", base, sha, check=False)
+        # --branch: SHA is a pull request's head, branched before the app's commit. Its daemon fits the
+        # app when the app has no Rust the branch lacks: the app's cmux-tui tree is the one at the fork.
+        # Only the Rust part is taken then; the app's newer Swift and web stay as they are.
+        if not branch or not SHA.fullmatch(fork):
+            out["left"]["unrelated"] = [f"{sha} is not after the app's commit {base}"]
+            return out
+        if tree_key(repo, fork) != tree_key(repo, base):
+            out["left"]["unrelated"] = [f"the app's commit {base} has Rust that {sha} (branched at {fork}) lacks"]
+            return out
+        since = fork
+        out["fork"] = fork
+    result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
     for kind in ("swift-live", "rebuild"):
         if files.get(kind):
             out["left"][kind] = files[kind]
     web = files.get("web-live", [])
-    if web:
+    if web and branch:
+        # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
+        out["left"]["web (not published for a branch)"] = web
+    elif web:
         want = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
         have = app_abi(app)
         if have == want:
@@ -222,11 +247,12 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
     rust = files.get("daemon", [])
     if rust:
         linked = linked_rust(repo, rust)
-        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, base)
+        out["tree_key"], out["base_tree_key"] = tree_key(repo, sha), tree_key(repo, since)
         if linked:
             out["left"]["Rust the app links (FFI)"] = linked
         elif out["tree_key"] != out["base_tree_key"]:
             out["parts"].append("rust")
+            out["published"] = published(out["tree_key"])
             helpers = helper_rust(repo, rust)
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
@@ -240,6 +266,14 @@ def plan(repo: Path, app: Path, sha: str) -> dict:
 def triple() -> str:
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
+
+
+def published(key: str) -> bool:
+    """CI published the cmux binaries of tree KEY (its completion.json is there)."""
+    try:
+        return json.loads(fetch(f"{TUI_BASE}/{key}/completion.json")).get("key") == key
+    except (OSError, ValueError):  # urllib's errors are OSErrors: a 404 is an unpublished tree
+        return False
 
 
 def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
@@ -285,17 +319,24 @@ def app_pids(app: Path, names: tuple[str, ...] | None = None) -> list[str]:
     as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short. With
     NAMES, only those that run as one of them (the program name after the bin folder)."""
     prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
+    bin_dir = os.path.realpath(app / BIN)
     found = []
     for field in ("comm", "command"):
         ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
             pid, _, rest = line.strip().partition(" ")
             rest = rest.strip()
-            prefix = next((p for p in prefixes if rest.startswith(p)), None)
-            if pid in found or prefix is None:
+            # A process may name the folder through a link (macOS: the app daemon as /tmp/..., the copy
+            # given as /private/tmp/...), so its bin folder is compared resolved.
+            # Every place the segment appears is tried: a folder above the app may hold it too.
+            marker, cut, starts = f"/{BIN}/", -1, []
+            while (cut := rest.find(marker, cut + 1)) >= 0:
+                starts.append(cut)
+            cut = next((c for c in starts if os.path.realpath(rest[:c + len(BIN) + 1]) == bin_dir), -1)
+            if pid in found or not rest.startswith("/") or cut < 0:
                 continue
             # Program names have no spaces, so the name ends at the first one (the app path may have some).
-            if names is None or rest[len(prefix):].split(" ", 1)[0] in names:
+            if names is None or rest[cut + len(BIN) + 2:].split(" ", 1)[0] in names:
                 found.append(pid)
     # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
     # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
@@ -322,14 +363,15 @@ def app_pids(app: Path, names: tuple[str, ...] | None = None) -> list[str]:
     return found
 
 
-def find_socket(app: Path, cli: Path) -> str | None:
-    """The socket of the daemon running from APP's bin folder: a process there whose unix socket
-    answers `server status` with that process's pid. None when no daemon runs from it; a socket
-    that never answered means one may, and raises rather than pass for none."""
-    hung = []
+def find_sockets(app: Path, cli: Path) -> list[str]:
+    """The sockets of the daemons running from APP's bin folder: processes there whose unix socket
+    answers `server status` with that process's pid, the app's own session (`cmux-app...`) first;
+    the app also runs other sessions' daemons from the same file (its chief's). A socket that never
+    answered means a daemon may run there, and raises rather than pass for none."""
+    hung, found = [], []
     for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
+        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
             try:
                 status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
                                         capture_output=True, text=True, timeout=10)
@@ -337,19 +379,37 @@ def find_socket(app: Path, cli: Path) -> str | None:
                 hung.append(name)
                 continue
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
-                return name
-    if hung:
+                found.append(name)
+                break
+    # The app's own session must answer: a hung one is not passed over for another session's.
+    if hung and (not found or any(Path(name).name.startswith("cmux-app") for name in hung)):
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
-    return None
+    return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
+
+
+def find_socket(app: Path, cli: Path) -> str | None:
+    """The socket of the app's own daemon running from APP's bin folder; None when none runs."""
+    found = find_sockets(app, cli)
+    return found[0] if found else None
 
 
 def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) -> dict:
     """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked."""
     target = (app / BIN / "cmux").resolve()
     swapper_cls = load("rust_live", "rust-live.py").Swapper
-    socket = socket or find_socket(app, target)
+    try:
+        running = find_sockets(app, target)
+    except RuntimeError:
+        if not socket:
+            raise
+        running = [socket]  # --socket names the daemon; the others are not known
+    socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
+    # Only the app's own daemon is handed off. Another session's (the chief's) keeps the build it
+    # mapped until its owner restarts; the receipt names it.
+    if others := [name for name in running if name != socket]:
+        step["left_on_old_build"] = others
     t0 = time.monotonic()
     if socket is None:
         # No daemon runs from this app: the file alone, which the app's next ensure runs.
@@ -472,7 +532,7 @@ def record(state: Path, receipt: dict) -> None:
 
 
 def command_plan(args) -> int:
-    out = plan(Path(args.repo), Path(args.app), args.sha)
+    out = plan(Path(args.repo), Path(args.app), args.sha, args.branch)
     print(json.dumps(out, indent=2))
     return 0 if out["parts"] or not out["left"] else 3
 
@@ -480,7 +540,7 @@ def command_plan(args) -> int:
 def command_apply(args) -> int:
     repo, app, state = Path(args.repo), Path(args.app), state_dir()
     t0 = time.monotonic()
-    planned = plan(repo, app, args.sha)
+    planned = plan(repo, app, args.sha, args.branch)
     parts = [p for p in planned["parts"] if p in args.parts.split(",")]
     receipt = {"action": "apply", **planned, "applied": [], "rolled_back": False, "steps": {},
                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -493,7 +553,8 @@ def command_apply(args) -> int:
     undo: dict = {}
     try:
         if "rust" in parts:
-            new, want = fetch_cmux(planned["tree_key"], state)
+            # --binary: a cmux binary built for SHA elsewhere (try-pr.sh: the PR's fleet dev build).
+            new, want = keep(state, Path(args.binary)) if args.binary else fetch_cmux(planned["tree_key"], state)
             prior, prior_sha = keep(state, target)
             undo["rust"] = {"copy": str(prior), "sha256": prior_sha}
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state)
@@ -584,8 +645,11 @@ def main(argv=None) -> int:
         p.add_argument("sha")
         p.add_argument("--app", default=DEFAULT_APP)
         p.add_argument("--repo", default=str(ROOT))
+        p.add_argument("--branch", action="store_true",
+                       help="SHA is a branch head (a pull request) that may predate the app's commit")
         if name == "apply":
             p.add_argument("--parts", default="web,rust")
+            p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
     p = sub.add_parser("rollback")
