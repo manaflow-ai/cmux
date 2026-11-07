@@ -274,7 +274,7 @@ public final class SettingsController {
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
     /// the default (1) removes the key.
     public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
-        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        let value: JSONValue? = Double(radius) == BrowserHibernationSetting.neighborRadiusDefault ? nil : .number(Double(radius))
         try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
     }
 

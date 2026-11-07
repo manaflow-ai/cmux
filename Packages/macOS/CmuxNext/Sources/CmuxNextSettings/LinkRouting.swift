@@ -35,10 +35,13 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     /// external rule matches it; false leaves sign-in pages to the other keys like any link.
     public var signInPagesInCmux: Bool
 
-    public static let fallback = LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
+    /// Every key's default: schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift),
+    /// which also has each key's path (`openPath`, `enabledPath`, `signInPagesPath`, `legacyOpenPath`,
+    /// `hostsPath`, `rulesPath`).
+    public static let fallback = LinkRouting(opensInCmuxBrowser: openDefault, embeddedHosts: hostsDefault, externalRules: rulesDefault)
 
-    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = true,
-                signInPagesInCmux: Bool = true) {
+    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = LinkRouting.enabledDefault,
+                signInPagesInCmux: Bool = LinkRouting.signInPagesDefault) {
         self.opensInCmuxBrowser = opensInCmuxBrowser
         self.embeddedHosts = embeddedHosts
         self.externalRules = externalRules
@@ -53,16 +56,6 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
         /// The system: the default browser for a web link, the scheme's app for any other.
         case system
     }
-
-    public static let openPath = ["browser", "openLinksInCmuxBrowser"]
-    /// `browser.enabled`, the Settings row Enable cmux Browser.
-    public static let enabledPath = ["browser", "enabled"]
-    /// `browser.openSignInPagesInCmux`, the Settings row Open Sign-In Pages in cmux Browser.
-    public static let signInPagesPath = ["browser", "openSignInPagesInCmux"]
-    /// Classic's key, read when ``openPath`` is absent (``EffectiveSettings`` copies it over).
-    public static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
-    static let hostsPath = ["browser", "hostsToOpenInEmbeddedBrowser"]
-    static let rulesPath = ["browser", "urlsToAlwaysOpenExternally"]
 
     /// Where `url` opens. Only an http(s) link can open in cmux. `otherTarget` (Shift-Command
     /// on a click) asks for the target the setting does not pick: a link the rules send out
