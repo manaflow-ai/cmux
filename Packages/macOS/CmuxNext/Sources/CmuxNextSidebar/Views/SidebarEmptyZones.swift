@@ -16,6 +16,23 @@ import AppKit
         /// What it adds when open, and half the row under it (the reach past `at`).
         var height: CGFloat
         var half: CGFloat
+        /// A row that moves with the zone (its title's block, or the row it opens above) and that row's y at the lift:
+        /// a drop's gap that moves the row moves the zone by as much.
+        var anchor: SidebarRowKey?
+        var anchorY: CGFloat = 0
+
+        /// The zone where it is now: moved as its anchor moved since the lift, less what the open zone `open` adds above
+        /// the anchor.
+        func placed(in list: SidebarListView, open: Zone?) -> Zone {
+            guard let anchor, let now = list.displayed.row(for: anchor)?.y else { return self }
+            var shift = now - anchorY
+            if let open, open.at <= anchorY + 0.5 { shift -= open.height }
+            guard abs(shift) > 0.5 else { return self }
+            var zone = self
+            zone.top = top.map { $0 + shift }
+            zone.at += shift
+            return zone
+        }
     }
 
     /// Opens or closes a zone for the pointer at `point` (list coordinates). A change shows at once, as a target
@@ -23,12 +40,14 @@ import AppKit
     static func update(_ list: SidebarListView, _ drag: SidebarListDrag, at point: NSPoint) {
         guard !drag.zones.isEmpty else { return }
         var y = point.y
-        let open = drag.openZone.flatMap { id in drag.zones.first { $0.id == id } }
+        let lifted = drag.openZone.flatMap { id in drag.zones.first { $0.id == id } }
+        let zones = drag.zones.map { $0.placed(in: list, open: lifted) }
+        let open = drag.openZone.flatMap { id in zones.first { $0.id == id } }
         if let open {
             if y >= (open.top ?? -.infinity), y < open.at + open.height + open.half { return }
             if y > open.at { y -= open.height } // back to the shut list's coordinates
         }
-        let reached = drag.zones.first { zone in
+        let reached = zones.first { zone in
             y < zone.at + zone.half && (zone.top.map { y >= $0 } ?? drag.movingUp)
         }
         guard reached?.id != drag.openZone else { return }
@@ -67,7 +86,8 @@ import AppKit
                 guard let block = shown.first(where: { $0.key == .block(id) }), block.height > 0,
                       !shown.contains(where: { $0.key == .emptySection(.custom(id)) }) else { continue }
                 let under = shown.first { $0.y >= block.maxY - 0.5 && $0.key != block.key }
-                zones.append(Zone(id: id, top: block.y, at: block.maxY, height: height, half: (under?.height ?? list.metrics.rowHeight) / 2))
+                zones.append(Zone(id: id, top: block.y, at: block.maxY, height: height, half: (under?.height ?? list.metrics.rowHeight) / 2,
+                                  anchor: block.key, anchorY: block.y))
             }
         }
         let pinnedItems = list.blocks?.sections[SidebarDocStore.pinnedSection]?.items ?? []
@@ -82,7 +102,7 @@ import AppKit
                 // The row the zone opens above, at its own height (density, a status or detail line).
                 let under = shown.first { $0.y >= top - 0.5 }
                 zones.append(Zone(id: SidebarDocStore.pinnedSection, top: nil, at: top, height: bottom - top + list.displayed.rowSpacing,
-                                  half: (under?.height ?? list.metrics.rowHeight) / 2))
+                                  half: (under?.height ?? list.metrics.rowHeight) / 2, anchor: under?.key, anchorY: under?.y ?? 0))
             }
         }
         drag.zones = zones.sorted { $0.at < $1.at }
