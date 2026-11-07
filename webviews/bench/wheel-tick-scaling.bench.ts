@@ -27,7 +27,8 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium, webkit } from "playwright";
-import { createServer } from "vite";
+import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
+import { createServer, type ViteDevServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { perfRow, TARGET_MS } from "./perfRow";
 
@@ -46,7 +47,8 @@ const webviews = path.resolve(import.meta.dir, "..");
 type Summary = { p50: number; p95: number; max: number };
 type SizeResult = {
   turns: number;
-  rows: number;
+  loaded_px: number;
+  history_left: boolean;
   open_ms: number;
   frames: number;
   work: Summary;
@@ -97,27 +99,30 @@ async function tickRun({
   const { userScrollIntent } = (await import(/* @vite-ignore */ intentUrl)) as IntentModule;
 
   // Into the history as a reader goes there: up to the top of what is loaded, again and again, so older
-  // pages land, until the chat's rows stop growing (each row says how many the transcript holds:
-  // aria-setsize) or the paging deadline passes. Then the ticks run from the middle of the loaded rows,
-  // where a reader who scrolled back through a long chat is.
-  const loaded = () =>
-    Number(scroller.querySelector<HTMLElement>(".acpmux-row[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
+  // pages land, until the transcript stops growing for two seconds or the paging deadline passes. Then
+  // the ticks run from the middle of the loaded rows, where a reader who scrolled back through a long
+  // chat is. A row's aria-setsize is the row count once nothing older is left to load, else -1.
+  const olderLeft = () =>
+    scroller.querySelector<HTMLElement>(".acpmux-row[aria-setsize]")?.getAttribute("aria-setsize") === "-1";
   const requested = userScrollIntent(scroller).request();
   scroller.scrollTop = scroller.scrollHeight;
   for (let index = 0; index < 20; index += 1) await frame();
   const pagingEnds = performance.now() + pagingMs;
-  let still = 0;
-  let rows = loaded();
-  while (still < 40 && performance.now() < pagingEnds) {
+  let grewAt = performance.now();
+  let height = scroller.scrollHeight;
+  while (performance.now() - grewAt < 2000 && performance.now() < pagingEnds) {
     if (requested()) scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight * 4);
     await frame();
-    const now = loaded();
-    still = now === rows ? still + 1 : 0;
-    rows = now;
+    if (scroller.scrollHeight > height + 1) {
+      height = scroller.scrollHeight;
+      grewAt = performance.now();
+    }
+    if (!olderLeft() && scroller.scrollTop <= 0) break;
   }
   if (requested()) scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
   for (let index = 0; index < 60; index += 1) await frame();
-  const loadedRows = loaded();
+  const loadedPx = scroller.scrollHeight;
+  const historyLeft = olderLeft();
 
   const longTasks: number[] = [];
   let observer: PerformanceObserver | undefined;
@@ -242,7 +247,8 @@ async function tickRun({
   });
   const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
   return {
-    rows: loadedRows,
+    loaded_px: loadedPx,
+    history_left: historyLeft,
     frames: work.length,
     work: summary(work),
     over_120: work.filter((ms) => ms > 1000 / 120).length,
@@ -262,22 +268,42 @@ async function tickRun({
 
 type ProfileNode = {
   id: number;
-  callFrame: { functionName: string; url: string; lineNumber: number };
-  children?: number[];
+  callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
 };
-/// The 25 functions with the most self time in a CDP CPU profile, with each one's share.
-function printProfile(turns: number, profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] }) {
+/// The 25 source places with the most self time in a CDP CPU profile, with each one's share. Frames are
+/// mapped through the dev server's source maps back to the source line (the served module is transformed).
+async function printProfile(
+  server: ViteDevServer,
+  turns: number,
+  profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] },
+) {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const maps = new Map<string, SourceMapConsumer | null>();
+  const mapOf = (url: string) => {
+    if (maps.has(url)) return maps.get(url)!;
+    let consumer: SourceMapConsumer | null = null;
+    try {
+      const pathname = new URL(url).pathname;
+      const map = server.moduleGraph.urlToModuleMap.get(pathname)?.transformResult?.map as RawSourceMap | null;
+      if (map?.mappings) consumer = new SourceMapConsumer(map);
+    } catch {
+      consumer = null;
+    }
+    maps.set(url, consumer);
+    return consumer;
+  };
   const self = new Map<string, number>();
   let total = 0;
   profile.samples.forEach((id, index) => {
     const node = byId.get(id);
     const ms = (profile.timeDeltas[index] ?? 0) / 1000;
     if (!node) return;
-    const { functionName, url, lineNumber } = node.callFrame;
+    const { functionName, url, lineNumber, columnNumber } = node.callFrame;
     if (functionName === "(idle)" || functionName === "(program)") return;
-    const file = url.split("/").slice(-1)[0]?.split("?")[0] ?? "";
-    const key = `${functionName || "(anonymous)"} ${file}:${lineNumber + 1}`;
+    const original = url ? mapOf(url)?.originalPositionFor({ line: lineNumber + 1, column: columnNumber }) : undefined;
+    const file = (original?.source ?? url).split("/").slice(-2).join("/").split("?")[0] ?? "";
+    const line = original?.line ?? lineNumber + 1;
+    const key = `${functionName || "(anonymous)"} ${file}:${line}`;
     self.set(key, (self.get(key) ?? 0) + ms);
     total += ms;
   });
@@ -325,7 +351,7 @@ try {
       live: MODE === "live",
       pagingMs: 120_000,
     });
-    if (cdp) printProfile(turns, (await cdp.send("Profiler.stop")).profile);
+    if (cdp) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
@@ -334,7 +360,7 @@ try {
     results.push(result);
     const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
     console.log(
-      `wheel-tick-scaling ${ENGINE} ${MODE}${DEV ? " dev" : ""} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
+      `wheel-tick-scaling ${ENGINE} ${MODE}${DEV ? " dev" : ""} turns=${turns} loaded_px=${result.loaded_px} history_left=${result.history_left} frames=${result.frames} ticks=${result.ticks} ` +
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
