@@ -1193,7 +1193,7 @@ mod redeliver_tests {
 
         // A link that drops after 300 of them; the next starts after the last one reached.
         sent.borrow_mut().clear();
-        let left = Cell::new(300);
+        let left = Cell::new(300_usize);
         let up = || {
             let up = left.get() > 0;
             left.set(left.get().saturating_sub(1));
