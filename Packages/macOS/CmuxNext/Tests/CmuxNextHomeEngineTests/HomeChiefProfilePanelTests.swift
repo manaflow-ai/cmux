@@ -144,6 +144,22 @@ import Testing
         #expect(page.tabs.button(.settings)?.isHidden == true)
     }
 
+    /// The expanded page uses the whole pane: a wide pane's width, and in a short one the width that
+    /// lets the 16:10 note (or screen) fit under the header.
+    @Test func theExpandedPageFillsThePane() {
+        let page = HomeChiefProfileView()
+        page.select(.computer)
+        page.frame = NSRect(x: 0, y: 0, width: 1600, height: 1400)
+        page.layoutSubtreeIfNeeded()
+        #expect(abs(page.gateBox.frame.width - (1600 - 32)) < 1)
+        #expect(abs(page.gateBox.frame.height - page.gateBox.frame.width * 10 / 16) < 1)
+        page.frame = NSRect(x: 0, y: 0, width: 1600, height: 1000)
+        page.layoutSubtreeIfNeeded()
+        let fit = (1000 - HomeChiefProfileView.expandedChrome) * 16 / 10
+        #expect(abs(page.gateBox.frame.width - fit) < 1)
+        #expect(page.gateBox.frame.width > 960)
+    }
+
     @Test func theComputerGates() {
         #expect(HomeChiefProfileView.gate(paid: false, cloudChief: false, hasComputer: false, machine: true) == .paywall)
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false) == .needsCloudChief)

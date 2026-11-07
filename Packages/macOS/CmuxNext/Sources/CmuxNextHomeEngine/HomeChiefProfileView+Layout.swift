@@ -70,9 +70,10 @@ extension HomeChiefProfileView {
             document.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: 16),
             closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            // The screen's 16:10 in the panel; on the wide page the note's card stops at a sensible height.
-            gateBox.heightAnchor.constraint(lessThanOrEqualToConstant: 320),
         ])
+        // The screen's 16:10; in the panel the note's card stops at a sensible height, on the page it
+        // takes the screen's place whole.
+        if settings != nil { gateBox.heightAnchor.constraint(lessThanOrEqualToConstant: 320).isActive = true }
         let ratio = gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0)
         ratio.priority = .defaultHigh
         ratio.isActive = true
@@ -81,10 +82,14 @@ extension HomeChiefProfileView {
         fits.priority = settings == nil ? .required : .defaultHigh
         fits.isActive = true
         if settings == nil {
-            column.widthAnchor.constraint(lessThanOrEqualToConstant: Self.expandedWidth).isActive = true
-            let wide = column.widthAnchor.constraint(equalToConstant: Self.expandedWidth)
-            wide.priority = .defaultHigh
-            wide.isActive = true
+            // The page uses the whole pane: as wide as it is, and only as wide as lets the 16:10 screen
+            // (or its note) and the bar under it fit the pane's height below the header.
+            let fitsHeight = column.widthAnchor.constraint(lessThanOrEqualTo: clip.heightAnchor, multiplier: 16.0 / 10.0,
+                                                           constant: -Self.expandedChrome * 16.0 / 10.0)
+            fitsHeight.priority = .defaultHigh
+            let wide = column.widthAnchor.constraint(equalTo: document.widthAnchor, constant: -32)
+            wide.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue - 1)
+            NSLayoutConstraint.activate([fitsHeight, wide])
         } else {
             column.widthAnchor.constraint(equalToConstant: HomeChiefSettingsView.width).isActive = true
         }
@@ -111,7 +116,7 @@ extension HomeChiefProfileView {
             note.centerYAnchor.constraint(equalTo: gateBox.centerYAnchor),
             note.widthAnchor.constraint(equalTo: gateBox.widthAnchor, constant: -32),
         ])
-        gateLabel.preferredMaxLayoutWidth = (settings == nil ? Self.expandedWidth : Self.columnWidth) - 32
+        gateLabel.preferredMaxLayoutWidth = (settings == nil ? Self.expandedNoteWidth : Self.columnWidth) - 32
     }
 
     func applyGateFill() {

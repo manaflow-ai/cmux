@@ -32,8 +32,11 @@ public final class HomeChiefProfileView: NSView {
     /// The panel's width beside the chat (the settings card's, which sets its rows).
     public static let panelWidth: CGFloat = HomeChiefSettingsView.width + 32
     static let columnWidth: CGFloat = 288
-    /// The expanded page's widest column: the screen as large as the pane allows, up to this.
-    static let expandedWidth: CGFloat = 960
+    /// The expanded page's note wraps at this width, however wide the screen it stands in for.
+    static let expandedNoteWidth: CGFloat = 640
+    /// The expanded page's height that is not the screen: the header (avatar, name, tabs), the
+    /// control bar and the gaps, so the 16:10 screen fits the pane below it.
+    static let expandedChrome: CGFloat = avatarTop + avatarSize + nameGap + 2 * tabsGap + 140
     static let avatarSize: CGFloat = 60
     static let avatarTop: CGFloat = 64
     static let nameGap: CGFloat = 12
