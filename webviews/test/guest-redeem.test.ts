@@ -138,14 +138,17 @@ test("an invite link /i/<id> names the share and is an invite; it carries no sec
   expect(plain.replaced).toEqual([]);
 });
 
-test("a join remembers the invite's role for a reload", () => {
+test("a join remembers the invite's role for a reload; a link join watches only", () => {
   const kept = storage();
   expect(joinedRole(SHARE, kept)).toBeUndefined();
-  rememberJoined(SHARE, "g1", kept, undefined, "view");
+  rememberJoined(SHARE, "g1", kept, undefined, "talk", "invite");
   expect(joinedAs(SHARE, kept)).toBe("g1");
-  expect(joinedRole(SHARE, kept)).toBe("view");
+  expect(joinedRole(SHARE, kept)).toBe("talk");
+  // By the link alone (no account), whatever role was kept or none: view.
   rememberJoined(SHARE, "g1", kept, "Ana");
-  expect(joinedRole(SHARE, kept)).toBeUndefined();
+  expect(joinedRole(SHARE, kept)).toBe("view");
+  rememberJoined(SHARE, "g1", kept, "Ana", "talk", "link");
+  expect(joinedRole(SHARE, kept)).toBe("view");
 });
 
 test("accept posts only the attempt, same origin with credentials, and maps the room's role and errors", async () => {
