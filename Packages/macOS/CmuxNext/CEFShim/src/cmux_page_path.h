@@ -261,6 +261,35 @@ inline std::vector<std::pair<std::string, std::string>> PageRangeHeaders(const s
   return out;
 }
 
+// A page host's Content-Type as CEF takes it: the bare type for SetMimeType and the charset for
+// SetCharset. CEF hands Chromium the MIME type string unparsed, so `text/html; charset=utf-8` as a
+// type is no HTML type, and a `text/` type Chromium does not know is drawn as plain text: a dev
+// server's page showed its own source. Parameters other than charset are dropped.
+inline void SplitPageMimeType(const std::string& content_type, std::string* mime, std::string* charset) {
+  auto trim = [](std::string value) {
+    const size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos) return std::string();
+    return value.substr(first, value.find_last_not_of(" \t") - first + 1);
+  };
+  auto lower = [](std::string value) {
+    for (char& c : value) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return value;
+  };
+  charset->clear();
+  size_t semi = content_type.find(';');
+  *mime = lower(trim(content_type.substr(0, semi)));
+  while (semi != std::string::npos) {
+    const size_t start = semi + 1;
+    semi = content_type.find(';', start);
+    const std::string parameter = trim(content_type.substr(start, semi == std::string::npos ? std::string::npos : semi - start));
+    const size_t equals = parameter.find('=');
+    if (equals == std::string::npos || lower(trim(parameter.substr(0, equals))) != "charset") continue;
+    std::string value = trim(parameter.substr(equals + 1));
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+    *charset = lower(value);
+  }
+}
+
 // The reason phrase a dynamic answer's status carries.
 inline const char* PageStatusText(int status) {
   switch (status) {
