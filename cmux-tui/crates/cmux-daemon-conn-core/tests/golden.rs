@@ -198,8 +198,8 @@ fn latency_vectors() {
                     probe,
                     record["ns"].as_u64().expect("ns"),
                     u32::try_from(record["outcome"].as_u64().expect("outcome")).expect("outcome"),
-                )
-            };
+                );
+            }
         }
     }
     let mut counts = vec![0u64; cmux_daemon_latency_bucket_count()];
