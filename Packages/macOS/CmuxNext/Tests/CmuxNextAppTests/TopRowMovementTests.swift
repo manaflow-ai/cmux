@@ -123,6 +123,24 @@ import Testing
         }
     }
 
+    /// Floating panes (review of #38079): each pane is its own card the gutter and a pane padding down, so
+    /// its top-row pills keep their strip's own centering, and the line the controls read is their center.
+    @Test func floatingPanesCenterTheirPillsInTheirOwnCards() throws {
+        let design = DesignSettings.shared, style = design.chromeStyle
+        design.chromeStyle = .floating
+        defer { design.chromeStyle = style }
+        try with(density: .compact) {
+            let f = fixture(topRow: true)
+            defer { f.window.closeAfterTest() }
+            try #require(Metrics.floatingPanes)
+            move(f, by: -(Metrics.mainPaneGutter + Metrics.panePadding))
+            try #require(WindowTitlebar.isInTopRow(f.strip))
+            #expect(try pillTop(f) == centered(f), "the pill keeps its strip's own centering in its card")
+            let line = try #require(WindowTitlebar.topRowLine(in: f.window))
+            #expect(abs(try pillCenterFromTop(f) - line.centerY) <= 0.5, "the controls' line is the pill's center")
+        }
+    }
+
     @Test func aLowerStripMovedUpTakesTheLine() throws {
         try with {
             let f = fixture(topRow: false)

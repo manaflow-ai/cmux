@@ -30,7 +30,7 @@ import Testing
     /// The card's top as `WindowTitlebar.topRowCardTop` places it in a titled window.
     static func card(_ metrics: PaneChromeMetrics, line: CGFloat, scale: CGFloat) -> CGFloat {
         let card = max(min(gutter, metrics.cardTop(centeringPillOn: line, scale: scale)), rim)
-        return metrics.evenSplitCardTop(card, limit: max(gutter, card), scale: scale)
+        return metrics.evenSplitCardTop(card, within: rim...gutter, scale: scale)
     }
 
     @Test(arguments: modes) func theTopRowPillKeepsEqualGapsAboveAndBelow(_ mode: Mode) {
@@ -73,6 +73,19 @@ import Testing
         let comfortable = PaneChromeMetrics(stripHeight: 36, tabHeight: 30, panePadding: 0)
         #expect(comfortable.cardTop(centeringPillOn: 16, scale: 2) == 0)
         #expect(comfortable.pillTop(stripTop: 1, scale: 2) == 2.5)
+    }
+
+    /// Review of #38079: a pill that fills its strip leaves the card at the window's top, `off` and windows with
+    /// no top-row strip keep the card formula from before #38054, and a card the gutter clamps on an odd pixel
+    /// steps up a pixel instead.
+    @Test func theCardsEdgeCases() {
+        let full = PaneChromeMetrics(stripHeight: 24, tabHeight: 24, panePadding: 2)
+        #expect(full.cardTop(centeringPillOn: 16, scale: 2) == 0)
+        let compact = PaneChromeMetrics(stripHeight: 28, tabHeight: 24, panePadding: 0)
+        #expect(compact.cardTopKeepingStripCentering(centeringPillOn: 16, scale: 2) == 2, "2 + 2 + 24 / 2 = 16")
+        #expect(compact.evenSplitCardTop(3, within: 1...3, scale: 1) == 2, "odd room 1, no room below the gutter: one pixel up")
+        #expect(compact.evenSplitCardTop(3, within: 1...6, scale: 1) == 4, "odd room 1: one pixel down")
+        #expect(compact.evenSplitCardTop(2, within: 1...6, scale: 1) == 2, "even room: unchanged")
     }
 
     @Test func controlsCenterOnTheLineOnThePixelGrid() {

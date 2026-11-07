@@ -1637,6 +1637,17 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
   moves the zone's reach by as much.
 
+## The +, the band and the tabs share the line the tabs reach (2026-11-07, #38054)
+
+- https://github.com/manaflow-ai/cmux/issues/38054: "Expected: tabs are vertically centered in the tab row, with equal
+  top and bottom inset relative to the row's top edge and the divider below."
+- The top row's pills keep equal gaps above and below them; the main pane's card moves down to bring them onto the
+  traffic lights' line (`WindowTitlebar.topRowCardTop`). Where it cannot (Comfortable, Spacious, flat chrome),
+  `WindowTitlebar.topRowLine` is the pills' center, and the sidebar's + follows it: Comfortable 2x, 18.5 pt down
+  (it was the lights' 16). Compact keeps 16.
+- The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
+- The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

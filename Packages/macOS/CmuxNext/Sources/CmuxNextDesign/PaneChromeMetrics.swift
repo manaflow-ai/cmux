@@ -107,19 +107,29 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
         let want = 2 * centerY - stripHeight - padding
         guard want > 0 else { return 0 }
         let room = stripHeight - tabHeight - padding
-        guard room > 0 else { return max(0, Self.snapDown(centerY - padding - tabHeight / 2, scale)) }
+        // A pill that fills its strip has no gaps to even out: moving the card would only open one above it.
+        guard room > 0 else { return 0 }
         let pill = Self.snapDown(min(max(0, (room - want) / 2), room / 2), scale)
         return room - 2 * pill
     }
 
-    /// `cardTop` (on the pixel grid) moved down one device pixel when the room it leaves the pill is
-    /// an odd number of pixels and `limit` allows it, so the pill's gaps above and below come out
+    /// The card top that puts the pill's center on `centerY` with the pill kept at its own
+    /// ``pillTop(scale:)`` in its strip: the top row before #38054, kept for Debug
+    /// `chrome.topRowLine` off and for windows with no top-row strip (tab bars at the bottom).
+    public func cardTopKeepingStripCentering(centeringPillOn centerY: CGFloat, scale: CGFloat) -> CGFloat {
+        max(0, Self.snapDown(centerY - Self.snap(panePadding, scale) - pillTop(scale: scale) - tabHeight / 2, scale))
+    }
+
+    /// `cardTop` (on the pixel grid) moved one device pixel, down if `range` allows it, else up, when the
+    /// room it leaves the pill is an odd number of pixels, so the pill's gaps above and below come out
     /// equal on a 1x display too (the window's rim or the gutter clamped the card there).
-    public func evenSplitCardTop(_ cardTop: CGFloat, limit: CGFloat, scale: CGFloat) -> CGFloat {
+    public func evenSplitCardTop(_ cardTop: CGFloat, within range: ClosedRange<CGFloat>, scale: CGFloat) -> CGFloat {
         let s = max(scale, 1)
         let room = stripHeight - tabHeight - Self.snap(panePadding, scale) - cardTop
-        guard room > 0, Int((room * s).rounded()) % 2 != 0, cardTop + 1 / s <= limit else { return cardTop }
-        return cardTop + 1 / s
+        guard room > 0, Int((room * s).rounded()) % 2 != 0 else { return cardTop }
+        if cardTop + 1 / s <= range.upperBound { return cardTop + 1 / s }
+        if cardTop - 1 / s >= range.lowerBound { return cardTop - 1 / s }
+        return cardTop
     }
 
     /// The live tokens.

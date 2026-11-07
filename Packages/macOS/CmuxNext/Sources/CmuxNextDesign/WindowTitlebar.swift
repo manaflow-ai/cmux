@@ -152,10 +152,16 @@ public struct WindowTitlebar {
             let row = max(local.height, TitlebarBandButton.side)
             return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
         }
+        // Floating panes keep the one even gap at the top too.
+        guard !Metrics.floatingPanes else { return gutter }
         // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
-        // Floating panes keep the one even gap at the top too (`topRowCardTop`).
-        let centerFromTop = targetTopRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
-        return topRowCardTop(centeringPillOn: centerFromTop, gutter: gutter, in: window)
+        guard let target = targetTopRowLine(in: window) else {
+            // No top-row strip (tab bars at the bottom): the card keeps its place from before #38054.
+            let card = PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: root.bounds.maxY - local.midY,
+                                                                              scale: window.backingScaleFactor)
+            return Metrics.windowEdgeInset(min(gutter, card), in: window)
+        }
+        return topRowCardTop(centeringPillOn: target.centerY, gutter: gutter, in: window)
     }
 
     /// Whether `view` sits in the window's titlebar band (a full-size
