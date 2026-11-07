@@ -2,7 +2,8 @@ import CmuxAgentQuestion
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextPages
-import Foundation
+public import Foundation
+public import CmuxNextSettings
 
 /// The Messages page's Chief permission cards (`cmux.home.messages.approval.decide`), the decision
 /// the native card made (MessagesLabHome `HomeProjection.decideApproval` and `completeApproval`):
