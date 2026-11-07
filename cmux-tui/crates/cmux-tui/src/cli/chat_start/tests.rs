@@ -235,6 +235,17 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
         (named["code"].as_str(), named["retryable"].as_bool()),
         (Some("chat_target.unavailable"), Some(true))
     );
+    // A Cloud VM named as a device too.
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let device = route(
+        Some("machine_vm"),
+        Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(unloaded) },
+    )
+    .unwrap_err();
+    assert_eq!(
+        (device["code"].as_str(), device["retryable"].as_bool()),
+        (Some("chat_target.unavailable"), Some(true))
+    );
     // Signed out by the list, though the sign-in read said yes.
     let out = json!({"account": {"signed_in": false}, "machines": []});
     assert_eq!(code(on_vm(out)), "chat_target.signed_out");

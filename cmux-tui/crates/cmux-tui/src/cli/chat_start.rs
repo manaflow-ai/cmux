@@ -302,16 +302,21 @@ where
         Ok(ChatTarget::Device { local: true, .. }) => Ok(Route::Here),
         Ok(ChatTarget::Device { id, local: false }) => match (origin, record) {
             ("cloud", Some(machine)) => {
-                existing_vm(&id, text(machine, "name"), &(reads.cloud_machines)()?)
-                    .map(Route::Cloud)
-                    .map_err(|found| {
+                let listed = (reads.cloud_machines)()?;
+                // Not loaded yet, the app lists no VMs: say to retry, as `vm` and `vm:NAME` do.
+                if let Some(error) = not_loaded(&listed) {
+                    return Err(error);
+                }
+                existing_vm(&id, text(machine, "name"), &listed).map(Route::Cloud).map_err(
+                    |found| {
                         refusal(
                             "chat_target.unavailable",
                             format!("device {id} is a Cloud VM the app does not list as one VM"),
                             LIST_VMS,
                             json!({"device": id, "matches": found}),
                         )
-                    })
+                    },
+                )
             }
             _ => Err(refusal(
                 "chat_target.no_route",
