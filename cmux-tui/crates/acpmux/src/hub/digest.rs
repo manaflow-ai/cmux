@@ -81,11 +81,21 @@ pub(super) struct Part {
 /// `_meta.acpmux.fromAgent`, or the name of the session a connection proved it runs in. With
 /// none, its provenance says: a message another session sent (`session_message`, also when a
 /// paused agent pair releases it, `agent_pairs.rs`) or a lane's task result card (`tasks.rs`) is
-/// that session's, by its name.
+/// that session's, by its name. A message the person edited (`editedBy`, `queue_edit.rs`) is
+/// theirs to clear, hold and digest, here and after a restart: it names its sender only to the
+/// agent ([`named_sender`]).
 pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -> Option<String> {
     if let Some(name) = declared {
         return Some(name.to_owned());
     }
+    if provenance.is_some_and(|p| p.get(crate::prompt_provenance::EDITED_BY).is_some()) {
+        return None;
+    }
+    named_sender(provenance)
+}
+
+/// The sender `provenance` names when it is another agent's message, edited or not.
+pub(super) fn named_sender(provenance: Option<&Value>) -> Option<String> {
     let p = provenance?;
     let kind = p.get("kind").and_then(Value::as_str);
     if !matches!(
@@ -588,6 +598,11 @@ mod tests {
         let card = crate::prompt_provenance::task_result("s1", "lane-b", "s2", "t-1", "done");
         assert_eq!(agent_sender(Some(&card), None).as_deref(), Some("lane-b"));
         assert_eq!(agent_sender(None, Some("coord-deputy")).as_deref(), Some("coord-deputy"));
+        // One the person edited is theirs, after a restart too; it still names its sender.
+        let edited =
+            json!({"kind": "agent_message", "fromName": "lane-a", "editedBy": {"actor": "owner"}});
+        assert_eq!(agent_sender(Some(&edited), None), None);
+        assert_eq!(named_sender(Some(&edited)).as_deref(), Some("lane-a"));
         assert_eq!(agent_sender(None, None), None, "a plain prompt is the person's");
         let resume = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"});
         assert_eq!(agent_sender(Some(&resume), None), None, "a continuation is the person's");

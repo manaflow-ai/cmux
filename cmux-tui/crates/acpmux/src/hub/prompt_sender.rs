@@ -47,7 +47,11 @@ pub(super) fn add_sender(
     class: Option<&str>,
     provenance: Option<&Value>,
 ) {
-    let name = agent.filter(|n| !n.is_empty());
+    // A message the person edited is theirs to act on (`queue_edit.rs`), but the agent still
+    // learns who first sent it, beside its `editedBy`.
+    let edited = provenance.is_some_and(|p| p.get(crate::prompt_provenance::EDITED_BY).is_some());
+    let named = edited.then(|| super::digest::named_sender(provenance)).flatten();
+    let name = agent.filter(|n| !n.is_empty()).or(named.as_deref());
     let unverified = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
         == Some(crate::prompt_provenance::UNVERIFIED_KIND);
     if name.is_none() && !unverified {
@@ -177,6 +181,20 @@ mod tests {
         assert_eq!(
             params["_meta"]["acpmux"]["sender"],
             json!({"verified": false, "transport": "unix"})
+        );
+    }
+
+    #[test]
+    fn an_edited_agent_message_still_names_its_sender_to_the_agent() {
+        let provenance = json!({
+            "kind": "agent_message",
+            "from": "lane-a",
+            "editedBy": {"actor": "owner"},
+        });
+        let params = prompt_params("s", json!([]), None, None, Some(&provenance));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"],
+            json!({"name": "lane-a", "editedBy": {"actor": "owner"}})
         );
     }
 
