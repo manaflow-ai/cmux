@@ -235,6 +235,8 @@ final class ControlSnapshotPublisher {
             return info
         }
         cache?.retainMemos(Set(windows.controllers.flatMap { ["window:" + $0.state.id, "order:" + $0.state.id] }))
+        // Observed: a message from another window moves a Chief turn's place (#32989).
+        topology.chiefPromptWindowID = windows.chiefPrompt.open(in: windows.registry.value)
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page

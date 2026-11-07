@@ -12,6 +12,33 @@ extension AppActionContext {
     var store: DaemonStore { services.activeDaemon.store }
     var activeWindow: WindowController? { services.windows.active }
 
+    /// The window a control caller's new workspace opens in (#32989): its own (a Chief turn's, the window the
+    /// person prompted it from) while that window is open; nil for a person, or when it closed.
+    func callerWindow(_ invocation: ActionInvocation) -> WindowController? {
+        guard let id = invocation.callerWindow, services.windows.registry.value.window(id)?.isOpen == true else { return nil }
+        return services.windows.controller(for: id)
+    }
+
+    /// The window a new workspace of `invocation` opens in: the caller's (``callerWindow(_:)``), else the active one.
+    func createWindow(_ invocation: ActionInvocation) -> WindowController? { callerWindow(invocation) ?? activeWindow }
+
+    /// The workspace a create of `invocation` is placed next to: its target, else the one the caller's window
+    /// shows (a Chief's create goes where it was prompted, #32989), else the active window's. Nil when the
+    /// caller's window shows none: the create goes to that window (``createWindow(_:)``), never the active one's.
+    func createAnchorIfAny(_ invocation: ActionInvocation) throws -> WorkspaceModel? {
+        let targeted = (invocation.target ?? invocation["workspace"]?.targetValue)?.kind == .workspace
+        if !targeted, let caller = callerWindow(invocation) {
+            return caller.state.workspaceID.flatMap(services.workspace(id:)).flatMap { $0.key == nil ? nil : $0 }
+        }
+        return try workspace(invocation).model
+    }
+
+    /// ``createAnchorIfAny(_:)`` for a create that needs an anchor; refused when there is none.
+    func createAnchor(_ invocation: ActionInvocation) throws -> WorkspaceModel {
+        guard let anchor = try createAnchorIfAny(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        return anchor
+    }
+
     /// Throws unless the daemon serves `capability`.
     func require(_ capability: String) throws {
         let daemon = services.activeDaemon

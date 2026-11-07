@@ -14,6 +14,8 @@ use super::{new_uuid_v4, validate_identifier};
 pub(crate) const LEGACY_ACTOR: &str = "legacy";
 /// The account-less local user (identity.md: `user_local`).
 pub const LOCAL_USER_ID: &str = "user_local";
+/// The suffix of [`WorkspaceMutation::workspace_reservation`]'s id.
+pub(crate) const WORKSPACE_RESERVATION_SUFFIX: &str = "/workspace";
 
 /// Who caused a durable mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +118,18 @@ impl WorkspaceMutation {
     /// origin and actor, its own id.
     pub(crate) fn reservation(&self) -> Self {
         Self::local(&self.origin, self.actor.clone())
+    }
+
+    /// The workspace this mutation reserves (a `workspace.create` with a
+    /// terminal): `<id>/workspace`, so a client that knows its request's
+    /// idempotency key finds the workspace it made on the workspace-added
+    /// event's `mutation_id`, as it does for an empty create (the app files
+    /// it into the window the create came from, #32989). A fresh id when
+    /// that would be too long.
+    pub(crate) fn workspace_reservation(&self) -> Self {
+        let id = format!("{}{WORKSPACE_RESERVATION_SUFFIX}", self.id);
+        Self::new(id, self.origin.clone(), self.actor.clone())
+            .unwrap_or_else(|_| self.reservation())
     }
 
     /// The daemon's own work (startup, reaps, reducers), never a request.

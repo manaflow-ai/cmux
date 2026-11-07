@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextWakeups
 import Foundation
 import Observation
@@ -38,6 +39,7 @@ final class HomeService {
     /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
+    @ObservationIgnored private var promptWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
     @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
@@ -236,6 +238,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
+        watchPromptSources()
         chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
@@ -461,6 +464,36 @@ final class HomeService {
                 self?.logger.info("conversation-op deferred to the next connection: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+}
+
+// MARK: Where the Chief was prompted
+
+extension HomeService {
+    /// Feeds ``ChiefPromptWindow`` each local Chief conversation's newest message, so a message from the
+    /// person that no window's Home transcript sent (a phone, another Mac, New Message, an action) stops
+    /// naming a window as where the Chief was prompted (#32989).
+    fileprivate func watchPromptSources() {
+        // task-owner: lives as long as the service; event-driven (Observation)
+        promptWatch = Task { [weak self] in
+            for await lasts in ObservationStream({ [weak self] in
+                self.map { Self.chiefLastMessages(in: $0.conversations, me: $0.homeSource.me.id.rawValue) } ?? [:]
+            }) {
+                guard let self else { return }
+                services.windows.chiefPrompt.observe(lasts)
+            }
+        }
+    }
+
+    /// Each Chief conversation's last message (by conversation id), and whether `me` wrote it.
+    nonisolated static func chiefLastMessages(in conversations: [CmuxNextDaemon.ConversationSummary],
+                                              me: String) -> [String: ChiefPromptWindow.Last] {
+        var lasts: [String: ChiefPromptWindow.Last] = [:]
+        for summary in conversations where summary.participants.contains(where: { $0.id == HomeChiefAvatars.defaultChief }) {
+            guard let last = summary.lastMessage else { continue }
+            lasts[summary.id] = ChiefPromptWindow.Last(message: last.id, byPerson: last.author == me)
+        }
+        return lasts
     }
 }
 

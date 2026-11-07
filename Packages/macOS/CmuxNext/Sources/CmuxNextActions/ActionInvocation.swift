@@ -87,6 +87,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
     /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
     public var callerTerminal: String?
+    /// The window a control-socket caller's new workspaces open in (`WindowState.id`): a Chief
+    /// turn's prompting window, else the window listing the caller's own workspace (#32989). Nil
+    /// for an in-app run or a caller with no known window (the most recent window, as before).
+    public var callerWindow: String?
     /// `caller.home_chat`: a Chief turn sent the run (the Chief host sets it); its chat is Home's.
     /// Like ``callerAgentSession``, the caller's own claim: it names who asks, it grants nothing.
     public var callerHomeChat = false

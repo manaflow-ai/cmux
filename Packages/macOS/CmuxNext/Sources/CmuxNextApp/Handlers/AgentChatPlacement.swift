@@ -107,7 +107,7 @@ struct AgentChatPlacement {
         -> Result<[String: ActionResultValue], ActionWorkFailure> {
         let services = context.services, daemon = services.machines.local
         if AgentChatPlacement.destination(on: daemon, services: services) == nil {
-            _ = await services.windows.createWorkspace(on: daemon, into: context.activeWindow?.state.id)
+            _ = await services.windows.createWorkspace(on: daemon, into: context.createWindow(invocation)?.state.id) // a caller's own window (#32989)
         }
         guard let placement = AgentChatPlacement.destination(on: daemon, services: services) else {
             return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine))

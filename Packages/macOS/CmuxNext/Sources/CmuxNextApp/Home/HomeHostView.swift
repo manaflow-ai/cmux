@@ -12,6 +12,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -91,6 +92,11 @@ final class HomeHostView: PaneMotionFollowingView {
         service.debugHostViews.add(self)
         #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
+        // A message to the Chief from this window: the workspaces its turn makes open here (#32989).
+        transcript.binding.onSend = { [weak self, weak services] _ in
+            guard let self, isChief, let services else { return }
+            if let id = window.flatMap(services.windows.owner(of:))?.state.id { services.windows.chiefPrompt.note(id, conversation: conversation) }
+        }
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
         transcript.onNamePill = { [weak self, weak services] in

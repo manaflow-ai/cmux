@@ -63,6 +63,7 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod create_window;
 #[cfg(unix)]
 mod dev;
 mod docs;

@@ -1198,16 +1198,30 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
 /// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
 /// `start-session` waiting on the person) it timed out `action describe` and
 /// `agents dialog list` ("timed out: identify (no reply within 2.0
-/// seconds)"), and the CLI's one retry doubled the wait.
-const NO_DAEMON_STATE: [&str; 5] =
-    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
+/// seconds)"), and the CLI's one retry doubled the wait. A `workspace create`'s
+/// announcement (`workspace.expect_window`) reads only the app's windows and
+/// the caller's place, and runs before every caller's create: it must not wait.
+const NO_DAEMON_STATE: [&str; 6] = [
+    "system.ping",
+    "system.capabilities",
+    "action.list",
+    "action.describe",
+    "feed.list",
+    super::create_window::METHOD,
+];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat
 /// (`beside_caller`) and marks the caller in `snapshot.get` and
-/// `system.identify`.
-const CALLER_METHODS: [&str; 4] =
-    ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
+/// `system.identify`, and `workspace.expect_window` files a new workspace in
+/// the caller's window (create_window.rs).
+const CALLER_METHODS: [&str; 5] = [
+    "action.run",
+    "browser.open_split",
+    "snapshot.get",
+    "system.identify",
+    super::create_window::METHOD,
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP

@@ -151,8 +151,12 @@ extension AppActions {
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).
+        // A control caller's (an agent's, a Chief turn's) goes to its own window instead: the Chief's, the
+        // window it was prompted from (#32989); not shown, it is filed there without showing.
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
-        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? sourceWindow?.state.id) : nil
+        let callerWindow = invocation.callerWindow.flatMap { windows.registry.value.window($0)?.isOpen == true ? $0 : nil }
+        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? callerWindow ?? sourceWindow?.state.id) : callerWindow
+        let filed = !show && callerWindow != nil ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
         let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
@@ -178,7 +182,7 @@ extension AppActions {
         let quiet = !byPerson && show && hasOpenWindow ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let start = { BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) } }
-        let create = quiet.map { ActionRunScope.carrying($0, start) } ?? start()
+        let create = (quiet ?? filed).map { ActionRunScope.carrying($0, start) } ?? start()
         let run = { services.registry.trackOrReport(Task {
             var pageMade = false
             var made: String?
@@ -212,7 +216,7 @@ extension AppActions {
                 return ActionWorkFailure("new workspace", error)
             }
         }, as: "newTab") }
-        if let quiet { ActionRunScope.carrying(quiet, run) } else { run() } // a script's tasks keep its quiet scope
+        if let scope = quiet ?? filed { ActionRunScope.carrying(scope, run) } else { run() } // a script's tasks keep its quiet scope
     }
 
     /// Close Workspace. With no target, a close pressed while the window's
