@@ -14,9 +14,13 @@ use serde_json::{Value, json};
 
 use crate::ERR_INVALID;
 
-/// Whether `operation` is one of this module's.
+/// Whether `operation` is one of this module's: `cloud_model_*`, and `cloud_machine_*` but for
+/// `cloud_bootstrap`'s `cloud_machine_config_*` and `cloud_machine_step_*`.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    operation.starts_with(b"cloud_machine_") || operation.starts_with(b"cloud_model_")
+    operation.starts_with(b"cloud_model_")
+        || (operation.starts_with(b"cloud_machine_")
+            && !operation.starts_with(b"cloud_machine_config_")
+            && !operation.starts_with(b"cloud_machine_step_"))
 }
 
 fn read<T: DeserializeOwned>(request: &[u8]) -> Result<T, i32> {

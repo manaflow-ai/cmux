@@ -14,8 +14,11 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
-//! `cmux-cloud-machine`'s Cloud machine record and rules (`cloud_machine_*`) and the
-//! small Cloud API models (`cloud_model_*`),
+//! the machine bootstrap, machine config and create retry rules
+//! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
+//! `cloud_create_*`, `cloud_power_retries`),
+//! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
+//! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -34,13 +37,14 @@
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
 //! per scroll event and frame).
 
-use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
+use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
+mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_machine;
 pub mod drag_handle;
@@ -171,6 +175,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_edits" => {
+                let request: sidebar_edits::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
@@ -373,6 +382,10 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
+            }
+            // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
+            operation if cloud_bootstrap::handles(operation) => {
+                cloud_bootstrap::respond(operation, request)?
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
