@@ -969,18 +969,23 @@ export function mergeQueue(
     // sender lives in `_meta.provenance` and `queuedMessage` must see it.
     // Override only the text with acpmux's current preview; a stale full
     // prompt would make the provenance branch look like an edit.
+    // An agent's message the person edited, or a prompt acpmux could not attribute, lists null
+    // but its provenance (acpmux `QueuedPromptSummary.provenance`): its card names that sender.
+    const listedProvenance =
+      entry?.provenance && typeof entry.provenance === "object" ? (entry.provenance as unknown) : undefined;
     const listedMessage = queuedMessage({
       ...entry,
       text: preview,
       fromAgent: listed,
       fromHarness: entry?.fromHarness,
+      ...(listedProvenance ? { _meta: { ...entry?._meta, provenance: listedProvenance } } : {}),
     });
     const kept = whole ? had.message : undefined;
     // A queue listing may carry the full provenance even when its compatibility `fromAgent`
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
-    const message = listed === null ? undefined : (kept ?? listedMessage);
+    const message = listed === null ? (listedProvenance ? listedMessage : undefined) : (kept ?? listedMessage);
     // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
     // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
     const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;

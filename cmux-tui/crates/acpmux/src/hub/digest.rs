@@ -94,6 +94,19 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
     named_sender(provenance)
 }
 
+/// `provenance` for a queue listing (`QueuedPromptSummary.provenance`) when the prompt has no
+/// agent to act for (`agent`) but still names a sender to draw: another agent's message the person
+/// edited, or an unverified prompt. `None` for any other.
+pub(super) fn listed_provenance(provenance: Option<&Value>, agent: Option<&str>) -> Option<Value> {
+    let p = provenance?;
+    if agent.is_some() {
+        return None;
+    }
+    let edited =
+        p.get(crate::prompt_provenance::EDITED_BY).is_some() && named_sender(Some(p)).is_some();
+    (edited || crate::prompt_provenance::is_unverified(Some(p))).then(|| p.clone())
+}
+
 /// The sender `provenance` names when it is another agent's message, edited or not.
 pub(super) fn named_sender(provenance: Option<&Value>) -> Option<String> {
     let p = provenance?;
@@ -603,6 +616,12 @@ mod tests {
             json!({"kind": "agent_message", "fromName": "lane-a", "editedBy": {"actor": "owner"}});
         assert_eq!(agent_sender(Some(&edited), None), None);
         assert_eq!(named_sender(Some(&edited)).as_deref(), Some("lane-a"));
+        // A queue listing keeps it, and an unverified prompt's, to draw; none for the others.
+        assert_eq!(listed_provenance(Some(&edited), None), Some(edited.clone()));
+        let unverified = crate::prompt_provenance::unverified("s2", "unix", Default::default());
+        assert_eq!(listed_provenance(Some(&unverified), None), Some(unverified.clone()));
+        assert_eq!(listed_provenance(Some(&message), Some("lane-a")), None);
+        assert_eq!(listed_provenance(Some(&message), None), None);
         assert_eq!(agent_sender(None, None), None, "a plain prompt is the person's");
         let resume = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"});
         assert_eq!(agent_sender(Some(&resume), None), None, "a continuation is the person's");
