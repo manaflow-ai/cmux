@@ -36,6 +36,9 @@ export interface RowLinks {
 export interface RowActions {
   onRetry?(key: string): void;
   onDiscard?(key: string): void;
+  /** Cancel Upload on a send still going (MessagesLab PaneMenu's `canCancelSend`/`cancelSend`). */
+  canCancelUpload?(key: string): boolean;
+  onCancelUpload?(key: string): void;
   /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back). */
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
@@ -163,6 +166,12 @@ function BubbleRow({
       label: t("home.menu.deleteFailed"),
       destructive: true,
       onSelect: () => actions.onDiscard?.(pendingKey),
+    });
+  } else if (pendingKey && actions.canCancelUpload?.(pendingKey)) {
+    items.push({
+      id: "cancelUpload",
+      label: t("home.menu.cancelUpload"),
+      onSelect: () => actions.onCancelUpload?.(pendingKey),
     });
   }
   if (committed && actions.onReply)

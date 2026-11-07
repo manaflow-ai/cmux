@@ -11,19 +11,42 @@
 // The files the native composer staged come over once (`legacy`): the page uploads them into their
 // trays and then tells the keeper which it took, so the app lets go of only those.
 //
+// A kept file keeps its bytes too (`keeper.write`, as the native drafts kept theirs in the blob
+// cache): the owner collects an upload no message names after a day, so a relaunched tray reads
+// them back (`keeper.read`) and uploads them again when the upload is that old (`refresh`), and a
+// send the owner refuses for a file it no longer holds (`unknown_attachment`) uploads the bytes again
+// and goes on (`resend`, HomeChannelsStore `reupload`). The bytes of the files sent last stay here
+// for that, at most `SENT_BYTES_BUDGET` (the app's own bound, HomeMessagesAttachmentDrafts.swift).
+//
 // Cost: one tray per conversation that has files; a change copies only that tray, and the keeper
-// hears one call per file that finished or left (not on upload progress).
+// hears one call per file that finished or left (not on upload progress), and the bytes of each
+// finished file once.
 import type { PendingAttachment } from "../../home-channels/AttachmentViews";
 import type { UploadProgress } from "../../home-channels/attachmentService";
 import type { HomeAttachment } from "../../home-channels/types";
 
 const NONE: readonly PendingAttachment[] = [];
 
+/** How many bytes of the files sent last stay in memory for `resend` (a retention budget, the
+ * app's own for kept bytes: HomeMessagesAttachmentDrafts.maxTotalBytes). No file is refused for it:
+ * one past it is only not kept, and the app refuses to keep a file's bytes past its own bound, which
+ * keeps the part as before. */
+export const SENT_BYTES_BUDGET = 50_000_000;
+/** How long the owner keeps an upload no message names (home-core: collected after a day). */
+export const OWNER_RETENTION_MS = 24 * 60 * 60 * 1000;
+/** A restored file uploaded longer ago than this goes up again, well before the owner lets go. */
+export const REFRESH_AFTER_MS = OWNER_RETENTION_MS - 4 * 60 * 60 * 1000;
+
 /** What a web update's reload waits for (pages/shared/webSwap.ts), across every conversation. */
 export type AttachmentHold = "home.uploading" | "home.attachments" | null;
 
-/** One upload: the bytes go, with progress, until the signal aborts it. */
-export type Upload = (signal: AbortSignal, progress: (progress: UploadProgress) => void) => Promise<HomeAttachment>;
+/** One upload: the bytes go, with progress, until the signal aborts it. `sending` names the file
+ * that goes when it is not the one attached (the app's preparation changed it): its bytes are kept. */
+export type Upload = (
+  signal: AbortSignal,
+  progress: (progress: UploadProgress) => void,
+  sending: (file: File) => void,
+) => Promise<HomeAttachment>;
 
 /** A file the native composer staged, with its bytes (base64), for the page to upload. */
 export interface LegacyAttachment {
@@ -37,6 +60,8 @@ export interface LegacyAttachment {
 export interface KeptAttachments {
   attachments: Record<string, HomeAttachment[]>;
   legacy: Record<string, LegacyAttachment[]>;
+  /** The page's files whose bytes the app keeps, by conversation: hash -> when it was kept (ms). */
+  files?: Record<string, Record<string, number>>;
 }
 
 /** Where the staged files are kept across launches (the app's HomeStore, host.ts), one file each. */
@@ -48,6 +73,10 @@ export interface AttachmentKeeper {
   remove(conversation: string, hash: string): void;
   /** Lets go of the native composer's files the page took (their hashes). */
   release(conversation: string, migrated: readonly string[]): void;
+  /** Keeps a finished file's bytes (by its part's hash); resolves false when the app did not. */
+  write?(hash: string, file: Blob): Promise<boolean>;
+  /** A kept file's bytes again; undefined when the app has none. */
+  read?(part: HomeAttachment): Promise<File | undefined>;
 }
 
 /** One upload to a conversation (the owner's service), for the native composer's files. */
@@ -79,6 +108,11 @@ export class AttachmentDrafts {
   private readonly legacyOf = new Map<string, string>();
   /** The native composer's files the page took (finished or removed), by conversation. */
   private readonly released = new Map<string, Set<string>>();
+  /** A restored tray item: when its upload was kept (ms), until its bytes are back and it is fresh. */
+  private readonly restoredAt = new Map<string, { conversation: string; at: number }>();
+  /** The bytes of the files sent last, by hash, oldest first (at most SENT_BYTES_BUDGET), for `resend`. */
+  private readonly sent = new Map<string, File>();
+  private sentBytes = 0;
 
   constructor(private readonly keeper?: AttachmentKeeper) {
     this.loaded = !keeper;
@@ -101,12 +135,102 @@ export class AttachmentDrafts {
     this.legacy = kept.legacy;
     this.write(undefined);
     this.migrate();
+    await this.readBack(kept.files ?? {});
+  }
+
+  /** Reads the kept files' bytes back into their tray items, one file at a time; each with bytes
+   * and an old upload goes up again once the store can upload (`refresh`). */
+  private async readBack(files: Record<string, Record<string, number>>): Promise<void> {
+    const read = this.keeper?.read;
+    if (!read) return;
+    for (const [conversation, times] of Object.entries(files)) {
+      for (const [hash, at] of Object.entries(times)) {
+        const item = this.files(conversation).find((entry) => entry.part?.hash === hash && entry.file.size === 0);
+        if (!item?.part) continue;
+        const file = await read(item.part).catch(() => undefined);
+        if (!file || file.size !== item.part.byteCount) continue;
+        this.patch(conversation, item.id, { file });
+        this.restoredAt.set(item.id, { conversation, at });
+      }
+    }
+    this.refresh();
+  }
+
+  /** The restored files uploaded longer ago than REFRESH_AFTER_MS go up again from their bytes,
+   * quietly: the tray keeps the part it has (Send stays on), and a failure leaves it as it was. */
+  private refresh(): void {
+    const upload = this.upload;
+    if (!upload) return;
+    const now = Date.now();
+    for (const [id, { conversation, at }] of this.restoredAt) {
+      this.restoredAt.delete(id);
+      if (now - at < REFRESH_AFTER_MS) continue;
+      const item = this.files(conversation).find((entry) => entry.id === id);
+      if (!item?.part || item.file.size !== item.part.byteCount) continue;
+      const controller = new AbortController();
+      this.uploads.set(id, controller);
+      upload
+        .run(conversation, item.file, controller.signal, () => {})
+        .then(
+          (part) => this.patch(conversation, id, { part }),
+          () => {},
+        )
+        .finally(() => {
+          if (this.uploads.get(id) === controller) this.uploads.delete(id);
+        });
+    }
+  }
+
+  /** A send the owner refused for files it no longer holds: uploads their bytes again (the files
+   * sent last, or still in a tray) and returns the parts to send; undefined when a file's bytes are
+   * not here or the store cannot upload. */
+  async resend(
+    conversation: string,
+    parts: readonly HomeAttachment[],
+    signal: AbortSignal,
+  ): Promise<HomeAttachment[] | undefined> {
+    const upload = this.upload;
+    if (!upload) return undefined;
+    const files = parts.map((part) => this.bytesOf(part));
+    if (files.some((file) => !file)) return undefined;
+    const out: HomeAttachment[] = [];
+    for (const file of files) out.push(await upload.run(conversation, file!, signal, () => {}));
+    return out;
+  }
+
+  private bytesOf(part: HomeAttachment): File | undefined {
+    const sent = this.sent.get(part.hash);
+    if (sent) return sent;
+    for (const tray of this.trays.values())
+      for (const item of tray)
+        if (item.part?.hash === part.hash && item.file.size === part.byteCount && part.byteCount > 0) return item.file;
+    return undefined;
+  }
+
+  /** Keeps a sent file's bytes for `resend`, dropping the oldest past SENT_BYTES_BUDGET. */
+  private keepSent(item: PendingAttachment): void {
+    const part = item.part;
+    if (!part || item.file.size !== part.byteCount || part.byteCount === 0 || part.byteCount > SENT_BYTES_BUDGET)
+      return;
+    const old = this.sent.get(part.hash);
+    if (old) {
+      this.sent.delete(part.hash);
+      this.sentBytes -= old.size;
+    }
+    this.sent.set(part.hash, item.file);
+    this.sentBytes += item.file.size;
+    for (const [hash, file] of this.sent) {
+      if (this.sentBytes <= SENT_BYTES_BUDGET) break;
+      this.sent.delete(hash);
+      this.sentBytes -= file.size;
+    }
   }
 
   /** The upload the native composer's files take; they go once both it and the kept files are here. */
   uploadLegacy(run: ConversationUpload, failed: string): void {
     this.upload ??= { run, failed };
     this.migrate();
+    this.refresh();
   }
 
   private migrate(): void {
@@ -169,7 +293,11 @@ export class AttachmentDrafts {
     const controller = new AbortController();
     this.uploads.set(id, controller);
     this.write(conversation, [...this.files(conversation), { id, file, progress: { sent: 0, total: file.size } }]);
-    upload(controller.signal, (progress) => this.patch(conversation, id, { progress }))
+    upload(
+      controller.signal,
+      (progress) => this.patch(conversation, id, { progress }),
+      (sending) => this.patch(conversation, id, { file: sending }),
+    )
       .then(
         (part) => this.patch(conversation, id, { part }),
         () => {
@@ -206,6 +334,7 @@ export class AttachmentDrafts {
   take(conversation: string, parts: readonly HomeAttachment[]): PendingAttachment[] {
     const tray = this.files(conversation);
     const taken = tray.filter((item) => item.part && parts.includes(item.part));
+    for (const item of taken) this.keepSent(item);
     if (taken.length)
       this.write(
         conversation,
@@ -267,6 +396,10 @@ export class AttachmentDrafts {
       if (saved.has(item.part.hash)) continue;
       saved.add(item.part.hash);
       keeper.put(conversation, item.part, this.at++);
+      // Its bytes too (after the entry, so the app never takes them for a page's leftovers). The app
+      // keeps them within its own bound and refuses past it, on the first frame: the part stays kept.
+      if (keeper.write && item.file.size === item.part.byteCount && item.file.size > 0)
+        void keeper.write(item.part.hash, item.file).catch(() => false);
     }
     for (const hash of saved) {
       if (now.has(hash)) continue;

@@ -121,6 +121,13 @@ export function MessagesDetail(props: MessagesDetailProps) {
       words.transcript.t("home.composer.attach.failed"),
     );
   }, [uploads, nav, words.transcript]);
+  // A send whose files the owner let go of uploads their bytes again (attachmentDrafts.ts `resend`).
+  useEffect(() => {
+    store.reupload = (conversation, parts, signal) => nav.attachments.resend(conversation, parts, signal);
+    return () => {
+      store.reupload = undefined;
+    };
+  }, [store, nav]);
 
   // The people New Message, Invite and Team Invite offer: read when one of them opens.
   const [contacts, setContacts] = useState<Contacts>(NO_CONTACTS);
@@ -157,6 +164,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
       }),
     [nav, composing],
   );
+  // Files dropped on the conversation list go to the shown conversation; New Message takes none.
+  useEffect(() => nav.setFileDrop(() => (composing ? undefined : transcript.current?.fileDrop)), [nav, composing]);
   useEffect(() => {
     if (view.focusEpoch > 0) nav.focus();
   }, [nav, view.focusEpoch]);
@@ -385,6 +394,8 @@ function ConversationView(
         onRead={(seq) => store.readThrough(id, seq)}
         onRetry={(key) => store.retry(key)}
         onDiscard={(key) => store.discard(key)}
+        canCancelUpload={(key) => store.canCancel(key)}
+        onCancelUpload={(key) => store.cancel(key)}
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={onReply}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
@@ -487,6 +498,8 @@ function ThreadView(
       onLoadOlder={() => {}}
       onRetry={(key) => store.retry(key)}
       onDiscard={(key) => store.discard(key)}
+      canCancelUpload={(key) => store.canCancel(key)}
+      onCancelUpload={(key) => store.cancel(key)}
       onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
       onReply={props.onReply}
       {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}

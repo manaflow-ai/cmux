@@ -16,7 +16,9 @@
 // - `attachments.load {}` -> `{attachments: {[conversation]: [part]}, legacy: {[conversation]:
 //   [{hash, name, mimeType, data}]}}`, `attachments.put {conversation, part, at}`, `attachments.remove
 //   {conversation, hash}` and `attachments.release {conversation, migrated}`: the staged files, kept
-//   the same way, one file per entry (attachmentDrafts.ts `AttachmentKeeper`).
+//   the same way, one file per entry (attachmentDrafts.ts `AttachmentKeeper`); `files: {[conversation]:
+//   {[hash]: at}}` names the ones whose bytes the app keeps, written with `attachments.write {hash,
+//   offset, byteCount, data}` and read with `attachments.read {hash, offset, length}` (~1 MB frames).
 // In a browser (no host) there are no host items and no lights.
 import type { PageClient } from "../shared/pageClient";
 import type { HomeAttachment } from "../home-channels/types";
@@ -35,7 +37,13 @@ export const MessagesOps = {
   putAttachment: "cmux.home.messages.attachments.put",
   removeAttachment: "cmux.home.messages.attachments.remove",
   releaseAttachments: "cmux.home.messages.attachments.release",
+  writeAttachment: "cmux.home.messages.attachments.write",
+  readAttachment: "cmux.home.messages.attachments.read",
 } as const;
+
+/** A kept file's bytes move in frames this size (as the upload's own); reads are a multiple of 3. */
+const WRITE_BYTES = 1024 * 1024;
+const READ_BYTES = 3 * 1024 * 1024;
 
 /** The staged files kept by the app across launches. */
 export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
@@ -54,16 +62,75 @@ export function pageAttachmentKeeper(client: PageClient): AttachmentKeeper {
     release(conversation, migrated) {
       void client.call(MessagesOps.releaseAttachments, { conversation, migrated }).catch(() => undefined);
     },
+    // One file's bytes, in order; the app refuses past its bound (nothing kept, the part still is).
+    async write(hash, file) {
+      try {
+        for (let offset = 0; offset < file.size; offset += WRITE_BYTES) {
+          const bytes = new Uint8Array(await file.slice(offset, offset + WRITE_BYTES).arrayBuffer());
+          await client.call(MessagesOps.writeAttachment, { hash, offset, byteCount: file.size, data: toBase64(bytes) });
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async read(part) {
+      try {
+        const pieces: Uint8Array[] = [];
+        for (let offset = 0; offset < part.byteCount; offset += READ_BYTES) {
+          const piece = await client.call<{ data?: string }>(MessagesOps.readAttachment, {
+            hash: part.hash,
+            offset,
+            length: Math.min(READ_BYTES, part.byteCount - offset),
+          });
+          pieces.push(fromBase64(piece.data ?? ""));
+        }
+        const file = new File(pieces as BlobPart[], part.name, { type: part.mimeType });
+        return file.size === part.byteCount ? file : undefined;
+      } catch {
+        return undefined;
+      }
+    },
   };
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+function fromBase64(data: string): Uint8Array {
+  const text = atob(data);
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+  return bytes;
 }
 
 /** The kept files the host sent; anything malformed reads as none. */
 export function parseKeptAttachments(value: unknown): KeptAttachments {
-  const answer = (value ?? {}) as { attachments?: unknown; legacy?: unknown };
-  return {
+  const answer = (value ?? {}) as { attachments?: unknown; legacy?: unknown; files?: unknown };
+  const out: KeptAttachments = {
     attachments: byConversation(answer.attachments, isAttachmentPart),
     legacy: byConversation(answer.legacy, isLegacyAttachment),
   };
+  const files = keptFiles(answer.files);
+  if (Object.keys(files).length) out.files = files;
+  return out;
+}
+
+/** `{[conversation]: {[hash]: at}}`; anything else reads as none. */
+function keptFiles(value: unknown): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [conversation, times] of Object.entries(value as Record<string, unknown>)) {
+    if (!times || typeof times !== "object" || Array.isArray(times)) continue;
+    const kept: Record<string, number> = {};
+    for (const [hash, at] of Object.entries(times as Record<string, unknown>))
+      if (typeof at === "number" && Number.isFinite(at)) kept[hash] = at;
+    if (Object.keys(kept).length) out[conversation] = kept;
+  }
+  return out;
 }
 
 function byConversation<T>(value: unknown, valid: (item: unknown) => item is T): Record<string, T[]> {

@@ -222,7 +222,28 @@ export function MessagesApp({
     <AvatarContext.Provider value={store.avatars}>
       <div ref={page} className="hm-page" style={style}>
         {!folded && (
-          <div className="hm-column" style={{ width: shownWidth }}>
+          <div
+            className="hm-column"
+            style={{ width: shownWidth }}
+            // A file dragged over the list goes to the shown conversation, which draws the highlight
+            // (HomeSidebarSplitView+Drop.swift); New Message takes none.
+            onDragOver={(event) => {
+              if (!nav.fileDrop()?.over([...event.dataTransfer.types])) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) nav.fileDrop()?.leave();
+            }}
+            onDrop={(event) => {
+              const target = nav.fileDrop();
+              if (!target) return;
+              target.leave();
+              if (event.dataTransfer.files.length === 0) return;
+              event.preventDefault();
+              target.drop(event.dataTransfer.files);
+            }}
+          >
             <ConversationList
               model={model}
               width={shownWidth}

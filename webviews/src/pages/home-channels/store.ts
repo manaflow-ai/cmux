@@ -6,6 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
+import { INLINE_TEXT_BYTES } from "./textUpload";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
@@ -183,6 +184,18 @@ export class HomeChannelsStore {
   private readonly drafts = new DraftBook();
   /** Split sends (`PendingSend.chain`) whose messages are being delivered now. */
   private readonly chainsInFlight = new Set<string>();
+  /** The sends going to the owner now, by key: Cancel Upload aborts one (`cancel`). */
+  private readonly inFlight = new Map<string, AbortController>();
+  /** Uploads a send's files again when the owner no longer holds them (`unknown_attachment`: it
+   * collects an upload no message names after a day); the parts to send, or undefined when their
+   * bytes are gone. The Messages page sets it (attachmentDrafts.ts `resend`). */
+  reupload:
+    | ((
+        conversation: string,
+        parts: readonly HomeAttachment[],
+        signal: AbortSignal,
+      ) => Promise<readonly HomeAttachment[] | undefined>)
+    | undefined;
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
@@ -718,6 +731,25 @@ export class HomeChannelsStore {
     if (pending?.chain) this.resumeChain(pending.chain);
   }
 
+  /** Whether a send still uploads and can be stopped (MessagesLab's Cancel Upload, HomeStore
+   * `canCancelSend`): it is going now and carries files or text long enough to upload. */
+  canCancel(key: string): boolean {
+    if (!this.inFlight.has(key)) return false;
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
+    return (
+      !!pending && !pending.failed && (!!pending.attachments?.length || pending.text.length > INLINE_TEXT_BYTES / 3)
+    );
+  }
+
+  /** Cancel Upload: stops a send that is going (its upload and its call) and drops its row. */
+  cancel(key: string): void {
+    const going = this.inFlight.get(key);
+    if (!going) return;
+    this.inFlight.delete(key);
+    going.abort();
+    this.discard(key);
+  }
+
   /** Delivers the failed messages of split send `chain` again, in their order, unless it is
    * going already. */
   private resumeChain(chain: string): void {
@@ -733,17 +765,32 @@ export class HomeChannelsStore {
   }
 
   /** Resolves true when the owner took it. */
-  private async deliver(pending: PendingSend): Promise<boolean> {
+  private async deliver(pending: PendingSend, resent = false): Promise<boolean> {
+    if (!this.client) return false;
+    const controller = new AbortController();
+    this.inFlight.set(pending.key, controller);
+    try {
+      return await this.deliverOnce(pending, resent, controller.signal);
+    } finally {
+      if (this.inFlight.get(pending.key) === controller) this.inFlight.delete(pending.key);
+    }
+  }
+
+  private async deliverOnce(pending: PendingSend, resent: boolean, signal: AbortSignal): Promise<boolean> {
     if (!this.client) return false;
     try {
-      await this.client.call(HomeOps.send, {
-        conversation: pending.conversation,
-        text: pending.text,
-        attachments: pending.attachments,
-        threadRoot: pending.threadRoot,
-        replyTo: pending.replyTo,
-        idempotencyKey: pending.key,
-      });
+      await this.client.call(
+        HomeOps.send,
+        {
+          conversation: pending.conversation,
+          text: pending.text,
+          attachments: pending.attachments,
+          threadRoot: pending.threadRoot,
+          replyTo: pending.replyTo,
+          idempotencyKey: pending.key,
+        },
+        { signal },
+      );
       // The owner's event may have come first (or a retry was a replay of a message already in
       // the window): settle from what the page holds now.
       const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
@@ -753,6 +800,17 @@ export class HomeChannelsStore {
     } catch (error) {
       // Gone already: the owner's event settled it (the answer was lost), or it was discarded.
       if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
+      // The owner let go of a file (collected after a day): upload its bytes again, then send once more.
+      const reupload = this.reupload;
+      if (!resent && reupload && pending.attachments?.length && unknownAttachment(error)) {
+        const parts = await reupload(pending.conversation, pending.attachments, signal).catch(() => undefined);
+        if (parts && this.snapshot.pending.some((entry) => entry.key === pending.key)) {
+          const again = { ...pending, attachments: parts };
+          this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? again : entry)) });
+          return this.deliverOnce(again, true, signal);
+        }
+        if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
+      }
       this.set({
         error: describe(error),
         pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
@@ -1463,4 +1521,10 @@ function joining(window: readonly HomeMessage[], first: number | undefined): Hom
     next -= 1;
   }
   return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
+}
+
+/** The owner refused a send for a file it does not hold (home-core `unknown_attachment`). */
+function unknownAttachment(error: unknown): boolean {
+  if (!isPageError(error)) return false;
+  return error.code.includes("unknown_attachment") || error.message.includes("unknown_attachment");
 }

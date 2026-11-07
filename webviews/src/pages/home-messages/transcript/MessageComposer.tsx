@@ -121,8 +121,12 @@ export function MessageComposer({
       const id = drafts.add(
         conversation,
         file,
-        async (signal, progress) =>
-          service.upload(conversation, prepare ? await prepare(file, signal) : file, progress, signal),
+        async (signal, progress, sending) => {
+          const ready = prepare ? await prepare(file, signal) : file;
+          // The bytes that go are the ones kept (the app's preparation may have changed them).
+          if (ready !== file) sending(ready);
+          return service.upload(conversation, ready, progress, signal);
+        },
         t("home.composer.attach.failed"),
       );
       // A small local picture while it uploads (a data URL: any page policy).

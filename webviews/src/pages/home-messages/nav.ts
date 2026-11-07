@@ -22,6 +22,17 @@ export interface DraftKeeper {
   save(conversation: string, text: string): void;
 }
 
+/** Where files dragged over the conversation list go: the shown conversation's transcript, which
+ * draws its drop highlight and takes them (HomeSidebarSplitView+Drop.swift). */
+export interface FileDropTarget {
+  /** A drag with `types` is over the list: true when the files would be taken (the highlight shows). */
+  over(types: readonly string[]): boolean;
+  /** The drag left the list. */
+  leave(): void;
+  /** The files were dropped on the list. */
+  drop(files: Iterable<File>): void;
+}
+
 /** How long typing waits before its draft goes to the keeper (one write per pause, not per key). */
 export const DRAFT_SAVE_DELAY_MS = 400;
 
@@ -75,6 +86,8 @@ export class MessagesNav {
   private composeExisting: string | undefined;
   /** What takes the keyboard now (the detail registers it): true when something took it. */
   private focuser: (() => boolean) | undefined;
+  /** Where files dropped on the list go now (the detail registers it); none on New Message. */
+  private dropTarget: (() => FileDropTarget | undefined) | undefined;
 
   constructor(
     private readonly keeper?: DraftKeeper,
@@ -233,6 +246,19 @@ export class MessagesNav {
     return () => {
       if (this.focuser === focuser) this.focuser = undefined;
     };
+  }
+
+  /** The detail says where files dropped on the list go; the returned stop clears it. */
+  setFileDrop(target: () => FileDropTarget | undefined): () => void {
+    this.dropTarget = target;
+    return () => {
+      if (this.dropTarget === target) this.dropTarget = undefined;
+    };
+  }
+
+  /** Where files dropped on the list go now; undefined when nothing takes them. */
+  fileDrop(): FileDropTarget | undefined {
+    return this.dropTarget?.();
   }
 
   /** The keyboard goes to the composer after the next commit (the detail's effect). */

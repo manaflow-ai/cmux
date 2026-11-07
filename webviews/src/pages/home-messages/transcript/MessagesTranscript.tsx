@@ -31,6 +31,7 @@ import type { HomeAttachment, HomeMessage } from "../../home-channels/types";
 import { useTimelineWindow } from "../../home-channels/useTimelineWindow";
 import type { Strings } from "../../shared/i18n";
 import { WEB_SWAP_KEPT_SCROLL } from "../../shared/webSwap";
+import type { FileDropTarget } from "../nav";
 import type { AttachmentDrafts } from "./attachmentDrafts";
 import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
 import { historyEntries } from "./history";
@@ -48,6 +49,9 @@ const TOP_KEY = "top";
 export interface MessagesTranscriptHandle {
   /** The message box takes the keyboard; true when it did. */
   focusComposer(): boolean;
+  /** Files dragged over the conversation list come here, with this transcript's drop highlight;
+   * undefined when it takes no files. */
+  fileDrop: FileDropTarget | undefined;
 }
 
 export interface MessagesTranscriptProps extends TranscriptData {
@@ -78,6 +82,9 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onRead?(seq: number): void;
   onRetry?(key: string): void;
   onDiscard?(key: string): void;
+  /** Cancel Upload on a send still going (its row's menu). */
+  canCancelUpload?(key: string): boolean;
+  onCancelUpload?(key: string): void;
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
   /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
@@ -183,19 +190,45 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
     () => ({
       onRetry: props.onRetry,
       onDiscard: props.onDiscard,
+      ...(props.canCancelUpload ? { canCancelUpload: props.canCancelUpload } : {}),
+      ...(props.onCancelUpload ? { onCancelUpload: props.onCancelUpload } : {}),
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
       ...(props.onReply ? { onReply: props.onReply } : {}),
       ...(links ? { links } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onReply, links],
+    [
+      props.onRetry,
+      props.onDiscard,
+      props.canCancelUpload,
+      props.onCancelUpload,
+      props.onReact,
+      props.onCopy,
+      props.onReply,
+      links,
+    ],
   );
+  const fileDrop: FileDropTarget | undefined = attachments
+    ? {
+        over: (types) => {
+          if (!dragOffersFiles(types)) return false;
+          setDropping(true);
+          return true;
+        },
+        leave: () => setDropping(false),
+        drop: (files) => {
+          setDropping(false);
+          composer.current?.addFiles(files);
+        },
+      }
+    : undefined;
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {
       if (!composer.current) return false;
       composer.current.focus();
       return true;
     },
+    fileDrop,
   }));
 
   // A send (new rows at the end while the reader is at the newest): the window already scrolled by

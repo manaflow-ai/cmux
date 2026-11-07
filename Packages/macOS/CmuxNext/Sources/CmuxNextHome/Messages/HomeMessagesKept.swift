@@ -1,11 +1,13 @@
 public import CmuxHomeCore
 public import CmuxNextPages
 public import CmuxNextSettings
+import Foundation
 
 /// What the Messages page keeps in HomeStore across launches, as the native composer kept it, and
 /// its files' preparation (the App's `HomeMessagesHostProvider` routes these ops here):
 /// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts;
-/// - `attachments.load|put|remove|release`: the staged files, one part each (``HomeMessagesAttachmentDrafts``);
+/// - `attachments.load|put|remove|release`: the staged files, one part each, and `attachments.write|read`
+///   their bytes (``HomeMessagesAttachmentDrafts``);
 /// - `attachments.prepare.*`: a photo's or video's bytes before they upload (``HomeAttachmentPreparer``);
 /// - `outbox.load|put|remove`: the unsent sends, one send each (``HomeMessagesOutbox``).
 @MainActor
@@ -50,8 +52,30 @@ public final class HomeMessagesKept {
             }
             return .null
         case "attachments.remove":
-            HomeMessagesAttachmentDrafts(store: store).remove(fields["hash"]?.stringValue ?? "", for: try Self.conversation(fields))
+            let drafts = HomeMessagesAttachmentDrafts(store: store)
+            let hash = fields["hash"]?.stringValue ?? ""
+            drafts.remove(hash, for: try Self.conversation(fields))
+            await drafts.releaseBytes(hash)
             return .null
+        case "attachments.write":
+            guard let hash = fields["hash"]?.stringValue, let offset = Self.count(fields["offset"]),
+                  let count = Self.count(fields["byteCount"]),
+                  let data = fields["data"]?.stringValue.flatMap({ Data(base64Encoded: $0) }) else {
+                throw PageError.invalidParams("write needs hash, offset, byteCount and data")
+            }
+            do { try await HomeMessagesAttachmentDrafts(store: store).write(hash: hash, offset: offset, data: data, byteCount: count) } catch {
+                throw PageError.invalidParams("\(error)")
+            }
+            return .null
+        case "attachments.read":
+            guard let hash = fields["hash"]?.stringValue, let offset = Self.count(fields["offset"]),
+                  let length = Self.count(fields["length"]) else { throw PageError.invalidParams("read needs hash, offset and length") }
+            do {
+                let data = try await HomeMessagesAttachmentDrafts(store: store).read(hash: hash, offset: offset, length: length)
+                return .object(["data": .string(data.base64EncodedString())])
+            } catch {
+                throw PageError.invalidParams("\(error)")
+            }
         case "attachments.release":
             let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
             HomeMessagesAttachmentDrafts(store: store).release(migrated, for: try Self.conversation(fields))
@@ -72,6 +96,12 @@ public final class HomeMessagesKept {
         default:
             return nil
         }
+    }
+
+    /// A whole byte count or offset the page sent (nil for anything else, so no conversion traps).
+    static func count(_ value: JSONValue?) -> Int? {
+        guard let number = value?.doubleValue, number >= 0, number <= 1e12, number.rounded() == number else { return nil }
+        return Int(number)
     }
 
     static func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
