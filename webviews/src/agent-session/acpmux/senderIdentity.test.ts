@@ -112,7 +112,8 @@ test("the minimap reads the same current-session relationship as the transcript"
           createElement(PreviewCard, {
             id: "card",
             x: 0,
-            y: 0,
+            center: 0,
+            viewportHeight: 700,
             prompt: "Review ready.",
             reply: [],
             metadata: { at: 1, links: [], sender: { name: "syntax-check", sessionId: "child" } },

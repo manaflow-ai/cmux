@@ -9,6 +9,7 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { IncomingRelation } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
@@ -73,7 +74,7 @@ const sessions = [
 ];
 
 async function line(
-  message: { name: string; sessionId?: string; chief?: string; relation?: "parent" },
+  message: { name: string; sessionId?: string; chief?: string; relation?: IncomingRelation },
   entries = sessions,
 ) {
   const store = new SubsessionStore();

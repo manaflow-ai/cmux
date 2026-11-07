@@ -82,7 +82,8 @@ export default componentEntry<{ treatment: Treatment }>({
           createElement(PreviewCard, {
             id: "fixture-agent-card",
             x: 16,
-            y: 126,
+            center: 126,
+            viewportHeight: 700,
             railLeft: 0,
             prompt: "Ready for review.\n- Markdown and long paths remain readable.",
             reply: [{ kind: "paragraph", spans: [{ text: "Thanks. I will land the reviewed change.", bold: false }] }],
