@@ -338,6 +338,8 @@ import Testing
             panel.isPersonEvent = { [unowned self] in genuine.contains($0.eventNumber) }
             panel.personClick.eventInHand = { [unowned self] in current }
             panel.isKeyForPerson = { _ in true }
+            // The host's own setting never decides a test: the default interval.
+            panel.doubleClickInterval = { 0.5 }
         }
 
         /// The center of the native control, in the panel's window coordinates.
@@ -401,6 +403,17 @@ import Testing
         #expect(card.presses == 0, "a click right after the control moved is not aimed at it")
         try mouse.click(at: mouse.onControl, after: WebCardPanel.steadyControl + 0.6, nested: false)
         #expect(card.presses == 1, "once it has stayed put, the person's click counts")
+    }
+
+    @Test func aLongerDoubleClickIntervalHoldsTheControlLonger() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let mouse = try Mouse(card)
+        mouse.panel.doubleClickInterval = { 1.2 }
+        mouse.panel.rearm()
+        try mouse.click(at: mouse.onControl, after: 0.6, nested: false)
+        #expect(card.presses == 0, "a click within the person's longer double-click interval is not taken")
+        try mouse.click(at: mouse.onControl, after: 2.0, nested: false)
+        #expect(card.presses == 1, "past the interval (and past the click before) it counts")
     }
 
     @Test func theSlotIsClampedToTheCardAtAMinimumSize() throws {

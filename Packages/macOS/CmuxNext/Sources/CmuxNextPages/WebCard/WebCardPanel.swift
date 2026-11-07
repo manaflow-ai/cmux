@@ -43,10 +43,15 @@ public final class WebCardPanel: NSPanel {
     private let surface = NSView()
     /// The card the panel shows (its route without `#/`), nil before the first opening.
     public private(set) var card: String?
+    /// The system's double-click interval, read at each click (tests stand in another).
+    var doubleClickInterval: @MainActor () -> TimeInterval = { NSEvent.doubleClickInterval }
     /// SECURITY: reads the person's own click on the native control from the panel's dispatch
-    /// (``CmuxDialogPersonClick``): a click begun within ``steadyControl`` of the control showing,
-    /// moving or the card drawing anew is not taken.
-    let personClick = CmuxDialogPersonClick(activationDelay: WebCardPanel.steadyControl)
+    /// (``CmuxDialogPersonClick``): a click begun within the system's double-click interval, and at
+    /// least ``steadyControl``, of the control showing, moving or the card drawing anew is not taken
+    /// (worked out at each click, so a changed setting applies at once).
+    private(set) lazy var personClick = CmuxDialogPersonClick { [weak self] in
+        max(self?.doubleClickInterval() ?? NSEvent.doubleClickInterval, WebCardPanel.steadyControl)
+    }
     /// Whether an event is the person's own input (the app's strict source check); with none set, none is.
     public var isPersonEvent: @MainActor (NSEvent) -> Bool {
         get { personClick.isPersonEvent }
