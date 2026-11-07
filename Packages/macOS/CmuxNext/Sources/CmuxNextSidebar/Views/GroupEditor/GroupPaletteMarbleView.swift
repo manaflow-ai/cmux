@@ -73,7 +73,7 @@ final class GroupPaletteMarbleView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            let tokens = themeTokens
             ball.colors = palette == .glass ? [] : GroupColor.marble(palette, tokens: tokens, wallpaper: BackdropImageStore.shared.desktop.tint)
             ball.ink = tokens.textPrimary
             ball.isDark = tokens.isDark
