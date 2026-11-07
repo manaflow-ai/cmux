@@ -23,7 +23,7 @@ export type ManagedBy =
 
 type Entry = Pick<
   AcpmuxSessionEntry,
-  "sessionId" | "chiefChild" | "startedBy" | "spawnedBy" | "displayTitle" | "name" | "shortName"
+  "sessionId" | "chiefChild" | "chief" | "chiefTurn" | "startedBy" | "spawnedBy" | "displayTitle" | "name" | "shortName"
 >;
 
 /** The default Chief's participant id (the sidebar's and Home's `agent_mux`). */
@@ -54,6 +54,9 @@ export function managedBy(sessionId: string | undefined, sessions: readonly Entr
   const parentId = own.startedBy ?? own.spawnedBy;
   if (!parentId || parentId === sessionId) return undefined;
   const parent = sessions.find((entry) => entry.sessionId === parentId);
+  // A chat the Chief's own turn started is the Chief's: its session name is a raw
+  // `optchat-<home>-…` id, never a name to show (#32745).
+  if (parent?.chief || parent?.chiefTurn) return { kind: "chief" };
   const name = parent?.displayTitle?.trim() || parent?.name?.trim();
   if (!name) return undefined;
   // The names its messages sign with (incomingMessage.ts reads the sender by its chat's name).

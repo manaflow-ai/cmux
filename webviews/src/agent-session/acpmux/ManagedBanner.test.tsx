@@ -83,3 +83,22 @@ test("the Hide label is painted in the transcript's text colour on a quiet butto
   expect(rule).not.toMatch(/background:var\(--agent-text\)/);
   expect(rule).toMatch(/border:1px solid var\(--agent-border\)/);
 });
+
+test("the line sits on a glass capsule with readable text, so a background image never shows through bare", () => {
+  const css = readFileSync(new URL("./managedBanner.css", import.meta.url), "utf8");
+  const rule = css.match(/\.acpmux-managed-banner\{([^}]*)\}/)?.[1] ?? "";
+  // #32745: muted text straight on the pane was unreadable over a background image.
+  // The tint is the opaque composer surface at 70%, never a see-through token: over art the page
+  // colour is alpha 0, which left --acpmux-composer-bg near clear.
+  expect(rule).toMatch(
+    /background:color-mix\(in srgb,var\(--acpmux-composer-solid,var\(--surface-popup\)\) 70%,transparent\)/,
+  );
+  expect(rule).not.toMatch(/--acpmux-composer-bg/);
+  // The capsule takes the entry animation; the row must not, or the blur loses the art meanwhile.
+  expect(rule).toMatch(/animation:ui-enter/);
+  expect(css).toMatch(/\.acpmux-dock > div\.acpmux-managed-row\{animation:none\}/);
+  expect(rule).toMatch(/backdrop-filter:blur\(/);
+  expect(rule).not.toMatch(/(^|;)color:var\(--agent-muted\)/);
+  // Reduced transparency swaps the glass for an opaque surface.
+  expect(css).toMatch(/:root\[data-reduce-transparency\] \.acpmux-managed-banner\{background:var\(--surface-popup\)/);
+});

@@ -2,12 +2,21 @@
    quiet bordered Take over button, the way ChatGPT shows a chat its agent runs. The button takes the
    transcript's quiet-button tokens (as the permission card's buttons do), never --agent-page-bg as
    its text colour: that token is transparent in the agent pane, which left the label invisible on
-   a solid pill (#30765; Leo, 2026-11-01: "this needs to be a better button"). */
-.acpmux-managed-banner{display:flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;width:100%;max-width:760px;margin:0 auto;padding:4px 16px 8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);min-width:0}
+   a solid pill (#30765; Leo, 2026-11-01: "this needs to be a better button"). The line sits on the
+   composer's glass over art (a capsule of the opaque --acpmux-composer-solid at 70%, the tint the
+   composer's contrast test holds to 4.5:1, with its blur and edge): bare muted text was unreadable
+   over a background image (#32745). The capsule, not the row, takes the bottom stack's entry: an
+   animating row below opacity 1 is a backdrop root, which would hide the art from the blur. */
+.acpmux-dock > div.acpmux-managed-row{animation:none}
+.acpmux-managed-row{display:flex;justify-content:center;box-sizing:border-box;width:100%;max-width:760px;margin:0 auto;padding:4px 16px 8px;min-width:0}
+.acpmux-managed-banner{display:flex;align-items:center;gap:8px;box-sizing:border-box;max-width:100%;min-width:0;padding:var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-3);border-radius:999px;background:color-mix(in srgb,var(--acpmux-composer-solid,var(--surface-popup)) 70%,transparent);-webkit-backdrop-filter:blur(24px) saturate(1.25);backdrop-filter:blur(24px) saturate(1.25);--ui-enter-y:var(--ui-enter-distance);animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-1);color:color-mix(in srgb,var(--agent-text) 78%,transparent);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+@media (prefers-reduced-transparency:reduce){.acpmux-managed-banner{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}}
+:root[data-reduce-transparency] .acpmux-managed-banner{background:var(--surface-popup);-webkit-backdrop-filter:none;backdrop-filter:none}
 .acpmux-managed-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-managed-name{color:var(--agent-text);font-weight:600}
 button.acpmux-managed-name{border:0;padding:0;background:none;font:inherit;font-weight:600}
 button.acpmux-managed-name:hover{text-decoration:underline}
-.acpmux-managed-take-over{flex:none;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:6px;padding:0 var(--ds-space-2);min-height:20px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
-.acpmux-managed-take-over:hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--agent-input-bg))}
+.acpmux-managed-take-over{flex:none;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:999px;padding:0 var(--ds-space-2);min-height:20px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-weight:500;line-height:inherit;white-space:nowrap;cursor:default}
+.acpmux-managed-take-over:hover{background:var(--acpmux-pill-hover)}
+.acpmux-managed-take-over:active{background:var(--acpmux-pill-press)}
 .acpmux-managed-banner button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}

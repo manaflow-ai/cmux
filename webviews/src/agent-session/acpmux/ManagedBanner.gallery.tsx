@@ -14,7 +14,18 @@ export default componentEntry<Props>({
   height: 120,
   covers: ["agent-session/acpmux/ManagedBanner.tsx#ManagedBanner"],
   pane: true,
-  load: () => import("./ManagedBanner").then((module) => module.ManagedBanner),
+  // In the pane's shell, with its styles, so the capsule's glass and the pill tokens resolve.
+  load: async () => {
+    const { ManagedBanner } = await import("./ManagedBanner");
+    return function GalleryManagedBanner(props: Props) {
+      return (
+        <div className="acpmux-shell">
+          <ManagedBanner {...props} />
+        </div>
+      );
+    };
+  },
+  styles: () => import("./styles.css"),
   variants: {
     chief: {
       props: { manager: { kind: "chief" }, onHide },
