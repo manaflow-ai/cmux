@@ -415,10 +415,9 @@ mod tests {
             "id": "r1", "operation": "feed.reports.reply", "idempotency_key": "p1",
             "params": {"session": "current", "to": "mbp:claude-api-server", "text": "Go ahead"}});
         let (done, wait) = std::sync::mpsc::channel();
-        let routed = mux.clone();
         std::thread::spawn(move || {
             let handled =
-                crate::server::page_router::try_handle(&routed, app, &request.to_string(), &writer);
+                crate::server::page_router::try_handle(&mux, app, &request.to_string(), &writer);
             let _ = done.send(handled);
         });
         assert_eq!(
