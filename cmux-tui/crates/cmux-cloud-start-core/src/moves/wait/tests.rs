@@ -116,7 +116,7 @@ fn the_plan_request_carries_the_send_its_account_workspace_and_the_listed_machin
         key: "K".into(),
         account: vec![me.clone(), Some("team-a".into())],
         workspace: Some("ws-1".into()),
-        user: me.clone(),
+        user: me,
         stored: vec!["vm-new".into()],
         ..PlanFacts::default()
     });
