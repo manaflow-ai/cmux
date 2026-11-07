@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42412063278",
+  "recorded_at": "2026-11-07T20:45:38Z",
+  "reason": "cmux-tui 7540ccc5bf42 changes the image's cmux-tui (pinned 0156480567d0)",
+  "dry_run": false,
+  "cmux_tui": "7540ccc5bf42bb14008e309fc56074961037c84a",
+  "fixes": [
+    {
+      "sha": "7540ccc5bf42bb14008e309fc56074961037c84a",
+      "mergedAt": "2026-11-07T20:24:17Z",
+      "subject": "chore(next): base autofix at a66cafceedf1"
+    },
+    {
+      "sha": "a66cafceedf10df1b4c80409ac08cba96eb3051e",
+      "mergedAt": "2026-11-07T12:22:13-08:00",
+      "subject": "cmux-tui: a new worktree runs the project's setup recipe (#37739)"
+    },
+    {
+      "sha": "139c956e4aaf233a646b5dae03e95076ff84a35d",
+      "mergedAt": "2026-11-07T12:02:34-08:00",
+      "subject": "perf(launch): no Cloud config request before the first window (#36712)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T20:45:38Z",
+    "snapshot_id": "sh-5cdd4662c8f6411a93d7b0a0a78e7a1a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42412063278): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9d5f944ad39b7cd8c84252fe7811cc59ff4ebc1d",
+    "image": "cloud-native-auto-7540ccc5-42412063278-1",
+    "revision": "ci-42412063278-1",
+    "at": "2026-11-07T20:45:38Z"
+  },
+  "rolled_back": false
+}
