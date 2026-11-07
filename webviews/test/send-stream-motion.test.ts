@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium } from "playwright";
 import type { Sample, Scenario } from "./browser/send-stream-motion.harness";
-import { analyze, CHASE_STEP_PX, type MotionReport } from "./support/sendStreamMotionReport";
+import { analyze, type MotionReport } from "./support/sendStreamMotionReport";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -79,7 +79,7 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
           `${process.env.CMUX_SEND_STREAM_DUMP}-${query || "default"}-${scenario}.json`,
           JSON.stringify(samples),
         );
-      return analyze(samples, pacing.frameMs, pacing.dropped);
+      return analyze(samples, pacing.frameMs, pacing.dropped, MAX_TRAIL_PX, LINE_PX);
     } finally {
       await frames.close();
     }
@@ -87,22 +87,27 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
 
   /// One line of the reply at the chat font.
   const LINE_PX = 22.75;
-  /// While the reply streams, at most a line and a half in 95 of 100 moving frames (20-24 px
-  /// measured). A view held within two lines of a stream must move as fast as the stream grows:
-  /// the fixture's table and code card land 1,500 px/s and more, over 12 px a frame, and the trail
-  /// bound takes what lands past two lines at once. The unbounded chase kept this under half a line
-  /// by trailing up to 244 px.
-  const P95_STREAM_FRAME_PX = 1.5 * LINE_PX;
+  /// While the reply streams, under three quarters of a line in 95 of 100 moving frames (11-15 px
+  /// measured). Taking each new block at once moved it 40-130 px in a frame before. Not half a
+  /// line as the unbounded chase kept: holding the trail near two lines means the frames that
+  /// bring a landing block back (up to a line each) are part of the stream's top 5%.
+  const P95_STREAM_FRAME_PX = 0.75 * LINE_PX;
+  /// The most any frame moves: a line (followChase.ts CHASE_MAX_FRAME_LINES), and a pixel for the
+  /// sampler's frame time against the chase's (they differ by up to a millisecond).
+  const MAX_FRAME_PX = LINE_PX + 1;
   /// Frames after the stream's last growth until the view rests at its end (lag 0, offset at the
   /// end, nothing moving): 30 frames is 250 ms, a spring's settle.
   const REST_FRAMES = 30;
   /// At rest the reply's newest line ends over the composer by the turn footer's band and the rest
   /// gap; more is room left blank under the rows.
   const REST_TAIL_PX = 160;
-  /// The most the view ever trails its layout: two lines (followChase.ts CHASE_MAX_TRAIL_LINES);
-  /// what lands past it moves at once. The chase trailed by up to 244 px before the bound, the
-  /// eased glide before it by up to 132 px.
+  /// The trail bound: two lines (followChase.ts CHASE_MAX_TRAIL_LINES). A block that lands past it
+  /// is back within it in BURST_S (50 ms, six 120 Hz frames); OVER_BOUND_FRAMES allows a frame of
+  /// sampling either side. It counts drawn frames: on a loaded host frames come 25-40 ms apart, and
+  /// the fixture's table lands faster than a line a slot, so wall time over the bound is reported
+  /// (overBound.maxMs), not asserted. The unbounded chase trailed by up to 244 px for hundreds of ms.
   const MAX_TRAIL_PX = 2 * LINE_PX;
+  const OVER_BOUND_FRAMES = 8;
 
   const SCENARIOS: Scenario[] = ["send", "tools", "steer"];
 
@@ -111,18 +116,17 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
     async (scenario) => {
       const report = await measure("", scenario);
       console.log(`send-stream-motion default ${scenario}: ${JSON.stringify(report, null, 2)}`);
-      // Between new layouts only the chase moves the rows: never more than its fastest step in a
-      // frame (5 px; the eased glide before moved up to a line a frame as each rise started).
-      expect(report.chaseStepPx).toBeLessThanOrEqual(CHASE_STEP_PX);
-      // Most frames of the stream move a line or less; what lands past the trail bound moves at
-      // once (report.pastBound).
+      // Nothing jumps: no frame of the turn moves the rows more than a line (a 120 Hz slot), and
+      // most frames of the stream under three quarters of a line.
+      expect(report.jumpPx.max).toBeLessThanOrEqual(MAX_FRAME_PX);
       expect(report.jumpPx.streamP95).toBeLessThanOrEqual(P95_STREAM_FRAME_PX);
       // The end of the turn moves nothing.
       expect(report.jumpPx.after).toBeLessThanOrEqual(1);
       // Never far behind the newest text on a fast stream: half the time within three lines.
       expect(report.lagPx.p50).toBeLessThanOrEqual(3 * LINE_PX);
-      // And never more than two lines behind, in any frame of the turn.
-      expect(report.trailMaxPx).toBeLessThanOrEqual(MAX_TRAIL_PX + 0.01);
+      // Never more than two lines behind, except for at most about 60 ms (8 frames at 120 Hz)
+      // after a block lands.
+      expect(report.overBound.maxFrames).toBeLessThanOrEqual(OVER_BOUND_FRAMES);
       expect(report.restsAtEnd).toBe(true);
       expect(report.restFramesAfterStream).toBeLessThanOrEqual(REST_FRAMES);
       // A steer's reply ends 10 px lower than a send's, the same with every arm and motion off.

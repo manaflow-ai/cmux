@@ -14,11 +14,9 @@ export type MotionReport = ReturnType<typeof analyze>;
 
 /// A move of more than this in one 120 Hz frame reads as a jump: a third of a line.
 const JUMP_PX = 7.5;
-/// The chase's fastest step in a 120 Hz frame while it trails by at most two lines (followChase.ts:
-/// 450 px/s and what it trails past a line over 150 ms, 600 px/s at the bound), and rounding.
-export const CHASE_STEP_PX = 5.5;
-
-export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
+/// `trailPx`: the follow motion's trail bound (followChase.ts CHASE_MAX_TRAIL_LINES); `linePx`: a
+/// line, the most a frame may move.
+export function analyze(samples: Sample[], frameMs: number[], dropped: number, trailPx: number, linePx: number) {
   // A frame's move per 120 Hz slot: a frame drawn after one or more dropped slots shows the motion
   // of all of them, as a display does. A move the follow motion took no part in (its translate the
   // same) is one at once and counts whole however late.
@@ -27,12 +25,22 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
     const moved = Math.abs(sample.top - before.top);
     const slots = Math.max(1, Math.round((sample.t - before.t) / FRAME_MS));
     const atOnce = Math.abs(sample.lag - before.lag) < 0.01;
-    const laidOut = Math.abs(sample.scrollTop - before.scrollTop) > 0.5;
     const px = atOnce ? moved : moved / slots;
-    return { phase: sample.phase, px, atOnce: atOnce && moved > 0.5, laidOut };
+    return { phase: sample.phase, px, atOnce: atOnce && moved > 0.5 };
   });
-  /// Frames in which only the chase moved the rows (no new layout, nothing at once).
-  const chased = moves.filter((move) => !move.laidOut && !move.atOnce);
+  // Each stretch the thread was drawn past the trail bound: from the first frame past it to the
+  // first frame back within it (ms).
+  const overBound: { ms: number; frames: number }[] = [];
+  let since: { t: number; index: number } | undefined;
+  samples.forEach((sample, index) => {
+    const past = Math.abs(sample.lag) > trailPx + 0.5;
+    if (past && since === undefined) since = { t: sample.t, index };
+    if (!past && since !== undefined) {
+      overBound.push({ ms: sample.t - since.t, frames: index - since.index });
+      since = undefined;
+    }
+  });
+  if (since !== undefined) overBound.push({ ms: Number.POSITIVE_INFINITY, frames: Number.POSITIVE_INFINITY });
   const of = (phase: string) => moves.filter((move) => move.phase === phase).map((move) => move.px);
   /// Per step of the turn: the largest move in a frame, the frames over JUMP_PX and their largest,
   /// and the moves at once (the follow motion took no part) with their largest.
@@ -86,13 +94,13 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
     lagPx: { p50: r2(pct(lags, 0.5)), p95: r2(pct(lags, 0.95)), max: r2(Math.max(0, ...lags)) },
     /// The most the thread was drawn from its layout in any frame of the turn, any phase.
     trailMaxPx: r2(Math.max(0, ...samples.map((sample) => Math.abs(sample.lag)))),
-    /// The largest move in a frame in which only the chase moved the rows.
-    chaseStepPx: r2(Math.max(0, ...chased.map((move) => move.px))),
-    /// Frames in which the layout moved and the rows moved more than the chase's fastest step: what
-    /// landed past the trail bound moved there at once. And the largest frame with a new layout.
-    pastBound: {
-      frames: moves.filter((move) => move.laidOut && move.px > CHASE_STEP_PX).length,
-      maxPx: r2(Math.max(0, ...moves.filter((move) => move.laidOut).map((move) => move.px))),
+    /// Frames moving more than a line, and the stretches past the trail bound: how many, the
+    /// longest in drawn frames (from the first frame past it to the first frame back) and in ms.
+    overLine: all.filter((px) => px > linePx + 0.01).length,
+    overBound: {
+      stretches: overBound.length,
+      maxFrames: Math.max(0, ...overBound.map((stretch) => stretch.frames)),
+      maxMs: r2(Math.max(0, ...overBound.map((stretch) => stretch.ms))),
     },
     /// Frames from the reply's last growth until nothing moves and the thread rests on its layout.
     restFramesAfterStream: rest - grew,

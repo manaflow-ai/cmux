@@ -14,14 +14,15 @@
 // and the composer's room move together, and a move that comes while one plays continues from where
 // the thread is drawn and how fast it is going: no restart, no jolt per chunk.
 //
-// The chase (the `spring` arm and the default `blocks` arm of followMotion.experiment.ts) is a critically damped spring
-// over the motion scale's standard step (no overshoot, so nothing moves away from where it rests),
-// at most CHASE_MAX_SPEED px/s (under 4 px a 120 Hz frame) while it trails by under a line, and
-// faster as it nears its bound. It never trails by more than CHASE_MAX_TRAIL_LINES (two lines): what
-// lands past that bound moves at once, so the view stays within two lines of the newest one. In the
-// default `blocks` arm content may pass under the glass composer while it settles, held only by that
-// bound (cmux#37614); the `spring` arm keeps new text at most a line under the bottom stack
-// (VirtualTranscript CHASE_UNDER_STACK_PX) and moves the rest at once, as followGlide.ts did. A
+// The chase (the `spring` arm and the default `blocks` arm of followMotion.experiment.ts) is a
+// critically damped spring over the motion scale's standard step (no overshoot, so nothing moves
+// away from where it rests), at most CHASE_MAX_SPEED px/s (under 4 px a 120 Hz frame) while it
+// trails by under a line, and faster past that. The trail is bounded to CHASE_MAX_TRAIL_LINES (two
+// lines): a block that lands past it catches up within BURST_S (six 120 Hz frames), never in one
+// jump, and no frame moves more than CHASE_MAX_FRAME_LINES (a line). In the default `blocks` arm
+// content may pass under the glass composer while it settles, held only by that bound (cmux#37614);
+// the `spring` arm keeps new text at most a line under the bottom stack (VirtualTranscript
+// CHASE_UNDER_STACK_PX) and moves the rest at once, as followGlide.ts did. A
 // send's rows rise out from behind the composer they left in every arm (`below` unbounded).
 //
 // Stop condition: the frame loop runs only while the thread is drawn away from its layout and ends
@@ -43,9 +44,17 @@ const RESPONSE_S = MOTION_MS.standard / 1000;
 /// at 60 Hz), a sixth of a line, within CATCH_UP_LINES of home.
 export const CHASE_MAX_SPEED = 450;
 /// The most the view trails the newest line, in the chat's lines (chatDisplay's line height, so it
-/// follows the reader's font settings): a move past it is taken at once down to it, so the bound
-/// always holds. A move of more than this is also a block landing, not a line.
+/// follows the reader's font settings). What lands past it (a block faster than the chase) is
+/// brought back within BURST_S, never in one jump: the chase moves at least the excess over
+/// BURST_S a second until it is back inside the bound.
 export const CHASE_MAX_TRAIL_LINES = 2;
+/// How soon (s) the trail is back within its bound after a block lands past it: six 120 Hz frames.
+export const BURST_S = 0.05;
+/// The most any frame moves the rows, in the chat's lines per 120 Hz frame.
+export const CHASE_MAX_FRAME_LINES = 1;
+/// How far behind its layout the thread may be drawn at all, in viewports; only a move past that
+/// (a whole screen landing at once) moves at once.
+const CHASE_MAX_LAG = 0.75;
 /// Past this many lines behind the chase speeds up by what is further behind over CATCH_UP_S
 /// (at the bound, 600 px/s: 5 px a 120 Hz frame).
 const CATCH_UP_LINES = 1;
@@ -82,7 +91,7 @@ function speedOf(node: HTMLElement): number {
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }
 
-/// The most the thread is drawn from its layout (px): CHASE_MAX_TRAIL_LINES of the chat's lines.
+/// The trail bound (px): CHASE_MAX_TRAIL_LINES of the chat's lines.
 export function chaseMaxTrail(): number {
   return CHASE_MAX_TRAIL_LINES * currentChatMetrics().lineHeight;
 }
@@ -100,6 +109,12 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let rising = false;
   let last: number | undefined;
   let scale = 1;
+  /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
+  /// landing that put it there, 0 inside the bound.
+  let burst = 0;
+  /// When (ms, the frame clock) the trail must be back within its bound: BURST_S after the landing
+  /// that first put it past, kept while more lands before then.
+  let due: number | undefined;
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
   const draw = () => {
@@ -118,6 +133,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     last = undefined;
     x = 0;
     v = 0;
+    burst = 0;
+    due = undefined;
     rising = false;
     draw();
   };
@@ -127,8 +144,19 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     last = now;
     // Past CATCH_UP_LINES behind (a burst faster than the limit) the limit rises by what is further
     // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
-    const catchUp = CATCH_UP_LINES * currentChatMetrics().lineHeight;
-    const limit = (CHASE_MAX_SPEED + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25);
+    const line = currentChatMetrics().lineHeight;
+    const catchUp = CATCH_UP_LINES * line;
+    const over = Math.abs(x) - chaseMaxTrail();
+    if (!(over > 0)) {
+      burst = 0;
+      due = undefined;
+    }
+    // Past the trail bound the chase moves at least `burst`, and no frame more than a line.
+    const fastest = (CHASE_MAX_FRAME_LINES * line) / (1 / 120);
+    const limit = Math.min(
+      fastest,
+      Math.max(burst, (CHASE_MAX_SPEED + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25)),
+    );
     if (arm === "spring" || arm === "blocks") {
       // Critically damped toward 0, exact over the step: x(t) = (x0 + (v0 + w x0) t) e^(-w t).
       const w = (2 * Math.PI) / (RESPONSE_S * scale);
@@ -136,11 +164,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const carry = v + w * x;
       let nextX = (x + carry * dt) * decay;
       let nextV = (v - w * carry * dt) * decay;
-      // No frame moves more than the speed limit allows.
-      const most = limit * dt;
+      // No frame moves more than the speed limit allows, nor more than a line a 120 Hz slot.
+      const most = Math.min(limit * dt, CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120)));
       if (Math.abs(nextX - x) > most) {
         nextX = x + Math.sign(nextX - x) * most;
         nextV = Math.sign(nextV) * Math.min(Math.abs(nextV), limit);
+      }
+      // Past the bound, at least the burst's step (the spring from rest starts slower).
+      if (over > 0 && Math.abs(nextX - x) < burst * dt) {
+        nextX = x - Math.sign(x) * Math.min(Math.abs(x), burst * dt);
+        nextV = -Math.sign(x) * burst;
       }
       // Critically damped never crosses its rest; a clamp's rounding must not either.
       if (Math.sign(nextX) !== Math.sign(x) && x !== 0) nextX = nextV = 0;
@@ -189,21 +222,31 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (thread && thread !== node) stop();
       thread = node;
       scale = speed;
-      // Drawn back by the move: the rows stay where the reader saw them this frame, up to the trail
-      // bound; what is past it moves at once.
-      const most = chaseMaxTrail();
+      // Drawn back by the move: the rows stay where the reader saw them this frame (up to
+      // CHASE_MAX_LAG of the view; only a whole screen landing moves at once).
+      const most = CHASE_MAX_LAG * (node.parentElement?.parentElement?.clientHeight || 600);
+      const trail = chaseMaxTrail();
       // A send's rows rise out from behind the composer (`below` unbounded). In the `blocks` arm
       // (the default) everything may pass under the glass composer while it settles, held only by
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
       if (arm === "blocks" || below === Number.POSITIVE_INFINITY) rising = true;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
+      // Past the trail bound: back within it BURST_S after the landing that first put it past
+      // (more landing before then speeds it up), at no more than a line a frame.
+      const timeline = node.ownerDocument.timeline?.currentTime;
+      const at = typeof timeline === "number" ? timeline : performance.now();
+      if (Math.abs(x) > trail) {
+        due ??= at + BURST_S * 1000;
+        const left = Math.max(1 / 120, (due - at) / 1000);
+        const fastest = (CHASE_MAX_FRAME_LINES * currentChatMetrics().lineHeight) / (1 / 120);
+        burst = Math.min(fastest, Math.max(burst, (Math.abs(x) - trail) / left));
+      }
       chunk = { from: x, at: 0, duration: CHUNK_S };
       draw();
       if (frame === undefined) {
         // Integrate from this frame's time: the first step lands one display frame on.
         const view = node.ownerDocument.defaultView;
-        const timeline = node.ownerDocument.timeline?.currentTime;
-        last = typeof timeline === "number" ? timeline : performance.now();
+        last = at;
         frame = view?.requestAnimationFrame(step);
       }
       return true;

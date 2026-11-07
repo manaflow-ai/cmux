@@ -190,15 +190,17 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // only the glide's scheduler gap is normalized. Layout, long-task and work budgets inspect the
     // same frames.
     // Since the follow chase (followChase.ts, Leo 2026-11-07: "what is satisfying at 120 hertz?")
-    // a block rises from behind the stack on the chase, trailing at most two lines (cmux#37614):
-    // what lands past that moves at once, so the largest frame is no more than stepped's (2026-11-07:
-    // 73 px Chromium, 89-96 px WebKit, 96 px stepped) and about as many frames go over SNAP_PX as
-    // stepped's, but out of six times as many moving frames: under a quarter of stepped's share
-    // (12-17% eased, 97-100% stepped). The 95th percentile stays under 0.8 of a line (WebKit
-    // 13.7-16.7 px, Chromium 9 px).
+    // a block rises from behind the stack on the chase, trailing about two lines (cmux#37614): a
+    // block past that catches up within 50 ms at no more than a line a 120 Hz slot, never in one
+    // jump. These frames come at 60 Hz or later, so one can show two or three slots of it: no
+    // frame moves more than three lines (2026-11-07: 28 px Chromium, 57 px WebKit, 96 px stepped).
+    // The chase moves on six times as many frames as stepped, so its frames over SNAP_PX are
+    // bounded as a share of the moving frames: under a quarter of stepped's (15-20% eased, 97-100%
+    // stepped). The 95th percentile stays under 0.8 of a line (Chromium 10.6 px, WebKit 16.5 px:
+    // WebKit's late frames carry more of each catch-up).
     expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX * 0.6);
     expect(eased.follow.p95).toBeLessThan(LINE_PX * 0.8);
-    expect(eased.follow.max).toBeLessThanOrEqual(stepped.follow.max);
+    expect(eased.follow.max).toBeLessThanOrEqual(3 * LINE_PX);
     expect(eased.follow.overSnap / eased.follow.moving).toBeLessThan(
       stepped.follow.overSnap / stepped.follow.moving / 4,
     );
@@ -209,8 +211,8 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // holds back, under one line (CI, 2026-10-31, WebKit: -34.37 stepped, -48.95 eased). The turn's
     // end moves nothing, and the reply never comes back down.
     // A block the chase lets rise from behind the stack (a code card, a table) lies under it for
-    // a few frames, at most three lines (2026-11-07: -32 px Chromium, -27 px WebKit).
-    expect(eased.runway.min).toBeGreaterThanOrEqual(Math.min(stepped.runway.min - LINE_PX, -3 * LINE_PX));
+    // a few frames, within the trail bound of two lines (2026-11-07: -18 px Chromium, -22 px WebKit).
+    expect(eased.runway.min).toBeGreaterThanOrEqual(Math.min(stepped.runway.min - LINE_PX, -2 * LINE_PX));
     expect(eased.settle).toMatchObject({ moves: 0, snaps: 0, reversals: 0 });
     expect(overLayout(eased)).toEqual([]);
   });
