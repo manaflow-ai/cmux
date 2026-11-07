@@ -188,26 +188,6 @@ final class ExternalOpenController {
     }
 }
 
-/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
-/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
-/// auth accepts), so it never reaches `link.open`; everything else goes to
-/// `ExternalOpenController`, which refuses what it does not open.
-enum OpenedURLRouting {
-    enum Destination: Equatable {
-        /// Cloud auth's `handleCallback`.
-        case auth
-        /// `ExternalOpenController` opened it (a tab, or `link.open`).
-        case opened
-        /// Nothing cmux opens.
-        case ignored
-    }
-
-    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
-        if isAuthCallback(url) { return .auth }
-        return open(url) ? .opened : .ignored
-    }
-}
-
 /// The Finder services (`NSServices` in Info.plist): New cmux Tab Here,
 /// New cmux Workspace Here, New cmux Window Here. AppKit calls these with
 /// the selected folders or files (a file opens in its folder).
