@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextHome
 
 /// The Chief's profile (Lawrence's reference, 2026-11-04, after Grok's bot panel): a close button at
 /// the top right, the avatar and name centered, the tabs Details · Settings · Computer, then the tab.
@@ -92,7 +93,8 @@ public final class HomeChiefProfileView: NSView {
     let controlBar = HomeChiefComputerControlBar()
     let scroll = NSScrollView()
     let column = NSStackView()
-    private(set) lazy var closeButton = HomeChiefCardCloseButton(label: HomeEngineStrings.closeCard, target: self, action: #selector(closeTab))
+    private(set) lazy var closeButton = HomeChiefCardCloseButton(label: HomeEngineStrings.closeCard, target: self, action: #selector(closeTab),
+                                                                     size: HomeSidebarHeaderLayout.chatButtonSide)
     /// What the tab shows now.
     private(set) var shownGate: Gate?
     /// The person's inputs, sent one after another.

@@ -21,7 +21,11 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The band the row sits in; the list starts under it. One height at every density and text
     /// size: it lines up with the chat's header beside it (`HomeChatColumnView`), and it holds the
     /// biggest filter circle (``HomeSidebarHeaderMetrics/side``, 39 pt at Comfortable, Larger text).
-    static let band: CGFloat = 52
+    public static let band: CGFloat = 52
+    /// The chat header's round buttons' diameter and side inset: the chat's compose
+    /// (`HomeChatComposeButton`) and the Chief profile panel's close, which mirrors it on the right.
+    public static var chatButtonSide: CGFloat { HomeChatComposeButton.side }
+    public static var chatButtonInset: CGFloat { HomeChatColumnView.composeInset }
     /// The filter circle's least room above it under the traffic lights: cmux's lights sit higher
     /// than Messages', so on their line the circle shrinks rather than run off the window's top.
     static let topMargin: CGFloat = 1

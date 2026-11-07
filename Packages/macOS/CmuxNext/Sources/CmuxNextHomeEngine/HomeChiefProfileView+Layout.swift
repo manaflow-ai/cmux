@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHome
 
 /// The profile's column: the header (avatar, name, tabs), the expanded page's Details, the Computer
 /// pane and, in the panel, the settings card; in a scroll view under the ✕.
@@ -68,8 +69,9 @@ extension HomeChiefProfileView {
             column.topAnchor.constraint(equalTo: document.topAnchor, constant: Self.avatarTop),
             column.centerXAnchor.constraint(equalTo: document.centerXAnchor),
             document.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: 16),
-            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            // The close mirrors the chat's compose on the left: one size, one inset, one center line.
+            closeButton.centerYAnchor.constraint(equalTo: topAnchor, constant: HomeSidebarHeaderLayout.band / 2),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -HomeSidebarHeaderLayout.chatButtonInset),
         ])
         // The screen's 16:10; in the panel the note's card stops at a sensible height, on the page it
         // takes the screen's place whole.
