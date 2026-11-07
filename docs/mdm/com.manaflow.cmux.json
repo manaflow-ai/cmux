@@ -2841,7 +2841,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
       "title" : "Keep Chief Docked When Opening Workspaces",
       "type" : "boolean"

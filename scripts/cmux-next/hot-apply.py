@@ -275,16 +275,27 @@ def keep(state: Path, path: Path) -> tuple[Path, str]:
     return copy, digest
 
 
-def app_pids(app: Path) -> list[str]:
+# The names bin/cmux runs as that serve `server status`. acpmux is the same file under another name
+# (bin/acpmux links to it) and serves another protocol, which never answers `server status`.
+DAEMON_NAMES = ("cmux", "cmux-tui")
+
+
+def app_pids(app: Path, names: tuple[str, ...] | None = None) -> list[str]:
     """The processes running an executable from APP's bin folder: by the executable's path (`comm`,
-    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short."""
+    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short. With
+    NAMES, only those that run as one of them (the program name after the bin folder)."""
     prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
     found = []
     for field in ("comm", "command"):
         ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
             pid, _, rest = line.strip().partition(" ")
-            if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
+            rest = rest.strip()
+            prefix = next((p for p in prefixes if rest.startswith(p)), None)
+            if pid in found or prefix is None:
+                continue
+            # Program names have no spaces, so the name ends at the first one (the app path may have some).
+            if names is None or rest[len(prefix):].split(" ", 1)[0] in names:
                 found.append(pid)
     # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
     # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
@@ -297,8 +308,17 @@ def app_pids(app: Path) -> list[str]:
                 exe = os.readlink(entry / "exe").removesuffix(" (deleted)")
             except OSError:
                 continue
-            if any(exe.startswith(prefix) for prefix in prefixes):
-                found.append(entry.name)
+            if not any(exe.startswith(prefix) for prefix in prefixes):
+                continue
+            if names is not None:
+                # exe resolves the acpmux link to cmux: the name it runs as is argv[0]'s.
+                try:
+                    argv0 = (entry / "cmdline").read_bytes().split(b"\0", 1)[0].decode(errors="replace")
+                except OSError:
+                    continue
+                if os.path.basename(argv0) not in names:
+                    continue
+            found.append(entry.name)
     return found
 
 
@@ -307,7 +327,7 @@ def find_socket(app: Path, cli: Path) -> str | None:
     answers `server status` with that process's pid. None when no daemon runs from it; a socket
     that never answered means one may, and raises rather than pass for none."""
     hung = []
-    for pid in app_pids(app):
+    for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
         for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
             try:
