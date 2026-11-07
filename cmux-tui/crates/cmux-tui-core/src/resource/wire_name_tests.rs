@@ -20,6 +20,9 @@ fn wire_name_round_trips_through_serde() {
         "chief.retry",
         "conductor_import.plan",
         "conductor_import.record",
+        "cloud.vm.resize",
+        "cloud.owner.acpmux_keyed_start",
+        "cloud.machine.io",
         "palette.rank",
     ] {
         let operation: ResourceOperation =

@@ -176,22 +176,13 @@ pub struct Created {
     /// The bootstrap's kind (`plain`, `lane`) when a script went with the machine, and how it went.
     pub script_kind: Option<String>,
     pub bootstrap: Option<Outcome>,
-    /// The parsed `--repo`: its spec, clone URL and folder under the home.
-    pub repo: Option<Repo>,
-    /// The machine config's start, when one was asked for.
+    /// The machine config's start (answered only when the request asked for one).
     pub machine_config: Option<Outcome>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default)]
-pub struct Repo {
-    pub spec: String,
-    pub url: String,
-    pub directory: String,
-}
-
 /// The answer of a `cloud new-machine` with options: the machine's facts, the request's,
-/// `bootstrap`, `repo`, `machine_config` and `enrollment`.
+/// `bootstrap`, `repo` (the request's), `machine_config` (when the request asked for one) and
+/// `enrollment`.
 pub fn created(request: &NewMachine, made: &Created) -> Fields {
     let mut fields = created_machine(&made.machine, made.workspace_id.as_deref());
     fields.extend(new_machine(request, Some(&made.machine)));
@@ -205,7 +196,7 @@ pub fn created(request: &NewMachine, made: &Created) -> Fields {
             bootstrap.insert("reason".into(), json!(reason));
         }
     }
-    if let Some(repo) = &made.repo {
+    if let Some(repo) = &request.repo {
         // The clone runs in the bootstrap; its result lands later in the status file's `repo`,
         // which `check` reads.
         let check = bootstrap.get("check").cloned().unwrap_or_else(|| json!("none"));
@@ -215,7 +206,7 @@ pub fn created(request: &NewMachine, made: &Created) -> Fields {
         );
     }
     fields.insert("bootstrap".into(), Value::Object(bootstrap));
-    if let Some(outcome) = &made.machine_config {
+    if let (Some(_), Some(outcome)) = (&request.machine_config_path, &made.machine_config) {
         fields.insert("machine_config".into(), machine_config(outcome, &made.machine.id));
     }
     fields.insert("enrollment".into(), Value::Object(enrollment(request, &made.machine)));
@@ -292,6 +283,13 @@ pub struct Decision {
     pub at: i64,
     pub outcome: String,
     pub reason: String,
+    /// The cron run that decided, nested as the server's record has it.
+    pub run: Run,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Run {
     pub checked: i64,
     pub elapsed_ms: i64,
 }
@@ -323,7 +321,7 @@ pub fn cost_fields(cost: &Cost) -> Fields {
 pub fn idle_pause_fields(idle: &IdlePause) -> Fields {
     let decision = idle.last_decision.as_ref().map_or(Value::Null, |d| {
         json!({"at": d.at, "outcome": d.outcome, "reason": d.reason,
-               "run": {"checked": d.checked, "elapsed_ms": d.elapsed_ms}})
+               "run": {"checked": d.run.checked, "elapsed_ms": d.run.elapsed_ms}})
     });
     object(json!({
         "minutes": idle.minutes, "last_checked_at": idle.last_checked_at, "idle_since": idle.idle_since,
@@ -400,7 +398,7 @@ pub fn describe(status: &Status) -> String {
         lines.push(match &idle.last_decision {
             Some(d) => format!(
                 "idle pause decision: {} ({}) at {}; run checked={}, elapsed_ms={}",
-                d.outcome, d.reason, d.at, d.checked, d.elapsed_ms
+                d.outcome, d.reason, d.at, d.run.checked, d.run.elapsed_ms
             ),
             None => "idle pause decision: null".to_owned(),
         });
