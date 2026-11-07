@@ -595,3 +595,28 @@ test("a chat that stays gone past its hold keeps no tail of it for a relist", as
   // The hold is over: the rows it kept (every one the page read) are not held on to.
   expect(kept()).toBeUndefined();
 });
+
+test("the machine back with a slow read of the records it missed draws no hole while it waits", async () => {
+  const chat = await openChat();
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  await chat.reconnect();
+  for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
+  const from = chat.drawn.length;
+  // The read of 17..18 is slow: longer than a switch's hold.
+  chat.daemon().heldReads = [];
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await until(() => (chat.daemon().heldReads?.length ?? 0) > 0, "the gap read");
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const held = chat.daemon().heldReads ?? [];
+  chat.daemon().heldReads = undefined;
+  for (const read of held) read.answer();
+  await flush();
+  for (const snapshot of chat.drawn.slice(from)) {
+    const text = JSON.stringify(snapshot.rows);
+    if (text.includes("missed 24.")) expect(text).toContain("missed 17.");
+  }
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 17.");
+});
