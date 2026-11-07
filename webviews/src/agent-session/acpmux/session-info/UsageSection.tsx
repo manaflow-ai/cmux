@@ -26,6 +26,7 @@ import {
 import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
@@ -165,7 +166,10 @@ export const UsageSection = memo(function UsageSection({
   const [expanded, setExpanded] = useState(initialExpanded);
   const ranked = useMemo(() => byUsage(sessions, sort), [sessions, sort]);
   const folds = ranked.length > USAGE_SHOWN;
-  const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
+  // View all grows the list in place and Show fewer closes it over the rows that go, as one motion with
+  // the sections under it (foldMotion.ts).
+  const fold = useFoldMotion<HTMLUListElement>(expanded, (list) => heightAbove(list, list.children[USAGE_SHOWN]));
+  const shown = folds && !fold.drawn ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const planRows = planLimitRows(planLimits, t, now?.(), locale);
   return (
     <div className="acpmux-session-info-usage" data-section="usage" data-own-row-layout={ownRowLayout}>
@@ -240,7 +244,7 @@ export const UsageSection = memo(function UsageSection({
               ))}
             </fieldset>
           </div>
-          <ul className="acpmux-session-info-list" data-sort={sort}>
+          <ul ref={fold.ref} className="acpmux-session-info-list" data-sort={sort}>
             <WindowedRows
               items={shown}
               render={(entry) => {
@@ -298,7 +302,7 @@ export const UsageSection = memo(function UsageSection({
               type="button"
               className="acpmux-session-info-fold acpmux-session-info-usage-fold"
               aria-expanded={expanded}
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => fold.toggle(!expanded, setExpanded)}
             >
               {expanded ? t("summary.showFewer") : t("summary.viewAll", { n: ranked.length })}
             </button>

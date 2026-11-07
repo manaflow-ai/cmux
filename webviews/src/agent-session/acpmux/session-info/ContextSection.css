@@ -172,3 +172,20 @@
 .acpmux-session-info .acpmux-context-breakdown__items {
   padding-left: var(--grid-sidebar-depth-indent);
 }
+
+/* A list's chevron is one glyph that turns a quarter as the list opens, on the fold's own curve: the
+   settle (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the
+   key"). Reduce Motion, or the pane's motion off: it turns in one frame. */
+.acpmux-context-breakdown__fold > svg {
+  rotate: 0deg;
+}
+.acpmux-context-breakdown__fold[aria-expanded="true"] > svg {
+  rotate: 90deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    .acpmux-context-breakdown__fold
+    > svg {
+    transition: rotate var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}

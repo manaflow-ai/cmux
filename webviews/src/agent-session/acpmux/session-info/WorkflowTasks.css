@@ -402,13 +402,48 @@ button.acpmux-workflow-agent__button:focus-visible {
 .acpmux-workflow-task > .acpmux-workflow-commands {
   padding-left: 0;
 }
-/* "N finished": the agents that ended, out of the phases' running lists. */
+/* "N finished": the agents that ended, out of the phases' running lists. Its list and Show more are one
+   box that folds (WorkflowTasks.tsx), which holds the gap above them, so nothing is left behind when it
+   has closed. */
 .acpmux-workflow-finished {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
   margin-top: var(--ds-space-1);
+}
+.acpmux-workflow-finished__box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+}
+.acpmux-workflow-finished__box > :first-child {
+  margin-top: var(--grid-gap-inner);
 }
 .acpmux-workflow-finished__agents {
   padding-left: var(--grid-sidebar-depth-indent);
+}
+
+/* A fold's box (a finished agent's output): it holds its child's margins, so its height is all it draws
+   and a fold ends on its final layout. */
+.acpmux-workflow-fold {
+  display: flow-root;
+  min-width: 0;
+}
+/* Each fold's chevron is one glyph that turns a quarter as it opens, on the fold's own curve: the settle
+   (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").
+   Reduce Motion, or the pane's motion off: it turns in one frame. */
+:is(.acpmux-workflow-phase__head, .acpmux-workflow-agent__disclosure, .acpmux-workflow-finished__fold) > svg {
+  rotate: 0deg;
+}
+.acpmux-workflow-phase__head[aria-expanded="true"] > svg,
+.acpmux-workflow-agent__disclosure[aria-expanded="true"] > svg,
+.acpmux-workflow-finished__fold[aria-expanded="true"] > svg {
+  rotate: 90deg;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-agent-motion="reduced"])
+    :is(.acpmux-workflow-phase__head, .acpmux-workflow-agent__disclosure, .acpmux-workflow-finished__fold)
+    > svg {
+    transition: rotate var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  }
 }

@@ -17,6 +17,7 @@ import "../../../ui/controls.css";
 import type { AcpmuxContextBreakdown } from "../model";
 import "./sessionInfo.css";
 import "./ContextSection.css";
+import { useFoldMotion } from "./foldMotion";
 
 /// One part of the context window: its tokens and its share of the window (0 to 1).
 export type ContextPart = { readonly id: "used" | "free"; readonly tokens: number; readonly share: number };
@@ -112,16 +113,8 @@ const LIST_LABEL = {
 /// The breakdown's bar, its rows and its folds, as Session Info and the ring's details draw them.
 /// Without `bar`, its rows and folds alone (Session Info's Context fold: its head has the meter).
 export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Breakdown; bar?: boolean }) {
-  const t = useT();
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
-  const toggle = (id: string) =>
-    setOpen((was) => {
-      const next = new Set(was);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
   return (
     <div className="acpmux-context-breakdown">
       {bar && (
@@ -158,30 +151,42 @@ export function ContextBreakdownView({ breakdown, bar = true }: { breakdown: Bre
         ))}
       </ul>
       {breakdown.lists.map((list) => (
-        <div key={list.id} data-list={list.id}>
-          <button
-            type="button"
-            className="acpmux-session-info-row acpmux-session-info-row--button acpmux-context-breakdown__fold"
-            aria-expanded={open.has(list.id)}
-            onClick={() => toggle(list.id)}
-          >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
-            <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
-            <span className="acpmux-session-info-row__end">{list.items.length}</span>
-          </button>
-          {open.has(list.id) && (
-            <ul className="acpmux-session-info-list acpmux-context-breakdown__items">
-              {list.items.map((item, index) => (
-                <li key={`${item.name}-${index}`} className="acpmux-session-info-row">
-                  <span className="acpmux-session-info-row__name">{item.name}</span>
-                  {item.detail && <span className="acpmux-session-info-row__detail">{item.detail}</span>}
-                  <span className="acpmux-session-info-row__end">{tokens.format(item.tokens)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <ContextListFold key={list.id} list={list} tokens={tokens} />
       ))}
+    </div>
+  );
+}
+
+/// One of the breakdown's lists under its fold row: the list opens from the row and closes back into
+/// it as one motion with what is under it, its chevron one glyph that turns on the same curve
+/// (foldMotion.ts, ContextSection.css).
+function ContextListFold({ list, tokens }: { list: Breakdown["lists"][number]; tokens: Intl.NumberFormat }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const fold = useFoldMotion<HTMLUListElement>(open, () => 0);
+  return (
+    <div data-list={list.id}>
+      <button
+        type="button"
+        className="acpmux-session-info-row acpmux-session-info-row--button acpmux-context-breakdown__fold"
+        aria-expanded={open}
+        onClick={() => fold.toggle(!open, setOpen)}
+      >
+        <Icon name="disclosure.collapsed" size={12} />
+        <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
+        <span className="acpmux-session-info-row__end">{list.items.length}</span>
+      </button>
+      {fold.drawn && (
+        <ul ref={fold.ref} className="acpmux-session-info-list acpmux-context-breakdown__items">
+          {list.items.map((item, index) => (
+            <li key={`${item.name}-${index}`} className="acpmux-session-info-row">
+              <span className="acpmux-session-info-row__name">{item.name}</span>
+              {item.detail && <span className="acpmux-session-info-row__detail">{item.detail}</span>}
+              <span className="acpmux-session-info-row__end">{tokens.format(item.tokens)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

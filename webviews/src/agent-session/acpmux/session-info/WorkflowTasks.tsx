@@ -38,6 +38,7 @@ import {
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
 import { COMMAND_STATE, StopButton } from "./TasksSection";
 import { TASK_ICONS } from "./taskIcons";
+import { heightAbove, useFoldMotion } from "./foldMotion";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
@@ -262,6 +263,9 @@ function WorkflowPhaseRow({
   const commandRuns = live.some((agent) => commandsOf(agent).some((command) => command.state === "running"));
   if (chosen === undefined && commandRuns) setOpen(true);
   const open = chosen ?? commandRuns;
+  // A click opens the phase's agents from its row and closes them back into it, as one motion with
+  // the rows under it (foldMotion.ts); one a running command opens shows at once.
+  const fold = useFoldMotion<HTMLUListElement>(open, () => 0);
   const { done, total } = phaseCount(workflow, phase);
   const opens = live.length > 0;
   return (
@@ -272,11 +276,11 @@ function WorkflowPhaseRow({
         className="acpmux-workflow-phase__head"
         aria-expanded={opens ? open : undefined}
         disabled={!opens}
-        onClick={() => setOpen(!open)}
+        onClick={() => fold.toggle(!open, setOpen)}
       >
         <span className="acpmux-workflow-phase__name">{phase.name || t("workflow.unassigned")}</span>
         <span className="acpmux-session-info-task__time">{total > 0 ? `${done}/${total}` : ""}</span>
-        {opens && <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />}
+        {opens && <Icon name="disclosure.collapsed" size={ROW_ICON} row />}
       </button>
       {/* A dot per agent says at a glance what the count beside the name says in numbers. */}
       <span className="acpmux-workflow-dots" aria-hidden="true">
@@ -284,8 +288,8 @@ function WorkflowPhaseRow({
           <span key={agent.id} className="acpmux-workflow-dot" data-state={agent.state} />
         ))}
       </span>
-      {open && opens && (
-        <ul className="acpmux-session-info-list acpmux-workflow-phase__agents">
+      {fold.drawn && opens && (
+        <ul ref={fold.ref} className="acpmux-session-info-list acpmux-workflow-phase__agents">
           <WindowedRows
             items={live}
             render={(agent) => (
@@ -335,6 +339,11 @@ function FinishedAgents({
   // the fold and the paging, so that command's time and Stop never hide.
   const busy = agents.filter((agent) => commandsOf(agent).some((command) => command.state === "running"));
   const rest = agents.filter((agent) => !busy.includes(agent));
+  // The fold opens the ended agents (and their Show more) under the busy ones and closes them back,
+  // as one motion with the rows under it (foldMotion.ts).
+  const fold = useFoldMotion<HTMLDivElement>(open, (box) =>
+    busy.length > 0 ? heightAbove(box, box.querySelector(":scope > ul")?.children[busy.length]) : 0,
+  );
   const row = (agent: WorkflowAgent) => (
     <WorkflowAgentRow
       key={agent.id}
@@ -353,25 +362,27 @@ function FinishedAgents({
         type="button"
         className="acpmux-session-info-fold acpmux-workflow-finished__fold"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={() => fold.toggle(!open, setOpen)}
       >
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+        <Icon name="disclosure.collapsed" size={12} />
         {t("rail.finished", { count: agents.length })}
       </button>
-      {(open || busy.length > 0) && (
-        <ul className="acpmux-session-info-list acpmux-workflow-finished__agents">
-          {busy.map(row)}
-          {open && rest.slice(0, shown).map(row)}
-        </ul>
-      )}
-      {open && rest.length > shown && (
-        <button
-          type="button"
-          className="acpmux-session-info-fold acpmux-workflow-finished__more"
-          onClick={() => setShown(shown + FINISHED_PAGE * 3)}
-        >
-          {t("backgroundTasks.showMore")}
-        </button>
+      {(fold.drawn || busy.length > 0) && (
+        <div ref={fold.ref} className="acpmux-workflow-finished__box">
+          <ul className="acpmux-session-info-list acpmux-workflow-finished__agents">
+            {busy.map(row)}
+            {fold.drawn && rest.slice(0, shown).map(row)}
+          </ul>
+          {fold.drawn && rest.length > shown && (
+            <button
+              type="button"
+              className="acpmux-session-info-fold acpmux-workflow-finished__more"
+              onClick={() => setShown(shown + FINISHED_PAGE * 3)}
+            >
+              {t("backgroundTasks.showMore")}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -460,6 +471,8 @@ export function WorkflowAgentRow({
 }) {
   const t = useT();
   const [outputOpen, setOutputOpen] = useState(false);
+  // Its output opens under it and closes back as one motion with the rows under it (foldMotion.ts).
+  const outputFold = useFoldMotion<HTMLDivElement>(outputOpen, () => 0);
   const queued = agent.state === "waiting" || agent.state === "pending";
   // A row that finished well opens to its output (and the commands it started that ended).
   const expandable = agent.state === "completed";
@@ -526,9 +539,9 @@ export function WorkflowAgentRow({
             aria-expanded={outputOpen}
             aria-label={t("workflow.output", { name: agent.name })}
             title={t("workflow.output", { name: agent.name })}
-            onClick={() => setOutputOpen(!outputOpen)}
+            onClick={() => outputFold.toggle(!outputOpen, setOutputOpen)}
           >
-            <Icon name={outputOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+            <Icon name="disclosure.collapsed" size={ROW_ICON} row />
           </button>
         )}
         {openable ? (
@@ -544,14 +557,16 @@ export function WorkflowAgentRow({
           <div className={className}>{content}</div>
         )}
       </div>
-      {expandable && outputOpen && (
-        <div className="acpmux-workflow-agent__output">
-          {output ? (
-            <OutputPreview text={output} />
-          ) : agent.state === "completed" ? (
-            <p className="acpmux-workflow-agent__no-output">{t("workflow.noOutput")}</p>
-          ) : null}
-          {endedCommands.length > 0 && <CommandList commands={endedCommands} now={now} onStop={onStopCommand} />}
+      {expandable && outputFold.drawn && (
+        <div ref={outputFold.ref} className="acpmux-workflow-fold">
+          <div className="acpmux-workflow-agent__output">
+            {output ? (
+              <OutputPreview text={output} />
+            ) : agent.state === "completed" ? (
+              <p className="acpmux-workflow-agent__no-output">{t("workflow.noOutput")}</p>
+            ) : null}
+            {endedCommands.length > 0 && <CommandList commands={endedCommands} now={now} onStop={onStopCommand} />}
+          </div>
         </div>
       )}
       {shownCommands.length > 0 && <CommandList commands={shownCommands} now={now} onStop={onStopCommand} />}
