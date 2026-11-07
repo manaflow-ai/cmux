@@ -404,3 +404,42 @@ struct BrowserToolbarWireTests {
         _ = try JSONSerialization.data(withJSONObject: wire)
     }
 }
+
+/// A toolbar page that crashes and reloads starts from the field's latest unsent text.
+@MainActor
+struct BrowserToolbarReloadDraftTests {
+    final class RecordingContent: BrowserChromeWebContent {
+        let view = NSView()
+        var pushed: [[String: Any]] = []
+        var kept: [String: Any]?
+        var onMessage: ((String, [String: Any]) -> Void)?
+        var focusView: NSView { view }
+        var acceptsKeyFocus: (() -> Bool)?
+        var onResignedKeys: (() -> Void)?
+        var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
+        func push(_ state: [String: Any]) { pushed.append(state) }
+        func keepForReload(_ state: [String: Any]) { kept = state }
+        func focus() {}
+        func close() {}
+    }
+
+    @Test func theReloadStateCarriesTheTextTypedSinceTheLastPush() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.pushNow()
+        #expect(content.pushed.count == 1)
+        content.onMessage?("command", ["type": "status", "editing": true, "text": "hello", "tab": bar.tabSlot, "binding": bar.binding,
+                                       "draft": ["text": "hello", "selection": [5, 0]]])
+        // Typing pushes nothing to the running page.
+        #expect(content.pushed.count == 1)
+        let draft = try #require(content.kept?["draft"] as? [String: Any])
+        #expect(draft["text"] as? String == "hello")
+        // Another tab's late status leaves the reload state alone.
+        content.kept = nil
+        content.onMessage?("command", ["type": "status", "text": "x", "tab": "other", "binding": bar.binding, "draft": ["text": "x", "selection": [1, 0]]])
+        #expect(content.kept == nil)
+    }
+}

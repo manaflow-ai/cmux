@@ -131,6 +131,8 @@ public final class BrowserToolbarWebView: NSView {
     private var revision = 0
     private(set) var pushScheduled = false
     private var lastPushed: NSDictionary?
+    /// The state last pushed, which a reloaded page starts from (`keepForReload`).
+    private var lastPushedState: [String: Any]?
     /// Host requests the page has not acked, oldest first (`ToolbarHostEvent`), each with the binding
     /// it was queued under: the page drops a tab-scoped one of an older binding.
     private var events: [(seq: Int, binding: Int, event: [String: Any])] = []
@@ -237,6 +239,7 @@ public final class BrowserToolbarWebView: NSView {
         revision += 1
         var pushed = state
         pushed["revision"] = revision
+        lastPushedState = pushed
         content.push(pushed)
         updateBarGlass()
     }
@@ -348,6 +351,12 @@ public final class BrowserToolbarWebView: NSView {
 
     private func statusChanged(_ next: OmnibarStatus) {
         let wasEditing = status.isEditing
+        if next.draft != status.draft, next.tab == tabSlot, var kept = lastPushedState {
+            // A renderer crash reloads the page from the last state: it rests on the text typed
+            // since, not on the draft that state carried.
+            kept["draft"] = next.draft?.wire ?? NSNull()
+            content?.keepForReload(kept)
+        }
         status = next
         if next.isEditing { focusPending = false }
         if !next.isEditing, wasEditing { allowsKeys = false }
