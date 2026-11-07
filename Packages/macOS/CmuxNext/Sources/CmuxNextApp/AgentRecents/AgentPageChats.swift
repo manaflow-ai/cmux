@@ -145,7 +145,7 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
-        tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signIn() ?? false }
+        tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in

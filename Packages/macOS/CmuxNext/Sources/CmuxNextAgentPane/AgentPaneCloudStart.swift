@@ -533,12 +533,15 @@ extension AgentPaneModel {
 
     /// `cloud.signInCancel` (`.withdrawn`) or a wait's expiry (`.expired`): any sign-in under the
     /// current generation sends nothing, the kept click goes, and the wait ends with `end`. A cancel
-    /// keeps the browser open for the next click to wait on; an expired one is let go, so the next
-    /// click opens a fresh sign-in (which replaces the abandoned attempt).
+    /// keeps the browser open for the next click to wait on; an expired one is cancelled (the App's
+    /// sign-in ends its auth attempt on that), so the next click opens a fresh sign-in.
     func withdrawCloudSignIn(_ end: CloudSignInEnd) {
         cloudSignInGeneration += 1
         cloudSignInGrant = nil
-        if end == .expired { cloudSignInBrowser = nil }
+        if end == .expired {
+            cloudSignInBrowser?.cancel()
+            cloudSignInBrowser = nil
+        }
         endCloudSignInWait(end)
     }
 

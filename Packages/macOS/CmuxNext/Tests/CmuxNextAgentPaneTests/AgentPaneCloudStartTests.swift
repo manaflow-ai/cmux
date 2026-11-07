@@ -308,17 +308,20 @@ struct AgentPaneCloudStartTests {
     }
 
     /// A browser sign-in that never returns ends at the wait's limit as the card's sign in again:
-    /// the hold goes, a late answer sends nothing, and the next click opens a fresh sign-in.
+    /// the hold goes, the abandoned sign-in is cancelled, a late answer sends nothing, and the next
+    /// click opens a fresh sign-in.
     @Test func aSignInThatNeverReturnsExpiresToSignInAgain() async {
         let starts = Starts()
         let model = Self.pane(starts)
         model.cloudSignInWaitLimit = .milliseconds(20)
         var signIns = 0
+        var abandoned = false
         let browser = AsyncStream<Bool>.makeStream()
         model.onCloudSignIn = {
             signIns += 1
             if signIns > 1 { return true }
             for await signedIn in browser.stream { return signedIn }
+            abandoned = Task.isCancelled
             return false
         }
         model.transport.gestures.record()
@@ -333,6 +336,9 @@ struct AgentPaneCloudStartTests {
         #expect(model.cloudSignInWait == nil)
         #expect(model.transport.replacements.beginSandbox())
         model.transport.replacements.endSandbox()
+        // The expiry cancelled the browser's task, which is how the App's sign-in ends its attempt.
+        for _ in 0..<50 where !abandoned { await Task.yield() }
+        #expect(abandoned)
         // The abandoned browser answering late starts nothing.
         browser.continuation.yield(true)
         browser.continuation.finish()
