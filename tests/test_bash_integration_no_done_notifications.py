@@ -158,7 +158,7 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
         git_dir.mkdir(parents=True)
         (git_dir / "HEAD").write_text("ref: refs/heads/feature/bash-done\n", encoding="utf-8")
         bin_path.mkdir()
-        gh_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        gh_stub.write_text('#!/bin/sh\n[ "$3" != "456" ]\n', encoding="utf-8")
         gh_stub.chmod(0o755)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -176,25 +176,41 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     "LC_ALL": "C",
                     "LANG": "C",
                     "PATH": f"{bin_path}{os.pathsep}{os.environ.get('PATH', '')}",
+                    "HISTFILE": "/dev/null",
                 }
             )
 
             with InteractiveBash(env) as bash:
                 bash.run("set -m")
                 bash.run("HISTCONTROL=ignorespace")
-                bash.run(f"source {integration_script}")
+                bash.run(f"export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
+                bash.run("export CMUX_TAB_ID=tab-test CMUX_PANEL_ID=panel-test")
+                # Seed an old command without running it. Loading the integration
+                # must not mistake history from an earlier session for new work.
+                bash.run(" history -s 'gh pr merge 987'")
                 bash.run(
+                    f" source {shlex.quote(str(integration_script))}; "
                     "_cmux_send() { printf '%s\\n' \"$1\" >> "
                     f"{shlex.quote(str(send_log))}; }}"
                 )
-                bash.run(f"export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
-                bash.run("export CMUX_TAB_ID=tab-test")
-                bash.run("export CMUX_PANEL_ID=panel-test")
                 bash.run("_CMUX_TTY_NAME=ttys-test")
-                bash.run(f"cd {repo_path}")
+                bash.run(f"cd {shlex.quote(str(repo_path))}")
 
                 # The next prompts exercise the shell-state, port-kick, TTY,
                 # CWD, PR-action, and git-branch reporters.
+                bash.run("gh pr merge 123")
+                bash.run(" true")
+                bash.run("gh pr close 456")
+                bash.run(" true")
+                # Re-enabling reporting must not replay commands run while disabled.
+                for flag in ("CMUX_NO_PR_WATCH", "CMUX_NO_GIT_WATCH"):
+                    bash.run(f"export {flag}=1")
+                    bash.run("gh pr merge 999")
+                    bash.run("gh pr close 456")
+                    bash.run(f" unset {flag}")
+                bash.run("unset CMUX_SOCKET_PATH")
+                bash.run("gh pr close 456")
+                bash.run(f" export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
                 bash.run("gh pr merge 123")
                 bash.run(" true")
                 bash.run("cd ..")
@@ -211,13 +227,16 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     'report_pr_action merge --tab=tab-test '
                     '--panel=panel-test --target="123"'
                 )
-                payload_count = sent_payloads.splitlines().count(expected_payload)
-                if payload_count != 1:
+                actual_payloads = [
+                    line for line in sent_payloads.splitlines()
+                    if line.startswith("report_pr_action ")
+                ]
+                if actual_payloads != [expected_payload, expected_payload]:
                     raise AssertionError(
                         "bash integration did not emit exactly one PR action "
-                        "payload after the real gh preexec path.\n\n"
-                        f"Expected payload:\n{expected_payload}\n\n"
-                        f"Observed count: {payload_count}\n\n"
+                        "payload per successful gh command.\n\n"
+                        f"Expected payload twice:\n{expected_payload}\n\n"
+                        f"Observed payloads:\n{actual_payloads}\n\n"
                         f"Sent payloads:\n{sent_payloads}\n\n"
                         f"Full PTY output:\n{bash.text}"
                     )

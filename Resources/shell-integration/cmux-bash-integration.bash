@@ -1319,6 +1319,20 @@ _cmux_prompt_command() {
     _cmux_terminal_history_prompt
     _cmux_tmux_sync_cmux_environment
 
+    # Bash before 4.4 has no PS0 preexec hook. Recover new PR commands at the
+    # prompt instead, using the same history cursor and parser as the PS0 path.
+    # Consume failed or unreportable commands so later history-ignored prompts
+    # cannot replay them. The first prompt only primes the restored-history cursor.
+    if [[ $- == *i* ]] &&
+       (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+        local pr_command=""
+        pr_command="$(_cmux_bash_history_command 2>/dev/null || true)"
+        if [[ -n "${_CMUX_BASH_PR_HISTORY_INITIALIZED:-}" ]]; then
+            _cmux_record_pr_command_hint "$pr_command"
+        fi
+        _CMUX_BASH_PR_HISTORY_INITIALIZED=1
+    fi
+
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return "$last_status"
