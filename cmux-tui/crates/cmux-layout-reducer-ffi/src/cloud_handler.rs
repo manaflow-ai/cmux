@@ -43,6 +43,9 @@ struct Arg {
     /// The port verb (`open-browser`) a `namedPort` refusal names.
     #[serde(default)]
     verb: String,
+    /// The machine and port a `namedPort` or `browserPath` refusal names.
+    #[serde(default)]
+    names: args::PortNames,
     /// The machine a `machineWorkspace` refusal names.
     #[serde(default)]
     machine: String,
@@ -60,7 +63,7 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "command" => checked(args::command(given)),
         "filePath" => checked(args::file_path(given)),
         "port" => checked(args::port(given)),
-        "namedPort" => checked(args::named_port(given, &request.verb)),
+        "namedPort" => checked(args::named_port(given, &request.verb, &request.names)),
         "idlePause" => checked(args::idle_pause_minutes(given, &request.choices)),
         "machineWorkspace" => checked(args::machine_workspace(given, &request.machine)),
         "id" => {
@@ -72,7 +75,8 @@ fn arg(request: &Arg) -> Result<Value, i32> {
             };
             checked(args::id_argument(given, missing))
         }
-        "browserPath" => checked(args::browser_path(given)),
+        "browserPath" => checked(args::browser_path(given, &request.names)),
+        "resize" => checked(args::resize(given)),
         "provisionAPI" => checked(args::provision_api(given)),
         "applyMachineConfig" => checked(args::apply_machine_config(given, &request.home)),
         "firewallRule" => checked(args::firewall_rule(given)),
@@ -139,11 +143,9 @@ struct TeamPick {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GitHubConfirm {
-    #[serde(default)]
-    named: bool,
-    #[serde(default)]
-    app_ready: bool,
-    fallback_reason: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
+    app: decide::GitHubApp,
 }
 
 #[derive(Deserialize)]
@@ -176,7 +178,12 @@ struct Facts {
     state: String,
     record: Option<Value>,
     ipv4: Option<String>,
-    port: Option<u16>,
+    /// The machine and port a port answer or refusal names.
+    #[serde(default)]
+    names: args::PortNames,
+    /// Whether the machine's provider opens port links.
+    #[serde(default)]
+    allows_ports: bool,
     link: Option<answers::ShareLink>,
     #[serde(default)]
     url: String,
@@ -184,6 +191,14 @@ struct Facts {
     code: Option<String>,
     #[serde(default)]
     text: String,
+}
+
+/// An answer, or `{"refusal": …}`.
+fn answered(result: Result<answers::Answer, Said>) -> Result<Value, i32> {
+    match result {
+        Ok(answer) => value(answer),
+        Err(refusal) => Ok(json!({ "refusal": value(refusal)? })),
+    }
 }
 
 fn fields_of(fields: Map<String, Value>) -> Value {
@@ -255,7 +270,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         }
         b"cloud_handler_github_confirm" => {
             let g: GitHubConfirm = read(request)?;
-            json!({ "parts": value(decide::github_confirm(g.named, g.app_ready, g.fallback_reason.as_deref()))? })
+            json!({ "parts": value(decide::github_confirm(g.name.as_deref(), g.email.as_deref(), g.app))? })
         }
         b"cloud_handler_answer" => {
             let found: answers::Found = read(request)?;
@@ -272,7 +287,14 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                     ((*name).to_owned(), json!({ "cpu": cpu, "memoryMb": memory }))
                 })
                 .collect();
-            json!({ "toolsProbe": answers::TOOLS_PROBE, "createSizes": sizes, "planRequiredCode": decide::PLAN_REQUIRED_CODE })
+            let resize: Map<String, Value> = args::RESIZE_SIZES
+                .iter()
+                .map(|(name, cpu, memory)| {
+                    ((*name).to_owned(), json!({ "cpu": cpu, "memoryMb": memory }))
+                })
+                .collect();
+            json!({ "toolsProbe": answers::TOOLS_PROBE, "createSizes": sizes, "resizeSizes": resize,
+                    "planRequiredCode": decide::PLAN_REQUIRED_CODE })
         }
         _ => facts(operation, read(request)?)?,
     };
@@ -318,19 +340,37 @@ fn facts(operation: &[u8], f: Facts) -> Result<Value, i32> {
         b"cloud_handler_handoff" => {
             json!({ "text": fields::handoff(&f.title, &f.machine_id, &f.provider, &f.state) })
         }
-        b"cloud_handler_forward" => match answers::forward(&f.record.ok_or(ERR_INVALID)?) {
-            Ok(answer) => value(answer)?,
-            Err(refusal) => json!({ "refusal": value(refusal)? }),
-        },
-        b"cloud_handler_machine_link" => {
-            value(answers::machine_link(&f.machine_id, f.ipv4.as_deref(), f.port, f.link.as_ref()))?
+        b"cloud_handler_forward" => {
+            answered(answers::forward(&f.record.ok_or(ERR_INVALID)?, &f.names))?
         }
-        b"cloud_handler_share_link" => json!({ "ok": answers::share_link_ok(&f.url) }),
+        // `machine-link`: its answer, or `{"refusal"}` (`portNoLink`).
+        b"cloud_handler_machine_link" => answered(answers::machine_link(
+            &f.names,
+            f.ipv4.as_deref(),
+            f.allows_ports,
+            f.link.as_ref(),
+        ))?,
+        // Before the app makes a share link: `{}`, or `{"refusal"}` when the machine has none.
+        b"cloud_handler_machine_link_port" => {
+            match answers::machine_link_port(&f.names, f.allows_ports) {
+                Ok(()) => json!({}),
+                Err(refusal) => json!({ "refusal": value(refusal)? }),
+            }
+        }
+        // A share link the platform returned: `ok`, and when it is not, the refusal naming the
+        // machine and port.
+        b"cloud_handler_share_link" => {
+            let ok = answers::share_link_ok(&f.url);
+            let refusal = (!ok).then(|| {
+                f.names.said("portFailed", &["the platform returned an invalid share URL"])
+            });
+            json!({ "ok": ok, "refusal": value(refusal)? })
+        }
         b"cloud_handler_confirmation" => {
             json!({ "prompt": f.action.as_deref().and_then(decide::confirmation) })
         }
         b"cloud_handler_port_failure" => {
-            json!({ "refusal": value(decide::port_failure(f.code.as_deref(), &f.text))? })
+            json!({ "refusal": value(decide::port_failure(f.code.as_deref(), &f.text, &f.names))? })
         }
         _ => return Err(ERR_INVALID),
     })
