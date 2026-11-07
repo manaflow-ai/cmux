@@ -93,6 +93,8 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         let opened = Open(session: "group-editor-\(sessions)", revision: 1, group: group, items: items, anchor: anchor,
                           parent: parent, themeAnchor: themeAnchor, events: events)
         open = opened
+        // The page draws in the sidebar's theme at full strength, in each room the editor opens in.
+        warm.panel.adoptThemeScope(of: themeAnchor)
         warm.provider.openSession = opened.session
         push(opened)
         guard ordersFront else { return }
