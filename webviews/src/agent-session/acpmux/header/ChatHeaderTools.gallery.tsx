@@ -481,7 +481,8 @@ const toolsAreTheirButtons: Play = async (ctx) => {
       view.getComputedStyle(child).display === "contents" ? [...child.children] : [child],
     );
     const empty = boxes.filter((child) => child.getBoundingClientRect().width === 0);
-    if (empty.length) throw new Error(`the tools hold ${empty.length} empty slot(s): ${empty.map((e) => e.className)}`);
+    if (empty.length)
+      throw new Error(`the tools hold ${empty.length} empty slot(s): ${empty.map((e) => e.className).join(", ")}`);
     const gap = Number.parseFloat(view.getComputedStyle(tools).columnGap) || 0;
     const sum =
       boxes.reduce((width, child) => width + child.getBoundingClientRect().width, 0) + gap * (boxes.length - 1);
