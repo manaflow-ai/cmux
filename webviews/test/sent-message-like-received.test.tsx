@@ -73,10 +73,10 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 /// daemon's one line.
 const leoSend: Tool = {
   id: "toolu_leo_send",
-  title: "acpmux send gcp-codex-lane-12/acpmux-client-rust-2 …",
+  title: "acpmux send build-box/acpmux-client-rust-2 …",
   kind: "execute",
   status: "completed",
-  command: `acpmux send gcp-codex-lane-12/acpmux-client-rust-2 'coord: the old lane'"'"'s handoff is yours now. Rebase on feat-cmux-next first.' 2>&1|tail -1`,
+  command: `acpmux send build-box/acpmux-client-rust-2 'coord: the old lane'"'"'s handoff is yours now. Rebase on feat-cmux-next first.' 2>&1|tail -1`,
   output: "queued (delivery 01a1b65e-7c1d-7e2a-9f00-3b5a2c1d0e9f)",
   exitCode: 0,
 };
@@ -97,7 +97,7 @@ const receivedLine = () => (
   <IncomingMessageLine
     id="row-received"
     message={{
-      name: "gcp-codex-swarm-09/acpmux-client-rust",
+      name: "lane-vm-09/acpmux-client-rust",
       text: "Rebased; ready for review.",
       raw: "<cmux-message from=acpmux-client-rust>\nRebased; ready for review.\n</cmux-message>",
     }}
@@ -139,7 +139,7 @@ test("an outgoing message row has the incoming row's header and body", async () 
   const sender = host.querySelector(".cv-received__sender")!;
   expect(sender.textContent).toContain("Sent to");
   expect(sender.querySelector(".cv-agent-tag")!.textContent).toBe("acpmux-client-rust-2");
-  expect(sender.querySelector(".cv-received__host")?.textContent).toBe("gcp-codex-lane-12");
+  expect(sender.querySelector(".cv-received__host")?.textContent).toBe("build-box");
   expect(host.querySelector(".cv-received__text")!.textContent).toContain("handoff is yours now");
 });
 

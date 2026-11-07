@@ -21,7 +21,7 @@ const received = user("", 6, {
   incoming: {
     kind: "message",
     message: {
-      name: "gcp-codex-swarm-09/acpmux-client-rust",
+      name: "lane-vm-09/acpmux-client-rust",
       sessionId: "sub-acpmux-client-rust",
       text: RECEIVED,
       raw: RECEIVED,
@@ -32,8 +32,8 @@ const received = user("", 6, {
 });
 
 // Leo's call: an `acpmux send` to a lane on another machine, its output cut to the daemon's line.
-const send = tool("acpmux send gcp-codex-lane-12/acpmux-client-rust-2 …", "execute", "completed", {
-  command: `acpmux send gcp-codex-lane-12/acpmux-client-rust-2 '${SENT.replace("'", `'"'"'`)}' 2>&1|tail -1`,
+const send = tool("acpmux send build-box/acpmux-client-rust-2 …", "execute", "completed", {
+  command: `acpmux send build-box/acpmux-client-rust-2 '${SENT.replace("'", `'"'"'`)}' 2>&1|tail -1`,
   description: "Hand the lane to acpmux-client-rust-2",
   output: "queued (delivery 01a1b65e-7c1d-7e2a-9f00-3b5a2c1d0e9f)",
   exitCode: 0,
