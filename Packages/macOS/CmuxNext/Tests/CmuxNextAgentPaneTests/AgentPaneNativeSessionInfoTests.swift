@@ -829,13 +829,25 @@ struct AgentPaneNativeSessionInfoTests {
                                            timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
                                            clickCount: 1, pressure: 1))
         }
-        // The top dot: x 1.25, y 3 in the grip's 6 by 14 box.
+        // The top dot: x 1.25, y 3 in the grip's 6 by 14 box. AppKit sends the press to the view its hit
+        // test finds there; the grip only draws, so that is the line, which starts the reorder.
         let top = NSPoint(x: grip.frame.minX + 1.25, y: grip.frame.minY + 3)
-        line.mouseDown(with: try mouse(.leftMouseDown, top))
-        line.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: top.x, y: top.y + 20)))
+        // The pointer comes onto the top dot: the grip shows, and its box lights.
+        line.mouseEntered(with: try mouse(.mouseMoved, top))
+        #expect(!grip.isHidden)
+        #expect(line.gripHovered && line.gripLit)
+        let target = try #require(window.contentView?.hitTest(line.convert(top, to: nil)))
+        #expect(target === line)
+        target.mouseDown(with: try mouse(.leftMouseDown, top))
+        target.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: top.x, y: top.y + 20)))
         #expect(line.isDragging)
-        line.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: top.x, y: top.y + 20)))
+        target.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: top.x, y: top.y + 20)))
         #expect(moved == ["environment"])
+
+        // A model refresh rebuilds the grip: it is not left lit until the pointer moves into its new box.
+        line.update(line: line.line, ink: ink)
+        line.layoutSubtreeIfNeeded()
+        #expect(!line.gripHovered)
     }
 
     /// No section header ever draws a fill behind it, hovered or not, and a lit row that leaves the

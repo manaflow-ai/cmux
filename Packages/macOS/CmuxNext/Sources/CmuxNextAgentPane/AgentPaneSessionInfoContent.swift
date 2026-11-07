@@ -637,6 +637,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         isDragging = false
         dragStart = nil
         pressedGrip = false
+        // The rebuilt grip may sit elsewhere: it lights again only on the pointer's next move into it.
+        gripHovered = false
         subviews.forEach { $0.removeFromSuperview() }
         rebuild()
         updateTrackingAreas()
@@ -1056,6 +1058,10 @@ final class SessionInfoGripView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
+
+    /// The grip only draws: a press or drag on its dots goes to its line, which owns the grip's box
+    /// (``SessionInfoLineView/gripHitRect``) and starts the reorder.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
         (lit ? litColor : rest).setFill()
