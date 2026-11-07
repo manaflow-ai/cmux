@@ -45,7 +45,7 @@ pub(super) enum Use {
 pub(super) fn decide(entry: Option<&Entry>, now_ms: u64) -> Use {
     match entry {
         Some(Entry::Session { grant, use_until_ms })
-            if *use_until_ms > now_ms + RENEW_MARGIN_MS =>
+            if *use_until_ms > now_ms.saturating_add(RENEW_MARGIN_MS) =>
         {
             Use::Direct(grant.clone())
         }
@@ -58,7 +58,7 @@ pub(super) fn decide(entry: Option<&Entry>, now_ms: u64) -> Use {
 /// later than the asked lifetime from now by this machine's clock (a clock behind the server's
 /// would otherwise keep a token past its end).
 pub(super) fn use_until(expires_at_ms: u64, now_ms: u64) -> u64 {
-    expires_at_ms.min(now_ms + TTL_SECONDS * 1000)
+    expires_at_ms.min(now_ms.saturating_add(TTL_SECONDS.saturating_mul(1000)))
 }
 
 /// How long to take the proxy after the cmux API refused a mint with `status`. Refusals that hold

@@ -271,6 +271,24 @@ describe("cmux VM image snapshot-ready check", () => {
     }
   });
 
+  test("refuses an identity tree behind a symlink, which find would not scan", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "snapshot-ready-"));
+    try {
+      const hidden = path.join(root, "elsewhere/sessions/c2Vzc2lvbg/auth");
+      mkdirSync(hidden, { recursive: true });
+      writeFileSync(path.join(hidden, "identity.json"), "{}");
+      for (const h of homes) {
+        mkdirSync(path.join(root, h, ".local/state/cmux"), { recursive: true });
+        symlinkSync(path.join(root, "elsewhere"), path.join(root, h, ".local/state/cmux/remote"));
+      }
+      const result = await ready(root);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("is a symlink");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("runs right before the snapshot, after the page cache warm and before the machine-health arm", () => {
     const source = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
     const at = source.indexOf('L.step(vm, "snapshot-ready", snapshotReadyCommand())');

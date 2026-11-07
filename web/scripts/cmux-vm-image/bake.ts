@@ -364,7 +364,9 @@ export function snapshotReadyCommand(root = ""): string {
     `state=${sq(root)}"$CMUX_TUI_HOME/.local/state"`,
     // Fail closed: a missing tree holds nothing, but one that exists and cannot be scanned refuses the snapshot.
     'held=""',
-    'if [ -e "$state/cmux/remote" ] || [ -L "$state/cmux/remote" ]; then held="$(find "$state/cmux/remote" -name identity.json)" || { echo "cannot scan $state/cmux/remote for per-machine identity" >&2; exit 1; }; fi',
+    // find does not follow a symlinked start point, so an identity tree behind one would pass unseen: refuse it.
+    'if [ -L "$state/cmux/remote" ]; then echo "per-machine identity tree is a symlink: $state/cmux/remote" >&2; exit 1; fi',
+    'if [ -e "$state/cmux/remote" ]; then held="$(find "$state/cmux/remote" -name identity.json)" || { echo "cannot scan $state/cmux/remote for per-machine identity" >&2; exit 1; }; fi',
     'for f in "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper"; do if [ -e "$f" ] || [ -L "$f" ]; then held="$held $f"; fi; done',
     'if [ -n "$held" ]; then echo "per-machine identity in the snapshot: $held" >&2; exit 1; fi',
     "echo snapshot-ready",
