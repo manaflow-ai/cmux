@@ -4,7 +4,7 @@ import Foundation
 /// The home daemon's routed `bookmarks.*` ops (cmux-tui spec/page-router.md, owner
 /// `bookmarks.tree`): the Netscape file, the imports, the search and the omnibar rank run there
 /// (cmux-bookmarks-ops), on the tree the daemon stores. The app only sends and decodes.
-public struct BookmarkRoutedClient: Sendable {
+public nonisolated struct BookmarkRoutedClient: Sendable {
     /// The home daemon's connection; nil while it is down.
     public let connection: DaemonConnection?
 
@@ -13,13 +13,13 @@ public struct BookmarkRoutedClient: Sendable {
     }
 
     /// What one browser source's import did.
-    public struct SourceCounts: Sendable, Equatable {
+    public nonisolated struct SourceCounts: Sendable, Equatable {
         public var added = 0
         public var duplicates = 0
     }
 
     /// A Netscape file with no bookmark in it.
-    public struct FileEmpty: Error {}
+    public nonisolated struct FileEmpty: Error {}
 
     /// Runs one routed op. Mutations carry a fresh idempotency key.
     func send(_ operation: String, _ params: [String: JSONValue], mutation: Bool = false) async throws -> JSONValue {
