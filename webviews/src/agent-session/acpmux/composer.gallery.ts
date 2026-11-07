@@ -1088,7 +1088,7 @@ export default agentPaneEntry({
     // type attachments' previews". In the default inline view the paste is a small page of its first
     // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
     "text-pasted-inline": {
-      note: "A 131-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 131 lines, after the typed words.",
+      note: "A 601-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 601 lines, after the typed words.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1106,7 +1106,7 @@ export default agentPaneEntry({
         const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
         if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
           throw new Error("the inline paste card must show the paste's first lines");
-        if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+        if (!/601 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
       },
     },
