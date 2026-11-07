@@ -65,10 +65,12 @@ import Testing
         #expect(abs(told.width - final.width) < 1 && abs(told.height - final.height) < 1, "told \(told), landed at \(final)")
     }
 
-    /// The content hears its rest before the spring's first frame lays it out (#37755). A Chromium page whose window holds
-    /// the keys stays attached through the motion; it decides that, and lays itself out at its rest, when it hears the
-    /// rest. Told after the first frame's layout, its window had already taken that frame's size (one resize the WindowServer
-    /// makes and Chromium lays out at, before the motion's own), and a terminal had already laid out a grid it leaves.
+    /// The content hears its rest before the spring's first frame lays it out (#37755). A change whose presentation waits
+    /// for the next frame tick (a frame's input, `LayoutViewContext.holdsPresentations`) is first presented by a stepped
+    /// frame, which also resizes the pane. A Chromium page whose window holds the keys stays attached through the motion;
+    /// it decides that, and lays itself out at its rest, when it hears the rest. Told after that frame's layout, its window
+    /// had already taken the frame's size (one resize the WindowServer makes and Chromium lays out at, before the motion's
+    /// own), and a terminal had already laid out a grid it leaves.
     @Test func theContentHearsItsRestBeforeTheSpringsFirstFrameLaysItOut() throws {
         let provider = Panes()
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
@@ -82,8 +84,12 @@ import Testing
         let start = leaf.bounds.size
         leaf.announced.removeAll()
         leaf.heardAt.removeAll()
+        // The change's presentation waits for the frame tick, as a frame's input holds it.
+        root.context.holdsPresentations = true
         model.apply(screens: PaneMotionBench.split(2, 1, axis: .horizontal))
         root.syncWithModel()
+        root.context.holdsPresentations = false
+        try #require(leaf.heardAt.isEmpty && leaf.bounds.size == start, "SETUP: the change presented in its own turn")
         #expect(root.advanceFrame(1.0 / 120), "the split did not spring")
         root.layoutSubtreeIfNeeded()
         try #require(leaf.heardAt.count == 1, "the split pane heard its rest \(leaf.heardAt.count) times by the first frame")
