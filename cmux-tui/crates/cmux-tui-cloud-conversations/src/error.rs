@@ -96,10 +96,9 @@ impl fmt::Display for CloudError {
                 formatter,
                 "cmux Cloud conversation request failed: {detail}; a change may have gone through, so check the conversation before resending; if it keeps failing, run `cmux cloud diagnostics`",
             ),
-            Self::BadRequest(detail) => write!(
-                formatter,
-                "bad request: {detail}; check the arguments with `cmux --help`",
-            ),
+            Self::BadRequest(detail) => {
+                write!(formatter, "bad request: {detail}; check the arguments with `cmux --help`",)
+            }
         }
     }
 }

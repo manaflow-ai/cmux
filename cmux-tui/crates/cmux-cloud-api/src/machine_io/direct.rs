@@ -21,8 +21,8 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::super::cloud_client_session::{ExecAnswer, IDENTITY_HEADER, exec_answer};
 use super::{Answer, Op, Request, Spool, directory, private_spool, storage_error};
+use crate::session::{ExecAnswer, IDENTITY_HEADER, exec_answer};
 
 /// The program's exit codes (44 to 47 as the cmux API's file routes use them).
 const NOT_FOUND: i32 = 44;
@@ -258,7 +258,7 @@ async fn exec(
     if status == 401 || status == 403 {
         return Err(Failure::Auth);
     }
-    let body: Option<Value> = response.json().await.ok();
+    let body = crate::http::bounded_json(response, crate::MAX_ANSWER_BYTES).await;
     if status != 200 {
         return Err(Failure::Unavailable);
     }
@@ -359,7 +359,7 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
     let result = match request.op {
         Op::Stat => fs(client, grant, "stat", path, &[], None).await,
         Op::Dir => {
-            return match directory::read(client, grant, path).await {
+            return match directory::read(client, grant, path, request.max_bytes).await {
                 Ok(answer) => Direct::Done(answer),
                 Err(direct) => direct,
             };
@@ -367,7 +367,7 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
         Op::Mkdir => fs(client, grant, "mkdir", path, &[], None).await,
         Op::Remove => fs(client, grant, "remove", path, &[], None).await,
         Op::Read => {
-            return match read(client, grant, path).await {
+            return match read(client, grant, path, request.max_bytes).await {
                 Ok(answer) => Direct::Done(answer),
                 Err(direct) => direct,
             };
@@ -387,7 +387,12 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
 /// The file in ranged chunks, every chunk from the same version of it (device, inode, size and
 /// change times, read from the open file). A file that changes between chunks is read again from
 /// the start; one that keeps changing goes to the proxy, which reads it in one go.
-async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Answer, Direct> {
+async fn read(
+    client: &reqwest::Client,
+    grant: &Grant,
+    path: &str,
+    max_bytes: Option<u64>,
+) -> Result<Answer, Direct> {
     let mut file = private_spool().map_err(storage_error)?;
     'tries: for _ in 0..READ_TRIES {
         file.set_len(0).map_err(storage_error)?;
@@ -402,6 +407,10 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Ans
                 .and_then(|b| BASE64.decode(b).ok())
                 .ok_or(Direct::Fallback)?;
             let total = value.get("total").and_then(Value::as_u64).ok_or(Direct::Fallback)?;
+            if let Some(limit) = max_bytes.filter(|limit| total > *limit) {
+                // Refused at the first chunk: nothing more is fetched or spooled.
+                return Err(Direct::Done(Answer::too_large(limit)));
+            }
             let seen = value.get("version").and_then(Value::as_str).ok_or(Direct::Fallback)?;
             if version.as_deref().is_some_and(|v| v != seen) {
                 continue 'tries;
@@ -414,7 +423,7 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Ans
                 return Err(Direct::Fallback);
             }
             file.write_all(&chunk).map_err(storage_error)?;
-            received += chunk.len() as u64;
+            received = received.saturating_add(chunk.len() as u64);
             if empty || received >= total {
                 if received != total {
                     continue 'tries;
@@ -444,7 +453,7 @@ async fn write(
     }
     let staged = fs(client, grant, "stage", path, &[], None).await?;
     let stage = staged.get("stage").and_then(Value::as_str).ok_or(Direct::Fallback)?.to_owned();
-    let mut sent = 0;
+    let mut sent: usize = 0;
     for chunk in data.chunks(STDIN_MAX) {
         if let Err(direct) =
             fs(client, grant, "append", &stage, &[sent.to_string()], Some(chunk)).await
@@ -452,7 +461,7 @@ async fn write(
             let _ = fs(client, grant, "abort", &stage, &[], None).await;
             return Err(direct);
         }
-        sent += chunk.len();
+        sent = sent.saturating_add(chunk.len());
     }
     let digest: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
     let args: Vec<String> = [stage.clone(), digest].into_iter().chain(mode).collect();
