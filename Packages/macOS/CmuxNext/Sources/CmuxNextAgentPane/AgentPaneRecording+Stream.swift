@@ -9,7 +9,7 @@ extension AgentPaneRecording {
     /// The window moved or resized (`frame`: its frame in global top-left points): the stream
     /// follows it. Updates run one at a time off the main actor, each with the newest frame, so a
     /// live resize costs one ScreenCaptureKit call in flight, never one per notice.
-    func follow(_ frame: CGRect) {
+    nonisolated func follow(_ frame: CGRect) {
         let run = state.withLock { state -> Bool in
             guard !state.ending else { return false }
             state.moved = frame
@@ -34,13 +34,13 @@ extension AgentPaneRecording {
     }
 
     /// The window's part of the display, in the display's points from its top-left; nil when none.
-    static func source(_ window: CGRect, on display: CGRect) -> CGRect? {
+    nonisolated static func source(_ window: CGRect, on display: CGRect) -> CGRect? {
         let source = window.intersection(display).offsetBy(dx: -display.minX, dy: -display.minY)
         return source.width >= 1 && source.height >= 1 ? source : nil
     }
 
     /// Runs `call` and returns its result, or throws after ``callLimit``; a late callback is dropped.
-    func deadline<T: Sendable>(_ what: String, _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
+    nonisolated func deadline<T: Sendable>(_ what: String, _ call: (@escaping @Sendable (Result<T, any Error>) -> Void) -> Void) async throws -> T {
         let once = AgentPaneRecordingOnce<T>()
         let timer = DemandTimer(owner: "agent-pane.capture.record.deadline")
         defer { timer.cancel() }
