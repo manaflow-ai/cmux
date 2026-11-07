@@ -562,9 +562,21 @@ fn resolve_with_cua_helper(
                 socket_env.push(("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), socket.token.clone()));
             }
         }
+        // On a Mac, behind acpmux's locked-screen gate when this acpmux is known: a call waits
+        // with `mac_locked` while the screen is locked (`cua_lock_gate.rs`). The env reaches the
+        // helper through the gate unchanged. Elsewhere there is no screen lock to gate on.
+        let (command, args) = match &inputs.acpmux {
+            Some(acpmux) if cfg!(target_os = "macos") => {
+                let mut words = vec![crate::cua_lock_gate::COMMAND.to_owned(), "--".to_owned()];
+                words.push(cua.to_string_lossy().into_owned());
+                words.extend(args);
+                (acpmux.exe.clone(), acpmux.args_lossy(&words))
+            }
+            _ => (cua, args),
+        };
         servers.push(McpServer {
             name: "cmux-cua".into(),
-            command: cua,
+            command,
             args,
             env: [
                 // Always the signed helper over its socket, never in-process

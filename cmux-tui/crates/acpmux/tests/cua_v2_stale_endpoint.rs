@@ -157,8 +157,19 @@ async fn a_new_session_after_a_host_crash_gets_the_legacy_server_not_the_dead_he
     // The next session gets the legacy server, and the stale file is gone.
     let servers = client.new_session_servers().await;
     assert_eq!(servers[0]["name"], "cmux-cua", "{servers}");
-    assert_eq!(servers[0]["command"], json!(cua), "{servers}");
+    assert_eq!(legacy_cua_helper(&servers[0]), json!(cua), "{servers}");
     assert!(!endpoint.exists(), "the stale endpoint.json stayed");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The helper a legacy `cmux-cua` server runs: on a Mac it runs behind acpmux's locked-screen
+/// gate (`acpmux cua-lock-gate -- HELPER mcp ...`, `cua_lock_gate.rs`), elsewhere it is the command.
+fn legacy_cua_helper(server: &Value) -> Value {
+    if cfg!(target_os = "macos") {
+        assert_eq!(server["args"][0], "cua-lock-gate", "gated on a Mac: {server}");
+        assert_eq!(server["args"][1], "--", "{server}");
+        return server["args"][2].clone();
+    }
+    server["command"].clone()
 }

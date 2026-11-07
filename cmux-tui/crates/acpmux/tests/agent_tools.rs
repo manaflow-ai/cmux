@@ -190,7 +190,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"],
         "{upstreams}"
     );
-    assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
+    assert_eq!(legacy_cua_helper(&upstreams[0]), json!(cua), "{upstreams}");
     assert_eq!(upstreams[1]["args"], json!(["secret-mcp"]), "{upstreams}");
     assert_eq!(upstreams[1]["env"]["ACPMUX_SECRET_SESSION"], json!(id), "{upstreams}");
     assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{upstreams}");
@@ -337,7 +337,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"].as_str().unwrap(),
     )
     .unwrap();
-    assert_eq!(upstreams[0]["command"], json!(cua), "{config}");
+    assert_eq!(legacy_cua_helper(&upstreams[0]), json!(cua), "{config}");
     assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
@@ -485,4 +485,15 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
     assert_eq!(run("no-config", true), "", "no config: the native background shell runs");
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The helper a legacy `cmux-cua` server runs: on a Mac it runs behind acpmux's locked-screen
+/// gate (`acpmux cua-lock-gate -- HELPER mcp ...`, `cua_lock_gate.rs`), elsewhere it is the command.
+fn legacy_cua_helper(server: &Value) -> Value {
+    if cfg!(target_os = "macos") {
+        assert_eq!(server["args"][0], "cua-lock-gate", "gated on a Mac: {server}");
+        assert_eq!(server["args"][1], "--", "{server}");
+        return server["args"][2].clone();
+    }
+    server["command"].clone()
 }
