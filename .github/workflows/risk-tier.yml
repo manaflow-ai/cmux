@@ -51,7 +51,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
+          # #36941). A base before that has no such file; the pattern then matches nothing.
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/receipt_grammar.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -59,16 +63,22 @@ jobs:
       # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
       # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
       # slow fetch skips the check with a warning instead of turning the check red.
+      # The pull request's head goes in the same repository, as data that is never checked out, so
+      # the classifier takes the merge base from git instead of a `compare` call on every run. When it
+      # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.
       - name: Fetch the base's recent history
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
           if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
+            timeout 60 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+              "+refs/pull/$NUMBER/head:refs/remotes/pull/head" || echo "head not fetched; the merge base comes from compare"
           else
             echo "::warning::recent-revert check skipped: base history unavailable"
           fi
