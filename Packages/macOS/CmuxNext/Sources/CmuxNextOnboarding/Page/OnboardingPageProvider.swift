@@ -35,9 +35,13 @@ final class OnboardingPageProvider: PageProvider {
         return [:]
     }
 
-    /// One gesture on the model. Unknown ids and kinds are refused; a gesture the model does not
-    /// take now (a toggle during an import) is the model's no-op.
+    /// One gesture on the model. A step's own op runs only while the window shows that step (an
+    /// import op on the Agents step is refused), unknown ids and kinds are refused, and a gesture
+    /// the model does not take now (a toggle during an import) is the model's no-op.
     func perform(_ op: String, _ params: JSONValue) throws {
+        if let step = Self.step(of: op), step != model.step {
+            throw PageError.invalidParams("\(op) is the \(step) step's, and the window shows \(model.step)")
+        }
         let importer = model.importer
         switch op {
         case "cmux.onboarding.next": model.next()
@@ -83,6 +87,14 @@ final class OnboardingPageProvider: PageProvider {
             }
         }
         return PageSubscription { task.cancel() }
+    }
+
+    /// The step whose controls send `op`: nil for the footer's Next, Skip and Back, which every step has.
+    nonisolated static func step(of op: String) -> OnboardingModel.Step? {
+        if op.hasPrefix("cmux.onboarding.agents.") { return .agents }
+        if op.hasPrefix("cmux.onboarding.import.") { return .importData }
+        if op.hasPrefix("cmux.onboarding.computerUse.") { return .computerUse }
+        return nil
     }
 
     private func profile(_ params: JSONValue) throws -> BrowserSourceProfile {

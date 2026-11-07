@@ -6,7 +6,7 @@ import Testing
 
 /// The onboarding page's host: the state is readable at any time and keeps the protocol's nulls,
 /// a gesture runs only on its own click or key (a page script alone runs nothing, and one click
-/// runs one gesture), and a missing agent cmux can install is a row with its Install.
+/// runs one gesture, on its own step only), and a missing agent cmux can install is a row with its Install.
 @MainActor @Suite struct OnboardingPageProviderTests {
     private func make(step: OnboardingModel.Step = .agents) -> (OnboardingModel, OnboardingPageProvider) {
         let model = OnboardingModel(services: MockOnboardingServices(), step: step)
@@ -48,6 +48,33 @@ import Testing
         await #expect(throws: PageError.self) {
             _ = try await second.call("cmux.onboarding.import.toggleKeepInSync", params: [:], context: clicked(20))
         }
+    }
+
+    /// A step's own op runs only while the window shows that step: one real click on another
+    /// step's window cannot start an import, a grant or an install there.
+    @Test func eachStepsOpsAreRefusedOnTheOtherSteps() async throws {
+        let ops: [(OnboardingModel.Step, String, JSONValue)] = [
+            (.agents, "cmux.onboarding.agents.install", ["id": "claude"]),
+            (.agents, "cmux.onboarding.agents.signIn", ["id": "codex"]),
+            (.importData, "cmux.onboarding.import.openFullDiskAccess", [:]),
+            (.importData, "cmux.onboarding.import.fromFiles", [:]),
+            (.importData, "cmux.onboarding.import.passwordsCSV", [:]),
+            (.computerUse, "cmux.onboarding.computerUse.allow", ["pane": "accessibility"]),
+            (.computerUse, "cmux.onboarding.computerUse.restart", [:]),
+        ]
+        var event: TimeInterval = 100
+        for (own, op, params) in ops {
+            for step in OnboardingModel.Step.allCases where step != own {
+                let (_, provider) = make(step: step)
+                event += 1
+                let context = clicked(event)
+                await #expect(throws: PageError.self, "\(op) on the \(step) step") {
+                    _ = try await provider.call(op, params: params, context: context)
+                }
+            }
+            #expect(OnboardingPageProvider.step(of: op) == own)
+        }
+        #expect(OnboardingPageProvider.step(of: "cmux.onboarding.next") == nil, "Next, Skip and Back are every step's")
     }
 
     /// Leo (2026-11-06): offer, never auto-install. The missing agent is a row with Install at rest
