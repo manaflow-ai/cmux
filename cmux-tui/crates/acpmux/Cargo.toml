@@ -42,6 +42,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# The managed preference layer (MDM) the lock bridge honors (hub/lock_bridge.rs).
+cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-cloud-client.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).

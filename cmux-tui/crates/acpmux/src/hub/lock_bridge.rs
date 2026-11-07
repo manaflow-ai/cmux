@@ -23,6 +23,7 @@
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use cmux_config::managed::ManagedPreferences;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 
@@ -65,9 +66,15 @@ pub(crate) fn holds(i: Inputs) -> bool {
         && (i.running > 0 || (i.waiting > 0 && i.since_running < WAIT_GRACE))
 }
 
+/// How long the worker waits before it reads again: [`TICK`]. A status change ends the wait
+/// early.
+pub(crate) fn next_wait(_i: Inputs) -> Duration {
+    TICK
+}
+
 /// Whether the settings document turns the bridge on: the toggle is true and `keepAwake` is not
 /// "off". Anything else (absent, not a boolean, an unreadable file) is off.
-pub(crate) fn setting_on(doc: Option<&Value>) -> bool {
+pub(crate) fn setting_on(doc: Option<&Value>, _managed: &ManagedPreferences) -> bool {
     let Some(doc) = doc else { return false };
     let on = crate::user_settings::value(doc, SETTING) == Some(Value::Bool(true));
     let keep_awake = crate::user_settings::value(doc, "sessions.keepAwake");
@@ -131,7 +138,9 @@ impl Tracker {
 
 fn setting_now() -> bool {
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => setting_on(Some(&doc)),
+        crate::user_settings::Settings::Parsed(doc) => {
+            setting_on(Some(&doc), &ManagedPreferences::default())
+        }
         _ => false,
     }
 }
@@ -202,7 +211,7 @@ impl Hub {
                         "lockedForS": locked_for.as_secs(),
                     });
                     // A status change ends the wait early, so a turn that ends releases at once.
-                    let _ = tokio::time::timeout(TICK, BRIDGE.wake.notified()).await;
+                    let _ = tokio::time::timeout(next_wait(inputs), BRIDGE.wake.notified()).await;
                 }
                 if hold.take().is_some() {
                     tracing::info!("lock bridge: released (no session runs or waits)");
@@ -280,17 +289,58 @@ mod tests {
 
     #[test]
     fn the_setting_is_on_only_when_set_true_and_keep_awake_is_not_off() {
-        assert!(!setting_on(None), "an unreadable file is off");
-        assert!(!setting_on(Some(&json!({}))), "off by default");
-        assert!(!setting_on(Some(&json!({"sessions": {"keepAwakeWhenLocked": "yes"}}))));
-        assert!(setting_on(Some(&json!({"sessions": {"keepAwakeWhenLocked": true}}))));
-        assert!(
-            setting_on(Some(&json!({"sessions.keepAwakeWhenLocked": true}))),
-            "the flat form too"
-        );
+        let none = ManagedPreferences::default();
+        let on = |doc: &Value| setting_on(Some(doc), &none);
+        assert!(!setting_on(None, &none), "an unreadable file is off");
+        assert!(!on(&json!({})), "off by default");
+        assert!(!on(&json!({"sessions": {"keepAwakeWhenLocked": "yes"}})));
+        assert!(on(&json!({"sessions": {"keepAwakeWhenLocked": true}})));
+        assert!(on(&json!({"sessions.keepAwakeWhenLocked": true})), "the flat form too");
         let off = json!({"sessions": {"keepAwakeWhenLocked": true, "keepAwake": "off"}});
-        assert!(!setting_on(Some(&off)), "Keep Mac Awake off turns the bridge off too");
+        assert!(!on(&off), "Keep Mac Awake off turns the bridge off too");
         let always = json!({"sessions": {"keepAwakeWhenLocked": true, "keepAwake": "always"}});
-        assert!(setting_on(Some(&always)));
+        assert!(on(&always));
+    }
+
+    /// An administrator's value (review of cmux#37239): a forced one wins over the settings
+    /// file, as it does for every other setting, and a recommended one only replaces the default.
+    #[test]
+    fn a_managed_value_wins_over_the_file_and_a_recommended_one_only_over_the_default() {
+        let managed = |forced: Value, recommended: Value| ManagedPreferences {
+            forced: serde_json::from_value(forced).unwrap(),
+            recommended: serde_json::from_value(recommended).unwrap(),
+        };
+        let file_on = json!({"sessions": {"keepAwakeWhenLocked": true}});
+        let forced_off = managed(json!({SETTING: false}), json!({}));
+        assert!(!setting_on(Some(&file_on), &forced_off), "a forced off wins over the file");
+        let forced_on = managed(json!({SETTING: true}), json!({}));
+        assert!(setting_on(Some(&json!({})), &forced_on), "a forced on needs no file value");
+        assert!(setting_on(None, &forced_on), "nor a readable file");
+        let file_off = json!({"sessions": {"keepAwakeWhenLocked": false}});
+        assert!(setting_on(Some(&file_off), &forced_on), "a forced on wins over the file");
+        let keep_awake_off = managed(json!({"sessions.keepAwake": "off"}), json!({}));
+        assert!(!setting_on(Some(&file_on), &keep_awake_off), "a forced Keep Mac Awake off");
+        let recommended_on = managed(json!({}), json!({SETTING: true}));
+        assert!(setting_on(Some(&json!({})), &recommended_on), "recommended replaces the default");
+        assert!(!setting_on(Some(&file_off), &recommended_on), "the person's own off wins");
+    }
+
+    /// The worker reads again when the hold is due to end (review of cmux#37239), not up to a
+    /// [`TICK`] later: a hold never outlives its [`CAP`] or its [`WAIT_GRACE`].
+    #[test]
+    fn the_next_read_comes_no_later_than_the_hold_is_due_to_end() {
+        assert_eq!(next_wait(base()), TICK, "far from both bounds: one tick");
+        let near_cap = Inputs { locked_for: CAP - Duration::from_secs(3), ..base() };
+        assert_eq!(next_wait(near_cap), Duration::from_secs(3));
+        let waiting = Inputs {
+            running: 0,
+            waiting: 1,
+            since_running: WAIT_GRACE - Duration::from_secs(2),
+            ..base()
+        };
+        assert_eq!(next_wait(waiting), Duration::from_secs(2));
+        let running = Inputs { since_running: WAIT_GRACE - Duration::from_secs(2), ..base() };
+        assert_eq!(next_wait(running), TICK, "a running turn has no grace to end");
+        assert_eq!(next_wait(Inputs { on: false, ..near_cap }), TICK, "no hold: one tick");
     }
 }

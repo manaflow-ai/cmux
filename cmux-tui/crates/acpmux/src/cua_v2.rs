@@ -344,9 +344,13 @@ where
             .await?;
             continue;
         };
-        if let Some(reply) = crate::cua_lock_gate::gate(&message, &locked) {
-            write_line(&mut output, &reply).await?;
-            continue; // never reaches the helper
+        match crate::cua_lock_gate::gate(&message, &locked) {
+            crate::cua_lock_gate::Gated::Pass => {}
+            crate::cua_lock_gate::Gated::Reply(reply) => {
+                write_line(&mut output, &reply).await?;
+                continue; // never reaches the helper
+            }
+            crate::cua_lock_gate::Gated::Drop => continue,
         }
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let method = message["method"].as_str().unwrap_or_default();
