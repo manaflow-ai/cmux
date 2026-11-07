@@ -37,7 +37,7 @@ extension PageWebView {
     /// Shows an app-made menu (an action registry's rows) at a page point in CSS pixels, as
     /// ``contextMenu(_:)`` places its own, and returns once it closes. A page in no window shows none.
     public func presentMenu(_ menu: NSMenu, atPagePoint point: CGPoint) async {
-        await PageMenuPresenter.present(menu, at: CGPoint(x: point.x * pageZoom, y: point.y * pageZoom), in: focusView)
+        await PageMenuPresenter.present(menu, at: CGPoint(x: point.x * CGFloat(pageZoom), y: point.y * CGFloat(pageZoom)), in: focusView)
     }
 
     /// Completes the host's native menu, whose nonnil result comes only from an AppKit choice.
