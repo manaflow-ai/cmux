@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
+  isLineRow,
   pathKey,
   TURN_RETRY,
   type AcpmuxActivity,
@@ -1108,9 +1109,13 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
 /// The rows a closed "Worked for" draws for `rows`: each row `out` keeps in sight as `outside` draws
 /// it, and each stretch of hidden work between them as closed run lines, one for the stretch
 /// (`groups`) or one per run (`runs`). A line counts calls only; its short notes go with it as quiet
-/// lines; an edit stays on the turn's edits card; anything else hidden stays under "Worked for".
+/// lines; an edit stays on the turn's edits card, and the other calls of its step on the line
+/// (`lineWork`); another agent's message stays as its line (`isReceivedLine`), which the run beside it
+/// folds with (messageRuns.ts); anything else hidden stays under "Worked for".
 /// A line keeps its first run's id, so opening the fold keeps that line where it is (one row, one
 /// open state) rather than fading it out and drawing its run anew.
+/// Leo, 2026-11-07, on a closed turn whose received message and the calls beside it had gone, two
+/// replies left over an empty gap: "some of the tool calls, like, literally just get swallowed."
 function aroundReplies(
   rows: readonly AcpmuxRow[],
   out: (row: AcpmuxRow) => boolean,
@@ -1130,27 +1135,36 @@ function aroundReplies(
   const flush = () => {
     // A call that never got its input draws as nothing, as the open fold draws it (withoutDrafts),
     // which drops it after mergeShortNotes, so a draft-only row still ends a run there.
-    const all = stretch.filter((row) => !isEdit(row));
+    const all = stretch.flatMap((row) => (isEdit(row) ? (lineWork(row) ?? []) : [row]));
     stretch = [];
     if (arm === "runs") {
-      shaped.push(...mergeShortNotes(all, keep, edits).flatMap(withoutDrafts).filter(isRun).map(line));
+      shaped.push(
+        ...mergeShortNotes(all, keep, edits)
+          .flatMap(withoutDrafts)
+          .filter((row) => isRun(row) || isReceivedLine(row))
+          .map((row) => (isRun(row) ? line(row) : row)),
+      );
       return;
     }
     const work = all.flatMap(withoutDrafts);
     const runs = work.filter(isRun);
-    if (!runs.length) return;
-    const from = work.indexOf(runs[0]!);
-    const to = work.lastIndexOf(runs.at(-1)!);
-    const parts = work.slice(from, to + 1).filter((row) => isRun(row) || isShortNote(row));
-    shaped.push(
-      line({
-        ...runs[0]!,
-        items: parts.flatMap((row) => (isRun(row) ? (row.items ?? []) : [{ kind: "note", text: row.text!.trim() }])),
-        toolCount: runs.reduce((n, run) => n + (run.toolCount ?? 0), 0),
-        joined: parts.map((row) => row.id),
-        version: parts.reduce((version, row) => mixVersion(version, row.version), 0),
-      }),
-    );
+    const from = runs.length ? work.indexOf(runs[0]!) : work.length;
+    const to = runs.length ? work.lastIndexOf(runs.at(-1)!) : work.length;
+    const received = work.filter(isReceivedLine);
+    shaped.push(...received.filter((row) => work.indexOf(row) < from));
+    if (runs.length) {
+      const parts = work.slice(from, to + 1).filter((row) => isRun(row) || isShortNote(row));
+      shaped.push(
+        line({
+          ...runs[0]!,
+          items: parts.flatMap((row) => (isRun(row) ? (row.items ?? []) : [{ kind: "note", text: row.text!.trim() }])),
+          toolCount: runs.reduce((n, run) => n + (run.toolCount ?? 0), 0),
+          joined: parts.map((row) => row.id),
+          version: parts.reduce((version, row) => mixVersion(version, row.version), 0),
+        }),
+      );
+    }
+    shaped.push(...received.filter((row) => work.indexOf(row) > from));
   };
   for (const row of rows) {
     if (out(row)) {
@@ -1164,6 +1178,18 @@ function aroundReplies(
   }
   flush();
   return shaped;
+}
+
+/// Another agent's message in a finished turn, drawn as its one line (IncomingMessageCard.tsx).
+const isReceivedLine = (row: AcpmuxRow) => row.kind === "user" && isLineRow(row) && !isWaitingMessage(row);
+
+/// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
+/// on the closed fold's line, under the id the step's copy has in the open fold (`FOLDED`), so the
+/// card keeps the step's own id. Undefined when the step only edited.
+function lineWork(row: AcpmuxRow): AcpmuxRow | undefined {
+  const items = (row.items ?? []).filter((item) => !isEditTool(item.tool));
+  const calls = items.filter((item) => item.tool).length;
+  return calls ? { ...row, id: `${row.id}${FOLDED}`, items, toolCount: calls } : undefined;
 }
 
 function shapeTurn(

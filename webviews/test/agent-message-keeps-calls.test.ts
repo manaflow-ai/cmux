@@ -212,6 +212,7 @@ function holds(row: AcpmuxRow): string[] {
     row.id,
     ...(row.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])),
     ...(row.messageRun?.rows ?? []),
+    ...(row.messageRun?.work ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])),
     ...(row.laneNoticeBatch?.rows.map((member) => member.id) ?? []),
     ...(row.joined ?? []),
   ];
