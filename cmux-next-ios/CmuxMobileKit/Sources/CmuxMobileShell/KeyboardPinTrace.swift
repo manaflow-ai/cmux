@@ -82,17 +82,24 @@ final class KeyboardPinTrace: NSObject {
         write(String(format: "t=%.4f tap=%@", CACurrentMediaTime() - start, tap))
     }
 
-    /// The accessibility element `identifier` in `window`, with the view it lives in.
+    /// The accessibility element `identifier` in `window`, with the view it
+    /// lives in. Each node is visited once and the walk stops after 4000
+    /// nodes: SwiftUI's accessibility tree can reach a node twice, and the
+    /// terminal exposes a node per row.
     static func element(_ identifier: String, in window: UIWindow) -> (NSObject, UIView)? {
+        var seen = Set<ObjectIdentifier>()
         func search(_ object: NSObject, host: UIView, depth: Int) -> (NSObject, UIView)? {
-            guard depth < 40 else { return nil }
+            guard depth < 40, seen.count < 4000, seen.insert(ObjectIdentifier(object)).inserted else { return nil }
             if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == identifier { return (object, host) }
             if let view = object as? UIView {
                 guard !view.isHidden else { return nil }
+                if NSStringFromClass(type(of: view)).contains("Terminal") { return nil }
                 for sub in view.subviews { if let found = search(sub, host: sub, depth: depth + 1) { return found } }
             }
+            let count = object.accessibilityElements?.count ?? object.accessibilityElementCount()
+            guard count > 0, count < 200 else { return nil }
             let children: [Any] = object.accessibilityElements
-                ?? (0..<max(0, object.accessibilityElementCount())).compactMap { object.accessibilityElement(at: $0) }
+                ?? (0..<count).compactMap { object.accessibilityElement(at: $0) }
             for case let child as NSObject in children where !(child is UIView) {
                 if let found = search(child, host: host, depth: depth + 1) { return found }
             }
