@@ -603,7 +603,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
   color: var(--agent-muted);
 }
-.acpmux-running-tray__status > svg {
+.acpmux-running-tray__status svg {
   flex: none;
   color: var(--agent-muted);
 }
@@ -784,6 +784,13 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
   color: var(--agent-status-failure);
   font-variant-numeric: tabular-nums;
+}
+/* A folded lone item that waits on the person or failed: its state word in its line's tone. */
+.acpmux-running-tray__time[data-lone][data-status="waiting"] .acpmux-running-tray__lone-state {
+  color: var(--acpmux-needs-you-mark);
+}
+.acpmux-running-tray__time[data-lone][data-status="failed"] .acpmux-running-tray__lone-state {
+  color: var(--agent-status-failure);
 }
 /* A subagent of another model family than the chat's, by its harness's mark, after the counts. */
 .acpmux-running-tray__marks {
@@ -1114,14 +1121,25 @@ button.cv-subagent > :last-child {
    polls process/tail, and the terminal action remains in the same compact surface. */
 .acpmux-running-tray__tail {
   display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: var(--ds-space-1) var(--ds-space-2);
+  flex-direction: column;
+  gap: var(--ds-space-1);
   margin: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-5);
   min-width: 0;
 }
+/* Its time, state and actions: one line at the detail size, every part on one centre line and the
+   first on the command's left edge, spaced as the header's time and Stop (--acpmux-tray-gap). A tray
+   too narrow for them all wraps the actions to a line of their own, each line still centred, never
+   cutting one off (review of #37830). */
+.acpmux-running-tray__tail-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--acpmux-tray-gap, var(--ds-space-1));
+  min-width: 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
 .acpmux-running-tray__tail pre {
-  flex: 1 1 240px;
   max-height: calc(var(--text-detail--line-height) * 10);
   min-width: 0;
   margin: 0;
@@ -1134,7 +1152,6 @@ button.cv-subagent > :last-child {
   overflow-wrap: anywhere;
 }
 .acpmux-running-tray__command {
-  flex: 1 1 100%;
   min-width: 0;
   color: var(--agent-muted);
   font-family: var(--cv-mono, ui-monospace, monospace);
@@ -1160,13 +1177,18 @@ button.cv-subagent > :last-child {
   gap: var(--ds-space-1);
   flex: none;
   border: 0;
-  padding: var(--ds-space-1) var(--ds-space-2);
+  padding: 0;
   color: var(--agent-muted);
   background: transparent;
+  font: inherit;
   cursor: default;
 }
 .acpmux-running-tray__tail a {
   text-decoration: none;
+}
+/* The actions stand a little apart from the time and state before them. */
+.acpmux-running-tray__tail-foot > :is(a, button):not(:first-child) {
+  margin-inline-start: var(--ds-space-2);
 }
 .acpmux-running-tray__tail a:hover,
 .acpmux-running-tray__tail a:focus-visible,
@@ -1492,6 +1514,47 @@ button.cv-subagent > :last-child {
   to {
     opacity: 0;
   }
+}
+/* A sliding tick (trayMotion.tsx `Tick` slide; Leo, 2026-11-07, on the hat's line handing over from
+   thinking to a tool call to another: "That animation, I like that"): the old words slide up and out
+   as the new slide up from below, on one baseline, while the cell's width eases between them on the
+   same clock. The cell clips both, so neither draws outside the row. */
+.acpmux-tick[data-slide] {
+  --acpmux-tick-slide: var(--agent-motion-move, 180ms);
+}
+.acpmux-tick[data-slide] > .acpmux-tick__in {
+  animation: acpmux-tick-slide-in var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick[data-slide] > .acpmux-tick__out {
+  animation: acpmux-tick-slide-out var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
+}
+@keyframes acpmux-tick-slide-in {
+  from {
+    opacity: 0;
+    translate: 0 70%;
+  }
+}
+@keyframes acpmux-tick-slide-out {
+  to {
+    opacity: 0;
+    translate: 0 -70%;
+  }
+}
+/* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
+   old one up and out as the new one rises into its place; tabular figures keep its width. */
+.acpmux-tick__roll {
+  display: inline-grid;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.acpmux-tick__roll > span {
+  grid-area: 1 / 1;
+}
+.acpmux-tick__roll-in {
+  animation: acpmux-tick-slide-in var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick__roll-out {
+  animation: acpmux-tick-slide-out var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
@@ -1937,4 +2000,96 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
 .acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
   opacity: 1;
+}
+
+/* ---------- The composer hat's own polish (Leo, 2026-11-07) ---------- */
+/* One item heads the hat (SubagentTray.tsx `lone`): its task, then what it does now, muted, which gives
+   way first; its state and time end the row where its line's would, in tabular figures. */
+.acpmux-running-tray__head > .acpmux-running-tray__latest {
+  flex: 0 100 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A folded lone subagent's workflow progress ("1/3 agents"), quiet after its step; it never truncates. */
+.acpmux-running-tray__head > .acpmux-running-tray__stats {
+  flex: none;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray__head > .acpmux-running-tray__latest.is-code {
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.acpmux-running-tray__head[data-lone] > .acpmux-running-tray__time {
+  flex: none;
+  margin-inline-start: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* A finished line's end (DoneMark.tsx, hatParts.experiment.ts): the check in the success colour, a
+   step quieter than the text, then the total in tabular figures one small gap after it. */
+.acpmux-done-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-done-mark__check {
+  flex: none;
+  display: inline-flex;
+  color: color-mix(in srgb, var(--agent-status-success) 70%, var(--agent-muted));
+}
+.acpmux-done-mark__time {
+  flex: none;
+}
+.acpmux-done-mark[data-look="accent"] > .acpmux-done-mark__word {
+  color: var(--agent-status-success);
+  font-weight: var(--weight-emphasis);
+}
+/* The `bottom` chevron arm (hatParts.experiment.ts): the hat keeps a short strip at its foot, and the
+   chevron sits centred in it on the seam with the composer, turning from up (folded: the hat opens up)
+   to down (open) on the move token. The header's own end keeps only the time. */
+.acpmux-running-tray[data-chevron="bottom"] {
+  position: relative;
+  padding-bottom: 8px;
+}
+.acpmux-running-tray__chevron-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+  transform: translateX(-50%);
+}
+.acpmux-running-tray__chevron-bottom > svg {
+  rotate: 180deg;
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray__chevron-bottom[data-open] > svg {
+  rotate: 0deg;
+}
+.acpmux-running-tray__chevron-bottom:hover {
+  color: var(--agent-text);
+}
+/* The hat header's chevron (row end): up while folded, turning down as the hat opens, on the move
+   token; the motion gate's 0 ms token turns it at once. */
+.acpmux-running-tray__chevron {
+  display: inline-flex;
+  rotate: 180deg;
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray__chevron[data-open] {
+  rotate: 0deg;
 }

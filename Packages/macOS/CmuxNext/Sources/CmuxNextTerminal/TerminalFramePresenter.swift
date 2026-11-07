@@ -170,7 +170,7 @@ final class TerminalFramePresenter {
             for (_, done) in commits { done.view?.hostFrameCommitted() }
             commits.removeAll(keepingCapacity: true)
         }
-        // A grid-report window ends at the first refresh at or after its 25 ms (its timer is the backstop).
+        // A grid-report window ends at this refresh: its newest grid goes (its timer is the backstop).
         for (id, reports) in gridReports where reports.coalescer?.frameTicked() != true {
             gridReports[id] = nil
         }
@@ -310,7 +310,7 @@ final class TerminalFramePresenter {
 }
 
 extension TerminalFramePresenter: TerminalGridReportTicks {
-    /// `coalescer`'s window ends at the first refresh at or after its interval: it is ticked each refresh until then.
+    /// `coalescer`'s window ends at the next refresh (RESIZE P0 6): it is ticked once, at that refresh.
     func tickGridReports(_ coalescer: TerminalGridReportCoalescer) {
         gridReports[ObjectIdentifier(coalescer)] = GridReports(coalescer: coalescer)
         client.activate()

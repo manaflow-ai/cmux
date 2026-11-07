@@ -40,25 +40,33 @@ export function BackgroundTaskTail({
   return (
     <div className="acpmux-running-tray__tail" data-running={read.running || undefined}>
       <code className="acpmux-running-tray__command">{command.command}</code>
-      {(owner || elapsed) && (
-        <span className="acpmux-running-tray__meta">
-          {owner}
-          {owner && elapsed ? " · " : ""}
-          {elapsed}
-        </span>
-      )}
-      {readOutput && (output ? <pre ref={outputRef}>{output}</pre> : <span>{t("bgTask.state.running")}</span>)}
-      {link && (
-        <a href={link.url} target="_blank" rel="noreferrer">
-          <Icon name="link.external" size={12} row />
-          {t("commandRules.openLink")}
-        </a>
-      )}
-      {onOpenTerminal && (
-        <button type="button" onClick={onOpenTerminal}>
-          <TerminalSquare />
-          {t("shell.openInTerminal")}
-        </button>
+      {readOutput && output && <pre ref={outputRef}>{output}</pre>}
+      {/* One line under the command, on its left edge: its time, its state while there is no output yet
+          and its actions, all at the detail size on one centre line (Leo, 2026-11-07: "wildly misaligned
+          at the bottom"). */}
+      {(owner || elapsed || (readOutput && !output) || link || onOpenTerminal) && (
+        <div className="acpmux-running-tray__tail-foot">
+          {(owner || elapsed) && (
+            <span className="acpmux-running-tray__meta">
+              {owner}
+              {owner && elapsed ? " · " : ""}
+              {elapsed}
+            </span>
+          )}
+          {readOutput && !output && <span className="acpmux-running-tray__meta">{t("bgTask.state.running")}</span>}
+          {link && (
+            <a href={link.url} target="_blank" rel="noreferrer">
+              <Icon name="link.external" size={12} row />
+              {t("commandRules.openLink")}
+            </a>
+          )}
+          {onOpenTerminal && (
+            <button type="button" onClick={onOpenTerminal}>
+              <TerminalSquare />
+              {t("shell.openInTerminal")}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
