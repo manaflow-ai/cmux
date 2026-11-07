@@ -42,6 +42,22 @@ opens the levels beside it; a row's trailing column reads controls, that item,
 accessory actions, then its key. An update that would rebuild the rows while AppKit tracks a slider waits for
 the release, so a drag never loses its control.
 
+`columns` lays the popup out as columns instead of a rail (never both): the model picker's
+columns menu (cmux #32980, leo-workspace `design/model-picker.md`), harness rail, models, then
+the shown model's effort, providers and Fast, side by side under the search row. Each column has
+an id, an accessible `label`, an optional fixed `width` (the last column without one takes what
+is left), and `rail: true` to draw its rows as the rail's marks (`mark`, `monogram` or `icon`, the
+checked one lit, no accent bar). `rows` span the popup between the search row and the columns
+(the chat's readiness note); `footer` sits under them. The columns' band is as tall as its
+tallest column up to `columnsHeight` (220 by default), each column scrolls on its own, and the
+band never shrinks while the popup is open, so a tab or a search with fewer rows never moves the
+edge away from the chip. `searchAccessory` is a control at the search row's leading edge over the
+first column (the account avatar: a `monogram`, `mark` or `icon`); as a `submenu` its children
+(the account card) open beside the popup. In columns, Up and Down move the highlight within its
+column and stop at the ends, and Left and Right (on the list, or an empty search field) move it to
+the next column's checked row, else its first, sending `highlight`; the page decides what a
+highlighted model shows in the next column. Return activates the highlighted row as elsewhere.
+
 The shared `Glass.makeOverlayPanel` owns the material. A popup's transparent child
 window samples behind the window on the vibrancy fallback. macOS 26 uses real Liquid
 Glass. Reduce Transparency follows the existing live opaque material path. No popup
