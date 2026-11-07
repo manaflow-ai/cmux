@@ -13,7 +13,7 @@ use crate::cx::{Cx, Ended, Job};
 use crate::error::{BrokerError, Error};
 use crate::local_access::MINIMUM_LIFETIME;
 use crate::target::TargetRef;
-use crate::types::{Grant, now};
+use crate::types::{Grant, now, wait as timer};
 
 /// The wait for one quit erase; the erase itself goes on.
 const QUIT_BUDGET: Duration = Duration::from_secs(3);
@@ -58,7 +58,7 @@ impl Broker {
             120.0
         };
         let wait = if failures == 0 {
-            Duration::from_secs_f64((grant.expires_at - now() - lead).max(1.0))
+            timer((grant.expires_at - now() - lead).max(1.0))
         } else {
             self.renewal_retry_delay(failures)
         };
@@ -248,8 +248,7 @@ impl Broker {
     /// The wait before catch-up try `failures`, never past `expiry`; none once it has passed.
     fn catch_up_delay(&self, failures: u32, expiry: f64) -> Option<Duration> {
         let remaining = expiry - now();
-        (remaining > 0.0)
-            .then(|| self.renewal_retry_delay(failures).min(Duration::from_secs_f64(remaining)))
+        (remaining > 0.0).then(|| self.renewal_retry_delay(failures).min(timer(remaining)))
     }
 
     fn catch_up_wanted(&self, id: &str, generation: u64, expiry: f64) -> bool {

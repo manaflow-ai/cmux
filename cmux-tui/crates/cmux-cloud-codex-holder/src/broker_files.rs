@@ -13,7 +13,7 @@ use crate::broker::Broker;
 use crate::cx::Cx;
 use crate::error::{BrokerError, Error};
 use crate::target::{ACCESS_PATH, BRIDGE, MODE_PATH, TargetRef};
-use crate::types::{Grant, now};
+use crate::types::{Grant, now, valid_expiry};
 
 pub(crate) const OWN: &[u8] = b"own\n";
 const FOLDERS: [&str; 4] = [
@@ -31,7 +31,12 @@ pub(crate) fn grant_in(access: &[u8]) -> Grant {
     Grant {
         access_token: text("accessToken"),
         account: text("chatgptAccountId"),
-        expires_at: object.get("expiresAt").and_then(Value::as_f64).unwrap_or(0.0),
+        // The machine's own file: a malformed expiry reads as already ended.
+        expires_at: object
+            .get("expiresAt")
+            .and_then(Value::as_f64)
+            .filter(|e| valid_expiry(*e))
+            .unwrap_or(0.0),
     }
 }
 

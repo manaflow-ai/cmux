@@ -20,7 +20,7 @@ use crate::error::{BrokerError, Error};
 use crate::record::Record;
 use crate::session::{Session, SessionError};
 use crate::target::{PROTOCOL_VERSION, TargetRef};
-use crate::types::{Grant, Prompt, Scope, now};
+use crate::types::{Grant, Prompt, Scope, now, valid_expiry};
 
 /// The current scope, or none while signed out or fenced.
 pub type CurrentScope = Arc<dyn Fn() -> Option<Scope> + Send + Sync>;
@@ -354,7 +354,8 @@ impl Broker {
         let (Some(token), Some(account), Some(expiry)) = (
             text("accessToken"),
             text("chatgptAccountId"),
-            response.get("expiresAt").and_then(Value::as_f64),
+            // A non-finite or far expiry is malformed: it never reaches a timer.
+            response.get("expiresAt").and_then(Value::as_f64).filter(|e| valid_expiry(*e)),
         ) else {
             return Err(BrokerError::InvalidReply.into());
         };

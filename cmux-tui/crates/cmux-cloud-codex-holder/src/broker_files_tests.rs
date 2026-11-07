@@ -208,4 +208,6 @@ fn a_left_access_file_gives_its_expiry_and_an_unreadable_one_is_expired() {
     let grant = grant_in(br#"{"accessToken":"a","chatgptAccountId":"b","expiresAt":42}"#);
     assert_eq!(grant, Grant { access_token: "a".into(), account: "b".into(), expires_at: 42.0 });
     assert_eq!(grant_in(b"nope").expires_at, 0.0);
+    // A machine's own file never sets a timer it could overflow.
+    assert_eq!(grant_in(br#"{"expiresAt":1e300}"#).expires_at, 0.0);
 }

@@ -467,3 +467,19 @@ async fn concurrent_refreshes_share_one_holder_request() {
         assert_eq!(call.await.unwrap().unwrap().access_token, "access-1");
     }
 }
+
+/// cmux#37306 review: an `expiresAt` that is huge (1e300), infinite in effect or not a time is a
+/// malformed reply, never a renewal timer (whose conversion would panic the holder's task).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_far_or_malformed_expiry_is_an_invalid_reply() {
+    for expiry in ["1e300", "-5", "4102444800"] {
+        let root = tempfile::tempdir().unwrap();
+        let script = counting_holder(&format!("expiry={expiry}"));
+        let broker = broker(root.path(), &script, fixed_scope(scope()), LONG);
+        let machine = Machine::new();
+        let target = Fake::new("vm-far", machine.clone()).arc();
+        let error = broker.transfer(&Cx::new(), &target, true, false).await.unwrap_err();
+        assert!(error.is(BrokerError::InvalidReply), "{expiry}: {error:?}");
+        assert!(machine.read(ACCESS_PATH).is_none());
+    }
+}
