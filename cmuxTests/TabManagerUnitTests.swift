@@ -1888,7 +1888,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), originalIds)
     }
 
-    func testDontAskAgainWhenOrdinaryWarningAlsoAppliesTurnsBothOff() {
+    func testRunningProcessPromptWithAlwaysConfirmOffersNoDontAskAgain() {
         let manager = makeManager(warnBeforeClosingWorkspace: nil)
         setAlwaysConfirm(manager, true)
         let workspace = manager.tabs[1]
@@ -1901,8 +1901,11 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return true
         }
 
+        // A running process asks regardless of either setting, so ticking a box
+        // here could not stop this prompt (#20517).
         XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(offered, [[.workspace, .safety, .alwaysConfirmWorkspace]])
+        XCTAssertEqual(offered, [[.safety]])
+        XCTAssertTrue(AppCatalogSection().alwaysConfirmWorkspaceClose.value(in: manager.closeTabWarningDefaults))
     }
 
     func testDontAskAgainOnIdleWindowBatchKeepsWindowWarning() {
@@ -1979,7 +1982,7 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
     }
 
-    func testTickingDontAskAgainOnWorkspacePromptTurnsOffWorkspaceWarning() {
+    func testRunningProcessWorkspacePromptOffersNoDontAskAgain() {
         let manager = makeManager()
         let first = manager.tabs[0]
         let second = manager.tabs[1]
@@ -1997,14 +2000,14 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
             return true
         }
 
+        // The running-process prompt ignores warnBeforeClosingWorkspace, so a
+        // checkbox that turned it off would not stop this prompt (#20517).
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [[.workspace, .safety]])
-        XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
-        XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
-
         drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
         XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
+        XCTAssertEqual(offered, [[.safety], [.safety]])
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
