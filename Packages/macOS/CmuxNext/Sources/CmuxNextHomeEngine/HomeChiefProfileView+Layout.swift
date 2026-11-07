@@ -84,9 +84,11 @@ extension HomeChiefProfileView {
         if settings == nil {
             // The page uses the whole pane: as wide as it is, and only as wide as lets the 16:10 screen
             // (or its note) and the bar under it fit the pane's height below the header.
-            let fitsHeight = column.widthAnchor.constraint(lessThanOrEqualTo: scroll.heightAnchor, multiplier: 16.0 / 10.0,
-                                                           constant: -Self.expandedChrome * 16.0 / 10.0)
+            // Its constant follows the page's height (layout()): the scroll view's clip is not under Auto Layout,
+            // so no anchor of it carries the height.
+            let fitsHeight = column.widthAnchor.constraint(lessThanOrEqualToConstant: Self.expandedWidth(height: bounds.height))
             fitsHeight.priority = .defaultHigh
+            heightFit = fitsHeight
             let wide = column.widthAnchor.constraint(equalTo: document.widthAnchor, constant: -32)
             wide.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue - 1)
             NSLayoutConstraint.activate([fitsHeight, wide])

@@ -135,6 +135,19 @@ public final class HomeChiefProfileView: NSView {
 
     nonisolated public override var isFlipped: Bool { true }
 
+    /// The expanded page's widest column for the 16:10 screen to fit under the header (nil in the panel).
+    var heightFit: NSLayoutConstraint?
+
+    static func expandedWidth(height: CGFloat) -> CGFloat { max(0, (height - expandedChrome) * 16 / 10) }
+
+    public override func layout() {
+        if let heightFit {
+            let width = Self.expandedWidth(height: bounds.height)
+            if heightFit.constant != width { heightFit.constant = width }
+        }
+        super.layout()
+    }
+
     /// The tab on show.
     public var selectedTab: HomeChiefProfileTab { tabs.selected }
 
