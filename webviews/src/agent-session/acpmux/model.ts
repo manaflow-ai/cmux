@@ -588,6 +588,9 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// The id of the call `doing` names, running or just finished (conversation/turns.ts
+  /// `codexLiveTurn`): while it stays the same call the line's words change in place, with no roll.
+  doingCall?: string;
   /// How long that finished step took, its own start to its own end (conversation/turns.ts
   /// `liftedStep`): the live line says it beside the step, never the turn's time.
   doingForMs?: number;
@@ -827,7 +830,16 @@ export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title
 /** The concrete app, resource, or working directory an approval covers. */
 export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
 
+/** A daemon-owned OS access block. Approving retries one retained operation, never grants OS rights. */
+export type ExternalAccess = {
+  kind: "files_and_folders" | "full_disk_access";
+  target: string;
+  operation: "read_text_file";
+  platform: "macos";
+};
+
 export type AcpmuxPermission = {
+  externalAccess?: ExternalAccess;
   permissionId: string;
   groupId?: string;
   turnId?: string;
@@ -1143,6 +1155,8 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The current turn's daemon start time, in the session clock. Unset when no turn is running.
+  turnStartedAtMs?: number;
   /**
    * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
    * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no

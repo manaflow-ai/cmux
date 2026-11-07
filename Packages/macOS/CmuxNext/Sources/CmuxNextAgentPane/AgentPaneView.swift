@@ -495,6 +495,8 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = nil
         dictation.close()
         model.readAloud?.stop(owner: model)
+        // A Cloud start's question in this pane can no longer be answered: its start goes on without one.
+        model.cloudAsks.endAll()
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil

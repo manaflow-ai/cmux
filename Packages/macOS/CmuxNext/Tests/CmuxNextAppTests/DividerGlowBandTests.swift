@@ -52,13 +52,14 @@ struct DividerGlowBandTests {
 
     @Test func edgeHandlesLightTheSameBand() {
         let edge = handle(.columnEdge(ColumnID("column")))
+        edge.showsIdleLine = false
         #expect(!edge.isLineVisible)
         edge.setHovered(true)
         #expect(edge.glow.isLit)
         #expect(edge.isLineVisible)
     }
 
-    /// Under `layout.paneSeparation` none (the app's default flat-sidebar-line look) hover keeps showing
+    /// Under `layout.paneSeparation` none (the flat-sidebar-line look) hover keeps showing
     /// nothing, as before, but a drag still lights the band: it is the drag's cue.
     @Test func paneSeparationNoneLightsTheBandOnlyWhileDragging() throws {
         let view = handle()
@@ -86,6 +87,20 @@ struct DividerGlowBandTests {
         #expect(band.layer.opacity == 0)
         #expect(band.layer.animation(forKey: "opacity") == nil)
         #expect(band.extent.isNull)
+    }
+
+    /// The lit line glows by itself: no shadow, blur or halo bleeds past its edges (Leo, 2026-11-07:
+    /// "keep the line itself's glow, but don't make it glow like it's an actual light bulb").
+    @Test func theLitBandHasNoBloomPastTheLine() {
+        let view = handle()
+        view.setHovered(true)
+        let layers = [view.glow.layer] + (view.glow.layer.sublayers ?? [])
+        for layer in layers {
+            #expect(layer.shadowOpacity == 0)
+            #expect(layer.filters == nil && layer.backgroundFilters == nil)
+        }
+        #expect(DividerGlowBand.reach == DividerGlowBand.coreThickness / 2, "the band reaches no further than its core")
+        #expect(abs(view.glow.extent.width - DividerGlowBand.coreThickness) < 0.001)
     }
 
     @Test func bandOpacityIsZeroAtRestAndFullWhileDragging() {
