@@ -284,7 +284,8 @@ test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds
     );
     return sent;
   };
-  const today = [
+  const todayParams: Record<string, unknown> = { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" };
+  const today: [string, Record<string, unknown>][] = [["cloud.startChat", todayParams]];
     ["cloud.startChat", { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" }],
   ];
   // The flag off: no chip, and the payload is today's.
@@ -299,7 +300,7 @@ test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds
   await openChip();
   await act(async () => row("GPU training")!.click());
   await flush();
-  expect(await payload()).toEqual([["cloud.startChat", { ...today[0]![1], environment: "env_gpu" }]]);
+  expect(await payload()).toEqual([["cloud.startChat", { ...todayParams, environment: "env_gpu" }]]);
   // A pick left over when the flag goes off sends nothing either.
   act(() => setComposerSettings({ cloudEnvironments: false }));
   expect(await payload()).toEqual(today);
