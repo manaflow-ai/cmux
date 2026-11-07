@@ -194,12 +194,15 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         Ok(helper)
     }
 
-    /// `tools/list` or `tools/call`; returns the helper's `result`.
+    /// `tools/list` or `tools/call`; returns the helper's `result`. A call fails with
+    /// [`MAC_LOCKED`](crate::mac_lock::MAC_LOCKED) if `locked()` says the screen locked while it
+    /// waited for the connection or the consent answer.
     pub async fn request(
         &mut self,
         method: &str,
         name: Option<&str>,
         arguments: Value,
+        locked: impl Fn() -> bool,
     ) -> Result<Value> {
         if method == "tools/call" {
             // Only the admitted host can select the machine's consent authority.
@@ -239,6 +242,11 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
                 false
             };
             require_tool_consent(read_only, &status)?;
+            // The last await is behind us: read the lock again, so a call the gate passed while
+            // unlocked never runs on a screen that locked during the waits (design item 3).
+            if locked() {
+                bail!(crate::mac_lock::MAC_LOCKED);
+            }
         }
         self.exchange(method, name, arguments).await
     }
@@ -265,6 +273,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         }
         if reply["ok"] == json!(true) {
             Ok(reply.get("result").cloned().unwrap_or(Value::Null))
+        } else if reply.get("code").and_then(Value::as_str) == Some(crate::mac_lock::MAC_LOCKED) {
+            // The helper read the lock after its own waits (ConsentGate.admit).
+            bail!(crate::mac_lock::MAC_LOCKED)
         } else {
             bail!("{}", reply["error"].as_str().unwrap_or("the Computer Use helper failed"))
         }
@@ -361,17 +372,30 @@ where
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
-                .await
-                .map(tools_list_result),
+            "tools/list" => {
+                forward(&mut helper, &connect, "tools/list", None, Value::Null, &locked)
+                    .await
+                    .map(tools_list_result)
+            }
             "tools/call" => {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
                 Ok(
-                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                    match forward(
+                        &mut helper,
+                        &connect,
+                        "tools/call",
+                        Some(&name),
+                        arguments,
+                        &locked,
+                    )
+                    .await
                     {
                         Ok(result) => call_result(result),
+                        Err((_, text)) if text == crate::mac_lock::MAC_LOCKED => {
+                            crate::cua_lock_gate::locked_result()
+                        }
                         Err((_, text)) => {
                             json!({"content": [{"type":"text", "text":text}], "isError":true})
                         }
@@ -421,6 +445,7 @@ async fn forward<S, C, F>(
     method: &str,
     name: Option<&str>,
     arguments: Value,
+    locked: &impl Fn() -> bool,
 ) -> Result<Value, (i64, String)>
 where
     S: tokio::io::AsyncRead + AsyncWrite + Unpin,
@@ -432,11 +457,14 @@ where
             *helper = Some(connect().await.map_err(|e| (-32000, format!("{e:#}")))?);
         }
         let Some(current) = helper.as_mut() else { continue };
-        match current.request(method, name, arguments.clone()).await {
+        match current.request(method, name, arguments.clone(), locked).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
                     return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                }
+                if e.to_string() == crate::mac_lock::MAC_LOCKED {
+                    return Err((-32000, crate::mac_lock::MAC_LOCKED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {

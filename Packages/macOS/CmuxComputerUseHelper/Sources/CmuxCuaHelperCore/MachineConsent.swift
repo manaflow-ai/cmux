@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CoreGraphics
 import Foundation
 import os
 
@@ -248,10 +249,29 @@ public struct ConsentRefusal: Error, Sendable, Equatable, CustomStringConvertibl
     }
 }
 
+/// The refusal a call gets when this Mac's screen locked before it ran
+/// (design/lock-bridge.md, item 3): the lock screen is all it would see,
+/// and a click or a keystroke would land on its password field. acpmux's
+/// bridge answers it as its typed `mac_locked` result.
+public struct ScreenLockedRefusal: Error, Sendable, Equatable, CustomStringConvertible {
+    public static let code = "mac_locked"
+
+    public let tool: String
+
+    public init(tool: String) { self.tool = tool }
+
+    public var description: String {
+        "\(Self.code): this Mac's screen is locked, so nothing can see or use it. `\(tool)` did not run. "
+            + "It runs again once the person unlocks the Mac."
+    }
+}
+
 /// The consent check at the execution boundary. `admit` runs as the last
 /// step before a tool executes, after every other await: it asks the
 /// authority for the state as of now, and on a refusal records it and
-/// throws, so nothing runs.
+/// throws, so nothing runs. It reads the screen lock after that answer, so
+/// a call that waited on the target check, a takeover or consent while the
+/// Mac locked never runs on the lock screen.
 public final class ConsentGate: Sendable {
     /// Advertised in the socket's admission reply: every tool call passes
     /// the machine-consent gate at execution.
@@ -262,8 +282,19 @@ public final class ConsentGate: Sendable {
     /// other name, including tools the inventory does not list, acts.
     private let readOnly = OSAllocatedUnfairLock<Set<String>?>(initialState: nil)
 
-    public init(authority: any MachineConsentAuthority) {
+    /// Whether the screen is locked now; the window server's answer unless a test passes its own.
+    private let screenLocked: @Sendable () -> Bool
+
+    public init(authority: any MachineConsentAuthority,
+                screenLocked: @escaping @Sendable () -> Bool = ConsentGate.screenIsLocked) {
         self.authority = authority
+        self.screenLocked = screenLocked
+    }
+
+    /// The login session's lock as the window server reports it (as `NotificationPreviews` reads it).
+    @Sendable public static func screenIsLocked() -> Bool {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
 
     /// The requirement for `name`, from the driver's own inventory
@@ -279,11 +310,14 @@ public final class ConsentGate: Sendable {
         return names.contains(name) ? .observe : .act
     }
 
-    /// Throws `ConsentRefusal` unless consent allows `requirement` now.
+    /// Throws `ConsentRefusal` unless consent allows `requirement` now, then
+    /// `ScreenLockedRefusal` if the screen is locked. No await follows the lock read.
     public func admit(_ name: String, requirement: ConsentRequirement) async throws {
-        guard let surface = await authority.current().missing(for: requirement) else { return }
-        await authority.recordRefusal(surface: surface, tool: name)
-        throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
+        if let surface = await authority.current().missing(for: requirement) {
+            await authority.recordRefusal(surface: surface, tool: name)
+            throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
+        }
+        if screenLocked() { throw ScreenLockedRefusal(tool: name) }
     }
 
     /// acpmux's bridge rule (cua_v2.rs `Helper::request`): the one entry

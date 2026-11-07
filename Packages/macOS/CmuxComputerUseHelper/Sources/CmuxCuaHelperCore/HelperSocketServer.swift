@@ -227,6 +227,9 @@ public final class HelperSocketServer: Sendable {
                                              "code": ConsentRefusal.code, "surface": refusal.surface.rawValue]
                 if let reason = refusal.reason { fields["reason"] = reason.rawValue }
                 connection.write(HelperWire.line(fields, raw: ["id": id]))
+            } catch let refusal as ScreenLockedRefusal {
+                connection.write(HelperWire.line(["ok": false, "error": refusal.description,
+                                                  "code": ScreenLockedRefusal.code], raw: ["id": id]))
             } catch let refusal as TakeoverRefusal {
                 connection.write(HelperWire.line(["ok": false, "error": refusal.description,
                                                   "code": TakeoverRefusal.code], raw: ["id": id]))

@@ -56,13 +56,13 @@ import Testing
                       {"name":"zoom","annotations":{"readOnlyHint":1}},
                       {"name":"type_text"}]}
             """#.utf8)
-        let gate = ConsentGate(authority: UnavailableConsent())
+        let gate = ConsentGate(authority: UnavailableConsent(), screenLocked: { false })
         #expect(await gate.requirement(for: "get_window_state") { inventory } == .observe)
         #expect(await gate.requirement(for: "click") { inventory } == .act)
         #expect(await gate.requirement(for: "zoom") { inventory } == .act)
         #expect(await gate.requirement(for: "type_text") { inventory } == .act)
         #expect(await gate.requirement(for: "a_tool_added_later") { inventory } == .act)
-        let failing = ConsentGate(authority: UnavailableConsent())
+        let failing = ConsentGate(authority: UnavailableConsent(), screenLocked: { false })
         #expect(await failing.requirement(for: "get_window_state") { throw ToolError("down") } == .act)
     }
 
@@ -136,7 +136,7 @@ import Testing
     /// is cached.
     @Test(.timeLimit(.minutes(1))) func oneConnectionFollowsDenyGrantAndRevoke() async throws {
         let authority = ScriptedAuthority()
-        let tools = GatedTools(gate: ConsentGate(authority: authority))
+        let tools = GatedTools(gate: ConsentGate(authority: authority, screenLocked: { false }))
         let client = try Client(tools: tools, consent: authority)
         let alternate = FileManager.default.temporaryDirectory.appending(path: "alternate-acpmux-\(getpid())").path
         setenv("ACPMUX_HOME", alternate, 1)
@@ -176,7 +176,7 @@ import Testing
     /// call reached the driver: the execution check refuses it.
     @Test(.timeLimit(.minutes(1))) func aRevokeAfterThePreflightStillRefusesAtExecution() async throws {
         let authority = ScriptedAuthority()
-        let tools = GatedTools(gate: ConsentGate(authority: authority))
+        let tools = GatedTools(gate: ConsentGate(authority: authority, screenLocked: { false }))
         let client = try Client(tools: tools, consent: authority)
         authority.set(MachineConsentStatus(consentRequired: true, screen: true, control: true))
         let preflight = try client.consent()
@@ -189,6 +189,32 @@ import Testing
         #expect(authority.refusals.withLock { $0 } == ["screen:click"], "the refusal is recorded")
     }
 
+    /// The person locked the Mac while the call waited on consent
+    /// (design/lock-bridge.md, item 3; review of #37239): the lock read after
+    /// the consent answer refuses it as `mac_locked`, and nothing runs.
+    @Test(.timeLimit(.minutes(1))) func aMacThatLocksDuringTheConsentWaitRunsNothing() async throws {
+        let locked = OSAllocatedUnfairLock(initialState: false)
+        let authority = LockingAuthority(locked: locked)
+        let tools = GatedTools(gate: ConsentGate(authority: authority, screenLocked: { locked.withLock { $0 } }))
+        let client = try Client(tools: tools, consent: authority)
+        let reply = try client.call("click")
+        #expect(locked.withLock { $0 }, "the consent answer locked the Mac: the test reaches the case")
+        #expect(reply["ok"] as? Bool == false)
+        #expect(reply["code"] as? String == ScreenLockedRefusal.code)
+        #expect(tools.executed.withLock { $0 }.isEmpty, "nothing executed")
+    }
+
+    /// Grants everything, and locks the screen as it answers.
+    final class LockingAuthority: MachineConsentAuthority {
+        let locked: OSAllocatedUnfairLock<Bool>
+        init(locked: OSAllocatedUnfairLock<Bool>) { self.locked = locked }
+        func current() async -> MachineConsentStatus {
+            locked.withLock { $0 = true }
+            return MachineConsentStatus(consentRequired: true, screen: true, control: true)
+        }
+        func recordRefusal(surface: ConsentSurface, tool: String) async {}
+    }
+
     // MARK: The controlling host
 
     /// sr2's A/B exec chain: launcher A forks B, execs the signed helper and
@@ -199,7 +225,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func aLauncherHoldingTheControlPipeNeverGrantsOrRuns() async throws {
         let input = Pipe(), output = Pipe()
         let channel = HostConsentChannel(timeout: .seconds(10))
-        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let tools = GatedTools(gate: ConsentGate(authority: channel, screenLocked: { false }))
         let check = RecordingCheck(.verified)
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,
@@ -229,7 +255,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func stdinAnswersAreIgnoredWhileTheHostDenies() async throws {
         let input = Pipe(), output = Pipe()
         let channel = HostConsentChannel(timeout: .seconds(10))
-        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let tools = GatedTools(gate: ConsentGate(authority: channel, screenLocked: { false }))
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,
                                           tools: tools, consent: channel, hostCheck: RecordingCheck(.verified),
@@ -256,7 +282,7 @@ import Testing
 
     @Test(.timeLimit(.minutes(1))) func overTheSocketWithNoVerifiedHostTheRefusalSaysWhy() async throws {
         let channel = HostConsentChannel()
-        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let tools = GatedTools(gate: ConsentGate(authority: channel, screenLocked: { false }))
         let client = try Client(tools: tools, consent: channel)
         let reply = try client.call("get_window_state")
         #expect(reply["ok"] as? Bool == false)
@@ -296,7 +322,7 @@ import Testing
     @Test(.timeLimit(.minutes(1)), arguments: [true, false])
     func aCodeValidPeerWithoutThisLaunchsSecretIsRefused(wrongSecret: Bool) async throws {
         let channel = HostConsentChannel(timeout: .milliseconds(200))
-        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let tools = GatedTools(gate: ConsentGate(authority: channel, screenLocked: { false }))
         let grant: [String: Any] = ["type": "machine_consent", "id": 1, "ok": true,
                                     "result": ["consentRequired": false,
                                                "consent": ["screen": "granted", "control": "granted"]]]
@@ -381,7 +407,7 @@ import Testing
         let served = try #require(reply["result"] as? [String: Any])
         let servedData = try JSONSerialization.data(withJSONObject: served)
         let entries = try #require(served["tools"] as? [[String: Any]])
-        let gate = ConsentGate(authority: UnavailableConsent())
+        let gate = ConsentGate(authority: UnavailableConsent(), screenLocked: { false })
         for tool in fixture {
             let matching = entries.filter { $0["name"] as? String == tool.name }
             let hint = (matching.first?["annotations"] as? [String: Any])?["readOnlyHint"] as? NSNumber

@@ -289,7 +289,8 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
     let mut helper = Helper::admit(client, SECRET).await.unwrap();
     let arguments = json!({"pid": 42, "allowed_target_bundle_ids": "com.apple.Terminal",
         "_cua_allowed_target_bundle_ids": ["com.apple.Terminal"]});
-    let result = helper.request("tools/call", Some("click"), arguments.clone()).await.unwrap();
+    let result =
+        helper.request("tools/call", Some("click"), arguments.clone(), || false).await.unwrap();
     assert_eq!(result, json!({"accepted": true}));
     let request = peer.await.unwrap();
     assert_eq!(
@@ -331,7 +332,11 @@ async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
         });
         let mut helper = Helper::admit(client, SECRET).await.unwrap();
         assert_eq!(
-            helper.request("tools/call", Some("click"), json!({})).await.unwrap_err().to_string(),
+            helper
+                .request("tools/call", Some("click"), json!({}), || false)
+                .await
+                .unwrap_err()
+                .to_string(),
             "consent_required"
         );
         drop(helper);
@@ -410,7 +415,11 @@ async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper
                 "consent":{"screen":"granted","control":"granted"}}});
             server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
             line.clear();
-            assert_eq!(server.read_line(&mut line).await.unwrap(), 0, "a call reached the helper: {line}");
+            assert_eq!(
+                server.read_line(&mut line).await.unwrap(),
+                0,
+                "a call reached the helper: {line}"
+            );
         }
     });
     let input = format!(
@@ -423,7 +432,9 @@ async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper
         &mut output,
         || {
             let stream = client.lock().unwrap().take();
-            async move { Helper::admit(stream.ok_or_else(|| anyhow::anyhow!("one helper"))?, SECRET).await }
+            async move {
+                Helper::admit(stream.ok_or_else(|| anyhow::anyhow!("one helper"))?, SECRET).await
+            }
         },
         || locked.load(Ordering::SeqCst),
     )
