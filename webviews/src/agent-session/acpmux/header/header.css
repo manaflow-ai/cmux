@@ -213,7 +213,9 @@
 .acpmux-header-new-preview-tab{display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 14%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 .acpmux-header-new-preview-text{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .acpmux-header-new-preview-name{font-weight:var(--weight-emphasis);color:var(--agent-text)}
-.acpmux-header-new-preview-detail{margin-top:4px;color:var(--agent-muted)}
+.acpmux-header-new-preview-detail{display:grid;margin-top:4px;color:var(--agent-muted)}
+.acpmux-header-new-preview-detail>span{grid-area:1/1}
+.acpmux-header-new-preview-detail>span:not([data-shown]){visibility:hidden}
 
 
 /* ---------- Header icon motion (headerMotion.ts, Debug Settings agentChat.headerMotion) ----------

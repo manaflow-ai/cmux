@@ -130,8 +130,11 @@ function NewPreview({ kind, label, keycap }: { kind: NewKind; label: string; key
         <span className="acpmux-header-new-preview-name">{label}</span>
         {keycap && <kbd className="acpmux-chat-menu-key">{keycap}</kbd>}
       </div>
+      {/* Both texts share one cell, the other one hidden, so the preview keeps the taller one's height and
+          the rows under it never move as the pointer goes from row to row. */}
       <div className="acpmux-header-new-preview-detail">
-        {t(kind === "newTab" ? "header.newPreviewTab" : "header.newPreviewBeside")}
+        <span data-shown={kind === "newTab" || undefined}>{t("header.newPreviewTab")}</span>
+        <span data-shown={kind !== "newTab" || undefined}>{t("header.newPreviewBeside")}</span>
       </div>
     </div>
   );
