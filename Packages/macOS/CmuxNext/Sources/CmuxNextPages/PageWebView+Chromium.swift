@@ -422,12 +422,19 @@ extension PageWebView {
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
-                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources,
+                                                                onWebSource: { [weak self] in self?.chromiumDocumentSource($0) })
         }
         if let ranged = dynamicResources as? any PageRangedResourceSource {
             return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
         }
         return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
+    }
+
+    /// Keeps where the Chromium document came from (``webSource``) and tells the host.
+    private func chromiumDocumentSource(_ source: WebSource) {
+        chromiumWebSource = source
+        WebBundleServedViews.shared.onWebSource?(self, source)
     }
 
     /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has

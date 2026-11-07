@@ -45,6 +45,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// Where the Chromium page's document came from (DEV and NIGHTLY; ``webSource``).
+    var chromiumWebSource: WebSource?
+    /// Where the document the page shows came from, in the engine that shows it: the dev server, an
+    /// overlay, a web update or the bundle (``WebSource``). Nil in Release and RC, and for a
+    /// Chromium page outside the live web loop, whose files Chromium reads from the bundle itself.
+    public var webSource: WebSource? {
+        isOnChromium ? chromiumWebSource : WebBundleServedViews.shared.webSource(for: webView)
+    }
     /// Rects in this view's coordinates where native UI of the window shows over the page
     /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
     /// window's own view tree, under that UI, and needs none.

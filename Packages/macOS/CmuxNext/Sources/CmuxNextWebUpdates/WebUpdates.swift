@@ -101,7 +101,12 @@ public final class WebUpdates {
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
             launchServed = true
-            overlay.load { await updater.launchTree() }
+            overlay.load {
+                let tree = await updater.launchTree()
+                // The page source chip names the update's commit (WebSource).
+                if let tree, let commit = await updater.launchVersion?.commit { overlay.name(tree, commit: commit) }
+                return tree
+            }
         } else {
             // A page already loaded bundled files: the kept update waits for a safe point.
             // task-owner: one launch check; it ends by itself
@@ -160,6 +165,7 @@ public final class WebUpdates {
         pendingGeneration += 1
         heldBy = nil
         swapped = .some(version)
+        if let tree, let version { WebBundleOverlay.shared.name(tree, commit: version.commit) }
         WebBundleOverlay.shared.activate(tree)
         scheduleSafePoint()
     }

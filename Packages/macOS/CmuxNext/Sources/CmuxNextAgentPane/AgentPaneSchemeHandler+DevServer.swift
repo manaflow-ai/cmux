@@ -36,13 +36,14 @@ extension AgentPaneSchemeHandler {
         return URL(string: base + path + query)
     }
 
-    /// Answers `task` with the server's file at `remote`, else the bundled one, else fails it.
-    func serveDevServer(_ remote: URL, server: PageDevServer, url: URL, task: any WKURLSchemeTask) {
+    /// Answers `task` with the server's file at `remote`, else the bundled one, else fails it. The
+    /// document names its source (``WebSource``) and records it for `webView` in DEV and NIGHTLY.
+    func serveDevServer(_ remote: URL, server: PageDevServer, url: URL, task: any WKURLSchemeTask, webView: WKWebView) {
         let id = ObjectIdentifier(task)
         active.insert(id)
-        let fallback = Self.fileURL(for: url, root: servedRoot)
+        let fallback = Self.fileURL(for: url, root: servedRoot), overlaid = servedRoot != root
         // task-owner: one fetch per scheme task; a stopped task is never answered
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak webView] in
             var reply: (Data, [String: String])?
             let request = server.request(for: remote)
             // The document must be HTML, else the bundled pane: an answer drawn as text shows its source.
@@ -54,8 +55,14 @@ extension AgentPaneSchemeHandler {
                                "X-Content-Type-Options": "nosniff"]
                 // The document's policy is its meta tag (src/agent-session/acpmux/index.html).
                 if !type.hasPrefix("text/html") { headers["Content-Security-Policy"] = Self.devResourcePolicy }
-                reply = (body, headers)
-            } else if let fallback, let data = await Self.read(fallback) {
+                let marked = document && WebSource.isShown ? Self.marked(body, .devServer(server.root), for: webView) : body
+                headers["Content-Length"] = String(marked.count)
+                reply = (marked, headers)
+            } else if let fallback, var data = await Self.read(fallback) {
+                if document, WebSource.isShown {
+                    let source: WebSource = overlaid ? .overlay(commit: WebDevOverride.current.overlayCommit) : .bundle
+                    data = Self.marked(data, source, for: webView)
+                }
                 reply = (data, Self.headers(for: fallback, length: data.count))
             }
             guard let self, self.active.remove(id) != nil else { return }
@@ -68,5 +75,11 @@ extension AgentPaneSchemeHandler {
             task.didReceive(body)
             task.didFinish()
         }
+    }
+
+    /// `html` naming `source`, which is recorded for `webView` (``WebBundleServedViews/recordWebSource(_:for:)``).
+    static func marked(_ html: Data, _ source: WebSource, for webView: WKWebView?) -> Data {
+        if let webView { WebBundleServedViews.shared.recordWebSource(source, for: webView) }
+        return source.marked(html)
     }
 }

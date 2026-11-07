@@ -36,6 +36,8 @@ public nonisolated final class WebBundleOverlay: Sendable {
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
+        /// The commit of each update tree served this run, by the tree's real path (``name(_:commit:)``).
+        var commits: [String: String] = [:]
     }
 
     private let state: Mutex<State>
@@ -86,6 +88,23 @@ public nonisolated final class WebBundleOverlay: Sendable {
             guard held.tree != tree else { return false }
             held.tree = tree
             return true
+        }
+    }
+
+    /// Records the commit `tree` was built from, for the page's source chip (``WebSource``). One entry
+    /// per update this run takes, so the map stays as small as the run's update count.
+    public func name(_ tree: URL, commit: String) {
+        guard let commit = WebSource.commit(commit) else { return }
+        let path = Self.realPath(tree)
+        state.withLock { $0.commits[path] = commit }
+    }
+
+    /// The commit of the update tree that holds `root` (a folder ``root(for:)`` returned), nil for the
+    /// bundle or a tree with no recorded commit.
+    public func commit(serving root: URL) -> String? {
+        let path = Self.realPath(root)
+        return state.withLock { held in
+            held.commits.first { path == $0.key || path.hasPrefix($0.key + "/") }?.value
         }
     }
 
@@ -175,6 +194,31 @@ public final class WebBundleServedViews {
 
     /// Whether `webView` keeps the update it loaded with until it closes (``keepLoadedTree(_:)``).
     public func keepsLoadedTree(_ webView: WKWebView) -> Bool { keepsLoaded.contains(webView) }
+
+    private final class SourceEntry {
+        let source: WebSource
+        init(_ source: WebSource) { self.source = source }
+    }
+
+    /// Where each served view's current document came from (DEV and NIGHTLY, ``WebSource``); keys
+    /// are weak, so it holds only open views.
+    private let sources = NSMapTable<WKWebView, SourceEntry>.weakToStrongObjects()
+
+    /// Called after a document's source is recorded, with its view: a `WKWebView`, or the
+    /// ``PageWebView`` of a Chromium page. A reload records again, so a change of source shows.
+    public var onWebSource: ((AnyObject, WebSource) -> Void)?
+
+    /// Records that `webView`'s document came from `source` (the scheme handlers do).
+    public func recordWebSource(_ source: WebSource, for webView: WKWebView) {
+        sources.setObject(SourceEntry(source), forKey: webView)
+        onWebSource?(webView, source)
+    }
+
+    /// Where `webView`'s current document came from, nil before one was recorded (Release, RC, a
+    /// view these handlers did not serve).
+    public func webSource(for webView: WKWebView) -> WebSource? {
+        sources.object(forKey: webView)?.source
+    }
 
     /// Whether no handler served a view yet (a launch that shows no page).
     public var isEmpty: Bool { webViews.allObjects.isEmpty }

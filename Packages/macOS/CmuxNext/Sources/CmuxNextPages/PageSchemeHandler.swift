@@ -6,7 +6,8 @@ import WebKit
 /// for files inside the page's own resource directory are answered; another host, an escaping
 /// path or a missing file fails the request. `/` is the page's `index.html`. Every response
 /// carries the page's CSP (``PageDescriptor/csp``, strict unless a first-party page widens it)
-/// and `nosniff`.
+/// and `nosniff`. In DEV and NIGHTLY builds the page's document also names where it came from
+/// (``WebSource``): the dev server, the overlay, a web update or the bundle.
 ///
 /// A path whose first component is one of the descriptor's ``PageDescriptor/dynamicPrefixes``
 /// goes to the page instance's ``PageDynamicResourceSource`` first and only: its answer, or a
@@ -44,6 +45,13 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
     /// The projection windows (``WebProjection/shared``; tests replace it).
     var projection = WebProjection.shared
+    /// The web updates (``WebBundleOverlay/shared``; tests replace it).
+    var webUpdates = WebBundleOverlay.shared
+    /// Whether the document names where it was served from (``WebSource``): DEV and NIGHTLY.
+    var marksWebSource = WebSource.isShown
+    /// Told each document's source (a Chromium page records its own, ``PageWebView/webSource``;
+    /// tests read it). A WebKit view's goes to ``WebBundleServedViews/recordWebSource(_:for:)``.
+    var onWebSource: ((WebSource) -> Void)?
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -136,24 +144,36 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
                !document || PageDevServer.isHTML(response.value(forHTTPHeaderField: "Content-Type")) {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)
-                return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+                let marked = document ? self.marked(body, .devServer(devServer.root), for: webView) : body
+                return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: marked)
             }
             // The launch variable's server (Debug) fails the request, as before.
             if launchServer != nil { return nil }
         }
         let update = if let webView {
-            await WebBundleServedViews.shared.root(for: served.root, in: webView)
+            await WebBundleServedViews.shared.root(for: served.root, in: webView, overlay: webUpdates)
         } else {
-            await WebBundleOverlay.shared.root(for: served.root)
+            await webUpdates.root(for: served.root)
         }
-        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
+        let overlay = live.overlayRoot(for: served.page, bundledRoot: served.root)
+        let root = overlay ?? update
         switch Self.route(for: url, page: served.page, root: root) {
         case nil:
             return nil
         case .artifact:
             return Self.artifactReply(url: url)
         case .file(let file):
-            guard let data = await Self.read(file) else { return nil }
+            guard var data = await Self.read(file) else { return nil }
+            if PageDevServer.isDocument(url, page: served.page) {
+                let source: WebSource = if overlay != nil {
+                    .overlay(commit: live.overlayCommit)
+                } else if update != served.root {
+                    .webUpdate(commit: webUpdates.commit(serving: update))
+                } else {
+                    .bundle
+                }
+                data = marked(data, source, for: webView)
+            }
             return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
             if let ranged = served.dynamicSource as? any PageRangedResourceSource {
@@ -164,13 +184,24 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
+    /// `html` with the tag naming `source` when this build shows it (``marksWebSource``), which is
+    /// recorded for `webView` and told to ``onWebSource``.
+    private func marked(_ html: Data, _ source: WebSource, for webView: WKWebView?) -> Data {
+        guard marksWebSource else { return html }
+        if let webView { WebBundleServedViews.shared.recordWebSource(source, for: webView) }
+        onWebSource?(source)
+        return source.marked(html)
+    }
+
     /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
     /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
-    /// no root or no reply.
+    /// no root or no reply. A document's source is told to `onWebSource`.
     static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
-                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+                                     dynamicSource: (any PageDynamicResourceSource)?,
+                                     onWebSource: ((WebSource) -> Void)? = nil) async -> PageChromiumResponse {
         guard let root else { return .notFound }
         let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
+        handler.onWebSource = onWebSource
         guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
         return chromiumResponse(reply)
     }

@@ -51,6 +51,12 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// Whether pages load from a server or an overlay (an empty override serves the bundle).
     public var isActive: Bool { server != nil || overlay != nil }
 
+    /// The commit the overlay's `manifest.json` names (``stamp``), nil for none or `unknown`.
+    public var overlayCommit: String? {
+        guard let stamp, let object = (try? JSONSerialization.jsonObject(with: stamp)) as? [String: Any] else { return nil }
+        return WebSource.commit(object["commit"] as? String)
+    }
+
     /// The file's name, next to `cmux-next.json`.
     public static let fileName = "web-dev.json"
     /// The file an overlay install writes last.

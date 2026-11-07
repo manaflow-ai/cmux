@@ -731,7 +731,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPages",
             dependencies: [
-                "CmuxNextBrowserCore", "CmuxNextChiefMemory", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
+                // Actions: DevTools, which says whether a page names its source (WebSource).
+                "CmuxNextActions", "CmuxNextBrowserCore", "CmuxNextChiefMemory", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles",
+                "CmuxNextSettings", "CmuxNextWakeups",
             ],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings

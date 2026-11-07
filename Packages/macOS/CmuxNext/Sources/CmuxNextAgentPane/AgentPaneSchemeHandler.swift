@@ -47,7 +47,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
            let server = WebProjection.shared.override(for: webView).server, let remote = Self.devServerURL(for: url, server: server) {
-            return serveDevServer(remote, server: server, url: url, task: task)
+            return serveDevServer(remote, server: server, url: url, task: task, webView: webView)
         }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url,
@@ -66,8 +66,14 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             // same file, unless the web-dev.json overlay already serves this one.
             let served = live ? root : await WebBundleServedViews.shared.root(for: root, in: webView)
             let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
-            let data = await Self.read(file)
+            var data = await Self.read(file)
             guard let self, self.active.remove(id) != nil else { return }
+            if WebSource.isShown, let html = data, Self.isDocument(url) {
+                let commit = live ? WebDevOverride.current.overlayCommit : WebBundleOverlay.shared.commit(serving: served)
+                let source: WebSource = live ? .overlay(commit: commit) : served != root ? .webUpdate(commit: commit) : .bundle
+                WebBundleServedViews.shared.recordWebSource(source, for: webView)
+                data = source.marked(html)
+            }
             guard let data else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
                 return
@@ -84,6 +90,12 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {
         active.remove(ObjectIdentifier(task))
+    }
+
+    /// Whether `url` is the pane's document (`/index.html`), which names its source (``WebSource``).
+    nonisolated static func isDocument(_ url: URL) -> Bool {
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true)
+        return components.isEmpty || components == ["index.html"]
     }
 
     /// Reads `file` off the main thread.
