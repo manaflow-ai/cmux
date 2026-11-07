@@ -49,6 +49,11 @@ import Testing
         return store
     }
 
+    /// The store's id of document workspace `resource` (what the window's current workspace names).
+    static func id(_ resource: String, in store: DaemonStore) -> String {
+        store.workspaces.first { $0.resourceID?.rawValue == resource }?.id ?? resource
+    }
+
     static func layout(_ sections: [CmuxNextDaemon.SidebarSection]) -> [String] {
         sections.map { section in
             let rows = section.workspaces.compactMap(\.resourceID?.rawValue).joined(separator: ",")
@@ -61,11 +66,11 @@ import Testing
     @Test func aMemberTheDocumentStopsPlacingKeepsItsSlot() {
         let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4"])
         let docSections = SidebarDocSections(document: { nil })
-        docSections.newRowsPlace = { .below("ws-coord") }
+        docSections.newRowsPlace = { .below(Self.id("ws-coord", in: store)) }
         let before = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
         let placing = Self.members.filter { !["ws-merge", "ws-adopt-a", "ws-adopt-b"].contains($0) }
         for current in ["ws-3", "ws-4", "ws-1"] {
-            docSections.newRowsPlace = { .below(current) }
+            docSections.newRowsPlace = { .below(Self.id(current, in: store)) }
             let during = Self.layout(docSections.sections(Self.projection(members: placing), session: Self.session, workspaces: store.workspaces))
             #expect(during == before, "with \(current) selected the rows list as \(during), not \(before)")
         }
@@ -77,10 +82,10 @@ import Testing
     @Test func aNewRowKeepsThePlaceItFirstTook() {
         let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4", "ws-new"])
         let docSections = SidebarDocSections(document: { nil })
-        docSections.newRowsPlace = { .below("ws-3") }
+        docSections.newRowsPlace = { .below(Self.id("ws-3", in: store)) }
         let first = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
         #expect(first.last == "ws-3,ws-new,ws-4", "the new row is not below ws-3: \(first)")
-        docSections.newRowsPlace = { .below("ws-1") }
+        docSections.newRowsPlace = { .below(Self.id("ws-1", in: store)) }
         let clicked = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
         #expect(clicked == first, "a click on ws-1 moved the new row: \(clicked), was \(first)")
     }
