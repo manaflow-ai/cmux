@@ -1158,6 +1158,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-machine"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
