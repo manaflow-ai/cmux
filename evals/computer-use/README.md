@@ -57,6 +57,13 @@ scripts/freestyle-run.sh --label cu-evals --sync $stage -- \
 
 (`scripts/freestyle-run.sh` is the HQ helper; results come back in `$stage/artifacts/`.)
 
+For `cmux-cu` the script starts a cmux daemon (`cmux server ensure`) with
+`CMUX_CU_HEADLESS=0`. On an Xvfb display cmux otherwise assumes nobody is
+watching and uses XTest for background input, which moves the real pointer
+and focus; the `person_undisturbed` case puts a person there, so the fair run
+tells cmux one may be present. Stage a Linux `cmux` binary on PATH (the
+2026-11-06 run built `cmux-tui` on rbx with `--portable` and linked it as `cmux`).
+
 ## 3. Agent task evals (model, credentials)
 
 ```bash

@@ -28,6 +28,13 @@ eval "$(dbus-launch --sh-syntax)"
 openbox >"$out/openbox.log" 2>&1 &
 
 status=0
+# cmux-cu: its bridge asks a cmux daemon for the worker, so start one in this
+# display's session. CMUX_CU_HEADLESS=0: the person_undisturbed case puts a
+# person on this Xvfb display, so cmux must not take the headless shortcut
+# (XTest, which moves the real pointer and focus) it would on an unwatched one.
+if [[ " ${arms[*]} " == *" cmux-cu "* ]]; then
+  CMUX_CU_HEADLESS=0 cmux server ensure >"$out/cmux-daemon.txt" 2>&1 || status=1
+fi
 # The baseline's own switch for its default telemetry: an eval VM sends nothing.
 if [ -n "${CUEVAL_CUA_DRIVER_BIN:-}" ] || bin=$(python3 -I arms/resolve_cua_driver.py fetch 2>/dev/null | tail -1); then
   "${CUEVAL_CUA_DRIVER_BIN:-$bin}" telemetry disable >/dev/null 2>&1 || true
