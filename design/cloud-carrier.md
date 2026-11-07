@@ -48,6 +48,39 @@ auth all go over it. Nothing else reaches the machine.
    the error names the step it didn't get past. Once up, the session's resume lease carries it across a
    network change or a pause.
 
+## The first connect starts during the create
+
+Leo, 2026-11-07: "im sure we can keep getting smarter... fewer hops, etc?"
+
+A chat start doesn't wait for a separate carrier ask after the create (cmuxterm-hq#7415, lens item K2).
+
+1. **The create carries the device's key.** The `/v1/ops` request for `cloud.machine.create` has an
+   optional top-level `carrier: {noise_key}`, the device's Noise static public key (base64url, 32 bytes),
+   beside `op` and `params`.
+2. **The create answers with the carrier.** When the create names its machine, including a spare it
+   claimed, the answer has `carrier: {relay, slot, ticket, expires_at, grant, daemon_key?}` beside
+   `value`. That is the same answer `POST /carrier` gives the same person, issued by the same code
+   (`issueCarrier`, CarrierRoute.ts) with the same checks. It sits outside the op, so it is never stored
+   or replayed, and a retried create gets fresh credentials. If it can't be issued, the create's answer
+   is unchanged and the device falls back to `POST /carrier`.
+3. **The device dials at once.** The app hands the answer to the dial: `cmux carrier dial --answer-fd N`
+   (with 0, the answer is stdin's first line and the stream follows it), or the line
+   `{"carrier_answer":{…}}` on `cmux carrier serve`'s stdin for its next connection. The first attempt
+   connects to the relay with that ticket and grant without asking the platform, and the relay parks it
+   until the machine registers.
+4. **The pin comes while parked.** A fresh create has no `daemon_key` yet, because the bind stores it.
+   A claimed spare usually has one. Without the key, the dial opens the parked link and, at the same
+   time, makes one ticket-only `POST /carrier` for it. If that ask landed before the bind, the dial asks
+   once more when the link is allocated: the daemon registers only after its bind, so the key is stored
+   by then. The handshake always waits for the key and never runs unpinned. Reconnects ask for fresh
+   credentials as before.
+
+**Follow-up, not built: no ask for the key at all.** At bind, the platform signs
+`{machine, daemon_noise_key}` with its keyset. The daemon presents that statement in its relay Register,
+the relay passes it to the waiting device in `Allocated`, and the device checks it against the platform
+keyset before it pins the key. A fresh create's first connect then makes no platform call after the
+create.
+
 ## What was deleted
 
 These are NEXT paths only. Classic `web/` and `/api` are untouched.
@@ -70,7 +103,8 @@ These are NEXT paths only. Classic `web/` and `/api` are untouched.
 | Tickets, grants, slot ids, relay deploy | cmux-platform `src/server/cloud/Carrier*.ts`, `.github/workflows/carrier-relay.yml` |
 | Session, lanes, resume | `cmux-tui/crates/cmux-remote` |
 | Grant check on the machine | `cmux-remote` (the `Grant` client auth mode) and `cmux-link` (the keyset) |
-| Device side | `cmux carrier dial --machine <id>`, the stdio bridge the Cloud app server spawns (`first-party-apps/cloud/server/src/link/dial.rs`) |
+| Device side | `cmux carrier dial --machine <id>`, the stdio bridge the Cloud app server spawns (`first-party-apps/cloud/server/src/link/dial.rs`), and `cmux carrier serve` behind a Unix socket |
+| Carrier in the create answer | cmux-platform `src/server/cloud/Ops.ts` (`createCarrier`), `src/api/CloudOps.ts` |
 
 ## Proof
 
