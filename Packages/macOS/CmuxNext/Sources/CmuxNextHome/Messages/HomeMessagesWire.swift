@@ -86,6 +86,22 @@ extension HomeComposeOutcome {
         }
         return .object(["outcome": value])
     }
+
+    /// The blank page's first send (what the native New Message sent first): `start` makes the DM or
+    /// group with the recipients, and `text` is posted there through `send` (the real store, with its
+    /// offline queue and Not Delivered state). Addresses only: the email-link start carries the text.
+    public static func pageStart(_ fields: [String: JSONValue], contacts: [HomeContact],
+                                 start: (_ recipients: [HomeRecipient], _ firstMessage: [MessagePart]) async -> HomeComposeOutcome,
+                                 send: (ConversationID, [MessagePart]) async -> Void) async -> HomeComposeOutcome {
+        let recipients = HomeRecipient.page(fields["recipients"], contacts: contacts)
+        guard !recipients.isEmpty else { return .refused("") }
+        let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
+        let addressesOnly = recipients.allSatisfy { if case .address = $0 { true } else { false } }
+        let outcome = await start(recipients, addressesOnly ? parts : [])
+        if case .opened(let id) = outcome, !addressesOnly, !parts.isEmpty { await send(id, parts) }
+        return outcome
+    }
 }
 
 extension HomeGroupOutcome {

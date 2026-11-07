@@ -168,7 +168,9 @@ final class HomeMessagesHostProvider: PageProvider {
             return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
-            return (await start(fields, home: home)).pageOutcome
+            return await HomeComposeOutcome.pageStart(fields, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) }) {
+                _ = try? await home.homeStore.perform(.sendMessage(conversation: $0, parts: $1))
+            }.pageOutcome
         case "chief.settings", "chief.place", "chief.stop", "chief.continue", "chief.retry":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let chief = chiefShown(try conversation(fields))
@@ -279,24 +281,6 @@ final class HomeMessagesHostProvider: PageProvider {
         guard let pin = needsYou, let store = services?.home.homeStore else { return .null }
         let chief = shown.flatMap { id in store.rows.first { $0.id == id } }?.kind == .chief
         return chief && pin.isEnabled() ? pin.rows().flatMap { try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode($0)) } ?? .null : .null
-    }
-
-    // MARK: New Message's first send
-
-    /// The blank page's first send (what the native New Message sent first): makes the DM or group with the
-    /// recipients and posts `text` there. Addresses only: the email-link start carries the text.
-    private func start(_ fields: [String: JSONValue], home: HomeService) async -> HomeComposeOutcome {
-        let recipients = HomeRecipient.page(fields["recipients"], contacts: home.contacts())
-        guard !recipients.isEmpty else { return .refused("") }
-        let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
-        let addressesOnly = recipients.allSatisfy { if case .address = $0 { true } else { false } }
-        let outcome = await home.startConversation(recipients, title: "", firstMessage: addressesOnly ? parts : [])
-        if case .opened(let id) = outcome, !addressesOnly, !parts.isEmpty {
-            // The real store owns the send from here (its offline queue and Not Delivered state).
-            _ = try? await home.homeStore.perform(.sendMessage(conversation: id, parts: parts))
-        }
-        return outcome
     }
 
     // MARK: Streams
