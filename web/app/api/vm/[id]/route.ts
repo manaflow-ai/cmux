@@ -168,5 +168,6 @@ export async function DELETE(
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },
+    { requireFreshTeamMembership: true },
   );
 }
