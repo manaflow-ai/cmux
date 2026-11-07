@@ -1856,127 +1856,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حوالي {price} حتى الآن"
+            "value": "نحو {price} في فترة التشغيل الحالية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do sada oko {price}"
+            "value": "Oko {price} u ovom pokretanju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omkring {price} indtil nu"
+            "value": "Ca. {price} i denne kørsel"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bisher etwa {price}"
+            "value": "Ca. {price} in diesem Lauf"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "About {price} so far"
+            "value": "Est. {price} this run"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unos {price} hasta ahora"
+            "value": "Aprox. {price} en esta ejecución"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Environ {price} jusqu’ici"
+            "value": "Env. {price} pour cette session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Circa {price} finora"
+            "value": "Circa {price} in questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これまでに約 {price}"
+            "value": "今回の稼働分は約 {price}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រហែល {price} រហូតមកដល់ពេលនេះ"
+            "value": "ប្រហែល {price} សម្រាប់ការដំណើរការលើកនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금까지 약 {price}"
+            "value": "이번 실행 예상 비용 {price}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omtrent {price} så langt"
+            "value": "Ca. {price} denne kjøringen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dotąd około {price}"
+            "value": "Oko {price} w tym uruchomieniu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerca de {price} até agora"
+            "value": "Aprox. {price} nesta execução"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пока около {price}"
+            "value": "Примерно {price} за текущий запуск"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ประมาณ {price} จนถึงตอนนี้"
+            "value": "ประมาณ {price} สำหรับการทำงานรอบนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Şu ana kadar yaklaşık {price}"
+            "value": "Bu çalıştırmada yaklaşık {price}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поки близько {price}"
+            "value": "Близько {price} за поточний запуск"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Khoảng {price} đến nay"
+            "value": "Khoảng {price} cho lần chạy này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前约 {price}"
+            "value": "本次运行预计 {price}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前約 {price}"
+            "value": "本次執行預計 {price}"
           }
         }
       }
@@ -1988,127 +1988,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقل من {price} حتى الآن"
+            "value": "أقل من {price} في فترة التشغيل الحالية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do sada ispod {price}"
+            "value": "Manje od {price} u ovom pokretanju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Under {price} indtil nu"
+            "value": "Under {price} i denne kørsel"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bisher unter {price}"
+            "value": "Unter {price} in diesem Lauf"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Under {price} so far"
+            "value": "Under {price} this run"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menos de {price} hasta ahora"
+            "value": "Menos de {price} en esta ejecución"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moins de {price} jusqu’ici"
+            "value": "Moins de {price} pour cette session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Meno di {price} finora"
+            "value": "Meno di {price} in questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これまでに {price} 未満"
+            "value": "今回の稼働分は {price} 未満"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "តិចជាង {price} រហូតមកដល់ពេលនេះ"
+            "value": "តិចជាង {price} សម្រាប់ការដំណើរការលើកនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금까지 {price} 미만"
+            "value": "이번 실행 비용 {price} 미만"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Under {price} så langt"
+            "value": "Under {price} denne kjøringen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dotąd poniżej {price}"
+            "value": "Poniżej {price} w tym uruchomieniu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menos de {price} até agora"
+            "value": "Menos de {price} nesta execução"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пока меньше {price}"
+            "value": "Менее {price} за текущий запуск"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ถึง {price} จนถึงตอนนี้"
+            "value": "ต่ำกว่า {price} สำหรับการทำงานรอบนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Şu ana kadar {price} altında"
+            "value": "Bu çalıştırmada {price} altında"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поки менше {price}"
+            "value": "Менше ніж {price} за поточний запуск"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dưới {price} đến nay"
+            "value": "Dưới {price} cho lần chạy này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前不到 {price}"
+            "value": "本次运行低于 {price}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "目前不到 {price}"
+            "value": "本次執行低於 {price}"
           }
         }
       }
