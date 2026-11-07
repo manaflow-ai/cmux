@@ -71,7 +71,6 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 /// Leo's row: a coordinator's `acpmux send` to a lane on another machine, its output cut to the
 /// daemon's one line.
-const MESSAGE = "coord: the old lane's handoff is yours now. Rebase on feat-cmux-next first.";
 const leoSend: Tool = {
   id: "toolu_leo_send",
   title: "acpmux send gcp-codex-lane-12/acpmux-client-rust-2 …",
@@ -86,7 +85,9 @@ async function draw(node: ReactNode) {
   root ??= createRoot(host);
   const store = new SubsessionStore();
   await act(async () =>
-    root!.render(<SubsessionContext.Provider value={{ store, open: () => undefined }}>{node}</SubsessionContext.Provider>),
+    root!.render(
+      <SubsessionContext.Provider value={{ store, open: () => undefined }}>{node}</SubsessionContext.Provider>,
+    ),
   );
 }
 

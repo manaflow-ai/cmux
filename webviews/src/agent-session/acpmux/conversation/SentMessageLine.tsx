@@ -1,36 +1,35 @@
-// A message this agent sent another one, as one tool row: "Sending message to tests" with the
-// working spinner while it goes out, "Sent message to tests" with the envelope once it went, and
-// "Couldn't send to tests" when it failed; then how it was delivered, when the call says ("· queued"),
-// and the message's first line, muted, while the row is shut. The row opens to the whole message as
-// Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
-// saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
-// opens to its output. A send whose words the transcript does not hold opens straight to the call,
-// with no Raw toggle. Both ways of sending draw this one row: a cmux-subsessions `send_message`
-// (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
-// Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
-// target opens its chat beside this one when the session list knows it (by id, or by `name`,
-// `host/name` or `host:name`); otherwise it is plain text. A shell call that also ran other
-// commands says so ("· and 2 more commands"), its whole command behind Raw: no work is hidden.
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useId,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+// A message this agent sent another one, drawn as another agent's message to this chat is
+// (IncomingMessageCard.tsx; ask-64e107ccf0, Leo 2026-11-07: "it's just not good, compared to the
+// normal ones"): the shared DisclosureRow's line, the envelope in the sender's mark slot, "Sent to"
+// ("Sending to" while it goes out, "Couldn't send to" when it failed), the recipient's chip with its
+// machine after it, muted, as a sender's is, then the message's first line muted and the chevron,
+// and how it was delivered at the line's end ("queued"). Direction is the words, never another look.
+// The row opens to the received message's card: the whole message as Markdown, its first line then
+// gone from the line (Leo 2026-10-29: "this rendering can be better for sent stuff"), Copy in the
+// card's corner, and Raw under it as a received message's Details is, closed until asked for and
+// closed again whenever the row draws anew. Raw holds the call as it was made: a shell call's plain
+// command row (ToolRow.tsx), never a Shell card in the message, or an MCP call's request and
+// response. A failed send starts with Raw open: its output says why. A send whose words the
+// transcript does not hold opens straight to the call. Both ways of sending draw this one row: a
+// cmux-subsessions `send_message` (SubsessionCallCard.tsx) and a shell `acpmux send`
+// (acpmuxSends.ts, `AcpmuxSendLine` below). Whether the row is open lasts across the virtualized
+// transcript (transcriptDisclosure.tsx). The recipient opens its chat beside this one when the
+// session list knows it (by id, or by `name`, `host/name` or `host:name`); otherwise it is the
+// neutral chip. A shell call that also ran other commands says so ("· and 2 more commands"), its
+// whole command behind Raw: no work is hidden.
+import { type ReactNode, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
-import { useFindReveal } from "./chatFind";
-import { AlertCircle, ChevronRight, Envelope } from "./icons";
+import { FindReveal, foldFind, useFindReveal } from "./chatFind";
+import { AlertCircle, Envelope, ChevronRight } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
-import { SentActions } from "./MessageActions";
+import { CardCopy } from "./CardCopy";
+import { senderLabel } from "./IncomingMessageCard";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { messageRunSummary } from "./messageRuns";
 import { AgentNamesContext, recipientName, shortId } from "./agentNames";
@@ -38,9 +37,11 @@ import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
-import { ShellBlock } from "./ShellBlock";
+import { ToolRow } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useMessageLineLook } from "./messageLineLook";
+import { sentMessageLook } from "./sentMessageLook.experiment";
+import { DisclosureRow } from "../subagents/DisclosureRow";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
@@ -149,26 +150,34 @@ export function SentMessageLine({
   const lineLook = useMessageLineLook();
   const stacked = shape === "sentence" && lineLook !== "single";
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // Raw is the row's own, closed each time the row draws (a remount, a reload, the virtualized
+  // transcript drawing it again), whatever the row's saved state: the message is what the row is
+  // for, the call a click further (Leo, 2026-11-07, on a Raw found open on its Shell card: "Did we
+  // not fix this formatting yet? Um, like the raw thing?"). Only a failed send starts it open.
   const [rawShown, setRawShown] = useState(rawOpen);
   // A send that fails while it shows opens its Raw then: the output says why.
   useEffect(() => {
     if (rawOpen) setRawShown(true);
   }, [rawOpen]);
   const [reveal, setReveal] = useState(0);
-  // Find in Chat opens the row and its Raw: the match may be in the command or its output.
+  // Find in Chat opens the row. It opens Raw only for a match that is not in the message's words
+  // (the command's other parts, its output), as a received message opens its Details.
+  const find = useContext(FindReveal);
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]),
     () => {
       setOpen(true);
-      setRawShown(true);
+      const needle = find?.toolId === undefined ? (find?.needle ?? "") : "";
+      if (!text || (needle && !foldFind(text).includes(needle))) setRawShown(true);
       setReveal((value) => value + 1);
     },
   );
-  const id = useId();
+  const look = experimentArm(sentMessageLook);
   const chats = useContext(SubsessionContext);
   const store = chats?.store ?? NO_STORE;
   const readChat = () => targetChat(store, target, targetSession);
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
+  const place = recipientPlace(target, chat ? store.host(chat) : undefined);
   const preview = text ? messagePreview(text) : "";
   // The open row shows the whole message under it: its first line on the row would say it twice.
   const shown = preview && state !== "failed" && !(open && text) ? preview : "";
@@ -183,113 +192,143 @@ export function SentMessageLine({
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
       : sendLabel(t, state);
   const [before, after = ""] = label.split(MARK);
-  // The recipient as every message row draws it: a chip, and a button when its chat is known.
+  // The recipient as a received message's sender draws: its chip (the session link chip when its
+  // chat is known), then the machine it runs on, muted, after it.
   const name =
     chat && chats ? (
       <AgentTag
-        name={target}
-        className="cv-agentmsg__name cv-recipient cv-sent__target"
+        name={place.name}
+        className="cv-received__from cv-received__from--open cv-recipient cv-sent__target"
         title={t("subagents.open", { name: target })}
+        ariaLabel={t("subagents.open", { name: target })}
         onClick={(event) => {
           event.stopPropagation();
           (chats.openSender ?? chats.open)(chat);
         }}
       />
     ) : (
-      <span className="cv-agentmsg__name cv-recipient is-plain">{target}</span>
+      <AgentTag name={place.name} className="cv-received__from cv-recipient cv-sent__name" title={target} />
     );
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
-  const toggle = () => setOpen((value) => !value);
   const icon = state === "failed" ? <AlertCircle /> : <Envelope />;
+  const words = [before.trim(), target, after.trim()].filter(Boolean).join(" ");
   return (
-    <>
-      {/* A div, not a button: the target inside it is a button of its own. */}
-      <div
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="button"
-        tabIndex={0}
-        className={`cv-tool is-toggle cv-subsession cv-sent${state === "sending" ? " is-live" : " is-strong"}`}
-        data-send-state={state}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={toggle}
-        onKeyDown={(event: KeyboardEvent) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-          event.preventDefault();
-          toggle();
-        }}
-      >
-        <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>{icon}</span>
-        {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
-        <span className="cv-agentmsg__sentence">
-          {before.trim() && <span className="cv-agentmsg__words">{before.trim()}</span>}
+    <DisclosureRow
+      className={`cv-received cv-sent-msg look-${look}${state === "sending" ? " is-live" : ""}${state === "failed" ? " is-failed" : ""}`}
+      attributes={{ "data-send-state": state }}
+      open={open}
+      onOpenChange={setOpen}
+      lineClassName="cv-agent-activity-row"
+      leading={
+        <span className="cv-received__sender cv-sent__sender">
+          <span className={`cv-received__mark${state === "failed" ? " cv-tool__failed" : ""}`} aria-hidden="true">
+            {icon}
+          </span>
+          {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
+          {before.trim() && <span className="cv-sent__words">{before.trim()}</span>}
           {before.trim() && " "}
           {name}
+          {place.host && " "}
+          {place.host && <span className="cv-received__host">{place.host}</span>}
           {after.trim() && " "}
-          {after.trim() && <span className="cv-agentmsg__words">{after.trim()}</span>}
-          {more && " "}
-          {more && <span className="cv-tool__detail cv-sent__more">{`· ${more}`}</span>}
-          {shape !== "arrow" && trailing && " "}
-          {shape === "quote" && trailing && (
-            // l10n-allow: punctuation around the message's own words.
-            <span className="cv-agentmsg__preview cv-sent__preview">{`“${trailing}”`}</span>
-          )}
-          {shape === "sentence" && trailing && (
-            <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
-          )}
-          {source && (
-            <>
-              {" "}
-              <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+          {after.trim() && <span className="cv-sent__words">{after.trim()}</span>}
+        </span>
+      }
+      toggleLabel={[words, more, trailing || source].filter(Boolean).join(" · ")}
+      label={
+        (more || trailing || source) && (
+          <span className="cv-received__preview cv-sent__preview" data-find-skip="">
+            {more && <span className="cv-sent__more">{`· ${more}`}</span>}
+            {more && (trailing || source) && " "}
+            {shape === "quote" && trailing
+              ? // l10n-allow: punctuation around the message's own words.
+                `“${trailing}”`
+              : trailing}
+            {source && (
+              <code className="cv-sent__file" title={source}>
                 {source}
               </code>
-            </>
-          )}
-        </span>
-        {/* No Copy on the row: a message line is no code or reply to copy (Leo, 2026-11-04: "why is
-            there even a copy button on the right here? ... let's remove copy button"). Stacked, the
-            opened message keeps its quiet Copy beside Raw. */}
-        {detail && " "}
-        {detail && (
-          <span className="cv-tool__trail">
-            <span className="cv-command__meta cv-agentmsg__status">
-              <span className="cv-row-status">{detail}</span>
-            </span>
+            )}
           </span>
-        )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
-      </div>
-      {below && (
-        // The first line, on its own line at the text column, cut there; it toggles as the row does.
-        // Its words are the opened message's, so a screen reader and Find read them there.
-        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-        <div className="cv-msgline__preview cv-sent__below" aria-hidden data-find-skip="" onClick={toggle}>
-          {text ? below : <code className="cv-sent__file">{below}</code>}
-        </div>
+        )
+      }
+      below={below ? text ? below : <code className="cv-sent__file">{below}</code> : undefined}
+      fadeIn={false}
+      actions={
+        detail ? (
+          <span className="cv-command__meta cv-agentmsg__status cv-sent__status">
+            <span className="cv-row-status">{detail}</span>
+          </span>
+        ) : undefined
+      }
+    >
+      {text ? (
+        <>
+          {/* No Copy on the line (Leo, 2026-11-04: "let's remove copy button"); the card's corner
+              copies the words, as a received message's does. */}
+          <CardCopy text={text} />
+          <div className="cv-received__text selectable">
+            <AgentMessageBody text={text} commits="quiet" />
+          </div>
+          <RawDetails open={rawShown} onOpenChange={setRawShown}>
+            {raw(reveal)}
+          </RawDetails>
+        </>
+      ) : (
+        // No words to render: the call is all there is, so it shows at once, not behind a
+        // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
+        <div className="cv-sent__call">{raw(reveal)}</div>
       )}
+    </DisclosureRow>
+  );
+}
+
+/// A recipient's name and the machine it runs on, as a received message's sender reads
+/// (IncomingMessageCard.tsx `senderLabel`): `host/name` and `host:name` name a peer's chat, and the
+/// listed chat's own machine names it otherwise. A basket (`reports:leo`) is no machine's.
+export function recipientPlace(target: string, listedHost: string | undefined): { name: string; host?: string } {
+  const split = /^([^/:\s]+)[/:](.+)$/.exec(target.trim());
+  if (listedHost) {
+    const name = senderLabel(split && split[1] === listedHost ? split[2]! : target, listedHost);
+    return { name, host: listedHost };
+  }
+  if (split && target.includes("/")) return { name: split[2]!, host: split[1] };
+  return { name: target };
+}
+
+/// Raw under an opened sent message, closed until asked for: a quiet link as a received message's
+/// Details (the default arm), a bare chevron, or a link shown on hover (sentMessageLook.experiment.ts).
+function RawDetails({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const id = useId();
+  const look = experimentArm(sentMessageLook);
+  return (
+    <div className="cv-received__details cv-sent__raw" data-find-skip={open ? undefined : ""}>
+      <button
+        type="button"
+        className="cv-received__more"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        aria-label={look === "chevron" ? t("subsession.raw") : undefined}
+        onClick={() => onOpenChange(!open)}
+      >
+        {look !== "chevron" && t("subsession.raw")}
+        <ChevronRight size={12} className={`cv-rotor${open ? " is-open" : ""}`} />
+      </button>
       {open && (
-        <div id={id} className="cv-subsession__under">
-          {text ? (
-            <>
-              <div className="cv-subsession__markdown selectable">
-                <AgentMessageBody text={text} commits="quiet" />
-              </div>
-              <RawToggle
-                open={rawShown}
-                onOpenChange={setRawShown}
-                actions={stacked ? <SentActions text={text} /> : undefined}
-              >
-                {raw(reveal)}
-              </RawToggle>
-            </>
-          ) : (
-            // No words to render: the call is all there is, so it shows at once, not behind a
-            // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
-            <div className="cv-subsession__raw">{raw(reveal)}</div>
-          )}
+        <div id={id} className="cv-sent__raw-body">
+          {children}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -391,16 +430,17 @@ export function AcpmuxSendLine({
       disclosureKey={`send:${sendKey(tool.id, send.index)}`}
       others={grouped ? 0 : send.others}
       rawOpen={send.state === "failed"}
-      raw={(reveal) => <SendRaw tool={tool} reveal={reveal} live={send.state === "sending"} />}
+      raw={(reveal) => <SendRaw tool={tool} reveal={reveal} />}
     />
   );
 }
 
 /// The call behind a send row's Raw: a shell call's command and output, an MCP call's request and
 /// response.
-function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boolean }) {
+function SendRaw({ tool, reveal }: { tool: Tool; reveal: number }) {
   const id = useId();
   const call = useMemo(() => (tool.command ? undefined : (mcpCall(tool) ?? acpmuxMcpSendCall(tool))), [tool]);
+  const item = useMemo((): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool }), [tool]);
   if (call)
     return (
       <McpCallDetails
@@ -413,8 +453,12 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
         reveal={reveal}
       />
     );
+  // A shell call is the plain command row every other command draws (ToolRow.tsx), closed until
+  // opened, never a Shell card inside the message (ask-64e107ccf0).
   return (
-    <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />
+    <div className="cv-tools">
+      <ToolRow item={item} />
+    </div>
   );
 }
 
