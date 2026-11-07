@@ -56,6 +56,9 @@ pub(super) struct Wanted {
     asked: Notify,
     /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
     cut_at: StdMutex<Option<Instant>>,
+    /// When the last ask came, so one made before a waiter listens still counts
+    /// (`Peer::next_ask_after`); `asked` wakes only the waiters there are.
+    asked_at: StdMutex<Option<Instant>>,
 }
 
 impl Peer {
@@ -98,13 +101,18 @@ impl Peer {
         ssh
     }
 
-    /// The first ask that comes at or after `after` (`Peer::connect_once`); asks before it,
-    /// such as the one that started this attempt, are not counted.
+    /// The first ask that comes at or after `after` (`Peer::connect_once`), also one that came
+    /// before this was first polled; asks before `after`, such as the one that started this
+    /// attempt, are not counted.
     pub(super) async fn next_ask_after(&self, after: Instant) {
         loop {
             let asked = self.wanted.asked.notified();
             tokio::pin!(asked);
             asked.as_mut().enable();
+            let last = *self.wanted.asked_at.lock().unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|at| at >= after) {
+                return;
+            }
             asked.await;
             if Instant::now() >= after {
                 return;
@@ -118,6 +126,7 @@ impl Peer {
         let mut held = self.wanted.until.lock().unwrap_or_else(|e| e.into_inner());
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
+        *self.wanted.asked_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(now);
         self.wanted.asked.notify_waiters();
     }
 
@@ -226,6 +235,23 @@ mod tests {
         peer.want();
         assert_eq!(wait.await.unwrap(), BackoffWait::Done);
         assert!(again.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", again.elapsed());
+    }
+
+    /// Review of #38015 (F1): an ask made while the attempt was still opening its tunnel, before
+    /// anything listened for it, restarts the attempt all the same; one before the mark does not.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_before_the_listener_still_counts_when_it_came_after_the_mark() {
+        let peer = peer();
+        let after = Instant::now() + Duration::from_millis(100);
+        tokio::time::advance(Duration::from_millis(200)).await;
+        peer.want();
+        tokio::time::timeout(Duration::from_millis(10), peer.next_ask_after(after))
+            .await
+            .expect("an ask after the mark counts, though nothing listened yet");
+        let later = Instant::now() + Duration::from_millis(100);
+        peer.want();
+        let early = tokio::time::timeout(Duration::from_millis(50), peer.next_ask_after(later));
+        assert!(early.await.is_err(), "an ask before the mark is not counted");
     }
 
     #[tokio::test(start_paused = true)]
