@@ -227,6 +227,7 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
 
+// Duplicate clipboard payloads are one chip even when generated filenames differ.
 test("pasting the same copied screenshot twice keeps one attachment atom", async () => {
   const composer = await openComposer();
   await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
