@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42424753475",
+  "recorded_at": "2026-11-07T23:26:46Z",
+  "reason": "cmux-tui e5f913795193 changes the image's cmux-tui (pinned a936bfb0d78e)",
+  "dry_run": false,
+  "cmux_tui": "e5f913795193ed5867c454c429bc6e83c7926be8",
+  "fixes": [
+    {
+      "sha": "e5f913795193ed5867c454c429bc6e83c7926be8",
+      "mergedAt": "2026-11-07T15:04:11-08:00",
+      "subject": "acpmux sudo card: per-command passwordless check, stale cards close, stderr cap (#38040)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T23:26:46Z",
+    "snapshot_id": "sh-43221a88be8b4591a54a0fb59a678ff3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42424753475): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "83edcd492e900781048822cf6b0a6716971c6525",
+    "image": "cloud-native-auto-e5f91379-42424753475-1",
+    "revision": "ci-42424753475-1",
+    "at": "2026-11-07T23:26:46Z"
+  },
+  "rolled_back": false
+}
