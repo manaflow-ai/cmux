@@ -69,9 +69,9 @@ export class PairInviteStore {
     return this.run(PairInviteOps.setRunChief, { on });
   }
 
-  /** The host takes it only from the person's own click on the card. */
-  confirm(name: string): Promise<boolean> {
-    return this.run(PairInviteOps.confirm, { name });
+  /** The Name field, for the native Confirm (the page never approves). */
+  setName(name: string): Promise<boolean> {
+    return this.run(PairInviteOps.setName, { name });
   }
 
   private async run(op: string, params: unknown): Promise<boolean> {

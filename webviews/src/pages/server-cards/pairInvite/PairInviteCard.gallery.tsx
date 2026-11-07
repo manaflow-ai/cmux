@@ -41,6 +41,7 @@ export default componentEntry<Props>({
             copied={null}
             layout={layout}
             onAction={() => {}}
+            controlStandIn
             onRunChief={() => {}}
           />
         </div>

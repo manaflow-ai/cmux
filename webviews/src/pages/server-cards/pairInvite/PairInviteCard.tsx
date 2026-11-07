@@ -32,9 +32,13 @@ export interface PairInviteCardProps {
   now: number;
   copied: CopyTarget | null;
   layout?: PairInviteLayout;
-  /** A footer or Copy button; `name` is the Name field (Confirm reads it). */
-  onAction(action: Action, name: string): void;
+  /** A footer or Copy button. */
+  onAction(action: Action): void;
   onRunChief(on: boolean): void;
+  /** The Name field changed (the native Confirm reads it). */
+  onNameChange?(name: string): void;
+  /** Draws Confirm and Try Again in their slots (the gallery); in the app the panel's native button does. */
+  controlStandIn?: boolean;
 }
 
 const MINTING: PairInviteStatus = {
@@ -52,6 +56,8 @@ export function PairInviteCard({
   layout = "side",
   onAction,
   onRunChief,
+  onNameChange,
+  controlStandIn = false,
 }: PairInviteCardProps) {
   const { t } = strings;
   const step = stepOf(phaseOf(status, now), status.approver);
@@ -59,8 +65,13 @@ export function PairInviteCard({
   // The Name field keeps what the person typed for this machine; it is read only on Confirm.
   const [typed, setTyped] = useState<{ code: string; value: string } | null>(null);
   const name = candidate && typed?.code === candidate.code ? typed.value : (candidate?.name ?? "");
+  const nameChange = useRef(onNameChange);
+  nameChange.current = onNameChange;
+  useEffect(() => {
+    if (candidate) nameChange.current?.(name);
+  }, [candidate, name]);
   const buttons = buttonsOf(step);
-  const press = (action: Action) => onAction(action, name);
+  const press = (action: Action) => onAction(action);
   // Return presses the default button, never Confirm or Try Again: only a click pairs a machine.
   const main = buttons.find((button) => button.key === "return");
   const onReturn = useRef<(() => void) | null>(null);
@@ -99,19 +110,34 @@ export function PairInviteCard({
       <footer className="server-card-footer">
         {step.kind === "approving" && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
-        {buttons.map((button) => (
-          <DialogButton
-            key={button.action}
-            dialogKey={isClickOnly(button.action) ? null : button.key}
-            className={cx("server-card-button", button.key === "return" && "is-default")}
-            data-action={button.action}
-            {...(isClickOnly(button.action) ? { [PERSON_CLICK_ATTRIBUTE]: "" } : {})}
-            disabled={!isEnabled(button.action, step, status.approver)}
-            onClick={() => press(button.action)}
-          >
-            {buttonTitle(button.action, strings, copied)}
-          </DialogButton>
-        ))}
+        {buttons.map((button) =>
+          isClickOnly(button.action) ? (
+            // SECURITY: only a slot. The panel draws the native Confirm over it; the page never approves.
+            <DialogButton
+              key={button.action}
+              dialogKey={null}
+              className={cx("server-card-button is-default", !controlStandIn && "server-card-person-slot")}
+              data-action={button.action}
+              {...{ [PERSON_CLICK_ATTRIBUTE]: "" }}
+              aria-hidden={!controlStandIn}
+              tabIndex={-1}
+              disabled={!isEnabled(button.action, step, status.approver)}
+            >
+              {buttonTitle(button.action, strings, copied)}
+            </DialogButton>
+          ) : (
+            <DialogButton
+              key={button.action}
+              dialogKey={button.key}
+              className={cx("server-card-button", button.key === "return" && "is-default")}
+              data-action={button.action}
+              disabled={!isEnabled(button.action, step, status.approver)}
+              onClick={() => press(button.action)}
+            >
+              {buttonTitle(button.action, strings, copied)}
+            </DialogButton>
+          ),
+        )}
       </footer>
     </section>
   );

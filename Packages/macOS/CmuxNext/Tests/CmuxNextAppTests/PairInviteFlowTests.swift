@@ -195,7 +195,7 @@ import Testing
     }
 
     /// SECURITY: Confirm from a key, a script or the page's own call approves nothing: only the
-    /// person's own click on the card (WebCardPanel.isPersonClick) reaches the approve.
+    /// person's own click on the panel's native Confirm (WebCardPanel's PersonControl) reaches the approve.
     @Test func confirmIsRefusedWithoutThePersonsClick() async {
         let fake = Fake()
         let source = MockServerSource()
@@ -206,11 +206,15 @@ import Testing
         fake.push(.arrived(code: MockServerScenario.offerCode))
         await settle()
         for context in [PageCallContext(page: "cmux.server-cards"), Self.gesture] {
-            await #expect(throws: PageError.self) {
-                _ = try await provider.call(PairInviteCardProvider.confirmOp, params: ["name": "x"], context: context)
+            await #expect(throws: PageError.self, "the page has no approve op: Confirm is the panel's native button") {
+                _ = try await provider.call("cmux.pairInvite.confirm", params: ["name": "x"], context: context)
             }
         }
-        #expect(approvals(source).isEmpty, "a key's gesture with no click on a card approves nothing")
+        #expect(approvals(source).isEmpty, "no page call approves")
+        #expect(provider.personControl?.title == PairInviteCardStrings.confirm, "the native Confirm shows for the arrived machine")
+        _ = try? await provider.call(PairInviteCardProvider.setNameOp, params: ["name": "build box"], context: PageCallContext(page: "cmux.server-cards"))
+        provider.personPressed()
+        #expect(approvals(source).count == 1, "the person's click on the native Confirm approves")
         let descriptor = ServerActionCatalog.descriptors().first { $0.id == "server.pairAnotherMachine" }
         #expect(descriptor?.isPersonOnly == true, "only a person may open the card and mint an invite")
         #expect(descriptor?.arguments.isEmpty == true, "the action takes no code, words or confirm: nothing to script")
@@ -314,32 +318,52 @@ import Testing
         #expect(made == 2, "a later opening makes a new card panel")
     }
 
-    private static func click(_ panel: WebCardPanel, _ type: NSEvent.EventType, at time: TimeInterval) {
-        guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: 20, y: 20), modifierFlags: [], timestamp: time,
-                                             windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
-                                             pressure: 1) else { return }
-        panel.sendEvent(event)
+    /// A panel showing `card` with an enabled native control over a slot.
+    private static func panelWithControl(_ card: CountingCard) throws -> WebCardPanel {
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
+        panel.present(card: card.card, over: nil, takeKeys: false)
+        panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: true), card: card.card)
+        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 360, y: 160, width: 88, height: 28))
+        panel.rearm(at: 0)
+        return panel
     }
 
-    @Test func aGuardMovedUnderAnEarlierClickLendsItNothing() throws {
+    @Test func theNativeControlTakesOnlyThePersonsClickOnIt() throws {
         let card = CountingCard(PairInviteCardProvider.route)
-        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
-        panel.isPersonEvent = { _ in true }
-        panel.present(card: card.card, over: nil, takeKeys: false)
-        let everywhere = CGRect(x: -10_000, y: -10_000, width: 20_000, height: 20_000)
-        let start = ProcessInfo.processInfo.systemUptime + 10
-        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: -500, y: -500, width: 1, height: 1))
-        panel.rearm(at: 0)
-        // The person clicks somewhere else on the card (Name); then a script moves Confirm's guard under it.
-        Self.click(panel, .leftMouseDown, at: start)
-        Self.click(panel, .leftMouseUp, at: start + 0.05)
-        panel.pageResized(card: card.card, width: 460, height: 200, control: everywhere)
-        let stolen = PageCallContext(page: "cmux.server-cards", userGesture: true, gestureEvent: start + 0.05)
-        #expect(!panel.isPersonClick(stolen), "a guard set after the click never counts it")
-        // A click on the control as it stands still counts.
-        Self.click(panel, .leftMouseDown, at: start + 5)
-        Self.click(panel, .leftMouseUp, at: start + 5.05)
-        #expect(panel.isPersonClick(PageCallContext(page: "cmux.server-cards", userGesture: true, gestureEvent: start + 5.05)))
+        let panel = try Self.panelWithControl(card)
+        #expect(!panel.personButton.isHidden, "the native Confirm draws over the page's slot")
+        #expect(panel.personButton.title == "Confirm")
+        let down = panel.controlPlacedAt + 1
+        #expect(panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: true))
+        #expect(!panel.countsPersonPress(down: down, onControl: false, upIsPerson: true, isKey: true), "a click elsewhere on the card")
+        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: false, isKey: true), "a posted or scripted up")
+        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: false), "a panel that is not key")
+        panel.setPersonControl(PersonControl(title: "Confirm", isEnabled: false), card: card.card)
+        #expect(!panel.countsPersonPress(down: down, onControl: true, upIsPerson: true, isKey: true), "a disabled Confirm")
+        panel.setPersonControl(nil, card: card.card)
+        #expect(panel.personButton.isHidden)
+    }
+
+    @Test func aControlTheSlotJustMovedRefusesAClickAtOnce() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let panel = try Self.panelWithControl(card)
+        // A script moves the slot under the pointer just before the person's click.
+        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 20, y: 60, width: 88, height: 28))
+        let moved = panel.controlPlacedAt
+        #expect(!panel.countsPersonPress(down: moved + 0.05, onControl: true, upIsPerson: true, isKey: true),
+                "a click right after the control moved is not aimed at it")
+        #expect(panel.countsPersonPress(down: moved + WebCardPanel.steadyControl + 0.05, onControl: true, upIsPerson: true, isKey: true),
+                "once it has stayed put, the person's click counts")
+    }
+
+    @Test func theSlotIsClampedToTheCardAtAMinimumSize() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let panel = try Self.panelWithControl(card)
+        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: 5_000, y: -5_000, width: 1, height: 1))
+        let bounds = try #require(panel.personButton.superview?.bounds)
+        #expect(bounds.contains(panel.personButton.frame), "kept inside the card")
+        #expect(panel.personButton.frame.width >= WebCardPanel.minimumControl.width)
+        #expect(panel.personButton.frame.height >= WebCardPanel.minimumControl.height)
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {

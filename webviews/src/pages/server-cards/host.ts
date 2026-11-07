@@ -19,11 +19,11 @@ export function cardOfHash(hash: string): string | null {
   return match ? match[1]! : null;
 }
 
-/** The attribute that marks a card's click-only control (Confirm): the panel takes a click for it
- * only inside that control's frame (WebCardPanel.isPersonClick). */
+/** The attribute that marks the slot of a card's click-only control (Confirm): the panel draws its
+ * own native button over it (WebCardPanel's PersonControl), which only the person's click presses. */
 export const PERSON_CLICK_ATTRIBUTE = "data-person-click";
 
-/** Reports `ref`'s size, and its click-only control's frame, to the panel whenever either changes
+/** Reports `ref`'s size, and its click-only control's slot, to the panel whenever either changes
  * (the first layout included). */
 export function useCardSize(client: PageClient | null, card: string, ref: RefObject<HTMLElement | null>): void {
   const last = useRef("");

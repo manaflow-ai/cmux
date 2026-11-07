@@ -220,3 +220,9 @@ body {
   align-items: center;
   gap: 8px;
 }
+
+/* The slot the panel draws its native Confirm over (WebCardPanel's PersonControl): laid out like
+   the button it stands for, never drawn or clicked in the page. */
+.server-card-person-slot {
+  visibility: hidden;
+}

@@ -123,12 +123,16 @@ test("a change event reads the status again: the arrived machine shows its words
   ]);
   await key("Enter");
   await flush();
-  expect(ops(fake.calls, "cmux.pairInvite.confirm")).toEqual([]);
-  // The panel takes a click for Confirm only inside the frame the page marks.
-  expect(host.querySelector("[data-person-click]")?.getAttribute("data-action")).toBe("confirm");
+  // SECURITY: the page only leaves a slot for Confirm (the panel's native button draws over it):
+  // neither Return nor a press in the page approves anything.
+  const slot = host.querySelector("[data-person-click]");
+  expect(slot?.getAttribute("data-action")).toBe("confirm");
+  expect(slot?.classList.contains("server-card-person-slot")).toBe(true);
   await press("[data-action='confirm']");
   await flush();
-  expect(ops(fake.calls, "cmux.pairInvite.confirm").map((call) => call.params)).toEqual([{ name: "build-box" }]);
+  expect(fake.calls.filter((call) => /confirm|approve/i.test(call.op))).toEqual([]);
+  // The Name field reaches the host for the native Confirm.
+  expect(ops(fake.calls, "cmux.pairInvite.setName").map((call) => call.params)).toEqual([{ name: "build-box" }]);
 });
 
 test("an ended invite offers New Code on Return; Cancel and Escape close the card", async () => {
