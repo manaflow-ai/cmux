@@ -56756,7 +56756,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Match Terminal Background",
+      "title" : "Match Terminal Background",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -58065,7 +58065,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Notification Banners",
+      "title" : "Notification Banners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78481,7 +78481,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Tab Animations",
+      "title" : "New Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78544,7 +78544,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle New Workspace Animations",
+      "title" : "New Workspace Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78609,7 +78609,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle All Animations",
+      "title" : "All Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78674,7 +78674,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Sidebar Animations",
+      "title" : "Sidebar Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78737,7 +78737,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Tab Animations",
+      "title" : "Tab Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78802,7 +78802,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane and Window Animations",
+      "title" : "Pane and Window Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78868,7 +78868,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Menu and Card Animations",
+      "title" : "Menu and Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78931,7 +78931,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Hover Card Animations",
+      "title" : "Hover Card Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -78996,7 +78996,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Home and Chat Animations",
+      "title" : "Home and Chat Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79060,7 +79060,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Agent Cursor Animations",
+      "title" : "Agent Cursor Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79125,7 +79125,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Spinner and Progress Animations",
+      "title" : "Spinner and Progress Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79190,7 +79190,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Highlight and Color Animations",
+      "title" : "Highlight and Color Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79254,7 +79254,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Web Page Animations",
+      "title" : "Web Page Animations",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79573,7 +79573,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Borders",
+      "title" : "Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79638,7 +79638,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Pane Padding",
+      "title" : "Pane Padding",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -79703,7 +79703,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Rounded Pane Corners",
+      "title" : "Rounded Pane Corners",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80360,7 +80360,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring",
+      "title" : "Focus Ring",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80552,7 +80552,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Focus Ring for a Single Pane",
+      "title" : "Focus Ring for a Single Pane",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -80618,7 +80618,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Thick Pane Borders",
+      "title" : "Thick Pane Borders",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -88635,7 +88635,7 @@
       "targets" : [
 
       ],
-      "title" : "Toggle Column Scroll Bar",
+      "title" : "Column Scroll Bar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

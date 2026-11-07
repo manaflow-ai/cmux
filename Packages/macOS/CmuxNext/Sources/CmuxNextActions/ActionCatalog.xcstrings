@@ -12080,127 +12080,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Pane Borders"
+            "value": "Pane Borders"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ペインの枠線を切り替え"
+            "value": "ペインの枠線"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل حدود الأجزاء"
+            "value": "حدود الأجزاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi rubove okna"
+            "value": "Rubovi okna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rudekanter til/fra"
+            "value": "Rudekanter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bereichsrahmen ein/aus"
+            "value": "Bereichsrahmen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar bordes de paneles"
+            "value": "Bordes de paneles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher/masquer les bordures des panneaux"
+            "value": "Bordures des panneaux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva bordi dei riquadri"
+            "value": "Bordi dei riquadri"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកស៊ុមផ្ទាំង"
+            "value": "ស៊ុមផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "창 테두리 전환"
+            "value": "창 테두리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rutekanter av/på"
+            "value": "Rutekanter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz obramowanie paneli"
+            "value": "Obramowanie paneli"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Bordas dos Painéis"
+            "value": "Bordas dos Painéis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить рамки панелей"
+            "value": "Рамки панелей"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับขอบบานหน้าต่าง"
+            "value": "ขอบบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölme Kenarlıklarını Aç/Kapat"
+            "value": "Bölme Kenarlıkları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути рамки панелей"
+            "value": "Рамки панелей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt viền ngăn"
+            "value": "Viền ngăn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换窗格边框"
+            "value": "窗格边框"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換窗格邊框"
+            "value": "窗格邊框"
           }
         }
       }
@@ -12342,127 +12342,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Thick Pane Borders"
+            "value": "Thick Pane Borders"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ペインの太い枠線を切り替え"
+            "value": "ペインの太い枠線"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل الحدود السميكة للأجزاء"
+            "value": "الحدود السميكة للأجزاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi debele rubove okna"
+            "value": "Debeli rubovi okna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå tykke rudekanter til/fra"
+            "value": "Tykke rudekanter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dicke Bereichsrahmen ein/aus"
+            "value": "Dicke Bereichsrahmen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar bordes gruesos de paneles"
+            "value": "Bordes gruesos de paneles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver les bordures épaisses des panneaux"
+            "value": "Bordures épaisses des panneaux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva bordi spessi dei riquadri"
+            "value": "Bordi spessi dei riquadri"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកស៊ុមក្រាស់នៃផ្ទាំង"
+            "value": "ស៊ុមក្រាស់នៃផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "두꺼운 창 테두리 전환"
+            "value": "두꺼운 창 테두리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå tykke rutekanter av/på"
+            "value": "Tykke rutekanter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz grube obramowanie paneli"
+            "value": "Grube obramowanie paneli"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Bordas Grossas dos Painéis"
+            "value": "Bordas Grossas dos Painéis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить толстые рамки панелей"
+            "value": "Толстые рамки панелей"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับขอบหนาของบานหน้าต่าง"
+            "value": "ขอบหนาของบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kalın Bölme Kenarlıklarını Aç/Kapat"
+            "value": "Kalın Bölme Kenarlıkları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути товсті рамки панелей"
+            "value": "Товсті рамки панелей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt viền ngăn dày"
+            "value": "Viền ngăn dày"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换粗窗格边框"
+            "value": "粗窗格边框"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換粗窗格邊框"
+            "value": "粗窗格邊框"
           }
         }
       }
@@ -12473,127 +12473,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Rounded Pane Corners"
+            "value": "Rounded Pane Corners"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ペインの角丸を切り替え"
+            "value": "ペインの角丸"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل الزوايا المستديرة للأجزاء"
+            "value": "الزوايا المستديرة للأجزاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi zaobljene uglove okna"
+            "value": "Zaobljeni uglovi okna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå afrundede rudehjørner til/fra"
+            "value": "Afrundede rudehjørner"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abgerundete Bereichsecken ein/aus"
+            "value": "Abgerundete Bereichsecken"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar esquinas redondeadas de paneles"
+            "value": "Esquinas redondeadas de paneles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver les coins arrondis des panneaux"
+            "value": "Coins arrondis des panneaux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva angoli arrotondati dei riquadri"
+            "value": "Angoli arrotondati dei riquadri"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកជ្រុងមូលផ្ទាំង"
+            "value": "ជ្រុងមូលផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "창 둥근 모서리 전환"
+            "value": "창 둥근 모서리"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå avrundede ruterhjørner av/på"
+            "value": "Avrundede rutehjørner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz zaokrąglone rogi paneli"
+            "value": "Zaokrąglone rogi paneli"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Cantos Arredondados dos Painéis"
+            "value": "Cantos Arredondados dos Painéis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить скруглённые углы панелей"
+            "value": "Скруглённые углы панелей"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับมุมโค้งมนของบานหน้าต่าง"
+            "value": "มุมโค้งมนของบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yuvarlak Bölme Köşelerini Aç/Kapat"
+            "value": "Yuvarlak Bölme Köşeleri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути заокруглені кути панелей"
+            "value": "Заокруглені кути панелей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt góc bo tròn của ngăn"
+            "value": "Góc bo tròn của ngăn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换窗格圆角"
+            "value": "窗格圆角"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換窗格圓角"
+            "value": "窗格圓角"
           }
         }
       }
@@ -12604,127 +12604,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Pane Padding"
+            "value": "Pane Padding"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ペインの余白を切り替え"
+            "value": "ペインの余白"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل هوامش الأجزاء"
+            "value": "هوامش الأجزاء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi razmak okna"
+            "value": "Razmak okna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rudeafstand til/fra"
+            "value": "Rudeafstand"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bereichsabstand ein/aus"
+            "value": "Bereichsabstand"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar margen de paneles"
+            "value": "Margen de paneles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver la marge des panneaux"
+            "value": "Marge des panneaux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva margine dei riquadri"
+            "value": "Margine dei riquadri"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកគម្លាតផ្ទាំង"
+            "value": "គម្លាតផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "창 여백 전환"
+            "value": "창 여백"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rutemarg av/på"
+            "value": "Rutemarg"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz odstęp paneli"
+            "value": "Odstęp paneli"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Espaçamento dos Painéis"
+            "value": "Espaçamento dos Painéis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить отступы панелей"
+            "value": "Отступы панелей"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับระยะขอบบานหน้าต่าง"
+            "value": "ระยะขอบบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bölme Boşluğunu Aç/Kapat"
+            "value": "Bölme Boşluğu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути відступи панелей"
+            "value": "Відступи панелей"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt khoảng đệm ngăn"
+            "value": "Khoảng đệm ngăn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换窗格边距"
+            "value": "窗格边距"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換窗格邊距"
+            "value": "窗格邊距"
           }
         }
       }
@@ -29110,13 +29110,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Focus Ring for a Single Pane"
+            "value": "Focus Ring for a Single Pane"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل حلقة التركيز للوحة واحدة"
+            "value": "حلقة التركيز للوحة واحدة"
           }
         },
         "bs": {
@@ -29128,13 +29128,13 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fokusring for én rude til/fra"
+            "value": "Fokusring for én rude"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fokusring bei einem Bereich ein/aus"
+            "value": "Fokusring bei einem Bereich"
           }
         },
         "es": {
@@ -29158,25 +29158,25 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "単一ペインのフォーカスリングを切り替え"
+            "value": "単一ペインのフォーカスリング"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើករង្វង់ផ្ដោតសម្រាប់ផ្ទាំងតែមួយ"
+            "value": "រង្វង់ផ្ដោតសម្រាប់ផ្ទាំងតែមួយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "단일 창 포커스 링 켜기/끄기"
+            "value": "단일 창 포커스 링"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fokusring for én rute av/på"
+            "value": "Fokusring for én rute"
           }
         },
         "pl": {
@@ -29200,7 +29200,7 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด/ปิดวงแหวนโฟกัสเมื่อมีบานเดียว"
+            "value": "วงแหวนโฟกัสเมื่อมีบานเดียว"
           }
         },
         "tr": {
@@ -29224,13 +29224,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换单窗格焦点环"
+            "value": "单窗格焦点环"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換單窗格焦點環"
+            "value": "單窗格焦點環"
           }
         }
       }
@@ -29503,127 +29503,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Focus Ring"
+            "value": "Focus Ring"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل حلقة التركيز"
+            "value": "حلقة التركيز"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi prsten fokusa"
+            "value": "Prsten fokusa"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå fokusring til/fra"
+            "value": "Fokusring"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fokusring ein/aus"
+            "value": "Fokusring"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activar o desactivar el anillo de foco"
+            "value": "Anillo de foco"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver l’anneau de focus"
+            "value": "Anneau de focus"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva anello di focus"
+            "value": "Anello di focus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスリングを切り替え"
+            "value": "フォーカスリング"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើករង្វង់ផ្ដោត"
+            "value": "រង្វង់ផ្ដោត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스 링 켜기/끄기"
+            "value": "포커스 링"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå fokusring av/på"
+            "value": "Fokusring"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz pierścień fokusu"
+            "value": "Pierścień fokusu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar anel de foco"
+            "value": "Anel de foco"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкл./выкл. рамку фокуса"
+            "value": "Рамка фокуса"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด/ปิดวงแหวนโฟกัส"
+            "value": "วงแหวนโฟกัส"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odak halkasını aç/kapat"
+            "value": "Odak halkası"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увімкнути/вимкнути рамку фокуса"
+            "value": "Рамка фокуса"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt viền tiêu điểm"
+            "value": "Viền tiêu điểm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换焦点环"
+            "value": "焦点环"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換焦點環"
+            "value": "焦點環"
           }
         }
       }
@@ -38935,127 +38935,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Notification Banners"
+            "value": "Notification Banners"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل لافتات الإشعارات"
+            "value": "لافتات الإشعارات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi banere obavještenja"
+            "value": "Baneri obavještenja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå notifikationsbannere til/fra"
+            "value": "Notifikationsbannere"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mitteilungsbanner ein/aus"
+            "value": "Mitteilungsbanner"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activar o desactivar avisos de notificación"
+            "value": "Avisos de notificación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver les bannières de notification"
+            "value": "Bannières de notification"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva i banner di notifica"
+            "value": "Banner di notifica"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知バナーを切り替え"
+            "value": "通知バナー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកផ្ទាំងការជូនដំណឹង"
+            "value": "ផ្ទាំងការជូនដំណឹង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "알림 배너 켜기/끄기"
+            "value": "알림 배너"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå varselbannere av/på"
+            "value": "Varselbannere"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz banery powiadomień"
+            "value": "Banery powiadomień"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar faixas de notificação"
+            "value": "Faixas de notificação"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкл./выкл. баннеры уведомлений"
+            "value": "Баннеры уведомлений"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด/ปิดแบนเนอร์การแจ้งเตือน"
+            "value": "แบนเนอร์การแจ้งเตือน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bildirim afişlerini aç/kapat"
+            "value": "Bildirim afişleri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увімкнути/вимкнути банери сповіщень"
+            "value": "Банери сповіщень"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt biểu ngữ thông báo"
+            "value": "Biểu ngữ thông báo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换通知横幅"
+            "value": "通知横幅"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換通知橫幅"
+            "value": "通知橫幅"
           }
         }
       }
@@ -51904,85 +51904,85 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Match Terminal Background"
+            "value": "Match Terminal Background"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナル背景に合わせるを切り替え"
+            "value": "ターミナル背景に合わせる"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل مطابقة خلفية الطرفية"
+            "value": "مطابقة خلفية الطرفية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prebaci usklađivanje s pozadinom terminala"
+            "value": "Usklađivanje s pozadinom terminala"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå matchende terminalbaggrund til/fra"
+            "value": "Matchende terminalbaggrund"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "An Terminal-Hintergrund anpassen umschalten"
+            "value": "An Terminal-Hintergrund anpassen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar igualar fondo del terminal"
+            "value": "Igualar fondo del terminal"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver le fond assorti au terminal"
+            "value": "Fond assorti au terminal"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva sfondo come il terminale"
+            "value": "Sfondo come il terminale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកការផ្គូផ្គងផ្ទៃខាងក្រោយ Terminal"
+            "value": "ការផ្គូផ្គងផ្ទៃខាងក្រោយ Terminal"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "터미널 배경 맞추기 전환"
+            "value": "터미널 배경 맞추기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå tilpass terminalbakgrunn av/på"
+            "value": "Tilpass terminalbakgrunn"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz dopasowanie do tła terminala"
+            "value": "Dopasowanie do tła terminala"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Combinar com Fundo do Terminal"
+            "value": "Combinar com Fundo do Terminal"
           }
         },
         "ru": {
@@ -51994,37 +51994,37 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับการใช้พื้นหลังตามเทอร์มินัล"
+            "value": "ใช้พื้นหลังตามเทอร์มินัล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminal Arka Planına Uymayı Aç/Kapat"
+            "value": "Terminal Arka Planına Uy"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути збіг із фоном терміналу"
+            "value": "Збіг із фоном терміналу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt khớp nền terminal"
+            "value": "Khớp nền terminal"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换匹配终端背景"
+            "value": "匹配终端背景"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換符合終端機背景"
+            "value": "符合終端機背景"
           }
         }
       }
@@ -90777,127 +90777,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle New Tab Animations"
+            "value": "New Tab Animations"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいタブのアニメーションを切り替え"
+            "value": "新しいタブのアニメーション"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل حركة علامات التبويب الجديدة"
+            "value": "حركة علامات التبويب الجديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi animacije novih kartica"
+            "value": "Animacije novih kartica"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå animationer af nye faner til/fra"
+            "value": "Animationer af nye faner"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Animationen neuer Tabs ein/aus"
+            "value": "Animationen neuer Tabs"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activar o desactivar animaciones de pestañas nuevas"
+            "value": "Animaciones de pestañas nuevas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver les animations des nouveaux onglets"
+            "value": "Animations des nouveaux onglets"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva animazioni delle nuove schede"
+            "value": "Animazioni delle nuove schede"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកចលនាផ្ទាំងថ្មី"
+            "value": "ចលនាផ្ទាំងថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 탭 애니메이션 전환"
+            "value": "새 탭 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå animasjoner av nye faner av/på"
+            "value": "Animasjoner av nye faner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz animacje nowych kart"
+            "value": "Animacje nowych kart"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar animações de novas abas"
+            "value": "Animações de novas abas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить анимацию новых вкладок"
+            "value": "Анимация новых вкладок"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับภาพเคลื่อนไหวแท็บใหม่"
+            "value": "ภาพเคลื่อนไหวแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni sekme animasyonlarını aç/kapat"
+            "value": "Yeni sekme animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути анімацію нових вкладок"
+            "value": "Анімація нових вкладок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt hiệu ứng tab mới"
+            "value": "Hiệu ứng tab mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换新标签页动画"
+            "value": "新标签页动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換新分頁動畫"
+            "value": "新分頁動畫"
           }
         }
       }
@@ -90908,127 +90908,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle New Workspace Animations"
+            "value": "New Workspace Animations"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいワークスペースのアニメーションを切り替え"
+            "value": "新しいワークスペースのアニメーション"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل حركة مساحات العمل الجديدة"
+            "value": "حركة مساحات العمل الجديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi animacije novih radnih prostora"
+            "value": "Animacije novih radnih prostora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå animationer af nye arbejdsområder til/fra"
+            "value": "Animationer af nye arbejdsområder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Animationen neuer Arbeitsbereiche ein/aus"
+            "value": "Animationen neuer Arbeitsbereiche"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activar o desactivar animaciones de espacios de trabajo nuevos"
+            "value": "Animaciones de espacios de trabajo nuevos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver les animations des nouveaux espaces de travail"
+            "value": "Animations des nouveaux espaces de travail"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva animazioni dei nuovi spazi di lavoro"
+            "value": "Animazioni dei nuovi spazi di lavoro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកចលនាកន្លែងធ្វើការថ្មី"
+            "value": "ចលនាកន្លែងធ្វើការថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 작업 공간 애니메이션 전환"
+            "value": "새 작업 공간 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå animasjoner av nye arbeidsområder av/på"
+            "value": "Animasjoner av nye arbeidsområder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz animacje nowych obszarów roboczych"
+            "value": "Animacje nowych obszarów roboczych"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar animações de novos espaços de trabalho"
+            "value": "Animações de novos espaços de trabalho"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить анимацию новых рабочих пространств"
+            "value": "Анимация новых рабочих пространств"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับภาพเคลื่อนไหวพื้นที่ทำงานใหม่"
+            "value": "ภาพเคลื่อนไหวพื้นที่ทำงานใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni çalışma alanı animasyonlarını aç/kapat"
+            "value": "Yeni çalışma alanı animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути анімацію нових робочих просторів"
+            "value": "Анімація нових робочих просторів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt hiệu ứng không gian làm việc mới"
+            "value": "Hiệu ứng không gian làm việc mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换新工作区动画"
+            "value": "新工作区动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換新工作區動畫"
+            "value": "新工作區動畫"
           }
         }
       }
@@ -95627,127 +95627,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل كل الرسوم المتحركة"
+            "value": "كل الرسوم المتحركة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi sve animacije"
+            "value": "Sve animacije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå alle animationer til/fra"
+            "value": "Alle animationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Animationen ein-/ausschalten"
+            "value": "Alle Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle All Animations"
+            "value": "All Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar todas las animaciones"
+            "value": "Todas las animaciones"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver toutes les animations"
+            "value": "Toutes les animations"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva tutte le animazioni"
+            "value": "Tutte le animazioni"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのアニメーションを切り替え"
+            "value": "すべてのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាទាំងអស់"
+            "value": "ចលនាទាំងអស់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 애니메이션 켜기/끄기"
+            "value": "모든 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå alle animasjoner av/på"
+            "value": "Alle animasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz wszystkie animacje"
+            "value": "Wszystkie animacje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar todas as animações"
+            "value": "Todas as animações"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить все анимации"
+            "value": "Все анимации"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวทั้งหมด"
+            "value": "ภาพเคลื่อนไหวทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tüm animasyonları aç/kapat"
+            "value": "Tüm animasyonlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути всі анімації"
+            "value": "Усі анімації"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt mọi hoạt ảnh"
+            "value": "Mọi hoạt ảnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换所有动画"
+            "value": "所有动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換所有動畫"
+            "value": "所有動畫"
           }
         }
       }
@@ -95759,127 +95759,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة للشريط الجانبي"
+            "value": "الرسوم المتحركة للشريط الجانبي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije bočne trake"
+            "value": "Animacije bočne trake"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå sidepanelanimationer til/fra"
+            "value": "Sidepanelanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleisten-Animationen ein-/ausschalten"
+            "value": "Seitenleisten-Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Sidebar Animations"
+            "value": "Sidebar Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de la barra lateral"
+            "value": "Animaciones de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations de la barre latérale"
+            "value": "Animations de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni della barra laterale"
+            "value": "Animazioni della barra laterale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのアニメーションを切り替え"
+            "value": "サイドバーのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនារបារចំហៀង"
+            "value": "ចលនារបារចំហៀង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 애니메이션 켜기/끄기"
+            "value": "사이드바 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå sidefeltanimasjoner av/på"
+            "value": "Sidefeltanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje paska bocznego"
+            "value": "Animacje paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações da barra lateral"
+            "value": "Animações da barra lateral"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации боковой панели"
+            "value": "Анимации боковой панели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของแถบด้านข้าง"
+            "value": "ภาพเคลื่อนไหวของแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar çubuğu animasyonlarını aç/kapat"
+            "value": "Kenar çubuğu animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації бічної панелі"
+            "value": "Анімації бічної панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh thanh bên"
+            "value": "Hoạt ảnh thanh bên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换侧边栏动画"
+            "value": "侧边栏动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換側邊欄動畫"
+            "value": "側邊欄動畫"
           }
         }
       }
@@ -95891,127 +95891,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة لعلامات التبويب"
+            "value": "الرسوم المتحركة لعلامات التبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije kartica"
+            "value": "Animacije kartica"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå faneanimationer til/fra"
+            "value": "Faneanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tab-Animationen ein-/ausschalten"
+            "value": "Tab-Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Tab Animations"
+            "value": "Tab Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de pestañas"
+            "value": "Animaciones de pestañas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations des onglets"
+            "value": "Animations des onglets"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni delle schede"
+            "value": "Animazioni delle schede"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブのアニメーションを切り替え"
+            "value": "タブのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាផ្ទាំង"
+            "value": "ចលនាផ្ទាំង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 애니메이션 켜기/끄기"
+            "value": "탭 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå faneanimasjoner av/på"
+            "value": "Faneanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje kart"
+            "value": "Animacje kart"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de abas"
+            "value": "Animações de abas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации вкладок"
+            "value": "Анимации вкладок"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของแท็บ"
+            "value": "ภาพเคลื่อนไหวของแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekme animasyonlarını aç/kapat"
+            "value": "Sekme animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації вкладок"
+            "value": "Анімації вкладок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh thẻ"
+            "value": "Hoạt ảnh thẻ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换标签页动画"
+            "value": "标签页动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換分頁動畫"
+            "value": "分頁動畫"
           }
         }
       }
@@ -96023,127 +96023,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة للأجزاء والنوافذ"
+            "value": "الرسوم المتحركة للأجزاء والنوافذ"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije okna i prozora"
+            "value": "Animacije okna i prozora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå rude- og vinduesanimationer til/fra"
+            "value": "Rude- og vinduesanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bereichs- und Fensteranimationen ein-/ausschalten"
+            "value": "Bereichs- und Fensteranimationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Pane and Window Animations"
+            "value": "Pane and Window Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de paneles y ventanas"
+            "value": "Animaciones de paneles y ventanas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations des volets et fenêtres"
+            "value": "Animations des volets et fenêtres"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni di riquadri e finestre"
+            "value": "Animazioni di riquadri e finestre"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペインとウインドウのアニメーションを切り替え"
+            "value": "ペインとウインドウのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាផ្ទាំងរង និងបង្អួច"
+            "value": "ចលនាផ្ទាំងរង និងបង្អួច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창과 윈도우 애니메이션 켜기/끄기"
+            "value": "창과 윈도우 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå rute- og vindusanimasjoner av/på"
+            "value": "Rute- og vindusanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje paneli i okien"
+            "value": "Animacje paneli i okien"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de painéis e janelas"
+            "value": "Animações de painéis e janelas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации панелей и окон"
+            "value": "Анимации панелей и окон"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของบานหน้าต่างและหน้าต่าง"
+            "value": "ภาพเคลื่อนไหวของบานหน้าต่างและหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bölme ve pencere animasyonlarını aç/kapat"
+            "value": "Bölme ve pencere animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації панелей і вікон"
+            "value": "Анімації панелей і вікон"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh khung và cửa sổ"
+            "value": "Hoạt ảnh khung và cửa sổ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换窗格和窗口动画"
+            "value": "窗格和窗口动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換窗格與視窗動畫"
+            "value": "窗格與視窗動畫"
           }
         }
       }
@@ -96155,127 +96155,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة للقوائم والبطاقات"
+            "value": "الرسوم المتحركة للقوائم والبطاقات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije menija i kartica"
+            "value": "Animacije menija i kartica"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå menu- og kortanimationer til/fra"
+            "value": "Menu- og kortanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menü- und Kartenanimationen ein-/ausschalten"
+            "value": "Menü- und Kartenanimationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Menu and Card Animations"
+            "value": "Menu and Card Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de menús y tarjetas"
+            "value": "Animaciones de menús y tarjetas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations des menus et cartes"
+            "value": "Animations des menus et cartes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni di menu e schede informative"
+            "value": "Animazioni di menu e schede informative"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メニューとカードのアニメーションを切り替え"
+            "value": "メニューとカードのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាម៉ឺនុយ និងកាត"
+            "value": "ចលនាម៉ឺនុយ និងកាត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메뉴와 카드 애니메이션 켜기/끄기"
+            "value": "메뉴와 카드 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå meny- og kortanimasjoner av/på"
+            "value": "Meny- og kortanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje menu i kart"
+            "value": "Animacje menu i kart"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de menus e cartões"
+            "value": "Animações de menus e cartões"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации меню и карточек"
+            "value": "Анимации меню и карточек"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของเมนูและการ์ด"
+            "value": "ภาพเคลื่อนไหวของเมนูและการ์ด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menü ve kart animasyonlarını aç/kapat"
+            "value": "Menü ve kart animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації меню й карток"
+            "value": "Анімації меню й карток"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh menu và thẻ thông tin"
+            "value": "Hoạt ảnh menu và thẻ thông tin"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换菜单和卡片动画"
+            "value": "菜单和卡片动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換選單與卡片動畫"
+            "value": "選單與卡片動畫"
           }
         }
       }
@@ -96287,127 +96287,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة لبطاقات التمرير"
+            "value": "الرسوم المتحركة لبطاقات التمرير"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije kartica pri prelasku"
+            "value": "Animacije kartica pri prelasku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå svævekortanimationer til/fra"
+            "value": "Svævekortanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hover-Karten-Animationen ein-/ausschalten"
+            "value": "Hover-Karten-Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Hover Card Animations"
+            "value": "Hover Card Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de tarjetas al pasar el cursor"
+            "value": "Animaciones de tarjetas al pasar el cursor"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations des cartes de survol"
+            "value": "Animations des cartes de survol"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni delle schede al passaggio"
+            "value": "Animazioni delle schede al passaggio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホバーカードのアニメーションを切り替え"
+            "value": "ホバーカードのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាកាតពេលដាក់ទស្សន៍ទ្រនិច"
+            "value": "ចលនាកាតពេលដាក់ទស្សន៍ទ្រនិច"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "호버 카드 애니메이션 켜기/끄기"
+            "value": "호버 카드 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå svevekortanimasjoner av/på"
+            "value": "Svevekortanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje kart podglądu"
+            "value": "Animacje kart podglądu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de cartões ao passar o cursor"
+            "value": "Animações de cartões ao passar o cursor"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации всплывающих карточек"
+            "value": "Анимации всплывающих карточек"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของการ์ดเมื่อชี้"
+            "value": "ภาพเคลื่อนไหวของการ์ดเมื่อชี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Üzerine gelme kartı animasyonlarını aç/kapat"
+            "value": "Üzerine gelme kartı animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації спливних карток"
+            "value": "Анімації спливних карток"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh thẻ khi di chuột"
+            "value": "Hoạt ảnh thẻ khi di chuột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换悬停卡片动画"
+            "value": "悬停卡片动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換懸停卡片動畫"
+            "value": "懸停卡片動畫"
           }
         }
       }
@@ -96419,127 +96419,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة للرئيسية والمحادثات"
+            "value": "الرسوم المتحركة للرئيسية والمحادثات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije Početne i razgovora"
+            "value": "Animacije Početne i razgovora"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå animationer for Hjem og chats til/fra"
+            "value": "Animationer for Hjem og chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Animationen für Home und Chats ein-/ausschalten"
+            "value": "Animationen für Home und Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Home and Chat Animations"
+            "value": "Home and Chat Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de Inicio y chats"
+            "value": "Animaciones de Inicio y chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations de l’accueil et des discussions"
+            "value": "Animations de l’accueil et des discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni di Home e chat"
+            "value": "Animazioni di Home e chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホームとチャットのアニメーションを切り替え"
+            "value": "ホームとチャットのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាទំព័រដើម និងការជជែក"
+            "value": "ចលនាទំព័រដើម និងការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "홈과 채팅 애니메이션 켜기/끄기"
+            "value": "홈과 채팅 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå animasjoner for Hjem og chatter av/på"
+            "value": "Animasjoner for Hjem og chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje strony głównej i czatów"
+            "value": "Animacje strony głównej i czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de Início e chats"
+            "value": "Animações de Início e chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации главной и чатов"
+            "value": "Анимации главной и чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของหน้าหลักและแชท"
+            "value": "ภาพเคลื่อนไหวของหน้าหลักและแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ana sayfa ve sohbet animasyonlarını aç/kapat"
+            "value": "Ana sayfa ve sohbet animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації головної та чатів"
+            "value": "Анімації головної та чатів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh Trang chủ và trò chuyện"
+            "value": "Hoạt ảnh Trang chủ và trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换主页和聊天动画"
+            "value": "主页和聊天动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換首頁與聊天動畫"
+            "value": "首頁與聊天動畫"
           }
         }
       }
@@ -96551,127 +96551,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة لمؤشر الوكيل"
+            "value": "الرسوم المتحركة لمؤشر الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije kursora agenta"
+            "value": "Animacije kursora agenta"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå agentmarkøranimationer til/fra"
+            "value": "Agentmarkøranimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent-Cursor-Animationen ein-/ausschalten"
+            "value": "Agent-Cursor-Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Agent Cursor Animations"
+            "value": "Agent Cursor Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones del cursor del agente"
+            "value": "Animaciones del cursor del agente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations du curseur de l’agent"
+            "value": "Animations du curseur de l’agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni del cursore dell’agente"
+            "value": "Animazioni del cursore dell’agente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントカーソルのアニメーションを切り替え"
+            "value": "エージェントカーソルのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាទស្សន៍ទ្រនិចភ្នាក់ងារ"
+            "value": "ចលនាទស្សន៍ទ្រនិចភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 커서 애니메이션 켜기/끄기"
+            "value": "에이전트 커서 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå agentmarkøranimasjoner av/på"
+            "value": "Agentmarkøranimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje kursora agenta"
+            "value": "Animacje kursora agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações do cursor do agente"
+            "value": "Animações do cursor do agente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации курсора агента"
+            "value": "Анимации курсора агента"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของเคอร์เซอร์เอเจนต์"
+            "value": "ภาพเคลื่อนไหวของเคอร์เซอร์เอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aracı imleci animasyonlarını aç/kapat"
+            "value": "Aracı imleci animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації курсора агента"
+            "value": "Анімації курсора агента"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh con trỏ tác tử"
+            "value": "Hoạt ảnh con trỏ tác tử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换代理光标动画"
+            "value": "代理光标动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換代理游標動畫"
+            "value": "代理游標動畫"
           }
         }
       }
@@ -96683,127 +96683,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة لمؤشرات الانتظار والتقدم"
+            "value": "الرسوم المتحركة لمؤشرات الانتظار والتقدم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije indikatora učitavanja i napretka"
+            "value": "Animacije indikatora učitavanja i napretka"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå spinner- og fremskridtsanimationer til/fra"
+            "value": "Spinner- og fremskridtsanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lade- und Fortschrittsanimationen ein-/ausschalten"
+            "value": "Lade- und Fortschrittsanimationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Spinner and Progress Animations"
+            "value": "Spinner and Progress Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de carga y progreso"
+            "value": "Animaciones de carga y progreso"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations de chargement et de progression"
+            "value": "Animations de chargement et de progression"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni di caricamento e avanzamento"
+            "value": "Animazioni di caricamento e avanzamento"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スピナーと進行状況のアニメーションを切り替え"
+            "value": "スピナーと進行状況のアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាសញ្ញាផ្ទុក និងវឌ្ឍនភាព"
+            "value": "ចលនាសញ្ញាផ្ទុក និងវឌ្ឍនភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스피너와 진행률 애니메이션 켜기/끄기"
+            "value": "스피너와 진행률 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå spinner- og fremdriftsanimasjoner av/på"
+            "value": "Spinner- og fremdriftsanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje ładowania i postępu"
+            "value": "Animacje ładowania i postępu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de carregamento e progresso"
+            "value": "Animações de carregamento e progresso"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации загрузки и прогресса"
+            "value": "Анимации загрузки и прогресса"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของตัวหมุนและความคืบหน้า"
+            "value": "ภาพเคลื่อนไหวของตัวหมุนและความคืบหน้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yükleme ve ilerleme animasyonlarını aç/kapat"
+            "value": "Yükleme ve ilerleme animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації завантаження й поступу"
+            "value": "Анімації завантаження й поступу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh vòng xoay và tiến trình"
+            "value": "Hoạt ảnh vòng xoay và tiến trình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换加载和进度动画"
+            "value": "加载和进度动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換載入與進度動畫"
+            "value": "載入與進度動畫"
           }
         }
       }
@@ -96815,127 +96815,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة للإبرازات والألوان"
+            "value": "الرسوم المتحركة للإبرازات والألوان"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije isticanja i boja"
+            "value": "Animacije isticanja i boja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå fremhævnings- og farveanimationer til/fra"
+            "value": "Fremhævnings- og farveanimationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hervorhebungs- und Farbanimationen ein-/ausschalten"
+            "value": "Hervorhebungs- und Farbanimationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Highlight and Color Animations"
+            "value": "Highlight and Color Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de resaltado y color"
+            "value": "Animaciones de resaltado y color"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations de surbrillance et de couleur"
+            "value": "Animations de surbrillance et de couleur"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni di evidenziazione e colore"
+            "value": "Animazioni di evidenziazione e colore"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ハイライトとカラーのアニメーションを切り替え"
+            "value": "ハイライトとカラーのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាការបន្លិច និងពណ៌"
+            "value": "ចលនាការបន្លិច និងពណ៌"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "강조와 색상 애니메이션 켜기/끄기"
+            "value": "강조와 색상 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå markerings- og fargeanimasjoner av/på"
+            "value": "Markerings- og fargeanimasjoner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje podświetleń i kolorów"
+            "value": "Animacje podświetleń i kolorów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de realce e cor"
+            "value": "Animações de realce e cor"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации подсветки и цвета"
+            "value": "Анимации подсветки и цвета"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของไฮไลต์และสี"
+            "value": "ภาพเคลื่อนไหวของไฮไลต์และสี"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vurgu ve renk animasyonlarını aç/kapat"
+            "value": "Vurgu ve renk animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації підсвічування й кольорів"
+            "value": "Анімації підсвічування й кольорів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh tô sáng và màu"
+            "value": "Hoạt ảnh tô sáng và màu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换高亮和颜色动画"
+            "value": "高亮和颜色动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換醒目提示與顏色動畫"
+            "value": "醒目提示與顏色動畫"
           }
         }
       }
@@ -96947,127 +96947,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبديل الرسوم المتحركة لصفحات الويب"
+            "value": "الرسوم المتحركة لصفحات الويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uključi/isključi animacije web stranica"
+            "value": "Animacije web stranica"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå animationer på websider til/fra"
+            "value": "Animationer på websider"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Webseiten-Animationen ein-/ausschalten"
+            "value": "Webseiten-Animationen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Web Page Animations"
+            "value": "Web Page Animations"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar o desactivar animaciones de páginas web"
+            "value": "Animaciones de páginas web"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activer/désactiver les animations des pages web"
+            "value": "Animations des pages web"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attiva/disattiva le animazioni delle pagine web"
+            "value": "Animazioni delle pagine web"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Web ページのアニメーションを切り替え"
+            "value": "Web ページのアニメーション"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បិទ/បើកចលនាទំព័របណ្ដាញ"
+            "value": "ចលនាទំព័របណ្ដាញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "웹 페이지 애니메이션 켜기/끄기"
+            "value": "웹 페이지 애니메이션"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slå animasjoner på nettsider av/på"
+            "value": "Animasjoner på nettsider"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przełącz animacje stron internetowych"
+            "value": "Animacje stron internetowych"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativar/desativar animações de páginas web"
+            "value": "Animações de páginas web"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить/выключить анимации веб-страниц"
+            "value": "Анимации веб-страниц"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สลับภาพเคลื่อนไหวของหน้าเว็บ"
+            "value": "ภาพเคลื่อนไหวของหน้าเว็บ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Web sayfası animasyonlarını aç/kapat"
+            "value": "Web sayfası animasyonları"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увімкнути/вимкнути анімації вебсторінок"
+            "value": "Анімації вебсторінок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bật/tắt hoạt ảnh trang web"
+            "value": "Hoạt ảnh trang web"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换网页动画"
+            "value": "网页动画"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換網頁動畫"
+            "value": "網頁動畫"
           }
         }
       }

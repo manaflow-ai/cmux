@@ -14,7 +14,7 @@ import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextLayout
 import CmuxNextOnboarding

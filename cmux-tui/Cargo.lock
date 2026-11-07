@@ -1182,15 +1182,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-cloud-handlers"
-version = "0.1.0"
-dependencies = [
- "cmux-cloud-start-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -1200,6 +1191,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-start-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1331,6 +1331,15 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-daemon-conn-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

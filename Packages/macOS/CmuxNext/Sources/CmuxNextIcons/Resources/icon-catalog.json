@@ -1712,6 +1712,13 @@
    "denseStyle": "solid"
   },
   {
+   "name": "status.check",
+   "meaning": "Finished, as a bare check after the total (a done line's end)",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
    "name": "status.complete",
    "meaning": "Completed / toggled on",
    "sf": "checkmark.circle.fill",
