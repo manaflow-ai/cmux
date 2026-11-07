@@ -959,7 +959,13 @@ fn wait_covers_a_create_slower_than_the_apps_answer() {
     let listed = ok(
         json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}]}),
     );
-    let mut fake = Fake::new(vec![listed, creating(), gap, up, relayed(json!({"reply": "4"}))]);
+    let mut fake = Fake::new(vec![
+        listed,
+        creating(),
+        gap,
+        up,
+        relayed(json!({"session_id": "relay-1", "reply": "4"})),
+    ]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
         panic!("{:?}", fake.ran)
     };
