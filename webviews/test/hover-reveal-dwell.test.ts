@@ -12,8 +12,8 @@
 // - Reduce Motion shows them at once;
 // - nothing reveals them with a keyframe animation: each is an opacity transition, which reverses
 //   from where it is.
-// The page's animations run at a tenth of real time (DevTools' Animation.setPlaybackRate), so the
-// pointer's timing, not the harness's latency, sets the dwell: 80 ms of animation is 800 ms of wall
+// The page's animations run at a fiftieth of real time (DevTools' Animation.setPlaybackRate), so the
+// pointer's timing, not the harness's latency, sets the dwell: 80 ms of animation is 4 s of wall
 // time, and the pointer leaves once the row's own pointerenter is that long ago. Each case reports
 // the dwell it measured from the row's pointerenter and pointerleave.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/hover-reveal-dwell.test.ts
@@ -25,11 +25,10 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.hover-dwell";
-/// A strip's screenshots take time of their own, so a capture run slows the page further.
-const RATE = process.env.CMUX_HOVER_DWELL_CAPTURE_DIR ? 0.02 : 0.1;
-
 await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
+  const ENTRY = "agent-pane.hover-dwell";
+  /// A fiftieth of real time: a loaded host's input latency (a few hundred ms) is then a few ms of dwell.
+  const RATE = 0.02;
   setDefaultTimeout(240_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const captures = process.env.CMUX_HOVER_DWELL_CAPTURE_DIR;
@@ -57,7 +56,8 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
     const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
     await page.goto(
-      base + galleryFrame(ENTRY, { variant: "rest", width: 760, height: 560, reducedMotion: reducedMotion ? 1 : undefined }),
+      base +
+        galleryFrame(ENTRY, { variant: "rest", width: 760, height: 560, reducedMotion: reducedMotion ? 1 : undefined }),
     );
     await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
     expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
@@ -84,8 +84,10 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
         const state = { samples: [] as number[], enter: 0, leave: 0, stop: false };
         host.addEventListener("pointerenter", () => (state.enter = performance.now()), { once: true });
         host.addEventListener("pointerleave", () => (state.leave = performance.now()), { once: true });
+        // raf-read: the opacity frame by frame is the behavior under test; a computed opacity forces style, not layout.
         const tick = () => {
           state.samples.push(Number(getComputedStyle(target).opacity));
+          // raf-read: one opacity sample per frame is the trace under test.
           if (!state.stop) requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -95,20 +97,25 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     );
     await page.locator(row).nth(index).scrollIntoViewIfNeeded();
     const box = (await page.locator(row).nth(index).boundingBox())!;
-    const shots: Buffer[] = [];
+    const shots: { png: Buffer; opacity: number }[] = [];
+    // The row and the footer line under it, where a prompt's time and Copy sit.
     const frame = async () => {
-      if (strip) shots.push(await page.screenshot({ clip: { x: 0, y: box.y - 4, width: 760, height: box.height + 8 } }));
+      if (!strip) return;
+      const png = await page.screenshot({ clip: { x: 0, y: box.y - 4, width: 760, height: box.height + 40 } });
+      const opacity = await page.evaluate(
+        ({ row, control, index }) =>
+          Number(getComputedStyle(document.querySelectorAll(row)[index]!.querySelector(control)!).opacity),
+        { row, control, index },
+      );
+      shots.push({ png, opacity });
     };
     await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
     const wall = dwellMs / RATE;
     const stayed = () =>
-      page.evaluate(
-        (wall) => {
-          const state = (window as unknown as { __dwell: { enter: number } }).__dwell;
-          return state.enter > 0 && performance.now() - state.enter >= wall;
-        },
-        wall - 30,
-      );
+      page.evaluate((wall) => {
+        const state = (window as unknown as { __dwell: { enter: number } }).__dwell;
+        return state.enter > 0 && performance.now() - state.enter >= wall;
+      }, wall - 30);
     while (!(await stayed())) if (strip) await frame();
     await page.mouse.move(2, 2);
     const settled = () =>
@@ -116,11 +123,22 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
         const state = (window as unknown as { __dwell: { samples: number[]; leave: number } }).__dwell;
         return state.leave > 0 && state.samples.at(-1) === 0 && performance.now() - state.leave > 300;
       });
-    const deadline = Date.now() + 20_000;
-    while (!(await settled()) && Date.now() < deadline) await (strip ? frame() : page.waitForTimeout(30));
+    if (strip) {
+      const deadline = Date.now() + 20_000;
+      while (!(await settled()) && Date.now() < deadline) await frame();
+    } else
+      await page.waitForFunction(
+        () => {
+          const state = (window as unknown as { __dwell: { samples: number[]; leave: number } }).__dwell;
+          return state.leave > 0 && state.samples.at(-1) === 0 && state.samples.length > 3;
+        },
+        undefined,
+        { timeout: 20_000 },
+      );
     const trace: Trace = await page.evaluate((rate) => {
-      const state = (window as unknown as { __dwell: { samples: number[]; enter: number; leave: number; stop: boolean } })
-        .__dwell;
+      const state = (
+        window as unknown as { __dwell: { samples: number[]; enter: number; leave: number; stop: boolean } }
+      ).__dwell;
       state.stop = true;
       const peak = Math.max(...state.samples);
       return {
@@ -133,8 +151,17 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     }, RATE);
     if (strip && captures) {
       const { writeFile } = await import("node:fs/promises");
-      const keep = shots.filter((_, i) => i % Math.max(1, Math.floor(shots.length / 12)) === 0).slice(0, 12);
-      await Promise.all(keep.map((shot, i) => writeFile(path.join(captures, `${strip}-${String(i).padStart(2, "0")}.png`), shot)));
+      const keep = [...new Set(Array.from({ length: 12 }, (_, i) => Math.round((i * (shots.length - 1)) / 11)))].map(
+        (i) => shots[i]!,
+      );
+      await Promise.all(
+        keep.map((shot, i) =>
+          writeFile(
+            path.join(captures, `${strip}-${String(i).padStart(2, "0")}-opacity-${shot.opacity.toFixed(2)}.png`),
+            shot.png,
+          ),
+        ),
+      );
     }
     return trace;
   };
@@ -172,7 +199,14 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     const page = await open();
     try {
       await slowAnimations(page);
-      const trace = await brush(page, ".cv-user", ".cv-user__actions", 2, 200);
+      const trace = await brush(
+        page,
+        ".cv-user",
+        ".cv-user__actions",
+        2,
+        200,
+        captures ? "brush200-cvuser" : undefined,
+      );
       const label = `dwell ${trace.dwellMs.toFixed(0)} ms, peak ${trace.peak.toFixed(3)}`;
       console.log(`200 ms brush: ${label}`);
       expect(trace.dwellMs, label).toBeLessThan(260);
@@ -189,7 +223,12 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     try {
       const box = (await page.locator(".cv-user").nth(1).boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
-      await page.waitForTimeout(900);
+      // The ramp is 400 ms; it settles on exactly 1.
+      await page.waitForFunction(
+        () => Number(getComputedStyle(document.querySelectorAll(".cv-user__actions")[1]!).opacity) === 1,
+        undefined,
+        { timeout: 5_000 },
+      );
       expect(
         await page.evaluate(() => Number(getComputedStyle(document.querySelectorAll(".cv-user__actions")[1]!).opacity)),
       ).toBe(1);
@@ -208,8 +247,8 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
       }
       expect(reached).toBe(true);
       // Read at once: a fade, however short, would still be near 0 here.
-      const opacity = await page.evaluate(
-        () => Number(getComputedStyle(document.activeElement!.closest(".cv-user__actions")!).opacity),
+      const opacity = await page.evaluate(() =>
+        Number(getComputedStyle(document.activeElement!.closest(".cv-user__actions")!).opacity),
       );
       expect(opacity).toBe(1);
     } finally {
@@ -222,9 +261,12 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
     try {
       const box = (await page.locator(".cv-user").nth(1).boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
+      // Under Reduce Motion the shared layer cuts every transition to 0.01 ms (pages/shared/desktop.css), so
+      // the next frame shows the end state.
       const shown = await page.evaluate(
         () =>
           new Promise<number>((resolve) =>
+            // raf-read: the first frame after the pointer arrives is the one that must already show it.
             requestAnimationFrame(() =>
               resolve(Number(getComputedStyle(document.querySelectorAll(".cv-user__actions")[1]!).opacity)),
             ),
@@ -242,7 +284,12 @@ await requireBrowserLane("hover-reveal-dwell.test.ts", async () => {
       await slowAnimations(page);
       const box = (await page.locator(".cv-user").nth(1).boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(12, box.height / 2));
-      await page.waitForTimeout(400);
+      await page.waitForFunction(() =>
+        document.getAnimations().some((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          return target instanceof Element && Boolean(target.closest(".cv-user__actions"));
+        }),
+      );
       const found = await page.evaluate(() => {
         const reveals = ".cv-user__actions, .cv-reply-actions, .cv-turn-actions, .cv-turn-time";
         return document.getAnimations().flatMap((animation) => {

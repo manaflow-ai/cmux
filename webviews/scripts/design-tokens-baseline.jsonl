@@ -706,7 +706,6 @@
 {"file":"sidebar/AllChatsDesigns.css","kind":"height","property":"height","values":{"540px":1,"18px":1}}
 {"file":"sidebar/AllChatsDesigns.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":1}}
-{"file":"styles.css","kind":"easing","property":"transition","values":{"opacity var(--cmux-motion-quick) ease":1}}
 {"file":"styles.css","kind":"font-weight","property":"font-weight","values":{"500":10,"700":1}}
 {"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"56px":1,"26px":1,"14px":1,"22px":2,"19px":1,"6px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1}}
