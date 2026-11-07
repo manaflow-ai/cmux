@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
@@ -55,6 +56,9 @@ export interface HeaderState {
   readonly floatingChat: boolean;
   /// The header offers Session Info (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx).
   readonly sessionInfo: boolean;
+  /// The top-right controls (Debug Settings `agentChat.headerControls`, headerTrio.ts): `standard` (today's
+  /// row) or `trio` ("...", the panel toggle and New).
+  readonly headerControls: HeaderControls;
   /// How the top-right icons move (Debug Settings `agentChat.headerMotion`, headerMotion.ts): `still`
   /// unless the App picked another style.
   readonly headerMotion: HeaderMotionStyle;
@@ -82,6 +86,7 @@ let current: HeaderState = {
   lit: [],
   floatingChat: false,
   sessionInfo: false,
+  headerControls: "standard",
   headerMotion: "still",
   moves: [],
   moveTargets: [],
@@ -97,6 +102,7 @@ export function setHeaderState(value: unknown): void {
     lit?: unknown;
     floatingChat?: unknown;
     inspector?: unknown;
+    headerControls?: unknown;
     headerMotion?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
@@ -112,6 +118,7 @@ export function setHeaderState(value: unknown): void {
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     // `inspector` is the wire name the App sends (AgentPaneHeaderState.swift); kept so either side of the rename agrees.
     sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
+    headerControls: readHeaderControls(raw.headerControls) ?? current.headerControls,
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,

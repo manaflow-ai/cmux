@@ -199,6 +199,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The app's one selected-text color (looks only)",
       "keys": [
         "appearance.highlightColor"
@@ -965,6 +972,14 @@
         "workspaces.freeing.idleMinutes",
         "workspaces.freeing.agents",
         "workspaces.freeing.runningCommands"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
       ]
     },
     {

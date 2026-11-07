@@ -31,4 +31,7 @@
 .acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)){background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 .acpmux-edited-head[data-header-toggle]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-toggle{color:var(--agent-text)}
 .acpmux-edited-head[data-header-toggle] .acpmux-edited-toggle:hover{background:transparent}
-.acpmux-edited-diff{padding:2px 8px 4px}
+/* The one file's diff is the card's own body, flush to its rim: no card of its own inside the card
+   (Leo 2026-11-07, on a diff card nested in this one: "the rest of the card situation"), so the card
+   has one rim and one radius and its Show all / Show less row is the card's bottom row. */
+.acpmux-edited-diff>.cv-edit-diff{margin:0;border-radius:0;background:none;box-shadow:none}
