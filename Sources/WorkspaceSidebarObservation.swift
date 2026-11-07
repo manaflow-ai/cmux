@@ -211,6 +211,9 @@ private struct SidebarImmediateObservationState: Equatable {
     let taskStatusOverride: WorkspaceTaskStatusOverride?
     let statusHidden: Bool
     let checklist: [WorkspaceChecklistItem]
+    /// Bumped when the session priority values frozen into the row's context menu
+    /// (`SessionPriorityMenuState`) change.
+    let sessionPriorityRevision: UInt64
 }
 
 private struct SidebarObservationState: Equatable {
@@ -273,10 +276,14 @@ extension Workspace {
         // Todo state is row-affecting (status pill, checklist progress) but
         // lives in its own sub-model, so fold its publishers in here the same
         // way the workspace's own @Published fields are.
-        let todoFields = Publishers.CombineLatest3(
+        // Session priority's menu values (difficulty override, manual flag) are
+        // frozen into the row too; its `@Observable` state has no publishers, so
+        // the workspace's mutation path sends an explicit revision instead.
+        let todoFields = Publishers.CombineLatest4(
             todoState.$statusOverride,
             todoState.$statusHidden,
-            todoState.$checklist
+            todoState.$checklist,
+            sessionPriorityDidChangeSubject
         )
 
         let immediateFields = workspaceFields
@@ -294,7 +301,8 @@ extension Workspace {
                     panelPrompts: conversationFields.3,
                     taskStatusOverride: todoFields.0,
                     statusHidden: todoFields.1,
-                    checklist: todoFields.2
+                    checklist: todoFields.2,
+                    sessionPriorityRevision: todoFields.3
                 )
             }
             .removeDuplicates()

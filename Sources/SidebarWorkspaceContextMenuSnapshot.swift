@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Immutable context-menu inputs for one workspace row.
@@ -18,6 +19,10 @@ struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let allEligibleTargetsGroupId: UUID?
     let hasGroupedEligibleTarget: Bool
     let todoStatusLanes: [WorkspaceTodoStatusLane]
+    let sessionPriorityEnabled: Bool
+    let claudeDifficultyOverride: ClaudeSessionDifficulty?
+    /// The manual flag is on, or cmux saw a `/effort` or `/model`; the menu offers to lift it.
+    let sessionPriorityAdjustableManual: Bool
     let canMarkRead: Bool
     let canMarkUnread: Bool
     let hasLatestNotification: Bool

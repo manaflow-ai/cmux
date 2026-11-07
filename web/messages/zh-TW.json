@@ -2210,6 +2210,11 @@
           "workspaceAutoNaming": "可選的 AI 自動命名：根據代理對話內容自動命名工作區與分頁。啟用後，cmux 會使用各受支援代理自己的二進位檔將工作階段摘要為簡短標題；手動重新命名永遠優先。",
           "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。",
           "agentAutoResume": "當 cmux 啟動的代理因可重試的上游錯誤（模型容量已滿、過載或連線中斷）結束回合時，依退避策略向其傳送 `continue`。等待人工輸入的回合永遠不會被恢復。",
+          "claudeAccountAutoSwitch": "當 cmux 啟動的 Claude Code 工作階段因其帳號達到用量上限而停止時，cmux 會將其切換到 `agents.claudeAccounts` 中的下一個帳號，並繼續同一段對話。仍處於上限的帳號會被略過，直到上限重設為止。",
+          "sessionPriority": "依據優先順序與難度，為 cmux 啟動的每個 Claude Code 工作階段選擇推理強度，並可選擇模型。",
+          "sessionPriorityEnabled": "開啟後，cmux 會重新啟動閒置的 Claude Code 終端機，依工作區的優先順序與難度將其強度（及可選模型）改為矩陣中的值，然後繼續每段對話。它還會將簡短的對話摘錄傳送到該工作階段帳戶上的小型 Claude 模型，以評估每項任務的難度。預設為關閉。",
+          "sessionPriorityUrgentCount": "優先順序最高的工作階段中有多少個視為緊急。其餘工作階段皆視為緩慢。",
+          "sessionPriorityMatrix": "依優先順序與難度覆寫所選的強度與模型。鍵為 `urgent` 或 `slow`，其下為 `easy`、`normal` 或 `hard`，每項可包含可選的 `effort` 與 `model`。省略的儲存格沿用 cmux 的預設值。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
