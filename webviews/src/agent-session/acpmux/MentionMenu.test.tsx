@@ -7,7 +7,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { bundledIconPack, resolveIcon } from "./icons/iconPack";
-import { MentionMenu, type MentionState } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import { type MentionState } from "./mentionMenuModel";
 import {
   fuzzyIndices,
   loadRecentMentionPaths,

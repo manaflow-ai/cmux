@@ -3,6 +3,7 @@ import AVFoundation
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
@@ -181,7 +182,7 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(Color.cmuxMobileOnAccent)
+                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.small)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))

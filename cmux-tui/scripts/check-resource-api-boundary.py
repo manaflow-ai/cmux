@@ -1201,6 +1201,10 @@ def _validate_catalog_type(
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A diff review comment is the diff page's own object, kept
+                # until it is sent to the agent; the daemon stamps only id,
+                # createdAt and updatedAt (diff-comments-v1).
+                "types.DiffComment.values",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -2089,7 +2093,10 @@ def _operation_catalog(
                 "shell",
                 "focus",
                 "placement",
+                "created_by",
             }
+            or create_fields.get("created_by", {}).get("required") is not False
+            or create_fields.get("created_by", {}).get("type", {}).get("kind") != "object"
             or create_fields.get("placement", {}).get("required") is not False
             or create_fields.get("placement", {}).get("type")
             != {"kind": "enum", "values": ["top", "after_current", "bottom"]}
@@ -2126,7 +2133,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, created_by, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 
