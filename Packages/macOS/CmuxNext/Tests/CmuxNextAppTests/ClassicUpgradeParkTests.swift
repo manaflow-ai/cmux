@@ -35,6 +35,7 @@ struct ClassicUpgradeParkTests {
         // `park-tabs` answers before the shells exit: a parked tab shows dead with `relaunch` once its host
         // exited. A ceiling for that, not a budget.
         let parked = { tabs().allSatisfy { $0.dead } && tabs().contains { $0.relaunch?.onShow == true } }
+        print("PARK-DIAG test mixed=\(mixed) tabs=\(tabs().map { ($0.id, $0.dead, $0.relaunch?.onShow, $0.kind) }) all=\(store.workspace(id: mixed)?.screens.flatMap(\.panes).flatMap(\.tabs).map { ($0.id, $0.kind, $0.dead) } ?? [])")
         let deadline = ContinuousClock.now + .seconds(60)
         while ContinuousClock.now < deadline, !parked() { try? await Task.sleep(for: .milliseconds(20)) }
         #expect(parked(), "not parked: \(tabs().map { ($0.dead, $0.relaunch?.onShow) })")
