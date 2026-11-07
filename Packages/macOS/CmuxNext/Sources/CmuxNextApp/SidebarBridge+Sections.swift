@@ -58,28 +58,14 @@ extension SidebarBridge {
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
-            let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
+            let (action, arguments) = services.registry.sidebarAppActivation(ref.value)
             inThisWindow { _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user)) }
         default: break
         }
     }
 
     /// Runs `body` with this sidebar's window as the active one: its items act here (cmux#37371).
-    private func inThisWindow(_ body: () -> Void) {
-        services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body)
-    }
-
-    /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it
-    /// opens the app's screen or page as the manifest says) once it is
-    /// registered. INTERIM until then: Home and the App Store keep their
-    /// show actions, every other app opens its page (`app.open`).
-    static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ActionValue]) {
-        if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
-        if let action = interimAppActions[app], registered(action) { return (action, [:]) }
-        return ("app.open", ["app": .string(app)])
-    }
-
-    private static let interimAppActions: [String: ActionID] = ["cmux/home": "home.show", "cmux/app-store": "appStore.show"]
+    private func inThisWindow(_ body: () -> Void) { services.windows.dispatching(eventFrom: state.flatMap { services.windows.controller(for: $0.id)?.window }, body) }
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
     /// does not register draws dimmed.

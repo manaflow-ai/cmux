@@ -13,14 +13,13 @@ extension SidebarBridge {
     /// Selects a pinned tab in its workspace and focuses it. `ref` is the
     /// tab's id or its qualified `<session>:tab_…` form.
     func revealPinnedTab(_ ref: String) {
-        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = workspaceID(holding: pane) else { return }
+        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)?.id else { return }
         reveal(tab, in: pane, workspace: workspace, state: state)
     }
 
     /// A hover card's tab row clicked in this window: shown here, as a pinned tab (cmux#37371).
     func revealListedTab(_ tab: String, of workspace: String) {
-        guard let state, let (_, daemon) = services.machines.workspace(id: workspace),
-              let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
+        guard let state, let daemon = services.machines.workspace(id: workspace)?.1, let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model) else { return }
         reveal(model, in: pane, workspace: workspace, state: state)
     }
 
@@ -72,13 +71,6 @@ extension SidebarBridge {
                     if let shown, BrowserTabMatch.samePage(shown, url) { return (tab, pane, workspace.id) }
                 }
             }
-        }
-        return nil
-    }
-
-    private func workspaceID(holding pane: PaneModel) -> String? {
-        for (workspace, _) in services.machines.allWorkspaces where workspace.screens.contains(where: { $0.panes.contains { $0 === pane } }) {
-            return workspace.id
         }
         return nil
     }
