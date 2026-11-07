@@ -178,6 +178,13 @@ export const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>}
+          {row.agentText && (
+            <div className="cv-user__status">
+              {row.agentText.from
+                ? t("transcript.agentTextNote", { name: row.agentText.from })
+                : t("transcript.agentTextNoteUnknown")}
+            </div>
+          )}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>

@@ -391,9 +391,9 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already.
+                // `new`: one more fixture tab, also when the window lists one already; `compose`: under the chat column's compose button.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
