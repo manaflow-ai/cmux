@@ -69,7 +69,7 @@ struct ChatSnapshotStoreTests {
             try await Self.put("s-2", html: "<main>chat</main>")
             await disk.settled()
             var session: String? = "s-2"
-            let resources = AgentPageResources(session: { session }, allowed: { true })
+            let resources = AgentPageResources(session: { session })
             resources.themeKey = { "theme-1" }
             let script = try #require(await Self.served(resources))
             #expect(script.hasPrefix("self.__cmuxChatSnapshot={"))
@@ -85,17 +85,19 @@ struct ChatSnapshotStoreTests {
         }
     }
 
-    /// An incognito chat's page is never kept and never served.
+    /// An incognito chat's page keeps nothing. Serving keeps nothing either, so a page whose window
+    /// is not known yet (its tab listed after its document asks) is served the copy a chat outside
+    /// incognito wrote.
     @Test func anIncognitoChatKeepsNothing() async throws {
         try await Self.withDisk { disk in
             try await Self.put("s-3", html: "<main>secret</main>", allowed: false)
             await disk.settled()
             #expect(await disk.read("s-3") == nil)
+            let resources = AgentPageResources(session: { "s-3" })
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
             try await Self.put("s-3", html: "<main>shown</main>")
             await disk.settled()
-            #expect(try await Self.get("s-3", allowed: false) == .null)
-            let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
+            #expect(try await Self.get("s-3", allowed: false)["html"]?.stringValue == "<main>shown</main>")
         }
     }
 
@@ -120,7 +122,7 @@ struct ChatSnapshotStoreTests {
                                                               pageGeneration: AgentPaneTailCache.shared.generation)
             await disk.settled()
             #expect(try await Self.get("s-6") == .null)
-            let resources = AgentPageResources(session: { "s-6" }, allowed: { true })
+            let resources = AgentPageResources(session: { "s-6" })
             #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none: too large\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
         }
     }
