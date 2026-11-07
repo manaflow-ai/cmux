@@ -437,7 +437,7 @@ fn new_column(screen: &Screen, target: u64, leaf: u64, spec: &ColumnSpec) -> Opt
         columns.push(Column::plain(spec.handle | SIBLING_BIT, 1.0, screen.layout.clone()));
     }
     let index = columns.iter().position(|c| c.layout.contains(target))?;
-    let anchor = columns[index].layout.pane_ids();
+    let anchor = columns.get(index)?.layout.pane_ids();
     columns.insert(
         if spec.left { index } else { index + 1 },
         Column::plain(spec.handle, spec.width, Node::leaf(leaf)),
@@ -476,7 +476,7 @@ fn new_row(
         columns.push(Column::plain(first_handle | ROW_COLUMN_BIT, 1.0, screen.layout.clone()));
     }
     let index = columns.iter().position(|c| c.layout.contains(target))?;
-    let column = &mut columns[index];
+    let column = columns.get_mut(index)?;
     let mut rows = if column.rows.is_empty() {
         vec![Row { id: first_handle, height: 1000, layout: column.layout.clone() }]
     } else {
@@ -484,10 +484,14 @@ fn new_row(
     };
     let at = rows.iter().position(|r| r.layout.contains(target))?;
     rows.insert(at + 1, Row { id: spec.handle, height: spec.height, layout: Node::leaf(leaf) });
-    let mut chain = rows[0].layout.clone();
-    for next in &rows[1..] {
-        chain = Node::pair(Dir::Down, chain, next.layout.clone());
+    let mut chain: Option<Node> = None;
+    for next in &rows {
+        chain = Some(match chain {
+            None => next.layout.clone(),
+            Some(chain) => Node::pair(Dir::Down, chain, next.layout.clone()),
+        });
     }
+    let chain = chain?;
     column.layout = chain;
     column.rows = rows;
     let layout = split_leaf(&screen.layout, target, Dir::Down, 0.5, leaf, split_id)
@@ -590,8 +594,12 @@ pub fn section_placement(
     index: i64,
 ) -> usize {
     let remaining: Vec<usize> = (0..groups.len()).filter(|i| *i != old).collect();
-    let members: Vec<usize> =
-        remaining.iter().copied().filter(|i| groups[*i].as_deref() == group).collect();
+    let members: Vec<usize> = groups
+        .iter()
+        .enumerate()
+        .filter(|(i, g)| *i != old && g.as_deref() == group)
+        .map(|(i, _)| i)
+        .collect();
     let position = |target: usize| remaining.iter().position(|i| *i == target).unwrap_or(old);
     let mut new = old;
     if let Some(&last) = members.last() {
