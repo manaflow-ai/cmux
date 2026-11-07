@@ -64,8 +64,9 @@ export function useCaptureBar(host: CaptureBarHost) {
 
   const shoot = useCallback(
     (target: CaptureTarget) => {
-      const { callNative, attach, notice } = hostRef.current;
+      const { callNative, attach, notice, chat } = hostRef.current;
       const destination = latest.current.destination;
+      const takenFor = chat();
       dispatch({ type: "begin", what: target });
       void callNative<Shot | null>("composer.capture", { mode: target })
         .then(async (shot) => {
@@ -73,7 +74,10 @@ export function useCaptureBar(host: CaptureBarHost) {
           if (!shot?.data) return finish();
           const mimeType = shot.mimeType ?? "image/png";
           const name = shot.name ?? "Screenshot.png";
-          if (destination === "copy") {
+          // The chat shown now is the one the shot was taken for: only then does it take the chip.
+          // Otherwise it is copied, never dropped and never put in another chat's draft.
+          const here = hostRef.current.chat() === takenFor;
+          if (destination === "copy" || (destination === "chat" && !here)) {
             await callNative("capture.copy", { data: shot.data, mimeType });
             notice(say("capture.copied"));
           } else if (destination === "save") {
@@ -124,7 +128,7 @@ export function useCaptureBar(host: CaptureBarHost) {
             : undefined;
         if (saved?.saved) {
           // Saved where the person chose.
-        } else if (destination === "copy" || !here) {
+        } else if (destination !== "chat" || !here) {
           await callNative("capture.copy", { path: recording.path });
           notice(say(destination === "copy" || saved !== undefined ? "capture.copied" : "capture.recordingElsewhere"));
         } else {
