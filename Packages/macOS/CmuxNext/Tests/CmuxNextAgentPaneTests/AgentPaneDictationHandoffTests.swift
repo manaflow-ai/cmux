@@ -12,7 +12,7 @@ import Testing
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private final class Posted { var presses: [(CGKeyCode, CGEventFlags)] = []; var system = 0 }
+    private final class Posted { var presses: [(CGKeyCode, CGEventFlags)] = []; var system = 0; var stops = 0 }
 
     private func handoff(installed: Set<String> = ["com.openai.codex"], mayPost: Bool = true, posted: Posted) -> AgentPaneDictationHandoff {
         var handoff = AgentPaneDictationHandoff()
@@ -21,6 +21,7 @@ import Testing
         handoff.mayPost = { mayPost }
         handoff.post = { posted.presses.append(($0, $1)); return true }
         handoff.systemDictation = { posted.system += 1 }
+        handoff.stopOwnDictation = { posted.stops += 1 }
         return handoff
     }
 
@@ -138,5 +139,18 @@ import Testing
         #expect(posted.presses.isEmpty)
         _ = await model.respond(to: .dictationHandoff, userGesture: true)
         #expect(posted.presses.count == 1)
+    }
+
+    /// A hand-off ends cmux's own dictation first (in any pane): one listener at a time.
+    @Test func aHandoffEndsCmuxsOwnDictationFirst() {
+        let posted = Posted()
+        let handoff = handoff(posted: posted)
+        #expect(handoff.handOff(setting(.chatgpt)) == nil)
+        #expect(handoff.handOff(setting(.macos)) == nil)
+        #expect(posted.stops == 2)
+        // Nothing to hand off to: cmux's own session is left alone.
+        #expect(handoff.handOff(setting(.cmux)) == .ownDictation)
+        #expect(handoff.handOff(setting(.wisprFlow)) == .notInstalled)
+        #expect(posted.stops == 2)
     }
 }

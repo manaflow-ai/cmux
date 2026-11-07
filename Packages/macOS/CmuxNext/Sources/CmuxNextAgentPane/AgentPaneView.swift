@@ -463,10 +463,9 @@ public final class AgentPaneView: NSView {
     public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
         // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
-        // is, so the pane's page takes it first (the page keeps its prompt focused).
-        if model.composer.dictationSource == .macos, let window, window.firstResponder !== webView {
-            window.makeFirstResponder(webView)
-        }
+        // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
+        // prompt focused).
+        if model.composer.dictationSource == .macos { focusChat() }
         // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
         // the source is now.
         if !dictation.phase.isStartable {
