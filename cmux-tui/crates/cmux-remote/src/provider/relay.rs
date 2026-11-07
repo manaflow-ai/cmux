@@ -341,8 +341,9 @@ impl Drop for StderrTail {
 
 /// One line of diagnostic text with anything that may be a secret replaced
 /// by `[REDACTED]`: a run of 20 or more token characters (base64, base64url,
-/// hex, JWT) that mixes letters and digits (a path with digits goes too:
-/// base64 can start with `/`), the value after `Bearer`, and the value of a
+/// hex, JWT) that mixes letters and digits (one segment at a time in a
+/// lowercase path; base64 that starts with `/` goes whole), the value after
+/// `Bearer`, and the value of a
 /// `key=value`, `key: value` or JSON `"key": "value"` whose key names a secret.
 fn redact_token_shaped(text: &str) -> String {
     const SECRET_KEYS: [&str; 7] =
@@ -417,9 +418,25 @@ fn redact_token_shaped(text: &str) -> String {
         let mut redacted = String::with_capacity(word.len());
         let mut run = String::new();
         let flush = |run: &mut String, redacted: &mut String| {
-            let mixed = run.chars().any(|character| character.is_ascii_digit())
-                && run.chars().any(|character| character.is_ascii_alphabetic());
-            if run.len() >= 20 && mixed {
+            let secret_like = |text: &str| {
+                text.len() >= 20
+                    && text.chars().any(|character| character.is_ascii_digit())
+                    && text.chars().any(|character| character.is_ascii_alphabetic())
+            };
+            // A path (`/v1/cloud/machines/carrier`) is lowercase with no `+`
+            // or `=`, which base64 almost never is: its segments are judged
+            // one by one. Anything else is judged whole.
+            let path = run.starts_with('/')
+                && !run.chars().any(|character| {
+                    character.is_ascii_uppercase() || matches!(character, '+' | '=')
+                });
+            if path {
+                let segments: Vec<&str> = run
+                    .split('/')
+                    .map(|segment| if secret_like(segment) { "[REDACTED]" } else { segment })
+                    .collect();
+                redacted.push_str(&segments.join("/"));
+            } else if secret_like(run) {
                 redacted.push_str("[REDACTED]");
             } else {
                 redacted.push_str(run);
@@ -2504,6 +2521,10 @@ mod tests {
         assert_eq!(
             redact_token_shaped("token /9j4AAQSkZJRgABAQ1Ab3c+x/YZ answered"),
             "token [REDACTED] answered"
+        );
+        assert_eq!(
+            redact_token_shaped("GET /v1/cloud/keyset at /var/lib/cmux/x1y2z3a4b5c6d7e8f9g0/carrier.json"),
+            "GET /v1/cloud/keyset at /var/lib/cmux/[REDACTED]/carrier.json"
         );
         assert_eq!(
             redact_token_shaped(r#"{"password": "hunter2", "ticket":"t0ps3cret"}"#),
