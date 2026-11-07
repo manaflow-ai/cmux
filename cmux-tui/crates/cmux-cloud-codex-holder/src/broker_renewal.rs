@@ -3,6 +3,7 @@
 //! an update, which leaves delivered access in place).
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -2,6 +2,7 @@
 //! fake private holders written as shell scripts (the same ones the Swift tests used).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
