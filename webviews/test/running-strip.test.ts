@@ -183,6 +183,65 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     });
   }
 
+  test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
+    // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
+    // their own height): "also for the hat wow this is wildly misaligned at the bottom".
+    const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
+    try {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(() => (window as unknown as { __showOpenCommand: () => void }).__showOpenCommand());
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.click(".acpmux-running-tray .acpmux-agent-line__button");
+      await page.waitForSelector(".acpmux-running-tray__tail button");
+      await page.mouse.move(0, 0);
+      const line = await page.evaluate(() => {
+        const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!;
+        const textBox = (element: Element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
+          const top = Math.min(...rects.map((rect) => rect.top));
+          const bottom = Math.max(...rects.map((rect) => rect.bottom));
+          return { left: rects[0]!.left, middle: (top + bottom) / 2 };
+        };
+        const leaf = (text: string) =>
+          [...tail.querySelectorAll<HTMLElement>("*")].find(
+            (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
+          ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
+        const command = tail.querySelector(".acpmux-running-tray__command")!;
+        const time = tail.querySelector(".acpmux-running-tray__meta")!;
+        const state = leaf("Running");
+        const button = tail.querySelector("button")!;
+        const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
+        const labelRange = document.createRange();
+        labelRange.selectNodeContents(label);
+        const labelRect = labelRange.getBoundingClientRect();
+        const icon = button.querySelector("svg")!.getBoundingClientRect();
+        const size = (element: Element) => getComputedStyle(element).fontSize;
+        return {
+          commandLeft: textBox(command).left,
+          timeLeft: textBox(time).left,
+          middles: [
+            textBox(time).middle,
+            textBox(state).middle,
+            labelRect.top + labelRect.height / 2,
+            icon.top + icon.height / 2,
+          ],
+          sizes: [size(time), size(state), size(button)],
+        };
+      });
+      expect(Math.abs(line.timeLeft - line.commandLeft)).toBeLessThan(1);
+      const [first, ...rest] = line.middles;
+      for (const middle of rest) expect(Math.abs(middle - first!)).toBeLessThan(1);
+      expect(new Set(line.sizes).size).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);
     try {

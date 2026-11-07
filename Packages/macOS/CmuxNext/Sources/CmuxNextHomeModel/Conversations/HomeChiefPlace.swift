@@ -14,8 +14,8 @@ public nonisolated enum HomeChiefPlace: Hashable, Sendable, Codable {
     /// The short label the list's tag and the card's switch show: "This Mac", "Cloud", or the server's name.
     @MainActor public var label: String {
         switch self {
-        case .thisMac: HomeConversationStrings.placeThisMac
-        case .cloud: HomeConversationStrings.placeCloud
+        case .thisMac: HomeModelStrings.placeThisMac
+        case .cloud: HomeModelStrings.placeCloud
         case .server(let name): name
         }
     }
