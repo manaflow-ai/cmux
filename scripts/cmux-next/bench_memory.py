@@ -19,6 +19,13 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--purge-hidden also measures, after each count's sample, what Chromium's own
+memory purge gives back with nothing reloaded: every hidden cmux page's renderer
+gets a critical memory-pressure notice (DevTools Memory.simulatePressureNotification
+through `debug.cef_page_devtools`, a bench or DEV build), then the app settles and
+is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged app). The page keeps its DOM, scroll and state, as the
+"a page never reloads unless the person asks" design (#25791) requires.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -30,7 +37,7 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--purge-hidden] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
@@ -53,6 +60,7 @@ import sys
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -231,12 +239,17 @@ class App:
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
+        return self.call("action.run", params, label=action)
+
+    def call(self, method: str, params: dict | None = None, timeout: float = 120, label: str | None = None) -> dict:
+        """One control socket method: its result, or {"error": ...}."""
+        action = label or method
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
-                stream.settimeout(120)
+                stream.settimeout(timeout)
                 stream.connect(self.socket)
-                stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
+                stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
                 while not reply.endswith(b"\n"):
                     chunk = stream.recv(65536)
                     if not chunk:
@@ -319,6 +332,28 @@ class FakeChats:
             print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
             return None
         return created[0]
+
+
+def purge_hidden_pages(app: App) -> dict:
+    """A critical memory-pressure notice to the renderer of every hidden cmux page, nothing reloaded.
+
+    Chromium's own response to pressure: V8 collects and shrinks its heap, Blink drops its caches
+    (decoded images, fonts, resources), Skia its GPU and raster caches. The notice goes to the
+    page's renderer process, so a frozen page's renderer takes it too."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
+    hidden = [p for p in pages if p.get("hidden") and str(p.get("origin", "")).startswith("cmux-page://")]
+    params = {"method": "Memory.simulatePressureNotification", "params": {"level": "critical"}}
+
+    def notify(page):
+        reply = app.call("debug.cef_page_devtools", dict(params, browser=page["browser"]), timeout=40)
+        return reply.get("error")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        errors = [error for error in pool.map(notify, hidden) if error]
+    return {"pages": len(pages), "hidden": len(hidden), "notified": len(hidden) - len(errors),
+            "errors": errors[:5]}
 
 
 def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
@@ -692,8 +727,14 @@ def main():
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
+    parser.add_argument("--purge-hidden", action="store_true",
+                        help="after each count, purge hidden pages' renderers (no reload) and sample again")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.purge_hidden and len([n for n in args.workspaces.split(",") if n]) > 1:
+        # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
+        # before the launch, so a refused run leaves no app behind.
+        parser.error("--purge-hidden takes one --workspaces count; run each count on its own")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -748,6 +789,10 @@ def main():
                     break
                 opened.append(workspace)
             settle_and_sample(f"idle-{count}")
+            if args.purge_hidden:
+                purge = purge_hidden_pages(app)
+                print(f"== purge at {count}: {json.dumps(purge)}", flush=True)
+                settle_and_sample(f"purged-{count}")["purge"] = purge
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
