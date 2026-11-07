@@ -364,7 +364,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             // Sounds: per-event sounds, volume, timing and the burst cooldown
-            // (NotificationSoundSettingsSchema); its per-level maps stay off the page.
+            // (notifications.json's sounds list); its per-level maps stay off the page.
             group("settings.group.banners"), group("settings.group.sounds"), group("settings.group.dismissal"),
             group("settings.group.attention"),
             group("settings.group.feedMirror"), group("settings.group.githubInbox"),

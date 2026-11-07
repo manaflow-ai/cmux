@@ -261,6 +261,17 @@ SECTIONS = [
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
     },
+    {
+        "source": "schemas/settings/source/notifications.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Notifications.generated.swift",
+        "type": "NotificationSettingsSchema",
+        "lists": {"dismissal": ("dismissalDescriptors", "NotificationPreferences"),
+                  "banners": ("bannerDescriptors", "NotificationPreferences"),
+                  "feedMirror": ("feedMirrorDescriptors", None),
+                  "attention": ("attentionDescriptors", "AttentionSettings"),
+                  "mutedWorkspaces": ("mutedWorkspacesDescriptors", "NotificationPreferences"),
+                  "sounds": ("soundDescriptors", "NotificationSoundPreferences")},
+    },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
