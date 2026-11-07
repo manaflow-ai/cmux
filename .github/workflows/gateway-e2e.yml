@@ -250,6 +250,11 @@ jobs:
     # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
     environment: cmux-next-vm-image-dev
+    # actions: read lets resolve-exact see whether a cmux-tui artifacts run is still building this tree, so a tree
+    # nobody is building fails at once instead of after the whole wait.
+    permissions:
+      contents: read
+      actions: read
     # Attempt 1 takes the runner job's owned label when it named one; a re-run takes Blacksmith macOS.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
     # 30 of these may go to waiting for this commit's tree to be published (below).
