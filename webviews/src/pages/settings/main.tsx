@@ -5,6 +5,7 @@
 import "../shared/desktop";
 import "../../ui/ui.css";
 import { createPageClient } from "../shared/pageClient";
+import { appPopupHost } from "../shared/pagePopupHost";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";
 import "./page.css";
@@ -22,4 +23,4 @@ const bridge = search.has("mock") ? null : createPageClient();
 let mock = bridge ? undefined : createMockClient().client;
 // The dev server and tests can give the mock the app's timing (mockTiming.ts); production drops this.
 if (mock && process.env.NODE_ENV !== "production") mock = (await import("./mockTiming")).withMockTiming(mock, search);
-void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);
+void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!, appPopupHost(bridge));

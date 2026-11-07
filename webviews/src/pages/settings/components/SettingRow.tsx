@@ -1,5 +1,6 @@
 import { memo, useId, type ReactNode, type Ref } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { contextDescription } from "../../../ui/popupDescriptors";
 import { useRowState, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
@@ -20,7 +21,9 @@ export function useRowMenu(key: string): ContextMenuItem[] {
   return rowMenu(key, useRowState(key), useStore());
 }
 
-function rowMenu(key: string, state: RowState, store: SettingsStore): ContextMenuItem[] {
+type RowMenuItem = Omit<ContextMenuItem, "label"> & { label: string };
+
+function rowMenu(key: string, state: RowState, store: SettingsStore): RowMenuItem[] {
   const { managed, customized } = state;
   return [
     { id: "copyKey", label: t("settingsPage.copySettingKey"), onSelect: () => void store.copy(key) },
@@ -62,6 +65,9 @@ export const SettingRow = memo(function SettingRow({
   const disabled = inactive || !state.connected || !state.readable || managed !== null;
   const interfaceSize = row.key === "appearance.metrics.chromeFontSize" || row.key === "appearance.interfaceScale";
   const menu = rowMenu(row.key, state, store);
+  const nativeMenu = contextDescription(
+    menu.map(({ id, label, disabled, separatorBefore }) => ({ id, label, disabled, separatorBefore })),
+  );
   return (
     <RowFrame
       settingKey={row.key}
@@ -72,7 +78,7 @@ export const SettingRow = memo(function SettingRow({
       rowRef={focused && state.readable ? revealRow : undefined}
     >
       <div className="row-main">
-        <ContextMenu className="row-label" items={menu}>
+        <ContextMenu className="row-label" items={menu} native={{ model: nativeMenu }}>
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>

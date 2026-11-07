@@ -1,12 +1,13 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
+import type { PopupHost } from "../../ui/popupHost";
 import { mockManagedKey } from "./mockProvider";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, ops, renderPage, rowElement } = await import("./testing");
+const { click, ops, renderPage, rowElement, settle } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -30,7 +31,64 @@ async function openMenu(rendered: Rendered, key: string): Promise<HTMLElement> {
 const item = (menu: HTMLElement, label: string) =>
   [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((button) => button.textContent === label);
 
+function nativePopupHost(shown: Record<string, unknown>[]) {
+  const listeners = new Set<(event: Record<string, unknown>) => void>();
+  const host = {
+    show: async () => ({ shown: true }),
+    update() {},
+    hide() {},
+    owner: () => null,
+    listen: () => () => {},
+    native: {
+      show: async (model: Record<string, unknown>) => {
+        shown.push(model);
+        return { shown: true };
+      },
+      update() {},
+      hide() {},
+      listen(listener: (event: Record<string, unknown>) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    emit(event: Record<string, unknown>) {
+      listeners.forEach((listener) => listener(event));
+    },
+  };
+  return host;
+}
+
 describe("a setting row's context menu", () => {
+  test("sends the row menu as native rows without mounting a DOM menu", async () => {
+    const shown: Record<string, unknown>[] = [];
+    const host = nativePopupHost(shown);
+    page = await renderPage({ path: "/settings/privacy", popupHost: host as unknown as PopupHost });
+    const title = rowElement(page.container, "history.terminalCommands").querySelector(".row-title")!;
+    await act(async () => {
+      title.dispatchEvent(
+        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    await settle();
+    expect(shown).toHaveLength(1);
+    expect(shown[0].rows).toEqual([
+      { kind: "action", id: "copyKey", label: "Copy Setting Key" },
+      { kind: "separator", id: "separator:reset", label: "" },
+      { kind: "action", id: "reset", label: "Reset to Default", disabled: true },
+    ]);
+    expect(document.querySelector("[role=menu]")).toBeNull();
+    await act(async () => {
+      host.emit({
+        type: "pick",
+        popupId: shown[0].id,
+        revision: shown[0].revision,
+        id: "copyKey",
+      });
+    });
+    await settle();
+    expect(page.provider.clipboard).toBe("history.terminalCommands");
+  });
+
   test("offers Copy Setting Key, then Reset to Default after a separator", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     const menu = await openMenu(page, "history.terminalCommands");
