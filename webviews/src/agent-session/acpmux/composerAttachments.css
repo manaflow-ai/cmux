@@ -258,9 +258,9 @@
   outline: none;
   pointer-events: none;
 }
+/* Positioned, and after the picture: it paints over it. */
 :is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
   position: relative;
-  z-index: 1;
 }
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */

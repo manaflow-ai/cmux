@@ -54,7 +54,16 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
       Object.assign(window, {
         webkit: {
           messageHandlers: {
-            agentSession: { postMessage: async () => ({ ok: true, value: null }) },
+            // Counts the host's answers to `chat.upload.begin` (null: no upload starts).
+            agentSession: {
+              postMessage: async (message: unknown) => {
+                if (JSON.stringify(message ?? null).includes("chat.upload.begin")) {
+                  const counted = window as unknown as { uploadBegins?: number };
+                  counted.uploadBegins = (counted.uploadBegins ?? 0) + 1;
+                }
+                return { ok: true, value: null };
+              },
+            },
           },
         },
         cmuxAcpmuxActions: {
@@ -103,8 +112,10 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
               whileLoading: chip?.getAttribute("data-state") === "loading",
             });
           }
+          // raf-read: the measurement is the first frame a picture shows in, so it samples each one.
           requestAnimationFrame(look);
         };
+        // raf-read: the same sampling, from the paste's frame.
         requestAnimationFrame(look);
       });
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
@@ -135,8 +146,12 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
     await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     await pasteAndTime(page);
     await page.locator(".acpmux-md-inline-chip[data-state='ready'] .acpmux-attachment-image img").first().waitFor();
-    // The original's save has failed by now (the mock host starts no upload).
-    await page.waitForTimeout(1_500);
+    // The original's save was asked for and refused (the mock host starts no upload), and its
+    // answer has painted.
+    await page.waitForFunction(() => ((window as unknown as { uploadBegins?: number }).uploadBegins ?? 0) > 0);
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)))),
+    );
     expect(await page.locator(".acpmux-attachment-original-retry").count()).toBe(0);
     expect(await page.locator(".acpmux-attachment-retry").count()).toBe(0);
     await page.close();
