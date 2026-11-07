@@ -35,7 +35,8 @@ import Testing
         let half = try #require(Self.sprite(#","directions":{"drag":{"right":{"row":11,"frames":4,"fps":8}}}"#))
         #expect(half.track(.drag, toward: .right, facingRight: true) == .init(row: 11, frames: 4, fps: 8, loop: true, mirrored: false))
         #expect(half.track(.drag, toward: .left, facingRight: true) == .init(row: 11, frames: 4, fps: 8, loop: true, mirrored: true))
-        #expect(half.track(.drag, toward: .left, facingRight: false)?.mirrored == false)
+        #expect(half.track(.drag, toward: .left, facingRight: false)?.mirrored == true, "facing left: the right row, mirrored")
+        #expect(half.track(.drag, toward: .right, facingRight: false)?.mirrored == false, "facing left, pulled right: the right row as drawn")
         #expect(half.track(.drag, toward: .up, facingRight: true) == nil, "no up row: the state draws")
         // A row past the sheet has no frames: no row.
         let short = try #require(Self.sprite(#","directions":{"look":{"left":{"row":11,"frames":4}}}"#, rows: 4))

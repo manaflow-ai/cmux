@@ -94,7 +94,7 @@ function SetVariants({
       <table>
         <thead>
           <tr>
-            <th />
+            <td />
             {AVATAR_DIRECTIONS.map((toward) => (
               <th key={toward} scope="col">
                 {toward}

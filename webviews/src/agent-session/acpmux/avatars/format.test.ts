@@ -148,7 +148,8 @@ test("direction rows parse, count toward the sheet's size and draw toward the sc
   // A missing side borrows the other, mirrored; a missing up or down has no row.
   expect(directionTrack(parsed, "drag", "right", "right")).toMatchObject({ row: 11, mirrored: false });
   expect(directionTrack(parsed, "drag", "left", "right")).toMatchObject({ row: 11, mirrored: true });
-  expect(directionTrack(parsed, "drag", "left", "left")).toMatchObject({ row: 11, mirrored: false });
+  expect(directionTrack(parsed, "drag", "left", "left")).toMatchObject({ row: 11, mirrored: true });
+  expect(directionTrack(parsed, "drag", "right", "left")).toMatchObject({ row: 11, mirrored: false });
   expect(directionTrack(parsed, "drag", "up", "right")).toBeNull();
 });
 
