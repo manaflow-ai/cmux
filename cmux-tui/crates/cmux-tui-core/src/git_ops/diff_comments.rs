@@ -135,7 +135,7 @@ fn save(
     };
     let existing = existing.or_else(|| file.position(&id));
     let created = existing
-        .and_then(|index| file.comments[index].get("createdAt").cloned())
+        .and_then(|index| file.comments.get(index)?.get("createdAt").cloned())
         .filter(Value::is_string)
         .unwrap_or_else(|| Value::String(now.clone()));
     comment.insert("id".into(), Value::String(id));
@@ -242,7 +242,7 @@ fn well_formed_id(id: &str) -> bool {
 
 fn new_id(root: &str, key: &str) -> String {
     let digest = Sha256::digest(format!("diff-comment\0{root}\0{key}").as_bytes());
-    format!("dc_{}", hex(&digest[..16]))
+    format!("dc_{}", hex(digest.get(..16).unwrap_or_default()))
 }
 
 fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
