@@ -96,8 +96,13 @@ gh run view "$RUN" --repo manaflow-ai/cmux --json headSha,workflowName --jq '.he
    ```
 
 7. Pin move, by the lane that owns the window: in a fresh worktree from the
-   newest `origin/feat-cmux-next`, set the `CCmuxAppFFI` binaryTarget `url`
-   and `checksum` in `Packages/macOS/CmuxNext/Package.swift`, commit, then
+   newest `origin/feat-cmux-next`, run
+   `scripts/cmux-next/repin-app-ffi.sh <source sha> <checksum>`, which writes
+   `url` and `checksum` into `Packages/macOS/CmuxNext/app-ffi-pin.json` (the
+   file Package.swift reads) and the same checksum into Package.swift's one
+   `// app-ffi-pin-checksum:` line (SwiftPM caches the manifest by its text, so
+   the manifest must change with the pin; never edit anything else there),
+   commit, then
 
    ```bash
    if scripts/cmux-next/check-app-ffi-pin.sh --verify-release; then <safe-push>; fi

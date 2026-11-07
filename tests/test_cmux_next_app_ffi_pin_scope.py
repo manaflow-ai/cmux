@@ -3,6 +3,8 @@
 2026-10-07: three source changes on feat-cmux-next without a re-pin (2914fa52,
 d7167cb6, 45845b2d) each made `swift test` red on every pull request into it.
 """
+import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -14,14 +16,15 @@ import git_fixture_env  # noqa: F401  (turns off git's background maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
+PIN_READER = ROOT / "scripts/ci/app_ffi_pin.py"
+_spec = importlib.util.spec_from_file_location("app_ffi_pin", PIN_READER)
+app_ffi_pin = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(app_ffi_pin)
 SOURCE = "cmux-tui/crates/cmux-rd-core/src/lib.rs"
 CHECKSUM = "c" * 64
 
 
-def manifest(sha: str) -> str:
-    return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-            f"    url: \"https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip\",\n"
-            f"    checksum: \"{CHECKSUM}\"\n)\n")
+MANIFEST = "import Foundation\nimport PackageDescription\n\n" + app_ffi_pin.loader(CHECKSUM)
 
 
 class PullRequestScope(unittest.TestCase):
@@ -31,7 +34,7 @@ class PullRequestScope(unittest.TestCase):
         (self.root / "scripts/cmux-next").mkdir(parents=True)
         shutil.copy(SCRIPT, self.root / "scripts/cmux-next/check-app-ffi-pin.sh")
         (self.root / "scripts/ci").mkdir(parents=True)
-        shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.root / "scripts/ci/app_ffi_pin.py")
+        shutil.copy(PIN_READER, self.root / "scripts/ci/app_ffi_pin.py")
         self.env = git_fixture_env.without_auto_maintenance(dict(
             os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
             GIT_COMMITTER_EMAIL="t@e"))
@@ -41,7 +44,7 @@ class PullRequestScope(unittest.TestCase):
         self.write("cmux-tui/crates/cmux-rd-core/Cargo.toml", "[package]\nname = \"cmux-rd-core\"\nversion = \"0.1.0\"\n")
         self.write(SOURCE, "v1\n")
         self.pinned = self.commit("ffi v1")
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.pin(self.pinned)
         self.commit("pin v1")
 
     def tearDown(self):
@@ -50,6 +53,10 @@ class PullRequestScope(unittest.TestCase):
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.root), *args], env=self.env, check=True,
                               capture_output=True, text=True).stdout.strip()
+
+    def pin(self, sha):
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST)
+        self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", app_ffi_pin.render(sha, CHECKSUM))
 
     def write(self, path, text):
         target = self.root / path
@@ -69,33 +76,43 @@ class PullRequestScope(unittest.TestCase):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_a_pin_that_is_not_canonical_fails_naming_its_first_bad_line(self):
-        # The check reads the pin only through scripts/ci/app_ffi_pin.py: a shape the canonical match does not know
-        # fails, with the first line that does not match, even when the url and checksum are still there.
-        good = manifest(self.pinned)
-        cases = (
-            (good.replace('name: "CCmuxAppFFI"', "name: ffiName"),
-             "Package.swift line 2 is not the canonical CCmuxAppFFI pin line"),
-            ('let note = """\n' + good + '"""\n', "Package.swift line 1 has '\"\"\"'"),
-            (good + good.replace("let appFFI", "let b"), "Package.swift has 2 'binaryTarget', not one"),
-            (good + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
-             "Package.swift line 6 names CCmuxAppFFI or appFFI outside the canonical pin"),
+    def test_a_pin_that_is_not_canonical_fails_naming_the_reason(self):
+        # The check reads the pin only through scripts/ci/app_ffi_pin.py: a pin file off its one format, or a
+        # Package.swift with anything but its one loader block, fails with the reader's reason.
+        good = app_ffi_pin.render(self.pinned, CHECKSUM)
+        url = json.loads(good)["url"]
+        pin_cases = (
+            (json.dumps({"url": url, "checksum": CHECKSUM, "extra": 1}) + "\n", "must be exactly"),
+            (good.rstrip("\n"), "is not in its one format"),
+            ("not json\n", "is not JSON"),
         )
-        for text, why in cases:
+        for text, why in pin_cases:
+            with self.subTest(why=why):
+                self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", text)
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("error: no canonical cmux-app-ffi pin in ", result.stderr)
+                self.assertIn(why, result.stderr)
+        self.pin(self.pinned)
+        manifest_cases = (
+            (MANIFEST + 'let note = """\n"""\n', "has '\"\"\"'"),
+            (MANIFEST + '.target(name: "CCmuxAppFFI", path: "Shim"),\n', "CCmuxAppFFI"),
+        )
+        for text, why in manifest_cases:
             with self.subTest(why=why):
                 self.write("Packages/macOS/CmuxNext/Package.swift", text)
                 result = self.check()
                 self.assertEqual(result.returncode, 1, result.stdout)
-                self.assertIn("error: no canonical cmux-app-ffi pin in ", result.stderr)
+                self.assertIn("does not read the pin through its one loader block", result.stderr)
                 self.assertIn(why, result.stderr)
 
     def test_a_base_whose_pin_is_not_canonical_pins_nothing(self):
         # The base's pin is read the same way: a base that is not canonical never counts as pinning this sha, so
         # source drift is this change's own error, as with a base that pins nothing.
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned) + "let r = #/x/#\n")
+        self.write("Packages/macOS/CmuxNext/app-ffi-pin.json", app_ffi_pin.render(self.pinned, CHECKSUM) + "\n")
         self.write(SOURCE, "v2\n")
         base = self.commit("a base whose pin is not canonical, with FFI drift")
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.pin(self.pinned)
         self.write("README.md", "unrelated\n")
         self.commit("the pull request")
         result = self.check("--base", base)
@@ -132,11 +149,11 @@ class PullRequestScope(unittest.TestCase):
         base = self.git("rev-parse", "HEAD")
         self.write(SOURCE, "v2\n")
         source = self.commit("ffi v2")
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(source))
+        self.pin(source)
         self.commit("re-pin v2")
         self.assertEqual(self.check("--base", base).returncode, 0)
         # A re-pin to a sha whose sources are not the head's still fails.
-        self.write("Packages/macOS/CmuxNext/Package.swift", manifest(self.pinned))
+        self.pin(self.pinned)
         self.write(SOURCE, "v3\n")
         self.commit("re-pin back, change again")
         self.assertNotEqual(self.check("--base", base).returncode, 0)

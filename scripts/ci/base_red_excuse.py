@@ -174,11 +174,33 @@ class GitHub(_evidence.GitHub):
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
         agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
         quota (source_text). Refused when the object is missing, not a file, or binary."""
+        return self.blob_text(repo, ref, path, self.named_object(repo, f"{ref}:{path}"))
+
+    def blob_if_present(self, repo: str, ref: str, path: str) -> str | None:
+        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there. Every
+        other answer (a failed request, a ref GitHub does not resolve, a binary or truncated file) is Refused, never
+        taken for an absent file."""
+        found = self.named_object(repo, f"{ref}:{path}")
+        if found is None:
+            if self.named_object(repo, ref) is None:
+                raise Refused(f"{repo}@{ref}: GitHub resolves no such ref, so {path} is unread, not absent")
+            return None
+        return self.blob_text(repo, ref, path, found)
+
+    def named_object(self, repo: str, expression: str) -> dict | None:
+        """The object EXPRESSION names in REPO (BLOB_QUERY: a blob's fields, {} for a commit or tree), or None when
+        it names none. Refused when GitHub does not serve REPO or answers with errors."""
         owner, _, name = repo.partition("/")
         found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
-                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}"]))
+                                     "-f", f"name={name}", "-f", f"expression={expression}"]))
         repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
-        blob = repository.get("object") if isinstance(repository, dict) else None
+        if not isinstance(repository, dict) or found.get("errors"):
+            raise Refused(f"{repo}: GitHub did not serve {expression}")
+        named = repository.get("object")
+        return named if isinstance(named, dict) else None
+
+    @staticmethod
+    def blob_text(repo: str, ref: str, path: str, blob: dict | None) -> str:
         if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
             raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
         if blob.get("isTruncated"):
@@ -226,8 +248,9 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
-def git_text(repo: str, ref: str, path: str) -> str | None:
+def git_text(repo: str, ref: str, path: str, *, missing=None):
     """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
+    MISSING, when given, is returned instead when git fetched REF and its tree has no PATH: a definite absence.
 
     A bare repo per REPO under source_cache(), fetched one commit deep with no blobs (`--depth=1 --filter=blob:none`),
     so a read costs one ref fetch and the one blob `git show` asks for, and no GitHub API quota at all. The fetch goes
@@ -257,6 +280,10 @@ def git_text(repo: str, ref: str, path: str) -> str | None:
             return None
         shown = git("show", f"{mine}:{path}")
         if shown.returncode:
+            if missing is not None:
+                listed = git("ls-tree", "--name-only", mine, "--", path)
+                if listed.returncode == 0 and not listed.stdout.strip():
+                    return missing
             return None
         return shown.stdout.decode()
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
@@ -276,6 +303,20 @@ def source_text(repo: str, ref: str, path: str, github) -> str:
     if text is not None:
         return text
     return github.blob(repo, ref, path)
+
+
+ABSENT = object()
+
+
+def source_text_if_present(repo: str, ref: str, path: str, github) -> str | None:
+    """source_text, or None only when PATH is definitely absent at REF: git fetched REF and its tree has no PATH, or
+    GitHub resolves REF and names nothing at PATH (GitHub.blob_if_present). Anything unread is Refused."""
+    text = git_text(repo, ref, path, missing=ABSENT)
+    if text is ABSENT:
+        return None
+    if text is not None:
+        return text
+    return github.blob_if_present(repo, ref, path)
 
 
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
@@ -1074,19 +1115,20 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # scripts/cmux-next/check-app-ffi-pin.sh reports "error: the app FFI sources changed since the pinned source" on any PR
 # that changes its inputs. app-ffi-release.yml publishes only from a feat-cmux-next push, so such a PR can never carry
 # its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
-# job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
-# code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+# job, is excused when the PR changes FFI inputs, leaves the pin (app-ffi-pin.json, and Package.swift, which reads it)
+# alone and changes no Swift, so no app code calls a symbol or op the pinned library lacks. Any other red in the job is
+# judged as before.
 #
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
-# when both hold: (a) the release its head pins (Package.swift's canonical CCmuxAppFFI block, app_ffi_pin.py: this
-# repository's own cmux-app-ffi-<sha> release download and its checksum; any other shape refuses; or, at a head that
-# has app-ffi-pin.json, that file read strictly with Package.swift holding only its one loader block, as cmux#37645
-# moves the pin, so this base classifier can judge that PR) is
+# when both hold: (a) the release its head pins (app-ffi-pin.json, read strictly by app_ffi_pin.py: this repository's
+# own cmux-app-ffi-<sha> release download and its checksum, with Package.swift holding the one fixed loader block that
+# reads that file, its checksum comment line equal to that checksum, and no pin of its own; or, at a head that predates
+# the pin file, Package.swift's template-form canonical CCmuxAppFFI block; any other shape refuses) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
-# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
-# resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
+# PR's exact head (compile_pass_at). The pin file at the head is the pin that compile built with: the loader hands its
+# URL and checksum to the binary target, and SwiftPM resolves it from those, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 FFI_PIN_CHECK = "Check the app FFI pin"
@@ -1100,36 +1142,37 @@ FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
 
-# The pin is read by scripts/ci/app_ffi_pin.py's fail-closed canonical match (2026-11-07), shared with the repin
-# picker and the repin script: no Swift is parsed, and anything but the canonical block refuses.
+# The pin is read by scripts/ci/app_ffi_pin.py (2026-11-07), shared with check-app-ffi-pin.sh, the repin picker and the
+# repin script: the pin file strictly, and Package.swift only for its one fixed loader block; anything else refuses.
 _spec = importlib.util.spec_from_file_location("app_ffi_pin", Path(__file__).with_name("app_ffi_pin.py"))
 app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
 
 
-def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
-    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text,
-    None when the head has none) it is that file's pin (app_ffi_pin.read_pin_file) and MANIFEST (Package.swift's text)
-    must hold only its loader block (app_ffi_pin.check_loader); without it, MANIFEST's canonical CCmuxAppFFI pin
-    (app_ffi_pin.read). Either way REPO's own cmux-app-ffi-<sha> release download and a 64-hex checksum."""
+def ffi_binary_target(pin_file: str | None, manifest: str | None, repo: str) -> tuple[str | None, str | None, str]:
+    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text) it
+    is that file's pin, read strictly, and MANIFEST (Package.swift's text) must hold the one fixed loader block and no
+    pin of its own (app_ffi_pin.read and check_manifest). Without it (None: the head predates the pin file) it is
+    MANIFEST's template-form canonical CCmuxAppFFI block (app_ffi_pin.read_template), so a PR still in that form is
+    read as before. None for MANIFEST means it is missing at that commit."""
+    if manifest is None:
+        return None, None, f"{FFI_PIN_MANIFEST} is missing"
     try:
         if pin_file is not None:
-            sha, checksum = app_ffi_pin.read_pin_file(pin_file, repo)
-            app_ffi_pin.check_loader(manifest, checksum)
+            sha, checksum = app_ffi_pin.read(pin_file, repo)
+            app_ffi_pin.check_manifest(manifest, checksum)
         else:
-            sha, checksum, _ = app_ffi_pin.read(manifest, repo)
+            sha, checksum = app_ffi_pin.read_template(manifest, repo)
     except app_ffi_pin.NotCanonical as why:
         return None, None, str(why)
     return sha, checksum, ""
 
 
 def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
-    """app-ffi-pin.json's text at SHA, or None when GitHub serves none there (the head is in the template form). A head
-    whose file is unread is read in the template form, which refuses a JSON-era Package.swift: never a looser read."""
-    try:
-        return source_text(repo, sha, FFI_PIN_FILE, github)
-    except Refused:
-        return None
+    """app-ffi-pin.json's text at SHA, or None only when SHA definitely has none (the head is in the template form).
+    A file that could not be read (a failed request, an unreadable blob) raises Refused: an unread pin file is never
+    taken for an absent one, which would judge the head by its inline Package.swift pin instead."""
+    return source_text_if_present(repo, sha, FFI_PIN_FILE, github)
 
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
@@ -1153,8 +1196,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
     built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
     (the published base pin rule above); else (None, the part of that rule that does not hold)."""
-    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo,
-                                           ffi_pin_file_at(repo, sha, github))
+    pin, checksum, why = ffi_binary_target(ffi_pin_file_at(repo, sha, github),
+                                           source_text(repo, sha, FFI_PIN_MANIFEST, github), repo)
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
@@ -1214,7 +1257,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     if published is not None:
         return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} {published}"
     return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
-            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
+            f"inputs, not {FFI_PIN_FILE}, {FFI_PIN_MANIFEST} or other Swift: a step-A Rust change, pinned by the release its merge "
             "publishes")
 
 

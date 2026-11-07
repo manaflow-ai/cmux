@@ -27,7 +27,7 @@ os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
-    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path, **_: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
     # The fakes reuse run ids with other jobs from test to test: no base job list is kept on disk unless a test asks.
@@ -2517,6 +2517,8 @@ if args[:2] == ["api", "graphql"]:
     blob = None
     if os.path.isfile(found):
         blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    elif os.path.isdir(found):
+        blob = {}  # a commit (a ref GitHub resolves) or a tree: none of the Blob fields
     print(json.dumps({"data": {"repository": {"object": blob}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
@@ -2575,6 +2577,34 @@ class SourceReads(unittest.TestCase):
         self.assertIn("'Skill test scope'", lines)
         self.assertEqual(gh.source_routes, [])
         self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def test_only_a_definite_graphql_absence_reads_as_no_file(self):
+        # Review of #37645 at 26bbaceb, F1: a file is absent only when GitHub resolves the ref and names nothing at
+        # the path; a ref it does not resolve, or a file it will not serve as text, is unread and refuses.
+        github = excuse.GitHub()
+        self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", github))
+        self.assertEqual(excuse.source_text_if_present(HQ, "main", ".github/workflows/skills-tests.yml", github),
+                         SKILLS_YML)
+        with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+            excuse.source_text_if_present(HQ, "gone", "no/such/file.json", github)
+        (self.tree / HQ / "main/dir.json").mkdir()
+        with self.assertRaisesRegex(excuse.Refused, "not a text file"):
+            excuse.source_text_if_present(HQ, "main", "dir.json", github)
+        with unittest.mock.patch.object(excuse.GitHub, "run", side_effect=excuse.Refused("HTTP 502")):
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 502"):
+                excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub())
+
+    def test_git_answers_a_definite_absence_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub()))
+        self.assertEqual(self.calls(), [])
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+                excuse.source_text_if_present(HQ, "gone", "no/such/file.json", excuse.GitHub())
 
     def git(self, *args, cwd=None):
         return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -4280,8 +4310,8 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 "##[error]Process completed with exit code 1.")])
 
     class GitHub(FakeGitHub):
-        """Also answers the published base pin rule's reads: Package.swift at the head (blob), where the pinned source
-        sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
+        """Also answers the published base pin rule's reads: app-ffi-pin.json and Package.swift at the head (blob),
+        where the pinned source sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
 
         def __init__(self, case):
             super().__init__()
@@ -4289,11 +4319,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
         def blob(self, repo, ref, path):
             self.case.assertEqual((repo, ref), (REPO, HEAD))
-            self.case.assertIn(path, (excuse.FFI_PIN_MANIFEST, excuse.FFI_PIN_FILE))
+            self.case.assertIn(path, (excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST))
             text = self.case.pin_file if path == excuse.FFI_PIN_FILE else self.case.manifest
             if text is None:
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
             return text
+
+        def blob_if_present(self, repo, ref, path):
+            # pin_file None: GitHub definitely serves no file there. pin_unread: the read failed (no answer at all).
+            if self.case.pin_unread:
+                raise excuse.Refused(f"{repo}@{ref}: GitHub did not serve {ref}:{path}")
+            if path == excuse.FFI_PIN_FILE and self.case.pin_file is None:
+                return None
+            return self.blob(repo, ref, path)
 
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
@@ -4313,6 +4351,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # The published base pin rule's inputs, by default all of it but the compile pass.
         self.pin_at_head(self.STEP_B_PIN)
         self.compare, self.statuses = "behind", []
+        self.pin_unread = False
         self.releases: list[str] = []
         self.sums = None  # SHA256SUMS: by default the pinned checksum's archive entry
         published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
@@ -4322,27 +4361,23 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     CHECKSUM = "2" * 64
 
     @staticmethod
-    def target(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
-        return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
-                f"    url: \"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
-                "CCmuxAppFFI.xcframework.zip\",\n"
-                f"    checksum: \"{checksum}\"\n)\n")
+    def pin_json(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
+        return json.dumps({"url": f"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                                  "CCmuxAppFFI.xcframework.zip", "checksum": checksum}) + "\n"
+
+    # Package.swift as the head has it: the one fixed loader block (app_ffi_pin.loader, its checksum line the pin
+    # file's) and the fixed reference shapes.
+    MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+                "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
+                + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
+                '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
+                "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n"
+                '            linkerSettings: [.linkedFramework("CoreFoundation")]\n')
 
     def pin_at_head(self, sha, repo=REPO):
         self.pinned, self.source = sha, sha
-        self.manifest = ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
-                         + self.target(sha, repo))
-        self.pin_file = None  # the template form: the head has no app-ffi-pin.json
-
-    # cmux#37645's form: app-ffi-pin.json, and Package.swift holding only its loader block (app_ffi_pin.loader).
-    JSON_MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
-                     "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
-                     + "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
-
-    def json_pin_at_head(self, sha, checksum=CHECKSUM, manifest=None):
-        self.pinned, self.source = sha, sha
-        self.pin_file = excuse.app_ffi_pin.render_pin_file(sha, checksum)
-        self.manifest = self.JSON_MANIFEST if manifest is None else manifest
+        self.pin_file = self.pin_json(sha, repo)
+        self.manifest = self.MANIFEST
 
     def release_file(self, repo, tag, name):
         self.releases.append(tag)
@@ -4371,8 +4406,9 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.RUST)
         self.assertEqual(self.judge(), [
             f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
-            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/Package.swift and no Swift: a "
-            "step-A Rust change, pinned by the release its merge publishes"])
+            "source\"), and #37292 changes app FFI inputs, not Packages/macOS/CmuxNext/app-ffi-pin.json, "
+            "Packages/macOS/CmuxNext/Package.swift or other Swift: a step-A Rust change, pinned by the release its merge "
+            "publishes"])
         self.assertEqual(len(self.graphql), 1)
 
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
@@ -4409,9 +4445,11 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.judge()
 
     def test_a_change_that_moves_the_pin_is_refused(self):
-        self.pr_files(*self.RUST, "Packages/macOS/CmuxNext/Package.swift")
-        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift"):
-            self.judge()
+        for moved in ("Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"):
+            with self.subTest(moved=moved):
+                self.pr_files(*self.RUST, moved)
+                with self.assertRaisesRegex(excuse.Refused, f"changes {re.escape(moved)}: a PR that moves the pin"):
+                    self.judge()
 
     def test_a_change_with_no_ffi_input_is_refused(self):
         self.pr_files("docs/ci/app-ffi-release.md")
@@ -4420,7 +4458,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
     # app compile passed at its head against that pin.
-    STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
+    STEP_B = ("Packages/macOS/CmuxNext/app-ffi-pin.json",
               "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
 
     def test_a_step_b_pin_on_the_base_that_compiled_is_excused(self):
@@ -4434,66 +4472,74 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"] * 2)
 
     def test_a_re_pin_alone_on_the_base_that_compiled_is_excused(self):
-        # cmux#37353: the re-pin bot's Package.swift-only PR, a few FFI commits behind the base tip.
-        self.pr_files("Packages/macOS/CmuxNext/Package.swift")
+        # cmux#37353: the re-pin bot's pin-only PR, a few FFI commits behind the base tip.
+        self.pr_files("Packages/macOS/CmuxNext/app-ffi-pin.json")
         self.compiled()
         self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
-
-    def test_a_json_pin_on_the_base_that_compiled_is_excused(self):
-        # cmux#37645 moves the pin to app-ffi-pin.json; this classifier runs from the base, so it reads that form
-        # before the PR lands. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
-        self.json_pin_at_head(self.STEP_B_PIN)
-        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST, "scripts/ci/app_ffi_pin.py")
-        self.compiled()
-        self.assertEqual(self.judge(), [
-            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
-            f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
-            f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
-        self.pr_files(excuse.FFI_PIN_FILE)
-        self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
-
-    def test_a_json_pin_off_its_rules_is_refused(self):
-        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
-        loader = excuse.app_ffi_pin.LOADER
-        for pin_file, manifest, why in (
-                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace(", ", ",  "), None,
-                 "is not in its one format"),
-                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace("manaflow-ai/", "x/"),
-                 None, "url is not"),
-                (None, self.JSON_MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"),
-                 "is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"),
-                (None, self.JSON_MANIFEST.replace(line, ""), "lines, not one"),
-                (None, self.JSON_MANIFEST.replace(loader, loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,")),
-                 "does not hold the one fixed"),
-                (None, self.JSON_MANIFEST + self.target(self.STEP_B_PIN), "has 'releases/download/'"),
-                (None, self.JSON_MANIFEST + "enum Foundation { }\n", "names a pin loader symbol outside the loader")):
-            with self.subTest(why=why):
-                self.setUp()
-                self.json_pin_at_head(self.STEP_B_PIN, manifest=manifest)
-                if pin_file is not None:
-                    self.pin_file = pin_file
-                self.pr_files(excuse.FFI_PIN_FILE)
-                self.compiled()
-                with self.assertRaisesRegex(excuse.Refused, why):
-                    self.judge()
-                self.assertEqual(self.releases, [])
-
-    def test_a_template_manifest_beside_a_pin_file_is_refused(self):
-        # A head with app-ffi-pin.json is read in the JSON form only: its Package.swift's own pin does not count.
-        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.manifest)
-        self.pr_files(excuse.FFI_PIN_FILE)
-        self.compiled()
-        with self.assertRaisesRegex(excuse.Refused, "has 'releases/download/'|lines, not one"):
-            self.judge()
 
     def test_swift_alone_against_the_base_pin_that_compiled_is_excused(self):
         self.pr_files(self.STEP_B[1])
         self.compiled()
         self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
 
+    # A head that predates app-ffi-pin.json (review of 6bc829a2): its Package.swift's template-form canonical block is
+    # still read, so an open PR in that form is judged as before the pin moved to data.
+    @staticmethod
+    def template_manifest(sha, repo=REPO, checksum=CHECKSUM):
+        return ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
+                "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                f"    url: \"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                "CCmuxAppFFI.xcframework.zip\",\n"
+                f"    checksum: \"{checksum}\"\n)\n"
+                "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+
+    def template_at_head(self, sha, manifest=None):
+        self.pinned, self.source = sha, sha
+        self.pin_file = None  # GitHub serves no app-ffi-pin.json at this head
+        self.manifest = self.template_manifest(sha) if manifest is None else manifest
+
+    def test_a_template_form_head_that_compiled_against_a_base_pin_is_excused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc",
+                      self.judge()[0])
+        self.assertEqual(excuse.ffi_binary_target(None, self.manifest, REPO), (self.STEP_B_PIN, self.CHECKSUM, ""))
+
+    def test_a_template_form_head_off_its_canonical_block_is_refused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        for manifest, why in (
+                (self.manifest.replace("    name:", "  name:"), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + "/* x */\n", "has '/\\*'"),
+                (self.manifest.replace("checksum: ", "checksum:  "), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + 'let b: Target = .binaryTarget(name: "X", path: "x")\n', "has 2 'binaryTarget'")):
+            with self.subTest(why=why):
+                self.refused_unread(why, manifest=manifest)
+                self.pin_file = None
+
+    def test_a_head_with_no_pin_file_but_the_loader_is_refused(self):
+        # The JSON-era Package.swift without its pin file reads in the template form, which refuses it: never looser.
+        self.pin_file = None
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 0 'releases/download/', not one"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
+    def test_an_unread_pin_file_is_refused_not_read_as_the_template_form(self):
+        # Review of 26bbaceb, F1: only a definite absence reads the head in the template form. A failed read refuses,
+        # even when the head's Package.swift is a template-form pin that would be excused.
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.pin_unread = True
+        with self.assertRaisesRegex(excuse.Refused, "GitHub did not serve"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
     def test_a_step_b_pin_with_no_compile_pass_is_refused_naming_it(self):
         self.pr_files(*self.STEP_B)
-        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift: a PR that moves "
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/app-ffi-pin.json: a PR that moves "
                                     "the pin must pin a release built from its own sources; nor is its pin a "
                                     f"published base release it compiled against: no app compile check passed at "
                                     f"{HEAD}"):
@@ -4526,7 +4572,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.STEP_B)
         self.compiled()
         self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
-        with self.assertRaisesRegex(excuse.Refused, "is not the canonical CCmuxAppFFI pin line"):
+        with self.assertRaisesRegex(excuse.Refused, "url is not manaflow-ai/cmux's own cmux-app-ffi-<40 hex> release"):
             self.judge()
         self.assertEqual(self.releases, [])
 
@@ -4570,90 +4616,135 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
             module.ffi_release_file(REPO, tag, "SOURCE_SHA")
 
-    # The pin is app_ffi_pin.py's canonical block (2026-11-07, after five lexer holes): raw text, nothing skipped. Each
-    # attack the lexer once missed now refuses on a forbidden construct, a count, or a line off the template, and no
-    # release is read for it.
+    # The pin is app-ffi-pin.json, read strictly, and Package.swift holds only the fixed loader block (2026-11-07,
+    # Leo: "why were you writing a Swift parser in regex in the first place"). Each shape off the contract refuses,
+    # and no release is read for it.
     DIVERGED = "d" * 40
-    NOT_CANONICAL = "is not the canonical CCmuxAppFFI pin line"
 
-    def refused_with(self, manifest, pattern):
+    def refused_with(self, pattern, pin_file=None, manifest=None):
         self.pr_files(*self.STEP_B)
         self.compiled()
-        self.manifest = manifest
+        if pin_file is not None:
+            self.pin_file = pin_file
+        if manifest is not None:
+            self.manifest = manifest
         with self.assertRaisesRegex(excuse.Refused, pattern):
             self.judge()
 
-    def refused_unread(self, manifest, pattern):
-        self.refused_with(manifest, pattern)
+    def refused_unread(self, pattern, pin_file=None, manifest=None):
+        self.refused_with(pattern, pin_file, manifest)
         self.assertEqual(self.releases, [])
 
-    def inline(self, sha):
-        return self.target(sha).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
+    def test_a_pin_file_off_its_one_format_is_refused(self):
+        good = self.pin_json(self.STEP_B_PIN)
+        url = json.loads(good)["url"]
+        for text, why in (
+                (json.dumps({"url": url, "checksum": self.CHECKSUM, "extra": 1}) + "\n", "must be exactly"),
+                (json.dumps({"checksum": self.CHECKSUM, "url": url}) + "\n", "must be exactly"),
+                ('{"url": "%s", "url": "%s", "checksum": "%s"}\n' % (url, url, self.CHECKSUM), "repeats a key"),
+                (json.dumps({"url": url, "checksum": self.CHECKSUM}, indent=2) + "\n", "is not in its one format"),
+                (good.rstrip("\n"), "is not in its one format"),
+                (good + "\n", "is not in its one format"),
+                ("[" + good.strip() + "]\n", "must be exactly"),
+                ("not json\n", "is not JSON"),
+                (self.pin_json(self.STEP_B_PIN, checksum="A" * 64), "checksum is not 64 lowercase hex"),
+                (self.pin_json(self.STEP_B_PIN, checksum="2" * 63), "checksum is not 64 lowercase hex"),
+                (self.pin_json(self.STEP_B_PIN, host="github.com.evil.example"), "url is not"),
+                (self.pin_json(self.STEP_B_PIN[:39]), "url is not"),
+                (good.replace("CCmuxAppFFI.xcframework.zip", "Other.zip"), "url is not")):
+            with self.subTest(text=text[:60]):
+                self.refused_unread(why, pin_file=text)
 
-    def test_a_published_target_in_a_comment_beside_a_diverged_one_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        self.refused_unread("".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED),
-                            "has 2 'binaryTarget', not one")
-        self.refused_unread("/* an old pin:\n" + published + "*/\n" + self.target(self.DIVERGED),
-                            "line 1 has '/\\*'")
+    def test_a_missing_pin_file_or_manifest_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        # A missing pin file reads the head in the template form, which refuses this loader-only Package.swift; a
+        # missing Package.swift is no answer at all.
+        for name, why in (("pin_file", "Package.swift has 0 'releases/download/', not one"),
+                          ("manifest", "is not a text file GitHub served")):
+            with self.subTest(missing=name):
+                self.pin_at_head(self.STEP_B_PIN)
+                setattr(self, name, None)
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    self.judge()
+        self.assertEqual(self.releases, [])
 
-    def test_a_pin_in_any_string_or_regex_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        for opening, closing, token in (('"""\n', '"""', '\'"""\''), ('#"', '"#', "'#\"'"), ("#/", "/#", "'#/'"),
-                                        ("#" * 64 + '"', '"' + "#" * 64, "'#\"'"),
-                                        ("#" * 200 + '"x"' + "#" * 63 + "\n", '"' + "#" * 200, "'#\"'")):
-            with self.subTest(opening=opening[:8]):
-                self.refused_unread(f"let s = {opening}{published}{closing}\nlet ffiName = \"CCmuxAppFFI\"\n"
-                                    + self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                                    f"has {re.escape(token)}, which no canonical pin file has")
+    def test_a_manifest_with_a_pin_of_its_own_is_refused(self):
+        literal = ('let other: Target = .binaryTarget(\n    name: "CCmuxAppFFI",\n    url: "https://github.com/'
+                   f'{REPO}/releases/download/cmux-app-ffi-{self.DIVERGED}/CCmuxAppFFI.xcframework.zip",\n'
+                   f'    checksum: "{self.CHECKSUM}"\n)\n')
+        self.refused_unread("has 'releases/download/': the pin lives in", manifest=self.MANIFEST + literal)
+        loader = excuse.app_ffi_pin.LOADER
+        old = loader.replace("url: appFFIPin.url,", f'url: "https://example.com/cmux-app-ffi-{self.DIVERGED}",')
+        self.refused_unread("has 'cmux-app-ffi-'", manifest=self.MANIFEST.replace(loader, old))
 
-    def test_an_interpolation_or_conditional_compilation_is_refused(self):
-        self.refused_unread(f'let s = "\\(Target.self/* ) " */{self.inline(self.STEP_B_PIN)})"\n',
-                            "has '/\\*'")
-        self.refused_unread(f'let s = "\\(Target.self{self.inline(self.STEP_B_PIN)})"\n',
-                            "line 1 is not the canonical CCmuxAppFFI pin line")
-        self.refused_unread("#if false\n" + self.target(self.STEP_B_PIN) + "#endif\n" + self.target(self.DIVERGED),
-                            "has '#if'")
+    def test_a_changed_or_missing_loader_is_refused(self):
+        loader = excuse.app_ffi_pin.LOADER
+        for changed in (loader.replace('"app-ffi-pin.json"', '"other-pin.json"'),
+                        loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,"),
+                        loader.replace("    name:", "  name:"),
+                        loader.replace("fatalError", "print"),
+                        ""):
+            with self.subTest(changed=changed[:40]):
+                self.refused_unread("does not hold the one fixed .* loader block exactly once",
+                                    manifest=self.MANIFEST.replace(loader, changed))
+        self.refused_unread("has 2 'binaryTarget'", manifest=self.MANIFEST + loader)
+        self.refused_unread("lines, not one", manifest=self.MANIFEST + excuse.app_ffi_pin.loader(self.CHECKSUM))
 
-    def test_a_target_off_the_template_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
-               "CCmuxAppFFI.xcframework.zip")
-        for manifest in (
-                published.replace('name: "CCmuxAppFFI"', "name: ffiName"),
-                published.replace('name: "CCmuxAppFFI"', 'name: "CCmux" + "AppFFI"'),
-                published.replace('name: "CCmuxAppFFI"', 'name: "\\(prefix)AppFFI"'),
-                published.replace('url: "https', 'url: "" + "https'),
-                published.replace("    checksum:", '    path: "x",\n    checksum:'),
-                published.replace("    name:", "  name:"),
-                published.replace("let appFFI: Target = ", "let other: Target = "),
-                f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n',
-                self.target(self.STEP_B_PIN, host="github.com.evil.example"),
-                self.target(self.STEP_B_PIN, repo="someone/cmux")):
-            with self.subTest(manifest=manifest[:90]):
-                self.refused_unread(manifest, self.NOT_CANONICAL)
+    def test_a_checksum_line_that_is_not_the_pin_files_is_refused(self):
+        # SwiftPM caches an evaluated manifest by Package.swift's text: a pin file moved without the manifest's
+        # checksum line would leave a reused package path on the old pin, so the two must agree.
+        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            manifest=self.MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"))
+        self.refused_unread("is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum",
+                            pin_file=self.pin_json(self.STEP_B_PIN, checksum="4" * 64), manifest=self.MANIFEST)
+        for changed in ("", f"    // app-ffi-pin-checksum: {self.CHECKSUM}\n", f"// app-ffi-pin-checksum: {self.CHECKSUM} \n",
+                        f"// app-ffi-pin-checksum: {self.CHECKSUM[:63]}\n"):
+            with self.subTest(changed=changed):
+                self.refused_unread("app-ffi-pin-checksum", pin_file=self.pin_json(self.STEP_B_PIN),
+                                    manifest=self.MANIFEST.replace(line, changed))
+        self.refused_unread("has 2 'app-ffi-pin-checksum'", pin_file=self.pin_json(self.STEP_B_PIN),
+                            manifest=self.MANIFEST + "// see app-ffi-pin-checksum above\n")
 
-    def test_a_second_target_or_declaration_is_refused(self):
-        published = self.target(self.STEP_B_PIN)
-        self.refused_unread(published + published.replace("let appFFI", "let b"), "has 2 'binaryTarget', not one")
-        self.refused_unread("let x = 1\n", "has 0 'binaryTarget', not one")
-        self.refused_unread(published + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
-                            "line 6 names CCmuxAppFFI or appFFI outside the canonical pin")
-        self.refused_unread(published + "let f = [appFFI].first!\n", "names CCmuxAppFFI or appFFI outside")
+    def test_the_rewrite_moves_the_pin_file_and_only_the_checksum_line(self):
+        pin, manifest = excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN), self.MANIFEST, "5" * 40, "6" * 64)
+        self.assertEqual(pin, self.pin_json("5" * 40, checksum="6" * 64))
+        changed = [(a, b) for a, b in zip(self.MANIFEST.split("\n"), manifest.split("\n")) if a != b]
+        self.assertEqual(changed, [(f"// app-ffi-pin-checksum: {self.CHECKSUM}", f"// app-ffi-pin-checksum: {'6' * 64}")])
+        self.assertEqual(excuse.ffi_binary_target(pin, manifest, REPO), ("5" * 40, "6" * 64, ""))
+        with self.assertRaisesRegex(excuse.app_ffi_pin.NotCanonical, "is not .*app-ffi-pin.json's checksum"):
+            excuse.app_ffi_pin.rewrite(self.pin_json(self.STEP_B_PIN, checksum="7" * 64), self.MANIFEST, "5" * 40,
+                                       "6" * 64)
+        self.refused_unread("no 'import Foundation' line", manifest=self.MANIFEST.replace("import Foundation\n", ""))
+
+    def test_hiding_constructs_and_a_second_target_are_refused(self):
+        self.refused_unread("has '#if'", manifest=self.MANIFEST + "#if false\nlet x = 1\n#endif\n")
+        self.refused_unread("has '/\\*'", manifest=self.MANIFEST + "/* x */\n")
+        self.refused_unread("has '#\"'", manifest=self.MANIFEST + 'let s = #"x"#\n')
+        self.refused_unread("has 2 'binaryTarget'",
+                            manifest=self.MANIFEST + 'let b: Target = .binaryTarget(name: "X", path: "x")\n')
+        self.refused_unread("has 2 'JSONDecoder'", manifest=self.MANIFEST + "struct JSONDecoder { }\n")
+
+    def test_a_loader_symbol_used_outside_the_loader_is_refused(self):
+        for line in ("extension AppFFIPin { var other: String { url } }",
+                     "let pinned = appFFIPin",
+                     "enum Foundation { }",
+                     '        .target(name: "CCmuxAppFFI", path: "Shim"),',
+                     "let f = [appFFI].first!"):
+            with self.subTest(line=line):
+                self.refused_unread("names a pin loader symbol outside the loader",
+                                    manifest=self.MANIFEST + line + "\n")
 
     def test_the_fixed_reference_shapes_pass(self):
         self.pr_files(*self.STEP_B)
         self.compiled()
-        self.manifest = ("// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + self.target(self.STEP_B_PIN)
-                         + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
-                         '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
-                         "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n")
         self.assertEqual(len(self.judge()), 1)
 
     def test_a_checksum_that_is_not_the_releases_archive_entry_is_refused(self):
         self.sums = f"{'3' * 64}  CCmuxAppFFI.xcframework.zip\n{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip.sha256\n"
-        self.refused_with(self.manifest, "the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
-                                         "bfcbb8eb1637e48's SHA256SUMS entry")
+        self.refused_with("the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
+                          "bfcbb8eb1637e48's SHA256SUMS entry")
 
     def test_a_published_pin_beside_another_red_is_judged_as_before_and_an_unpublished_one_refused(self):
         # Review of 6e7159aa (F1): beside another red, a published base pin leaves the job to the base comparison
@@ -4668,14 +4759,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "nor is its pin a published base release"):
             self.judge()
 
-    def test_the_real_manifest_reads_its_one_pin(self):
-        # This checkout's Package.swift (the base it branched from) is canonical.
-        text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
-        pin, checksum, why = excuse.ffi_binary_target(text, REPO)
+    def test_the_real_pin_file_and_manifest_read_their_one_pin(self):
+        # This checkout's app-ffi-pin.json and Package.swift (the base it branched from) are canonical.
+        pin_file = (ROOT / excuse.FFI_PIN_FILE).read_text(encoding="utf-8")
+        manifest = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
+        pin, checksum, why = excuse.ffi_binary_target(pin_file, manifest, REPO)
         self.assertEqual(why, "")
         self.assertRegex(pin, r"^[0-9a-f]{40}$")
-        self.assertIn(f"cmux-app-ffi-{pin}/CCmuxAppFFI.xcframework.zip", text)
-        self.assertIn(f'checksum: "{checksum}"', text)
+        self.assertEqual(pin_file, excuse.app_ffi_pin.render(pin, checksum))
+        self.assertNotIn(pin, manifest)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.
