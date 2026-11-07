@@ -12,7 +12,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxBackgroundState, AcpmuxBackgroundTask } from "../model";
 import { BackgroundTaskNote } from "./BackgroundTaskNote";
-import { SubagentNavContext } from "../subagents/SubagentGroup";
+import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,

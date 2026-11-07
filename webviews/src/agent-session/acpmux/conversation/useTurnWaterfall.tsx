@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { Clock } from "./icons";
-import { ROW_ICON } from "./MessageActions";
+import { ROW_ICON } from "./messageActionsModel";
 import { isEmptyFooter } from "./turns";
 import { type WaterfallLook, TurnWaterfall } from "./TurnWaterfall";
 

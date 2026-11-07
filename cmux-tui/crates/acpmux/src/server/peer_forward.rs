@@ -587,6 +587,7 @@ async fn forward_inner(
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
         bound_page(m, params, &mut p);
+        drop_local_kinds(&mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
         if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
@@ -997,6 +998,15 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
 
+/// The sudo card's record kinds (`hub/elevation.rs`) stay off a forwarded read: a peer chat never
+/// has one (elevation is this daemon's own chats only), and a peer on an older build refuses an
+/// attach or read naming more than 8 kinds, which a phone asking for them would then hit.
+fn drop_local_kinds(forwarded: &mut Value) {
+    if let Some(kinds) = forwarded.get_mut("kinds").and_then(Value::as_array_mut) {
+        kinds.retain(|k| !matches!(k.as_str(), Some("elevation_request" | "elevation_decision")));
+    }
+}
+
 /// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
 /// page to: a peer on an older build has no limit of its own and answers in one reply however
 /// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
@@ -1046,6 +1056,29 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
+    /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).
+    #[test]
+    fn a_forwarded_read_leaves_the_sudo_card_kinds_here() {
+        let kinds = [
+            "transcript",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+            "claude.system.api_retry",
+            "bookmarks",
+            "elevation_request",
+            "elevation_decision",
+        ];
+        let mut p = json!({"sessionId": "s", "kinds": kinds});
+        drop_local_kinds(&mut p);
+        assert_eq!(p["kinds"], json!(&kinds[..7]));
+        let mut none = json!({"sessionId": "s"});
+        drop_local_kinds(&mut none);
+        assert_eq!(none, json!({"sessionId": "s"}));
+    }
 
     /// An explicit peer removal must release *every* upload waiting for the
     /// reconnect. The old waiter listened only to completed connection attempts,

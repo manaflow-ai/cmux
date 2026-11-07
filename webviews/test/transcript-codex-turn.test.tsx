@@ -137,7 +137,7 @@ test("a failed tool call keeps its red mark at rest; a running one no spinner", 
   expect(running).not.toContain("cv-command__time");
 });
 
-test("the hover check and time fade as a message's hover row does", async () => {
+test("the hover check and time follow the pointer's dwell as a message's hover row does", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
@@ -145,6 +145,6 @@ test("the hover check and time fade as a message's hover row does", async () => 
     /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
   );
   expect(css).toMatch(
-    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-ease\) var\(--cv-actions-in-delay\)/,
+    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-in-ease\);/,
   );
 });

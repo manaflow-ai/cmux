@@ -9,7 +9,7 @@
 import { changeItems, mergedView, readableChanges, readableUpdate } from "./model";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
+import { GENERIC_ENTRY_ID, hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
 
 /** One row of the preview: the change's title, and what its description adds (absent: none). */
 export interface PreviewEntry {
@@ -62,6 +62,9 @@ export function previewEntries(
   }
   const readable = readableUpdate(data);
   for (const item of [...readable.items, ...(readable.rest ?? [])]) {
+    // The host's items come in the page's language: the generic entry leaves by its id alone, as
+    // its title is the English one only in English (review F1 of #37894).
+    if (item.id === GENERIC_ENTRY_ID) continue;
     add({ id: item.id, title: item.title, detail: item.summary ?? undefined, category: item.category });
   }
   return rows;
