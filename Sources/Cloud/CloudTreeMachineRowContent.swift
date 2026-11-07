@@ -52,7 +52,7 @@ struct CloudTreeMachineRowContent: View {
                         magnified: statusSymbol,
                         pointSize: style.detailSize,
                         weight: .medium,
-                        tint: Color(nsColor: .secondaryLabelColor)
+                        tint: Color(nsColor: statusSymbol == Self.lowDiskSymbol ? .systemOrange : .secondaryLabelColor)
                     )
                     .accessibilityHidden(true)
                 }
@@ -64,8 +64,18 @@ struct CloudTreeMachineRowContent: View {
 
     /// The status glyph drawn after the name. A locked machine keeps its lock
     /// there, so the name stays on the column every other machine row uses.
+    /// A nearly full disk gets a warning: a full guest disk can stop the
+    /// machine answering, so the row says so while there is room to recover.
     var statusSymbol: String? {
-        machine.freeAccess == .expired ? "lock.fill" : nil
+        if machine.freeAccess == .expired { return "lock.fill" }
+        return metrics.lowDiskFreeMb != nil ? Self.lowDiskSymbol : nil
+    }
+
+    static let lowDiskSymbol = "exclamationmark.triangle.fill"
+
+    /// What to do about a nearly full disk, from the latest live sample.
+    var lowDiskWarning: String? {
+        metrics.lowDiskWarning(machineID: machine.id)
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
@@ -77,7 +87,9 @@ struct CloudTreeMachineRowContent: View {
     /// least other way to get it. `subtitle` always has at least the kind, so
     /// there is no empty component to filter.
     var accessibilityLabel: String {
-        var parts = [machine.displayName, machine.activityLabel, metrics.summary]
+        var parts = [machine.displayName, machine.activityLabel]
+        if let lowDiskWarning { parts.append(lowDiskWarning) }
+        parts.append(metrics.summary)
         parts.append(subtitle)
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
@@ -85,7 +97,9 @@ struct CloudTreeMachineRowContent: View {
 
     /// Expands the row with its sample time, machine details, and optional billing usage.
     var toolTip: String {
-        var lines = [machine.displayName, machine.activityLabel, metrics.summary]
+        var lines = [machine.displayName, machine.activityLabel]
+        if let lowDiskWarning { lines.append(lowDiskWarning) }
+        lines.append(metrics.summary)
         if let sampledAt = machine.stats?.resourceSampledAt {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
