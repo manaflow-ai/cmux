@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium } from "playwright";
 import type { Sample, Scenario } from "./browser/send-stream-motion.harness";
-import { analyze, type MotionReport } from "./support/sendStreamMotionReport";
+import { analyze, CHASE_STEP_PX, type MotionReport } from "./support/sendStreamMotionReport";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -87,23 +87,22 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
 
   /// One line of the reply at the chat font.
   const LINE_PX = 22.75;
-  /// The most the thread may move in one 120 Hz frame while a prompt sends (or steers): 16 px. At
-  /// the chase's speed limit a frame moves 7 px; a steer that lands 150 px of rows (the prompt and
-  /// the reply's footer) catches up faster for a few frames (followChase.ts CATCH_UP_PX), 12-13 px.
-  /// The send moved the transcript 76-132 px in one frame before.
-  const MAX_SEND_FRAME_PX = 16;
-  /// While the reply streams: at most a line in any frame, and under half a line in 95 of 100
-  /// moving frames. Taking each new block at once moved it 40-130 px in a frame. The fixture's
-  /// table and code card grow faster than any frame's step (1,500 px/s and more), so the chase
-  /// speeds up by what it trails past two lines (followChase.ts CATCH_UP_PX).
-  const MAX_STREAM_FRAME_PX = LINE_PX;
-  const P95_STREAM_FRAME_PX = LINE_PX / 2;
+  /// While the reply streams, at most a line and a half in 95 of 100 moving frames (20-24 px
+  /// measured). A view held within two lines of a stream must move as fast as the stream grows:
+  /// the fixture's table and code card land 1,500 px/s and more, over 12 px a frame, and the trail
+  /// bound takes what lands past two lines at once. The unbounded chase kept this under half a line
+  /// by trailing up to 244 px.
+  const P95_STREAM_FRAME_PX = 1.5 * LINE_PX;
   /// Frames after the stream's last growth until the view rests at its end (lag 0, offset at the
   /// end, nothing moving): 30 frames is 250 ms, a spring's settle.
   const REST_FRAMES = 30;
   /// At rest the reply's newest line ends over the composer by the turn footer's band and the rest
   /// gap; more is room left blank under the rows.
   const REST_TAIL_PX = 160;
+  /// The most the view ever trails its layout: two lines (followChase.ts CHASE_MAX_TRAIL_LINES);
+  /// what lands past it moves at once. The chase trailed by up to 244 px before the bound, the
+  /// eased glide before it by up to 132 px.
+  const MAX_TRAIL_PX = 2 * LINE_PX;
 
   const SCENARIOS: Scenario[] = ["send", "tools", "steer"];
 
@@ -112,17 +111,18 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
     async (scenario) => {
       const report = await measure("", scenario);
       console.log(`send-stream-motion default ${scenario}: ${JSON.stringify(report, null, 2)}`);
-      // The send and a steer: the bubble, the rows above it and the composer's room move as one.
-      expect(report.jumpPx.send).toBeLessThanOrEqual(MAX_SEND_FRAME_PX);
-      expect(report.jumpPx.stream).toBeLessThanOrEqual(MAX_STREAM_FRAME_PX);
+      // Between new layouts only the chase moves the rows: never more than its fastest step in a
+      // frame (5 px; the eased glide before moved up to a line a frame as each rise started).
+      expect(report.chaseStepPx).toBeLessThanOrEqual(CHASE_STEP_PX);
+      // Most frames of the stream move a line or less; what lands past the trail bound moves at
+      // once (report.pastBound).
       expect(report.jumpPx.streamP95).toBeLessThanOrEqual(P95_STREAM_FRAME_PX);
-      // Thoughts and tool calls arriving and finishing: no move larger than a line in a frame.
-      for (const [phase, entry] of Object.entries(report.byPhase))
-        expect({ phase, maxPx: Math.min(entry.maxPx, LINE_PX + 0.01) }).toEqual({ phase, maxPx: entry.maxPx });
       // The end of the turn moves nothing.
       expect(report.jumpPx.after).toBeLessThanOrEqual(1);
       // Never far behind the newest text on a fast stream: half the time within three lines.
       expect(report.lagPx.p50).toBeLessThanOrEqual(3 * LINE_PX);
+      // And never more than two lines behind, in any frame of the turn.
+      expect(report.trailMaxPx).toBeLessThanOrEqual(MAX_TRAIL_PX + 0.01);
       expect(report.restsAtEnd).toBe(true);
       expect(report.restFramesAfterStream).toBeLessThanOrEqual(REST_FRAMES);
       // A steer's reply ends 10 px lower than a send's, the same with every arm and motion off.

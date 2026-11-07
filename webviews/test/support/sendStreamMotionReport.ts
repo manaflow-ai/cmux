@@ -14,6 +14,9 @@ export type MotionReport = ReturnType<typeof analyze>;
 
 /// A move of more than this in one 120 Hz frame reads as a jump: a third of a line.
 const JUMP_PX = 7.5;
+/// The chase's fastest step in a 120 Hz frame while it trails by at most two lines (followChase.ts:
+/// 450 px/s and what it trails past a line over 150 ms, 600 px/s at the bound), and rounding.
+export const CHASE_STEP_PX = 5.5;
 
 export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
   // A frame's move per 120 Hz slot: a frame drawn after one or more dropped slots shows the motion
@@ -24,8 +27,12 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
     const moved = Math.abs(sample.top - before.top);
     const slots = Math.max(1, Math.round((sample.t - before.t) / FRAME_MS));
     const atOnce = Math.abs(sample.lag - before.lag) < 0.01;
-    return { phase: sample.phase, px: atOnce ? moved : moved / slots, atOnce: atOnce && moved > 0.5 };
+    const laidOut = Math.abs(sample.scrollTop - before.scrollTop) > 0.5;
+    const px = atOnce ? moved : moved / slots;
+    return { phase: sample.phase, px, atOnce: atOnce && moved > 0.5, laidOut };
   });
+  /// Frames in which only the chase moved the rows (no new layout, nothing at once).
+  const chased = moves.filter((move) => !move.laidOut && !move.atOnce);
   const of = (phase: string) => moves.filter((move) => move.phase === phase).map((move) => move.px);
   /// Per step of the turn: the largest move in a frame, the frames over JUMP_PX and their largest,
   /// and the moves at once (the follow motion took no part) with their largest.
@@ -77,6 +84,16 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number) {
     atOnce: moves.filter((move) => move.atOnce).length,
     byPhase,
     lagPx: { p50: r2(pct(lags, 0.5)), p95: r2(pct(lags, 0.95)), max: r2(Math.max(0, ...lags)) },
+    /// The most the thread was drawn from its layout in any frame of the turn, any phase.
+    trailMaxPx: r2(Math.max(0, ...samples.map((sample) => Math.abs(sample.lag)))),
+    /// The largest move in a frame in which only the chase moved the rows.
+    chaseStepPx: r2(Math.max(0, ...chased.map((move) => move.px))),
+    /// Frames in which the layout moved and the rows moved more than the chase's fastest step: what
+    /// landed past the trail bound moved there at once. And the largest frame with a new layout.
+    pastBound: {
+      frames: moves.filter((move) => move.laidOut && move.px > CHASE_STEP_PX).length,
+      maxPx: r2(Math.max(0, ...moves.filter((move) => move.laidOut).map((move) => move.px))),
+    },
     /// Frames from the reply's last growth until nothing moves and the thread rests on its layout.
     restFramesAfterStream: rest - grew,
     restsAtEnd: rest < samples.length,
