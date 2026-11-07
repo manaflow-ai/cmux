@@ -10,6 +10,7 @@
 // token, the page away) the thumbnail draws in its slot at once.
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { entranceAllowed } from "../../shared/pageReveal";
+import { motionMode } from "../../../ui/motion/motionMode";
 
 /// How the sent preview comes in: `move` (the product's) goes from the chip's place and size to its
 /// slot; `grow` scales up from the chip's size in its slot; `fade` is the row's own fade only. The
@@ -73,21 +74,24 @@ export function morphFrom(from: DOMRect, to: DOMRect, style: SendMorphStyle): st
   return `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${sx}, ${sy})`;
 }
 
-/// The host's entrance token (`--agent-motion-in`), 0 when motion is off for this page.
+/// The host's entrance token (`--agent-motion-in`), 0 when motion is off for this page: the shared
+/// gate (ui/motion/motionMode.ts: `data-agent-motion`, `data-cmux-motion`, a zero token, Reduce
+/// Motion, a hidden page) and a page whose first frame back has not passed (entranceAllowed).
 function motionMs(element: Element): number {
   const doc = element.ownerDocument;
-  if (!entranceAllowed(doc)) return 0;
-  if (doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return 0;
+  if (motionMode(doc) !== "full" || !entranceAllowed(doc)) return 0;
   const token = getComputedStyle(doc.documentElement).getPropertyValue("--agent-motion-in").trim();
   const value = Number.parseFloat(token);
   if (!token || !Number.isFinite(value)) return MOTION_MS.standard;
   return token.endsWith("ms") ? value : value * 1000;
 }
 
-/// A ref for a sent preview's box: on mount, if the composer noted a chip for `key`, the box draws
-/// its first frame over the chip and moves to where it is laid out. Once per send; a remount (the
-/// virtual transcript scrolling it back, acpmux's echo naming the image by its bytes) finds no
-/// origin and draws in place.
+/// A ref for a sent preview's box: on mount, if the composer noted a chip for `key`, the preview
+/// draws its first frame over the chip and moves to where it is laid out. The transcript's scroller
+/// and its rows clip their paint (`overflow`, `contain: paint`; styles.css), and the composer is
+/// outside them, so the move is drawn by a copy of the preview fixed over the pane, the slot itself
+/// held empty under it until it lands. Once per send; a remount (the virtual transcript scrolling it
+/// back, acpmux's echo naming the image by its bytes) finds no origin and draws in place.
 export function sendMorphRef(key: string | undefined): (element: HTMLElement | null) => void {
   return (element) => {
     if (!element || key === undefined) return;
@@ -99,20 +103,46 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
     // The chip does not fade or slide in: it moves, at full ink, so its row's entrance (its fade,
     // its 4px rise, the thumbnail's own fade) ends at once around it, before the slot is read.
     if (style === "move") finishEntrances(element);
-    const transform = morphFrom(from, element.getBoundingClientRect(), style);
+    const to = element.getBoundingClientRect();
+    const transform = morphFrom(from, to, style);
     if (!transform) return;
-    element.animate(
+    const doc = element.ownerDocument;
+    const layer = element.closest(".acpmux-shell") ?? doc.body;
+    const ghost = element.cloneNode(true) as HTMLElement;
+    ghost.removeAttribute("id");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.setAttribute("data-send-morph-ghost", "");
+    ghost.classList.remove("cv-enter");
+    Object.assign(ghost.style, {
+      position: "fixed",
+      left: `${to.left}px`,
+      top: `${to.top}px`,
+      width: `${to.width}px`,
+      height: `${to.height}px`,
+      margin: "0",
+      zIndex: "var(--layer-overlay)",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+    });
+    layer.appendChild(ghost);
+    const held = element.style.visibility;
+    element.style.visibility = "hidden";
+    const land = () => {
+      ghost.remove();
+      element.style.visibility = held;
+    };
+    const move = ghost.animate(
       [
         { transform, transformOrigin: "0 0" },
         { transform: "none", transformOrigin: "0 0" },
       ],
       {
         duration,
-        easing:
-          getComputedStyle(element.ownerDocument.documentElement).getPropertyValue("--agent-ease-out").trim() ||
-          "ease-out",
+        easing: getComputedStyle(doc.documentElement).getPropertyValue("--agent-ease-out").trim() || "ease-out",
       },
     );
+    move.onfinish = land;
+    move.oncancel = land;
   };
 }
 

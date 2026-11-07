@@ -21,7 +21,7 @@ import { warmViteServer } from "./support/warmDevServer";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame of the sent row: its height, the preview's box and the bubble's box, in the viewport.
-type Frame = { at: number; row: number; preview?: Box; bubble?: Box; loaded: boolean };
+type Frame = { at: number; row: number; preview?: Box; hit: boolean; bubble?: Box; loaded: boolean };
 
 await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -63,8 +63,10 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
 
   /// Reads the last sent row every frame from now for `ms`: its height, the box of the first element
   /// `preview` names in it and its bubble's box.
-  const watchSentRow = (page: Page, preview: string, ms = 1500) =>
-    page.evaluate(
+  const watchSentRow = async (page: Page, preview: string, ms = 1500) => {
+    // The moving copy takes no clicks; here it must answer elementFromPoint for the paint check.
+    await page.addStyleTag({ content: "[data-send-morph-ghost] { pointer-events: auto !important; }" });
+    return page.evaluate(
       ({ preview, ms }) => {
         const frames: unknown[] = [];
         (window as unknown as { __sendFrames: unknown[] }).__sendFrames = frames;
@@ -80,11 +82,22 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
           const row = [...document.querySelectorAll(".cv-user")].at(-1);
           const shown = row?.querySelector(preview);
           const image = shown instanceof HTMLImageElement ? shown : shown?.querySelector("img");
+          // What draws the preview: its copy over the pane while it moves (sendMorph.ts), else itself.
+          const drawn = document.querySelector("[data-send-morph-ghost]") ?? shown;
+          const drawnBox = box(drawn);
+          // Painted, not only placed: the preview's center hits it, so nothing clips it.
+          // Painted, not only placed: the preview's center hits it, or a moving copy (two previews'
+          // paths may cross), never the composer under a clipped preview.
+          const center =
+            drawnBox &&
+            document.elementFromPoint(drawnBox.left + drawnBox.width / 2, drawnBox.top + drawnBox.height / 2);
+          const hit = !!center && (!!center.closest("[data-send-morph-ghost]") || !!shown?.contains(center));
           if (row && shown)
             frames.push({
               at: Math.round(performance.now() - start),
               row: row.getBoundingClientRect().height,
-              preview: box(shown),
+              preview: drawnBox,
+              hit,
               bubble: box(row.querySelector(".cv-user__bubble")),
               loaded: !!image && image.complete && image.naturalWidth > 0,
             });
@@ -97,6 +110,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       },
       { preview, ms },
     );
+  };
   /// The frames `watchSentRow` read, once its time is up.
   const sentFrames = async (page: Page) => {
     await page.waitForFunction(() => (window as unknown as { __sendDone: boolean }).__sendDone);
@@ -122,55 +136,106 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     near(first.preview, chip, `${label}: the preview's first frame is the chip`);
     expect(last.preview!.height, `${label}: the preview ends larger than its chip`).toBeGreaterThan(chip.height + 10);
     for (const frame of frames) {
+      expect(frame.hit, `${label}: the preview is painted, not clipped, at ${frame.at} ms`).toBe(true);
       expect(frame.row, `${label}: the row's height at ${frame.at} ms`).toBe(first.row);
       if (first.bubble) near(frame.bubble, first.bubble, `${label}: the text beside it at ${frame.at} ms`);
     }
   };
 
+  /// The agent pane with a 1600x1000 screenshot pasted into its composer beside typed text, ready
+  /// to send; answers the chip's box.
+  const paneWithScreenshot = async (page: Page): Promise<Box> => {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+        cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
+      });
+    });
+    await page.goto(`http://127.0.0.1:${port(pane)}/`);
+    const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+    await prompt.waitFor();
+    await prompt.click();
+    await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1600;
+      canvas.height = 1000;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#3a7bd5";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+      document
+        .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
+        .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const chipImage = page.locator(".acpmux-composer .acpmux-attachment-image img").first();
+    await chipImage.waitFor();
+    await page.waitForFunction(() => {
+      const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment-image img");
+      return !!image && image.complete && image.naturalWidth > 0;
+    });
+    await page.keyboard.type(" what is this");
+    const chip = await page
+      .locator(".acpmux-composer .acpmux-attachment-image")
+      .first()
+      .evaluate((element) => {
+        const { left, top, width, height } = element.getBoundingClientRect();
+        return { left, top, width, height };
+      });
+    return chip;
+  };
+
   test("a pasted screenshot sent with text: its first frame is its chip, then it moves; the row and text never move", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     try {
-      await page.addInitScript(() => {
-        Object.assign(window, {
-          webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
-          cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
-        });
-      });
-      await page.goto(`http://127.0.0.1:${port(pane)}/`);
-      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
-      await prompt.waitFor();
-      await prompt.click();
-      await page.evaluate(async () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 1600;
-        canvas.height = 1000;
-        const context = canvas.getContext("2d")!;
-        context.fillStyle = "#3a7bd5";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        const data = new DataTransfer();
-        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-        document
-          .querySelector('.acpmux-composer-prompt [contenteditable="true"]')!
-          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      });
-      const chipImage = page.locator(".acpmux-composer .acpmux-attachment-image img").first();
-      await chipImage.waitFor();
-      await page.waitForFunction(() => {
-        const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment-image img");
-        return !!image && image.complete && image.naturalWidth > 0;
-      });
-      await page.keyboard.type(" what is this");
-      const chip = await page
-        .locator(".acpmux-composer .acpmux-attachment-image")
-        .first()
-        .evaluate((element) => {
-          const { left, top, width, height } = element.getBoundingClientRect();
-          return { left, top, width, height };
-        });
+      const chip = await paneWithScreenshot(page);
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
       expectOneMove(await sentFrames(page), chip, "screenshot");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the moving screenshot is painted over the composer, not clipped or covered", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      const chip = await paneWithScreenshot(page);
+      // Each new transform animation is held at its start: the frame drawn right after Enter.
+      await page.evaluate(() => {
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args: Parameters<typeof animate>) {
+          const animation = animate.apply(this, args);
+          animation.pause();
+          animation.currentTime = 0;
+          return animation;
+        };
+      });
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.getAnimations().some((animation) => animation.playState === "paused"));
+      const shot = await page.screenshot({
+        clip: { x: chip.left + 8, y: chip.top + 8, width: chip.width - 16, height: chip.height - 16 },
+      });
+      // The share of the chip's middle drawn in the screenshot's blue (#3a7bd5).
+      const blue = await page.evaluate(async (png) => {
+        const bytes = Uint8Array.from(atob(png), (char) => char.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(bitmap, 0, 0);
+        const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+        let hits = 0;
+        for (let at = 0; at < data.length; at += 4)
+          if (
+            Math.abs(data[at]! - 0x3a) < 24 &&
+            Math.abs(data[at + 1]! - 0x7b) < 24 &&
+            Math.abs(data[at + 2]! - 0xd5) < 24
+          )
+            hits++;
+        return hits / (data.length / 4);
+      }, shot.toString("base64"));
+      expect(blue, "the preview's first frame shows where its chip was").toBeGreaterThan(0.8);
     } finally {
       await page.close();
     }
