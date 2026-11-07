@@ -49,7 +49,10 @@ import Testing
         let controller = Self.controller(Sent())
         defer { _ = controller.debug("drop", [:]); controller.sync(false) }
         controller.sync(true)
-        guard let panel = controller.panel else { return Issue.record("no pet") }
+        guard let panel = controller.panel else {
+            Issue.record("no pet")
+            return
+        }
         let start = panel.frame.origin
         let held = controller.debug("drag", ["dx": -40.0, "dy": 0.0, "steps": 4, "release": false])
         #expect(held["dragging"] as? Bool == true)
