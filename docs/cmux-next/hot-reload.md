@@ -17,6 +17,8 @@ button is at the end of Settings > General.
 
 Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
 code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
+Each save is also linted for the performance mistakes past fixes removed, and a finding shows in the
+page's console ([modding-kit.md](modding-kit.md)).
 
 Done for now?
 

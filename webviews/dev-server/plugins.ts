@@ -77,6 +77,7 @@ import {
   splitStyles,
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
+import { perfLintOnSave } from "./perfLint";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -99,6 +100,7 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    perfLintOnSave(),
   ];
 }
 
