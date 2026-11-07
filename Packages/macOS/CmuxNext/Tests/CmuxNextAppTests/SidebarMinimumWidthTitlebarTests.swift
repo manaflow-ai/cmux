@@ -75,22 +75,27 @@ import Testing
     /// density: switching either at the narrowest width refreshes the cached minimum, so the + stays on
     /// the column and clear of Forward (review of #37619: the render only marked layout dirty, and the
     /// old density's minimum moved the + toward Forward).
-    @Test(arguments: SidebarDensity.allCases) func switchingDensityAtTheMinimumKeepsThePlusOnTheColumn(_ density: SidebarDensity) {
+    @Test(arguments: DensityPreset.allCases) func switchingDensityAtTheMinimumKeepsThePlusOnTheColumn(_ preset: DensityPreset) {
         let design = DesignSettings.shared
         let savedTokens = design.densityTokens, savedSidebar = design.sidebarSections.density
         defer { design.densityTokens = savedTokens; design.sidebarSections.density = savedSidebar }
         let (window, root) = root()
         defer { window.close() }
         let container = root.sidebar, sidebarView = root.sidebar.sidebarView
-        for preset in DensityPreset.allCases {
-            design.densityTokens = preset.tokens
+        design.densityTokens = preset.tokens
+        // Each sidebar density in turn, then back, at this app density: a sidebar-only switch leaves the toolbar
+        // band and its reserve alone, so only the render's token check refreshes the minimum.
+        for density in SidebarDensity.allCases + [SidebarDensity.allCases[0]] {
             design.sidebarSections.density = density
             sidebarView.renderNow()
-            container.restore(width: container.model.minimumWidth, presentation: .shown)
+            // The window lays out at the new density (the band and the reserve), then the sidebar goes to the minimum.
             settle(root)
             let label = "\(preset.rawValue)/\(density.rawValue)"
             #expect(container.model.titlebarControlsWidth == sidebarView.titlebarControlsWidth, "\(label): stale minimum")
+            container.restore(width: container.model.minimumWidth, presentation: .shown)
+            settle(root)
             let width = sidebarView.bounds.width
+            #expect(abs(width - container.model.minimumWidth) <= 0.5, "\(label): sidebar \(width), minimum \(container.model.minimumWidth)")
             let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             #expect(abs(sidebarView.newButton.frame.midX - column) <= 0.5, "\(label) at \(width): + \(sidebarView.newButton.frame.midX), column \(column)")
             #expect(gapBeforePlus(root) >= Metrics.space2, "\(label) at \(width): + reaches Forward")

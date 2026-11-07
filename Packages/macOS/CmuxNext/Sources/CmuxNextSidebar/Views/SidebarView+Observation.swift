@@ -57,7 +57,8 @@ extension SidebarViewComponents {
         var leadingColumn: SidebarLeadingColumnLook
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
-        /// the app and sidebar density), the traffic lights' inset and the gaps. A change refreshes
+        /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
+        /// inset and the gaps. A change refreshes
         /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
         var titlebarRow: [CGFloat]
         /// The window top's line (Debug Settings `chrome.topRowLine`): every window has a sidebar, so it lays its
@@ -94,8 +95,8 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
-            titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, Metrics.trafficLightInset,
-                           Metrics.space1, Metrics.space2, Metrics.space3]
+            titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
+                           Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             topRowLine = TopRowLineLook.tunable.value
         }
     }
@@ -132,7 +133,11 @@ extension SidebarViewComponents {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
-        if lastState?.titlebarRow != state.titlebarRow { titlebarReserveChanged() }
+        if lastState?.titlebarRow != state.titlebarRow {
+            // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
+            window?.contentView?.needsLayout = true
+            titlebarReserveChanged()
+        }
         if let last = lastState, last.topRowLine != state.topRowLine, let window { WindowTitlebar.layOutTopRowAgain(in: window) }
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
