@@ -89,6 +89,19 @@ uint8_t cmux_tab_drop_edge_pane_edge(uint8_t edge);
 uint8_t cmux_pane_edge_opposite(uint8_t edge);
 uint8_t cmux_pane_edge_drop_zone(uint8_t edge);
 uint8_t cmux_pane_edge_split_axis(uint8_t edge);
+/* The store's optimistic overlay rules, operation "optimistic" of
+ * cmux_layout_reducer_json (cmux-layout-reducer optimistic.rs). One request
+ * tagged by "op"; the answer is the view the pending intent shows, or null
+ * when it shows nothing:
+ *   split              {screen, target, dir, ratio, leaf, split_id, column?, row?} -> {layout, columns, pane_at}
+ *   dock               {screen, leaf, column, dock} -> {layout, columns}
+ *   remove_pane        {screen, pane} -> {layout, columns}
+ *   move_tab           {same_pane, from, index, target_count} -> {final}
+ *   place_workspace    {groups, from, kind, group?, index?} -> {index}
+ *   row_heights        {rows, heights} -> {heights}
+ *   daemon_move_index  {visible, moving, index, held} -> {final, current}
+ * Layout nodes and columns use the daemon's wire shapes. Called per intent
+ * apply and overlay restore, never per frame. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}
@@ -112,7 +125,61 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   view(request)        {live, window, filter?, collapsed?} -> [row]
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
+ *   project(request)     view's request -> {sections, machines, items, machine_sections, machine_order,
+ *                        unplaced, band_groups, host_groups, archived, group_sorts, pinned_in_group}
+ *                        (the rows regrouped as the list draws them; its rows are the last view's)
+ *   plan(request)        {plan:"subgroup", parent, id, name, color?} | {plan:"host_group", session, on?, title?}
+ *                        -> {"ok":true,"ops":[op]} | {"refusal":"unknown_group"|"too_deep"}
  */
+/*
+ * The sidebar's drop rules as a handle per drag (drag_handle.rs). The rows and
+ * sections cross once, as JSON, when a drag's base layout is made; each drag
+ * move crosses with numbers only. A move's reply is JSON, written only when it
+ * differs from the handle's last reply to the same question: otherwise the
+ * call answers CMUX_SIDEBAR_DRAG_SAME and leaves the output untouched. A reply
+ * larger than the buffer answers ERR_BUFFER with its length, as
+ * cmux_layout_reducer_json does. A handle is used on one thread.
+ *
+ *   cmux_sidebar_drag_new(request)      a sidebar_drop Request ({payload, rows, sections, ...}) -> handle | null
+ *   cmux_sidebar_drag_resolve(...)      the card's points -> null | {target, probe}
+ *   cmux_sidebar_tab_drag_new(request)  a TabRequest ({rows, sections, source_machine, ...}, y unused) -> handle | null
+ *   cmux_sidebar_tab_drag_drop(y, w)    -> null | tab drop (w non-zero: a workspace row takes the tab over its whole height)
+ *   cmux_sidebar_tab_drag_refusal(y)    -> null | {row, reason}
+ *   cmux_sidebar_base_y(...)            1 and *base_y set, or 0 inside the open gap
+ */
+#define CMUX_SIDEBAR_DRAG_SAME 1
+typedef struct CmuxSidebarDrag CmuxSidebarDrag;
+typedef struct CmuxSidebarTabDrag CmuxSidebarTabDrag;
+
+CmuxSidebarDrag *cmux_sidebar_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_drag_free(CmuxSidebarDrag *drag);
+int32_t cmux_sidebar_drag_resolve(
+    CmuxSidebarDrag *drag,
+    double centre_y,
+    double leading_y,
+    uint8_t has_gap,
+    double gap_y,
+    double gap_height,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+CmuxSidebarTabDrag *cmux_sidebar_tab_drag_new(const uint8_t *request, size_t request_len);
+void cmux_sidebar_tab_drag_free(CmuxSidebarTabDrag *drag);
+int32_t cmux_sidebar_tab_drag_drop(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t whole_rows,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+int32_t cmux_sidebar_tab_drag_refusal(
+    CmuxSidebarTabDrag *drag,
+    double y,
+    uint8_t *output,
+    size_t output_capacity,
+    size_t *output_len);
+uint8_t cmux_sidebar_base_y(double display_y, uint8_t has_gap, double gap_y, double gap_height, double *base_y);
+
 typedef struct CmuxSidebarMirror CmuxSidebarMirror;
 
 CmuxSidebarMirror *cmux_sidebar_mirror_new(void);
@@ -123,6 +190,8 @@ char *cmux_sidebar_mirror_apply_batch(CmuxSidebarMirror *mirror, const uint8_t *
 char *cmux_sidebar_mirror_apply_intent(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_view(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 char *cmux_sidebar_mirror_drag_begin(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_project(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
+char *cmux_sidebar_mirror_plan(CmuxSidebarMirror *mirror, const uint8_t *json, size_t json_len);
 
 /*
  * Typed replies (bead cx-x5jpp): the same calls, read with no JSON decode.

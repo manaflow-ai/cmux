@@ -29,6 +29,9 @@ public final class SettingsHarnesses {
     /// Whether `health` is a check's answer: an answer can hold no row for a harness, which then
     /// was not found; with none (an older daemon, a failed recheck) every harness's state is unknown.
     private(set) var healthAnswered = false
+    /// Whether `rows` is the daemon's last answer to `_acpmux/harnesses`: without one, a harness
+    /// with no row is not known to be missing.
+    private(set) var listAnswered = false
     private(set) var loading = false
     /// `unavailable` (no acpmux here) or `unreachable` (the daemon did not answer).
     private(set) var problem: String?
@@ -134,6 +137,7 @@ public final class SettingsHarnesses {
         await refreshUpdates?()
         guard let environment = environment() else {
             rows = []
+            listAnswered = false
             problem = "unavailable"
             return
         }
@@ -146,10 +150,12 @@ public final class SettingsHarnesses {
         loading = false
         guard let fresh else {
             problem = "unreachable"
+            listAnswered = false
             if recheck { forgetHealth() }
             return
         }
         rows = fresh
+        listAnswered = true
         problem = nil
         // Accounts first: they answer from the daemon's state, a health check may take a while.
         await readAccounts(environment, generation: mine)
