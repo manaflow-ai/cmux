@@ -211,18 +211,38 @@ jobs:
           fi
           echo "SHA verification passed: $CASK_SHA"
 
-      - name: Commit and push
+      # The tap's `main: require reviewed pull requests` ruleset (2026-09-29)
+      # rejects a direct push with GH013, which left the cask at 0.64.25 after
+      # v0.65.1 shipped. Push a branch and open a pull request instead, so the
+      # verified update is never lost; the ruleset's review gates the merge.
+      - name: Open a pull request in the tap
         if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPO: manaflow-ai/homebrew-cmux
         run: |
+          set -euo pipefail
           cd homebrew-cmux
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/cmux.rb
           if git diff --staged --quiet; then
             echo "No changes - cask already up to date"
-          else
-            git commit -m "Update cmux to ${VERSION}"
-            git push
+            exit 0
           fi
+          branch="update-cmux-${VERSION}"
+          git switch -c "$branch"
+          git commit -m "Update cmux to ${VERSION}"
+          # A rerun for the same release replaces the branch with the freshly
+          # verified cask.
+          git push --force origin "HEAD:refs/heads/${branch}"
+          existing="$(gh pr list --repo "$TAP_REPO" --head "$branch" --state open --json url --jq '.[0].url // ""')"
+          if [ -n "$existing" ]; then
+            echo "Pull request already open: $existing"
+            exit 0
+          fi
+          gh pr create --repo "$TAP_REPO" --base main --head "$branch" \
+            --title "Update cmux to ${VERSION}" \
+            --body "Automated cask update from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. The workflow downloaded cmux-macos.dmg for v${VERSION} and verified SHA256 ${SHA256}."
