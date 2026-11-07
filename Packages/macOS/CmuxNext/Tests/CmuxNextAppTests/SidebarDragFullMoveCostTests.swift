@@ -78,7 +78,6 @@ import Testing
             ("make", { _ = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: list.options(includeGap: false)) }),
             ("displayLayout", { _ = list.displayLayout() }),
             ("groupLines", { _ = list.groupLines(list.displayed) }),
-            ("frames", { for row in list.displayed.rows { _ = list.frame(for: row) } }),
             ("showDragLayout", { list.showDragLayout() }),
         ]
         for (name, part) in parts {

@@ -594,7 +594,6 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
-        showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll
