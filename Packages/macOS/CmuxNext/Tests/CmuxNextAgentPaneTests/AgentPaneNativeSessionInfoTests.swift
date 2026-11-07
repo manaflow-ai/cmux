@@ -647,6 +647,13 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
+        /// Whether the line's trailing value (a head's count) is hidden; true for a line with none.
+        func countHidden(_ view: SessionInfoLineView) -> Bool {
+            view.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == view.line.trailing }.allSatisfy { $0.isHidden }
+        }
+        func countShown(_ view: SessionInfoLineView) -> Bool {
+            view.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == view.line.trailing }.allSatisfy { !$0.isHidden }
+        }
 
         let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
                                            unfolded: true, reorderable: true, action: "fold:context:0"))
@@ -699,7 +706,7 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(handle.frame.size == SessionInfoGripView.size)
             #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
             #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
-            #expect(line.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == line.line.trailing }.allSatisfy(\.isHidden))
+            #expect(countHidden(line))
             for other in line.subviews where other !== handle && !other.isHidden {
                 #expect(other.frame.maxX <= hit.minX)
             }
@@ -718,7 +725,7 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
             // At rest the count is back on its edge.
-            #expect(line.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == line.line.trailing }.allSatisfy { !$0.isHidden })
+            #expect(countShown(line))
         }
     }
 
