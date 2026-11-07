@@ -387,10 +387,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
-        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        // popover (Show Chief Pet, Pet Character), the notice it makes from a daemon notification, the
+        // chat it stands for (Show in Mini, ChiefPetMini) and the sidebar Chief item's picture.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
+                           "CmuxNextDesignTokens", "CmuxNextFloating", "CmuxNextSettings", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

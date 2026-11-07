@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextBridge
+import CmuxNextChiefPetWiring
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -90,7 +91,7 @@ extension SidebarBridge {
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         // The default Chief's worn upload is the Chief item's picture; none keeps the plain glyph (no pet picture, Lawrence 2026-10-31).
         let chiefPicture = { [weak services] in services?.wornUpload(of: nil)?.still }
-        let uploads = services.chiefAvatarUploads
+        let uploads = services.chiefAvatarUploads, pictures = services.chiefSidebarPictures
         let home = services.home
         // A band item's site favicon, read in the observation so a favicon that loads replaces the item's globe.
         let favicon = { [weak services] (workspace: WorkspaceModel, tab: TabModel) in services?.sidebarPageFavicon(workspace, tab: tab) }, faces = faceBuffers
@@ -110,8 +111,7 @@ extension SidebarBridge {
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
-                                          workspace: { workspaces[$0] }, chiefPicture: picture,
-                                          chiefImage: picture.flatMap(uploads.image(at:)))
+                                          workspace: { workspaces[$0] }, chiefFavicon: pictures.favicon(still: picture, image: picture.flatMap(uploads.image(at:))))
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -131,8 +131,7 @@ extension SidebarBridge {
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, Home (built-in or app) a dot for `homeUnread` (its
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
-    /// picture `chiefPicture` (its worn upload, first frame `chiefImage` already decoded, or its character's), else
-    /// that of the chosen pet character `chiefMascot` (`home.chiefPetMascot`), and each
+    /// picture `chiefFavicon` (its worn upload's, ``ChiefSidebarPictures``), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
@@ -141,8 +140,7 @@ extension SidebarBridge {
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
-                         chiefMascot: String? = nil, chiefPicture: URL? = nil,
-                         chiefImage: CGImage? = nil) -> [LayoutItemID: SidebarItemInfo] {
+                         chiefFavicon: SidebarFavicon? = nil) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
@@ -161,7 +159,7 @@ extension SidebarBridge {
                     Self.markHomeUnread(&info, homeUnread)
                 } else if builtIn == .chief {
                     ChiefSidebar.shared.decorate(&info)
-                    info.favicon = chiefPicture.flatMap { ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: $0, image: chiefImage) }
+                    info.favicon = chiefFavicon
                 }
                 infos[item.id] = info
             }
