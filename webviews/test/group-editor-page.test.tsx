@@ -154,6 +154,15 @@ test("a refresh updates an untouched field and keeps a typed one", async () => {
   expect(red.getAttribute("aria-checked")).toBe("true");
 });
 
+/** Review of #37299 at d0f9d91 (F1): a page that reloads while the editor is open shows the name the host will commit. */
+test("a reloaded page shows the typed draft the host keeps, and a refresh keeps it", async () => {
+  const page = await mount();
+  await page.send({ ...fixtureSession({ id: "a", name: "Frontend", revision: 4 }), draft: "Typed before the reload" });
+  expect(page.field().value).toBe("Typed before the reload");
+  await page.send({ ...fixtureSession({ id: "a", name: "Renamed elsewhere", revision: 5 }), draft: "Typed before the reload" });
+  expect(page.field().value).toBe("Typed before the reload");
+});
+
 test("draft, color, custom color, item and close carry the session", async () => {
   const page = await mount();
   await page.send(fixtureSession({ id: "s1", chosen: "blue" }));

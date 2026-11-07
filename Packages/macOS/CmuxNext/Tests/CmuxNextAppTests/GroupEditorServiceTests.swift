@@ -150,6 +150,29 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
+    /// Review of #37299 at d0f9d91 (F1): a page that reloads while the editor is open gets the typed name back,
+    /// so the field shows what the close will commit.
+    @Test func aReloadWhileOpenGetsTheTypedName() async throws {
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        defer { parent.closeAfterTest() }
+        service.present(Self.group, items: Self.items, anchor: PopupAnchor(rect: CGRect(x: 240, y: 650, width: 100, height: 30), edge: .leading),
+                        parent: parent, themeAnchor: parent.contentView ?? NSView(), ordersFront: false, events: Self.events(Record()))
+        let provider = try #require(service.provider)
+        #expect(provider.event?["draft"] == .null, "an untouched field sends no draft")
+        provider.onCall?(.draft("Docs"))
+        var first: JSONValue?
+        _ = try await provider.subscribe(GroupEditorProvider.sessionStream, filter: .object([:]),
+                                         context: PageCallContext(page: PageDescriptor.groupEditor.id)) { first = first ?? $0 }
+        #expect(first?["draft"]?.stringValue == "Docs", "a reload drew the group's name while the close commits the draft")
+        var renamed = Self.group
+        renamed.name = "Office"
+        service.refresh(renamed)
+        #expect(provider.event?["draft"]?.stringValue == "Docs", "a refresh dropped the draft")
+        service.dismiss()
+    }
+
     /// Review of #37299 (F1): between opens the panel stays in its window, its card transparent and click-through,
     /// so the page keeps painting and the next open shows at once.
     @Test func aClosedEditorStaysWarmInItsWindow() async throws {
