@@ -28,7 +28,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var focus: FocusCoordinator { state.focus }
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
-    private(set) var content: WorkspaceContentController?
+    private(set) var content: WorkspaceContentController? { // an open Dock section follows the shown workspace (#37374)
+        didSet { if content !== oldValue, rightSidebar.isVisible { (rightSidebarView?.shownSection as? DockSectionHostView)?.refresh() } }
+    }
     /// The workspaces this window showed most recently (`ParkedWorkspaceBudget`), by id, kept mounted and paused
     /// (plans/cmux-next/tab-lifecycle.md): a switch back swaps its view in within the frame. Their GPU surfaces leave
     /// under the one memory budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
