@@ -374,23 +374,24 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
             Err(e) => Err(e.to_string()),
         }
     };
-    if !enrolled && let Err(why) = add((id, key, label)) {
-        return step(StepState::Warn, format!("could not enroll {mac} on {host}: {why}"));
-    }
-    // The paired phones follow the Mac's own key: each one current, and none this Mac no longer
-    // pairs (a phone unpaired here stops counting there too).
+    // The paired phones follow the Mac's own key: none this Mac no longer pairs (a phone unpaired
+    // here stops counting there too), then each one current. Removals go first, so a peer whose
+    // list is full still makes room for the Mac and a newly paired phone.
     let mut failed = Vec::new();
-    for phone in &phones.add {
-        let entry = (text(phone, "id"), text(phone, "publicKey"), text(phone, "name"));
-        if let Err(why) = add(entry) {
-            failed.push(why);
-        }
-    }
     for id in &phones.remove {
         match ssh(&format!("host approvals rm {}", shell_quote(id))) {
             Ok(r) if r.ok => {}
             Ok(r) => failed.push(r.stderr.lines().last().unwrap_or("").trim().to_owned()),
             Err(e) => failed.push(e.to_string()),
+        }
+    }
+    if !enrolled && let Err(why) = add((id, key, label)) {
+        return step(StepState::Warn, format!("could not enroll {mac} on {host}: {why}"));
+    }
+    for phone in &phones.add {
+        let entry = (text(phone, "id"), text(phone, "publicKey"), text(phone, "name"));
+        if let Err(why) = add(entry) {
+            failed.push(why);
         }
     }
     if let Some(why) = failed.first() {
