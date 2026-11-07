@@ -6425,6 +6425,11 @@ export class AcpmuxDirectClient {
     if (this.askedQuestions.has(permissionId)) this.repliedWhileAsked.add(permissionId);
   }
 
+  /// The decline for that reply failed: the question still waits, and a later Skip reads as one.
+  unmarkAnsweredInChat(permissionId: string): void {
+    this.repliedWhileAsked.delete(permissionId);
+  }
+
   /// The person wrote a prompt of their own: a question waiting now, or one declined just before it,
   /// was answered in the chat rather than on its card (Leo, 2026-11-07: "what happens if they respond
   /// to it in another way, right?"). The composer hat declines a waiting question for a typed reply

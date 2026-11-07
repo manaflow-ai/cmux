@@ -372,7 +372,15 @@ import {
   waitingAsks,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
-import { bottomAsks, dismissAsk, dismissedAsks, shownAsks } from "./conversation/waitingAskStore";
+import {
+  answerState,
+  bottomAsks,
+  claimAnswer,
+  dismissAsk,
+  dismissedAsks,
+  setAnswerState,
+  shownAsks,
+} from "./conversation/waitingAskStore";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
@@ -1061,7 +1069,9 @@ const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 /// leaves the question waiting, and the reply still goes.
 function withdrawForTypedReply<T>(
   permission: AcpmuxPermission | undefined,
-  client: { markAnsweredInChat(permissionId: string): void } | undefined,
+  client:
+    | { markAnsweredInChat(permissionId: string): void; unmarkAnsweredInChat(permissionId: string): void }
+    | undefined,
   send: () => Promise<T>,
 ): Promise<T> {
   const question = permission?.question;
@@ -1069,8 +1079,26 @@ function withdrawForTypedReply<T>(
   if (!sent || !permission) return send();
   client?.markAnsweredInChat(permission.permissionId);
   return callNative("chat.permission", replyParams(sent))
-    .catch(() => undefined)
+    .catch(() => client?.unmarkAnsweredInChat(permission.permissionId))
     .then(send);
+}
+
+/// A tagged ask's answer from the hat, as its transcript card sends one (NextStepCard.tsx): it claims
+/// the answer and shares the card's state under the card's key, so the card and the hat never send it
+/// twice, and one already on its way from the card is not sent again.
+function answerNextStep(question: HatQuestion, label: string): Promise<unknown> {
+  const key = question.answerKey;
+  if (!key) return answerThrough(callNative)(label);
+  if (answerState(key).sending !== undefined) return Promise.resolve();
+  claimAnswer(key, label);
+  setAnswerState(key, { sending: label });
+  return answerThrough(callNative)(label).then(
+    () => setAnswerState(key, {}),
+    (error: unknown) => {
+      setAnswerState(key, { failed: true });
+      throw error;
+    },
+  );
 }
 
 /// What the hat's buttons do (question/HatQuestions.tsx). The chat's own question is answered as its
@@ -1083,7 +1111,7 @@ const hatActions = (focusComposer: () => void, reaches: (owner: string) => boole
     // refused rejects, so the band takes input again; one acpmux already took counts as sent.
     if (question.source === "nextStep")
       return question.sessionId && reaches(question.sessionId)
-        ? answerThrough(callNative)(answer.label)
+        ? answerNextStep(question, answer.label)
         : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];
