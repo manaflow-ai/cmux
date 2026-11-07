@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42375299031",
+  "recorded_at": "2026-11-07T13:11:54Z",
+  "reason": "cmux-tui a70271f93a69 changes the image's cmux-tui (pinned cee4c356a8d7)",
+  "dry_run": false,
+  "cmux_tui": "a70271f93a691b35dfe7d02e5f64751687e2871c",
+  "fixes": [
+    {
+      "sha": "6c9caadd0f9feba8db3f9f088a328f8a29317406",
+      "mergedAt": "2026-11-07T12:50:41Z",
+      "subject": "acpmux: a Claude sign-in fix names `claude auth login`, not `claude /login` (#37780)"
+    },
+    {
+      "sha": "dff586ee43c8b77b1f4b2ee3e8cbcebe069a4b40",
+      "mergedAt": "2026-11-07T12:50:12Z",
+      "subject": "chore(next): base autofix at 97b8746e46c1"
+    },
+    {
+      "sha": "97b8746e46c1b0891e5fd4c62810ce0ccea194b7",
+      "mergedAt": "2026-11-07T04:48:00-08:00",
+      "subject": "cmux config set on TARGET: a saved default target for cmux chat (#37485)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T13:11:54Z",
+    "snapshot_id": "sh-0b598cb94fe04f09b9bc3ce165c90396",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42375299031): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5bf3ee7623535f2edf03f89ec52cb931ea311136",
+    "image": "cloud-native-auto-a70271f9-42375299031-1",
+    "revision": "ci-42375299031-1",
+    "at": "2026-11-07T13:11:54Z"
+  },
+  "rolled_back": false
+}
