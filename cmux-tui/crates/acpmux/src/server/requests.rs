@@ -1650,7 +1650,15 @@ async fn dispatch_request_with_identity(
                 }
                 (provenance, _) => provenance,
             };
-            let declared = crate::hub::declared_sender(&params)?;
+            // A relay on this machine outside any session (the lane-gh broker) names its sender by
+            // the relay record when it gave no `--from`: always another agent's message, never the
+            // person's (`prompt_provenance::FROM_RELAY`).
+            let relayed = (conn.origin == super::Origin::Local && conn.caller().is_none())
+                .then(|| crate::prompt_provenance::relay_sender(&params))
+                .flatten()
+                .and_then(|sender| sender.relay)
+                .map(|relay| relay.name());
+            let declared = crate::hub::declared_sender(&params)?.or(relayed);
             // Keep a caller's `--from` label beside authenticated caller provenance. The label
             // is display-only; `fromSessionId` is still stamped below from the caller token.
             let provenance = provenance.map(|provenance| {
@@ -3049,7 +3057,8 @@ async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
 
 /// An agent message's provenance with which session sent it and on what harness, for display
 /// only (`prompt_provenance::FROM_SESSION_ID`): the session this connection proved, else what a
-/// peer daemon said of its own proven caller; a client's claim is dropped. A person's prompt and
+/// peer daemon said of its own proven caller, else what a relay on this machine's unix socket
+/// said of the machine it relays for (`prompt_provenance::FROM_RELAY`); a client's claim is dropped. A person's prompt and
 /// none are left as they are. Out of `dispatch_request`, whose future must stay small.
 fn stamp_bound_sender(
     hub: &Arc<Hub>,
@@ -3069,6 +3078,11 @@ fn stamp_bound_sender(
             .ok()
             .map(|from| crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta())),
         _ if conn.origin == super::Origin::Peer => crate::prompt_provenance::peer_sender(params),
+        // A relay on this machine (the lane-gh broker's `acpmux send`), outside any session: its
+        // word on the machine and session it took the message from (`prompt_provenance::FROM_RELAY`).
+        None if conn.origin == super::Origin::Local => {
+            crate::prompt_provenance::relay_sender(params)
+        }
         _ => None,
     };
     Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
