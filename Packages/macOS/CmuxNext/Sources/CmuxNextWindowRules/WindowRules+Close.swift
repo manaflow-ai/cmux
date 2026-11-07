@@ -143,4 +143,23 @@ extension WindowRules {
         guard let reply = call("window_close_warning", request, as: Reply.self) else { return (nil, false) }
         return (reply.warning, true)
     }
+
+    /// `closeReads`, failing closed: when the FFI does not answer, every live terminal is read, so a close
+    /// with a warning setting on never goes through silently.
+    public func closeReadsFailingClosed(_ tabs: [ClosingTab], _ warnings: Warnings) -> Reads? {
+        let asked = closeReads(tabs, warnings)
+        if asked.answered { return asked.reads }
+        guard warnings.warnTab || warnings.warnAgent else { return nil }
+        let live = tabs.enumerated().filter { $0.element.kind == "pty" && !$0.element.dead }.map(\.offset)
+        return live.isEmpty ? nil : Reads(agents: [], others: live)
+    }
+
+    /// `closeWarning`, failing closed: when the FFI does not answer, the close asks by `titles` (the
+    /// terminals it read) instead of closing at once.
+    public func closeWarningFailingClosed(agents: [String?], answers: [TerminalAnswer], unansweredAsks: Bool,
+                                          _ warnings: Warnings, titles: [String]) -> Warning? {
+        let decided = closeWarning(agents: agents, answers: answers, unansweredAsks: unansweredAsks, warnings)
+        if decided.answered { return decided.warning }
+        return titles.isEmpty ? nil : .programs([], unanswered: titles)
+    }
 }
