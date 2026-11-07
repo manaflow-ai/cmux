@@ -122,6 +122,12 @@ class FakeApp:
                 raise D.StepError("action.run: {'code': 'invalid_params', 'data': {'not_run': True, 'valid': ['url', 'engine', "
                                   f"'profile']}}, 'message': \"openBrowser has no argument '{unknown[0]}'\"}}")
             return {"ok": True}
+        if method == "debug.frames":
+            # DebugFrameProbe: start / stop / reset; any other action reads. `frames_running` is the read's state.
+            action = params.get("action")
+            if action in ("start", "stop"):
+                self.frames_running = action == "start"
+            return {"running": getattr(self, "frames_running", False), "missed": 0}
         if method == "browser.page.eval":
             self.page_reads += 1
             return {"value": {"w": 591, "h": 696, "dpr": 2, "raf": 10 * self.page_reads, "bg": "#00FF00"}}
@@ -259,6 +265,31 @@ class ExtPixelTests(unittest.TestCase):
         # The recorder's frame: from the window's top-left (132 pt below the screen's top) to the screen's right and bottom.
         self.assertEqual(note["frame"], [2824, 1700])
         self.assertEqual(out["dropped_lines"], 0)
+
+    def test_record_start_resets_a_running_frames_read_after_the_capture_start(self):
+        """RESIZE P0 2: the read's own first tick and the capture start stay out of the film's missed refreshes."""
+        def fake_start(j, step):
+            self.app.calls.append(("video_start", {}))
+            j.video = {"notes": {}}
+            return {}
+
+        fixture = {"p0": {"kind": "tui", "fill": "#FFFF00"}}
+        real, X.V.step_video_start = X.V.step_video_start, fake_start
+        try:
+            self.app.rpc("debug.frames", {"action": "start"})
+            X.step_px_record_start(self.j, {"name": "n", "seconds": 4, "fixture": fixture})
+            calls = [(m, p.get("action")) for m, p in self.app.calls]
+            self.assertLess(calls.index(("video_start", None)), calls.index(("debug.frames", "reset")))
+            self.assertEqual(calls[-2:], [("debug.frames", "read"), ("debug.frames", "reset")])
+            self.assertIs(self.j.video["notes"]["pixel"]["frames_reset"], True)
+            # A film with no read: nothing is reset (and nothing starts).
+            self.app.rpc("debug.frames", {"action": "stop", "raw": True})
+            self.app.calls.clear()
+            X.step_px_record_start(self.j, {"name": "n", "seconds": 4, "fixture": fixture})
+            self.assertEqual([p.get("action") for m, p in self.app.calls if m == "debug.frames"], ["read"])
+            self.assertIs(self.j.video["notes"]["pixel"]["frames_reset"], False)
+        finally:
+            X.V.step_video_start = real
 
     def test_record_start_spring_default_when_the_store_is_inactive(self):
         self.app.active = False

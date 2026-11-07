@@ -542,10 +542,24 @@ def step_px_record_start(j, step):
                       for name, info in fixture.items()},
             "chrome": [{k: p.get(k) for k in ("pane", "cell", "border", "first_cell", "strip", "pill", "strip_hidden")}
                        for p in window.get("panes") or []]}
+    note["frames_reset"] = reset_frames_read(j)
     if getattr(j, "video", None) is not None:
         j.video["notes"]["pixel"] = note
     return dict(started, rows=rows, columns=cols, strip_rows=strip_rows, dropped_lines=dropped,
                 fixture={keys[n]: n for n in fixture}, spring=spring, page_backdrop=backdrop, recorder=recorder)
+
+
+def reset_frames_read(j):
+    """The film's debug.frames read (m20) starts again here, at rest, after the capture start and its lead: the read then
+    covers the play only, as ext_video's _main_cost does (start, then reset). Without it every px film counted two missed
+    refreshes the kit made itself (RESIZE P0 2, dogfood 447b149b, all 3 motion P0 films): the read's first interval, which
+    starts at a tick off the display's refresh grid (13.4 ms, presented_late, at 0 ms), and the capture start
+    (record_start: 1 or 2 late refreshes in every window, 25-72 ms into the read, ext_video's note on the lead). True when a
+    running read was reset; False when none runs (a film with no read; nothing is sent then)."""
+    if not (j.app.rpc("debug.frames", {"action": "read"}) or {}).get("running"):
+        return False
+    j.app.rpc("debug.frames", {"action": "reset"})
+    return True
 
 
 def _short(value):
