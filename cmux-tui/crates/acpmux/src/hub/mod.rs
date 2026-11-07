@@ -49,6 +49,7 @@ mod cursor_ext;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
+mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
@@ -784,6 +785,10 @@ pub struct Hub {
     /// (`start_retry.rs` `fail_unless_shutdown_settles`); it blocks its thread.
     #[cfg(test)]
     pub(super) settle_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a dispatch check's refusal between its shutdown check and its
+    /// `prompt_refused` write (`web_control.rs` `check_dispatch`); it blocks its thread.
+    #[cfg(test)]
+    pub(super) refuse_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -1070,6 +1075,8 @@ impl Hub {
             retry_seam: Default::default(),
             #[cfg(test)]
             settle_seam: Default::default(),
+            #[cfg(test)]
+            refuse_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),

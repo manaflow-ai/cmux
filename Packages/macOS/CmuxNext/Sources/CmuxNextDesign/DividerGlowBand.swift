@@ -26,8 +26,9 @@ public final class DividerGlowBand {
 
     /// The core's thickness across the divider: the whole band, nothing drawn past it.
     public static let coreThickness: CGFloat = 2
-    /// How far the band reaches from the line's center, on each side: a Chromium hole that keeps
-    /// the band visible over a page must be this wide each way.
+    /// How far the default band (``coreThickness``) reaches from the line's center, on each side: a Chromium hole that
+    /// keeps it visible over a page must be this wide each way. A thinner band (`place(along:vertical:thickness:)`)
+    /// reaches half its own thickness.
     public static var reach: CGFloat { coreThickness / 2 }
 
     /// Opacity of the whole band at each state.
@@ -56,11 +57,13 @@ public final class DividerGlowBand {
     }
 
     /// Places the band along `line` (the divider's drawn line, in the host layer's coordinates),
-    /// centered across it. `vertical` is true for a line that runs top to bottom.
-    public func place(along line: CGRect, vertical: Bool) {
+    /// centered across it, `thickness` wide (``coreThickness`` by default; a pane split passes its line's own thickness, so
+    /// the band never lights the panes beside it). `vertical` is true for a line that runs top to bottom.
+    public func place(along line: CGRect, vertical: Bool, thickness: CGFloat = coreThickness) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let t = Self.coreThickness
+        let t = thickness
+        core.cornerRadius = t / 2
         let frame = vertical
             ? CGRect(x: line.midX - t / 2, y: line.minY, width: t, height: line.height)
             : CGRect(x: line.minX, y: line.midY - t / 2, width: line.width, height: t)

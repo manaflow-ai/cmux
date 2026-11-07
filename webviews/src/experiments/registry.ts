@@ -10,6 +10,7 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
+import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
@@ -18,6 +19,7 @@ import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
+import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
@@ -58,7 +60,9 @@ import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgen
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
+import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -87,10 +91,12 @@ export const EXPERIMENTS: readonly Experiment[] = [
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
+  timeHoverWording,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
   tableActionsPlace,
+  selectionReplyWrap,
   backgroundReactionLook,
   cloudStartLook,
   cloudProgressLook,
@@ -99,6 +105,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveLineTokens,
   compactingLine,
   liveLineTimes,
+  oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
   trayRowLook,
@@ -123,6 +130,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,
+  sendStopMorph,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

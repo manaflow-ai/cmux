@@ -289,13 +289,13 @@ export function ForeignFileRef({ id }: { id: string }) {
 }
 
 /// `text` with each foreign file id (`foreignFileIds`) as its `ForeignFileRef`, the rest drawn by
-/// `rest`.
+/// `rest`. `ids`: the text's ids when the caller found them already.
 export function withForeignFiles(
   text: string,
   key: string,
   rest: (piece: string, key: string) => ReactNode[],
+  ids = foreignFileIds(text),
 ): ReactNode[] {
-  const ids = foreignFileIds(text);
   if (!ids.length) return rest(text, key);
   const out: ReactNode[] = [];
   let at = 0;
