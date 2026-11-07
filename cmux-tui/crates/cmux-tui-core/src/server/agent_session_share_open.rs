@@ -123,7 +123,7 @@ pub(super) fn invite_chat(
     let ids = NewIds::draw()?;
     // Asked before the lock: the room a new share would open in, or why none may be made.
     let new_room = room_for_new(shares, p.owner_token);
-    let connected = shares.connected();
+    let connected = || shares.connected();
     let (mut answer, made) = shares.with(directory, |all, now| {
         let existing = all
             .iter()
@@ -169,7 +169,7 @@ pub(super) fn invite_chat(
 pub(super) fn push(
     shares: &mut Vec<LinkShare>,
     now: u64,
-    connected: &HashSet<String>,
+    connected: Connected<'_>,
     ids: NewIds,
     session: String,
     surface: u64,
@@ -218,7 +218,7 @@ pub(super) fn invite_in(
     account: String,
     role: Role,
     now: u64,
-    connected: &HashSet<String>,
+    connected: Connected<'_>,
 ) -> Result<(Value, bool), &'static str> {
     let share = find(shares, share_id)?;
     if share.state != ShareState::Provisioning {

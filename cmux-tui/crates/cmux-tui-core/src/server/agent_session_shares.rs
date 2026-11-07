@@ -149,9 +149,10 @@ fn fits(shares: &[LinkShare]) -> bool {
 }
 
 /// Whether `shares` [`fits`], once the ended shares that may go are gone if it did not, and then
-/// the link guests that left ([`forget_gone`]). `connected` names the guests bound to a
-/// connection now ([`LinkShares::connected`]).
-fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: &HashSet<String>) -> bool {
+/// the link guests that left ([`forget_gone`]). `connected` answers the guests bound to a
+/// connection now ([`LinkShares::connected`]); it is asked only when guests may go, under the
+/// shares lock.
+fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: Connected<'_>) -> bool {
     if fits(shares) {
         return true;
     }
@@ -159,9 +160,12 @@ fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: &HashSet<Stri
     if fits(shares) {
         return true;
     }
-    forget_gone(shares, now, connected);
+    forget_gone(shares, now, &connected());
     fits(shares)
 }
+
+/// Answers the link guests bound to a connection now ([`LinkShares::connected`]).
+type Connected<'a> = &'a dyn Fn() -> HashSet<String>;
 
 /// A link guest is kept at least this long after it joined, connected or not: a retry of its
 /// redeem gets it again, and its first bind (the room's relay may wait to start) finds it.
@@ -685,8 +689,11 @@ impl LinkShares {
         self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
     }
 
-    /// The link guests bound to a connection now, as `<share_id>.<guest_id>`. Read before the
-    /// shares lock is taken, never under it.
+    /// The link guests bound to a connection now, as `<share_id>.<guest_id>`. Read under the
+    /// shares lock (then the mux slot, then the proxy authors; nothing takes them the other way
+    /// round): a bind registers its author before its last check (`guest_live`), which waits for
+    /// the shares lock, so a guest is either read here as bound or refused by that check once it
+    /// is forgotten, never forgotten while it stays bound.
     fn connected(&self) -> HashSet<String> {
         let Some(mux) = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else {
             return HashSet::new();
@@ -770,7 +777,7 @@ impl LinkShares {
         provisioning: bool,
     ) -> Result<Value, &'static str> {
         let ids = open::NewIds::draw()?;
-        let connected = self.connected();
+        let connected = || self.connected();
         self.with(directory, |shares, now| {
             open::push(shares, now, &connected, ids, session, surface, terms, provisioning)
                 .map(|v| (v, true))
@@ -793,7 +800,7 @@ impl LinkShares {
         let account = p.account.as_deref().map(normal_account).transpose()?;
         let guest_id = token::<8>()?;
         let attempt = hex(&digest(&[&p.attempt_id]));
-        let connected = self.connected();
+        let connected = || self.connected();
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
@@ -902,7 +909,7 @@ impl LinkShares {
     ) -> Result<Value, &'static str> {
         let account = normal_account(&p.account)?;
         let role = p.role.unwrap_or(Role::Talk);
-        let connected = self.connected();
+        let connected = || self.connected();
         self.with(directory, |shares, now| {
             open::invite_in(shares, &p.share_id, account, role, now, &connected)
         })

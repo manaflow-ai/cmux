@@ -1385,3 +1385,63 @@ fn a_connected_link_guest_is_never_forgotten() {
     assert_eq!(bound["ok"], true, "{bound}");
     assert_eq!(list(&mut owner)[0]["uses_left"], 6, "forgetting spends and returns no use");
 }
+
+/// Joins `share` by its link until `done` holds of the registry (the file filled and the guests
+/// that left were forgotten); bounded by the link's uses.
+fn join_until(mux: &Mux, share: &Value, done: impl Fn(&[LinkShare]) -> bool) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    for i in 0.. {
+        let all = shares.with(directory.as_deref(), |all, _| Ok((all.clone(), false))).unwrap();
+        if done(&all) {
+            return;
+        }
+        let redeem = Redeem {
+            share_id: share["share_id"].as_str().unwrap().into(),
+            secret: share["secret"].as_str().unwrap().into(),
+            name: "n".repeat(64),
+            attempt_id: format!("fill-{i}-{}", "y".repeat(100)),
+            account: None,
+        };
+        shares.redeem(directory.as_deref(), redeem).unwrap();
+        shares.settle(mux);
+    }
+}
+
+fn has_guest(all: &[LinkShare], guest: &Value) -> bool {
+    all.iter().flat_map(|s| &s.guests).any(|g| g.guest_id == guest["data"]["guest_id"])
+}
+
+/// Forgetting and binding never cross: a guest forgotten while its bind runs is refused, and a
+/// guest bound before the file fills stays bound and recorded however many guests are forgotten.
+#[test]
+fn a_bind_and_forgetting_its_guest_never_cross() {
+    let fake = FakeAcpmux::start("share-forget-bind");
+    let mux = mux_with(&fake, "share-forget-bind");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-forget-bind-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":1000}));
+    let ann = redeem(&mut owner, &share, "Ann", "a1");
+    let bob = redeem(&mut owner, &share, "Bob", "b1");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    shares.advance(Duration::from_millis(KEEP_JOINED_MS));
+    let (_bob_link, bound) = bind(&mux, &share, &bob, "share-forget-bind-bob");
+    assert_eq!(bound["ok"], true, "{bound}");
+    // Between Ann's bind check and its registration, the file fills and the guests that left go.
+    let (hook_mux, hook_share, hook_ann) = (mux.clone(), share.clone(), ann.clone());
+    *shares.bind_hook.lock().unwrap() = Some(Box::new(move || {
+        join_until(&hook_mux, &hook_share, |all| !has_guest(all, &hook_ann));
+    }));
+    let (_ann_link, refused) = bind(&mux, &share, &ann, "share-forget-bind-ann");
+    assert_code(&refused, "agent_session.share_ended");
+    let directory = mux.session_state_directory();
+    let all = shares.with(directory.as_deref(), |all, _| Ok((all.clone(), false))).unwrap();
+    assert!(has_guest(&all, &bob), "the bound guest stays recorded");
+    assert_eq!(mux.control_clients.agent_sessions.proxy_authors.lock().unwrap().len(), 1);
+    assert!(shares.guest_live(&bound_author(&share, &bob)), "and live");
+}
+
+fn bound_author(share: &Value, guest: &Value) -> Value {
+    json!({"id": format!("{GUEST_PREFIX}{}.{}", share["share_id"].as_str().unwrap(),
+        guest["data"]["guest_id"].as_str().unwrap())})
+}
