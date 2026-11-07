@@ -100,7 +100,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
-        Some("dial-tcp") => run_dial_tcp(&args[1..]),
+        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
         Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
