@@ -105,9 +105,7 @@ import PackageDescription
 //     topology, and FocusMachine in the input router's cmux_input_* C ABI (FocusInput); no AppKit; cx-8w027.2)
 //   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
 //     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
-//   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
-//     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
-//     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
+//   CmuxNextChecklist (no deps): the workspace checklist's strings (the Todo page and its refusals)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
@@ -349,7 +347,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextApps",
-                "CmuxNextTasks",
+                "CmuxNextChecklist",
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
@@ -389,10 +387,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
-        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        // popover (Show Chief Pet, Pet Character), the notice it makes from a daemon notification, the
+        // chat it stands for (Show in Mini, ChiefPetMini) and the sidebar Chief item's picture.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
+                           "CmuxNextDesignTokens", "CmuxNextFloating", "CmuxNextSettings", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1141,12 +1141,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Tasks (plans/cmux-next/tasks.md): the pane over the team's Tasks
-        // owner (a Rust service: cmux-tui/crates/cmux-tasks). A projection:
-        // confirmed mirror + intent log; the App supplies the source.
+        // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
-            name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
+            name: "CmuxNextChecklist",
             resources: [
                 .process("Resources"),
             ],
@@ -1825,6 +1822,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
                 "CmuxNextBrowserTabs",
+                "CmuxNextChecklist",
                 "CmuxNextChiefMemory",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
@@ -1878,7 +1876,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
-                "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
                 "CmuxNextTestSupport",
