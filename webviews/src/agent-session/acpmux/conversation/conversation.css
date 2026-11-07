@@ -1649,6 +1649,22 @@
 :root[data-code-actions="block-hover"] .cv-shell:focus-within .cv-shell__actions {
   opacity: 1;
 }
+/* They take the transcript's shared hover fade (transcript-hover-fade.test.ts). */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-code-actions="block-hover"]
+    :is(
+      .cv-codeblock:not(.cv-codeblock--corner) .cv-codeblock__actions,
+      .cv-edit-diff__header > .cv-iconbtn,
+      .cv-shell__actions
+    ) {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  :root[data-code-actions="block-hover"] .cv-codeblock:hover .cv-codeblock__actions,
+  :root[data-code-actions="block-hover"] .cv-edit-diff:hover .cv-edit-diff__header > .cv-iconbtn,
+  :root[data-code-actions="block-hover"] .cv-shell:hover .cv-shell__actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+}
 /* `strip`: one very faint shared strip behind the pair, no solid tint. */
 :root[data-code-actions="strip"]
   :is(.cv-codeblock--corner .cv-codeblock__header, .cv-shell__actions, .cv-tool-output__actions, .cv-table-tools) {
