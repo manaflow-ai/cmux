@@ -35,13 +35,15 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
-import { newSlotMemory, SendSlotGlyph, type SlotMemory } from "./composer/SendSlotGlyph";
+import { SendSlotGlyph } from "./composer/SendSlotGlyph";
+import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
-import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
