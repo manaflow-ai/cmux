@@ -113,8 +113,8 @@ enum NewTabSlot {
     /// The pane `tab` is in, on any machine (surface ids are per daemon, so a new tab is looked for in this pane only).
     private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? { services.locateTab(model: tab)?.1 }
 
-    /// `pane`'s next new tab's move, its turn taken at the press: moves go in press order, whichever answer comes first (Ctrl-` then Cmd-T: `a b 2 1 c`).
-    private static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: listLimit, owner: "NewTabSlot.answer", passing: nil) }
+    /// `pane`'s next new tab's move, its turn taken at the press: moves go in press order (Ctrl-` then Cmd-T: `a b 2 1 c`); an unanswered one passes within the strip's hold.
+    private static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: NewTabSuccession.orderLimit, owner: "NewTabSlot.answer", passing: nil) }
 
     /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
     /// lists it, and once the pane's previous new tab moved (`turn`): a burst's second Cmd-T goes right after the first new tab,
