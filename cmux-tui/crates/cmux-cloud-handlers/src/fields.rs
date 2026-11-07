@@ -398,7 +398,7 @@ pub fn describe(status: &Status) -> String {
         lines.push(match &idle.last_decision {
             Some(d) => format!(
                 "idle pause decision: {} ({}) at {}; run checked={}, elapsed_ms={}",
-                d.outcome, d.reason, d.at, d.checked, d.elapsed_ms
+                d.outcome, d.reason, d.at, d.run.checked, d.run.elapsed_ms
             ),
             None => "idle pause decision: null".to_owned(),
         });
