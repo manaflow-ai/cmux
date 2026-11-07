@@ -87,14 +87,14 @@ extension AgentTabStore {
         return openBeside(provisional, split: split) { pane, daemon, direction in try self.open(in: pane, of: daemon, newTab: newTab, split: direction) }
     }
 
-    private func openSubagent(_ agent: String, of session: String, focus: Bool, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
+    private func openSubagent(_ agent: String, of session: String, focus: Bool, asked: Bool? = nil, beside provisional: String) -> Bool { // the tracker (AgentSubagentPanes) decides; the app opens and moves the tab
         let source = resolve(provisional) // one tracker per source chat (AgentSubagentPanes.chat)
-        return AgentSubagentPanes.chat(session, source: source).open(agent, focus: focus, chat: provisional, hooks: .init(isOpen: { [weak self] key in self?.subagentTabIsBeside(source, key) ?? false }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
+        return AgentSubagentPanes.chat(session, source: source).open(agent, focus: focus, asked: asked, chat: provisional, hooks: .init(isOpen: { [weak self] key in self?.subagentTabIsBeside(source, key) ?? false }, focus: { [weak self] key, script in _ = self?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: self?.resolve(key) ?? key), arguments: script ? ["focus": .bool(true)] : [:], origin: script ? .script : .user)) },
             // An unfocused tab in the right column is selected there (shown, focus stays); in the chat's own pane it waits in the strip.
             // openOnRight decides again in its turn (RightColumnTurns): the decision that placed it is the one passed to created.
             place: { [weak self] chat, _, created, finished in self?.openOnRight(of: chat, origin: focus ? .user : .script, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; let tab = try open(in: pane, of: daemon, session: session, split: split); revealTurn(AgentSubagentPanes.reveal(agent), in: tab.key); return tab }, // the reveal is on the tab before its first show (view(for:) adopts the spare from it), not once the store answered
                 created: { [weak self] key, decision in created(key); SubagentTabTitles.shared.bind(agent, of: session, toTab: key) { [weak self] in self?.locate($0) != nil }; if case .tab(.some) = decision, !focus { self?.selectInPane(key) } }, finished: finished) ?? false },
-            column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
+            column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat) })) }
 
     private func subagentTabIsBeside(_ source: String, _ candidate: String) -> Bool { // AgentSubagentPanes.isBeside
         let at = { (found: (pane: PaneID, daemon: DaemonService)?) in found.map { (pane: $0.pane, owner: ObjectIdentifier($0.daemon)) } }

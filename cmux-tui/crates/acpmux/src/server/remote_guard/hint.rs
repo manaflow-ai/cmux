@@ -70,6 +70,8 @@ pub(in crate::server) async fn new_on(
     // live start remains well beyond the old local 90-second budget.
     // Match `peer::send_request`: the forwarded request must outlive both the
     // generic peer budget and the peer's pooled-start hazard envelope.
+    // The start as sent, for a refusal of full access (`try_asking`).
+    let asked = p.clone();
     let timings = peer.timings();
     let budget = timings.request.max(timings.start);
     let start_timeout = || {
@@ -91,6 +93,11 @@ pub(in crate::server) async fn new_on(
         return Err(start_timeout());
     }
     result.map_err(|e| {
+        // Full access refused: the way out is asking there, not this start on HOST (`explain`).
+        let e = crate::hub::full_access_children::refused_by(&peer.name, &asked, e);
+        if e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) {
+            return try_asking(&peer.name, params, e);
+        }
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
@@ -162,6 +169,34 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
         data.set("runOn", json!(host));
     }
     RpcError::new(e.code, message).with_data(data)
+}
+
+/// `e`, a refusal of full access by `host` (`hub/full_access_children.rs` `refused_by`, which
+/// sets `data.fullAccessRefusedBy`), with `data.try` the same start there asking
+/// (`--policy ask`), also at the end of its message, as its message says; any other error
+/// unchanged.
+fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
+    let Some(data) = e.data.as_mut().filter(|d| d.get("fullAccessRefusedBy").is_some()) else {
+        return e;
+    };
+    let mut p = params.clone();
+    crate::hub::merge_mux_meta(&mut p, json!({"policy": "ask"}));
+    if let Some(argv) = p.pointer_mut("/_meta/acpmux/argv").and_then(Value::as_array_mut) {
+        let mut words: Vec<String> =
+            argv.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        if !change_option(&mut words, "--policy", Some("ask")) {
+            // After the subcommand (the first word that is no global switch, such as `--json`),
+            // before any prompt words: acpmux takes `--policy` only as a `new` option.
+            let sub = words.iter().position(|w| !w.starts_with('-')).unwrap_or(words.len());
+            words.insert((sub + 1).min(words.len()), "--policy=ask".to_owned());
+        }
+        *argv = words.into_iter().map(Value::String).collect();
+    }
+    let start = Start { mode: None, ..Start::of(&p) };
+    let command = command(&p, &start, Some(host), false).render(None);
+    data.set("try", json!(command));
+    e.message = format!("{}; instead: {command}", e.message);
+    e
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
@@ -612,6 +647,32 @@ newlines')"#
             ["new", "--machine=x", "hi"].into_iter().map(str::to_owned).collect();
         assert!(change_option(&mut words, "--host", None));
         assert_eq!(words, ["new", "hi"]);
+    }
+
+    /// A full-access refusal's way out names `--policy` after the subcommand, also when a global
+    /// switch comes first (`acpmux --json new ...`).
+    #[test]
+    fn try_asking_puts_the_policy_after_the_subcommand() {
+        let refused =
+            || RpcError::invalid_params("refused").with_data(json!({"fullAccessRefusedBy": "b"}));
+        for (argv, want) in [
+            (
+                json!(["--json", "new", "--machine", "b", "-d", "hi"]),
+                "acpmux --json new --policy=ask --machine=b -d hi",
+            ),
+            (json!(["new", "--machine=b", "hi"]), "acpmux new --policy=ask --machine=b hi"),
+            (
+                json!(["new", "--policy", "approve-all", "--machine=b", "hi"]),
+                "acpmux new --policy=ask --machine=b hi",
+            ),
+        ] {
+            let params = json!({"_meta": {"acpmux": {"argv": argv}}});
+            let e = try_asking("b", &params, refused());
+            assert_eq!(e.data.as_ref().unwrap()["try"], want, "{argv}");
+        }
+        // Any other refusal is left as it was.
+        let other = RpcError::invalid_params("other");
+        assert!(try_asking("b", &json!({}), other).data.is_none());
     }
 
     #[test]
