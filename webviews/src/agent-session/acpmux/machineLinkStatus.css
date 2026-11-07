@@ -3,8 +3,13 @@
    model chip and the ring keep their place at the row's end whatever it says. The dot keeps one
    6 px box; the spinner turns centred on it, so connected, reconnecting and offline swap in place.
    The words fade in and out; a narrow row cuts them at the end before it moves another control. */
-.acpmux-composer-foot > .acpmux-machine-link {
+/* Doubled class: `.acpmux-composer-bar > :not(.acpmux-chips)` (composerLocation.css) sets every other
+   row item to flex: none, which would keep a long machine name from shrinking and push the row's
+   own controls into their smaller forms or out of the row. */
+.acpmux-composer-foot.acpmux-composer-foot > .acpmux-machine-link {
   order: -1;
+  flex: 0 1 auto;
+  min-width: 0;
   margin-inline-end: auto;
 }
 .acpmux-composer-foot:has(> .acpmux-machine-link) .acpmux-access {

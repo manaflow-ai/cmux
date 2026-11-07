@@ -1,13 +1,21 @@
 import { useSyncExternalStore } from "react";
 
-export type MachineLink = { machine: string; link: string; words: string };
+/// `machine` is the app's registry id (what its Reconnect names); `name` what the sidebar header
+/// calls it (an older app sends none).
+export type MachineLink = { machine: string; name?: string; link: string; words: string };
 
 let current: MachineLink | null = null;
 const listeners = new Set<() => void>();
 
 export function setMachineLink(value: unknown): void {
   const next = readMachineLink(value);
-  if (next?.machine === current?.machine && next?.link === current?.link && next?.words === current?.words) return;
+  if (
+    next?.machine === current?.machine &&
+    next?.name === current?.name &&
+    next?.link === current?.link &&
+    next?.words === current?.words
+  )
+    return;
   current = next;
   for (const listener of listeners) listener();
 }
@@ -16,7 +24,12 @@ export function readMachineLink(value: unknown): MachineLink | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   if (typeof raw.machine !== "string" || typeof raw.link !== "string" || typeof raw.words !== "string") return null;
-  return { machine: raw.machine, link: raw.link, words: raw.words };
+  return {
+    machine: raw.machine,
+    ...(typeof raw.name === "string" && raw.name ? { name: raw.name } : {}),
+    link: raw.link,
+    words: raw.words,
+  };
 }
 
 export function machineLink(): MachineLink | null {
@@ -38,8 +51,11 @@ export function useMachineLink(): MachineLink | null {
 export type LinkState = "connected" | "connecting" | "offline" | "paused" | "attention";
 
 export type PaneLink = {
-  /// The machine the chat runs on, as the tab title names it.
+  /// The machine the chat runs on: the app's registry id for a machine it keeps, the peer's name for an
+  /// acpmux peer.
   machine: string;
+  /// What the row writes for it: the sidebar header's name (`machine` when none).
+  name?: string;
   link: LinkState;
   /// The app's own word for the state of a machine it keeps (the sidebar header's); a peer's state
   /// is written from `link` and `reconnecting` (MachineLinkStatus.tsx `linkWords`).
@@ -79,7 +95,13 @@ type LinkSnapshot = {
 /// starting, and offers Resume (PeerCopyBanner.tsx). O(1).
 export function paneLink(native: MachineLink | null, snapshot: LinkSnapshot): PaneLink | null {
   if (native && LINK_STATES.has(native.link) && native.machine)
-    return { machine: native.machine, link: native.link as LinkState, words: native.words, source: "app" };
+    return {
+      machine: native.machine,
+      ...(native.name ? { name: native.name } : {}),
+      link: native.link as LinkState,
+      words: native.words,
+      source: "app",
+    };
   const peer = snapshot.summary?.peer;
   if (!peer) return null;
   const said = snapshot.peerStates?.[peer];

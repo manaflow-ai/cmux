@@ -53,13 +53,14 @@ export function MachineLinkStatus({
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
   const said = link !== null && link.link !== "connected" && look !== "dot";
-  const [shown, setShown] = useState({ words, machine: link?.machine ?? "" });
-  if (said && (shown.words !== words || shown.machine !== link.machine)) setShown({ words, machine: link.machine });
+  const name = link ? (link.name ?? link.machine) : "";
+  const [shown, setShown] = useState({ words, name });
+  if (said && (shown.words !== words || shown.name !== name)) setShown({ words, name });
   if (!link) return null;
   const down = link.link === "offline" || link.link === "attention";
   const at = `${link.machine}\n${link.link}`;
   const busy = pressed === at;
-  const label = `${link.machine} · ${words}`;
+  const label = `${name} · ${words}`;
   return (
     <output
       className="acpmux-machine-link"
@@ -80,7 +81,7 @@ export function MachineLinkStatus({
         <span className="acpmux-machine-link-fold">
           <span className="acpmux-machine-link-words">
             <span aria-hidden="true" className="acpmux-machine-link-said">
-              {look === "named" && <span className="acpmux-machine-link-name">{shown.machine}</span>}
+              {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
               <span className="acpmux-machine-link-state">{shown.words}</span>
             </span>
             {down && onReconnect && (

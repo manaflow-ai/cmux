@@ -190,6 +190,12 @@ test("the app's push for a machine it keeps comes first, with the app's own word
   expect(said()).toBe("boxUnreachable");
   await act(async () => reconnect()!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
   expect(asked[0]?.source).toBe("app");
+  // The row writes the sidebar header's name, never the registry id it reconnects by.
+  await act(async () =>
+    setMachineLink({ machine: "ssh-3f2a", name: "walk-remote", link: "offline", words: "Offline" }),
+  );
+  expect(said()).toBe("walk-remoteOffline");
+  expect(link()?.getAttribute("aria-label")).toBe("walk-remote · Offline");
   await act(async () => setMachineLink(null));
   expect(link()).toBeNull();
 });
