@@ -1088,6 +1088,8 @@ export function VirtualTranscript({
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
 }) {
+  // Tests count the transcript's own renders (test/composer-smooth-grow.test.ts: per key and per line).
+  if (acpmuxPerf.enabled) acpmuxPerf.render("transcript");
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
   const live = useStreamingRow(streams);
