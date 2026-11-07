@@ -71,11 +71,12 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// the pill's center sits on the line: never above the strip's own top (the strip clips its tabs
     /// to its bounds), never nearer the window's top than ``pillMinTopGap``, and never past the
     /// strip's bottom, on `scale`'s pixel grid. A strip that starts at or below the line (a large
-    /// pane padding, floating panes) keeps its pills at its top.
+    /// pane padding, floating panes) keeps its pills at its top. Staying inside the strip wins over
+    /// the window-top gap: a pill as tall as its strip (flat chrome, no corner padding) sits at 0.
     public func pillTop(stripTop: CGFloat, stripHeight: CGFloat, tabHeight: CGFloat, scale: CGFloat) -> CGFloat {
         let want = centerY - tabHeight / 2 - stripTop
-        let low = max(0, Self.pillMinTopGap - stripTop)
-        let high = max(low, stripHeight - tabHeight)
+        let high = max(0, stripHeight - tabHeight)
+        let low = min(max(0, Self.pillMinTopGap - stripTop), high)
         let s = max(scale, 1)
         return (min(max(want, low), high) * s).rounded() / s
     }

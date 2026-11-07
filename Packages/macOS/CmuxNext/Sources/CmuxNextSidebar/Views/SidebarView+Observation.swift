@@ -61,9 +61,11 @@ extension SidebarViewComponents {
         /// inset and the gaps. A change refreshes
         /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
         var titlebarRow: [CGFloat]
-        /// The window top's line (Debug Settings `chrome.topRowLine`): every window has a sidebar, so it lays its
-        /// window out again on a change, with or without a top-row tab strip.
-        var topRowLine: TopRowLineLook
+        /// What places the window top's line with no view moving or resizing: its variant (Debug Settings
+        /// `chrome.topRowLine`), the titlebar style and the tab bars' edge. Every window has a sidebar, so it lays
+        /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
+        /// `TabStripView.updateWindowControlsAvoidance`.
+        var topRow: [String]
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -97,7 +99,7 @@ extension SidebarViewComponents {
             leadingColumn = SidebarLeadingColumnLook.tunable.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
-            topRowLine = TopRowLineLook.tunable.value
+            topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)"]
         }
     }
     func observe() {
@@ -138,7 +140,7 @@ extension SidebarViewComponents {
             window?.contentView?.needsLayout = true
             titlebarReserveChanged()
         }
-        if let last = lastState, last.topRowLine != state.topRowLine, let window { WindowTitlebar.layOutTopRowAgain(in: window) }
+        if let last = lastState, last.topRow != state.topRow, let window { WindowTitlebar.layOutTopRowAgain(in: window) }
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo

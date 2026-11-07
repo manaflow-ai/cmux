@@ -87,6 +87,20 @@ import Testing
         #expect(line.pillTop(stripTop: 2, stripHeight: 41, tabHeight: 35, scale: 2) == 0)
     }
 
+    /// Flat chrome with `layout.cornerPadding: 0`: the pill is as tall as its strip, so the window-top gap
+    /// cannot fit and containment wins: the pill sits at 0, never 1 pt down with its bottom clipped (review
+    /// of #37619). One point of room puts it at 0 or 1, still inside.
+    @Test func aPillAsTallAsItsStripStaysInside() {
+        for centerY in [4, 12, 16, 30] as [CGFloat] {
+            for scale in [1, 2] as [CGFloat] {
+                let line = TopRowLine(centerY: centerY)
+                #expect(line.pillTop(stripTop: 0, stripHeight: 24, tabHeight: 24, scale: scale) == 0, "line \(centerY) @\(scale)x")
+                let roomy = line.pillTop(stripTop: 0, stripHeight: 25, tabHeight: 24, scale: scale)
+                #expect(roomy >= 0 && roomy + 24 <= 25, "line \(centerY) @\(scale)x: \(roomy)")
+            }
+        }
+    }
+
     @Test func theVariantsResolveTheirOwnLines() {
         let metrics = PaneChromeMetrics(stripHeight: 36, tabHeight: 30, panePadding: 0)
         let tabs = TopRowLine.tabsCenterY(metrics, scale: 2)

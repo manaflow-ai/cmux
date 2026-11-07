@@ -69,6 +69,11 @@ public final class TabStripView: NSView {
         metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
     }
     var windowControlsInset: CGFloat = 0
+    /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
+    var appliedTabTop: CGFloat?
+    /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar
+    /// re-checks its own place on the top row's line.
+    public var onMovedInWindow: (() -> Void)?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -508,6 +513,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
+        appliedTabTop = computeTabTop()
         let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
@@ -546,16 +552,6 @@ public final class TabStripView: NSView {
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 
-    /// Tabs are vertically centered in whatever height the strip gets; in a minimal window's top row
-    /// their pills center on the row's shared line instead (`TopRowLine`: the traffic lights', the
-    /// toolbar band's and the sidebar's + line, Leo 2026-11-07), at every density.
-    var tabTop: CGFloat {
-        let scale = window?.backingScaleFactor ?? 2
-        if TopRowLineLook.tunable.value != .off, let window, let content = window.contentView,
-           WindowTitlebar.isInTopRow(self), let line = WindowTitlebar.topRowLine(in: window) {
-            let stripTop = content.bounds.maxY - convert(bounds, to: nil).maxY
-            return line.pillTop(stripTop: stripTop, stripHeight: bounds.height, tabHeight: min(metrics.tabHeight, bounds.height), scale: scale)
-        }
-        return metrics.tabTop(stripHeight: bounds.height, scale: scale)
-    }
+    /// The tabs' top as the last layout applied it (``computeTabTop()``), so every frame drawn between layouts agrees.
+    var tabTop: CGFloat { appliedTabTop ?? computeTabTop() }
 }
