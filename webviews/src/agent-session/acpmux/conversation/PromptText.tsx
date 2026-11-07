@@ -69,17 +69,22 @@ export function PromptText({
   // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
   const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
+  // A bubble scrolled out and back starts from its last measure (`measuredFolds`), so mounting it
+  // forces no layout and never flips its fold.
+  const known = knownFold(rowId, text, pasted);
+  const unmeasured = known?.long ?? guess;
+  const wasMeasured = known !== undefined;
   // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
   // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
   // whole text without end. Its Show more stays; the cost is at most a needless one.
   // Its typed text, not its pastes (chips whatever their size); an inline prompt says (`huge`).
   const huge = hugeTyped ?? hasHugeTypedPart(parts);
-  const long = huge || (measured?.parts === parts ? measured.long : guess);
+  const long = huge || (measured?.parts === parts ? measured.long : unmeasured);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
-    const measure = () => {
+    const measure = (width = Number.NaN) => {
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
@@ -92,17 +97,25 @@ export function PromptText({
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
+      rememberFold(rowId, text, pasted, width, next);
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
       // change that disagrees still updates the fold synchronously before paint.
-      setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
+      setMeasured((last) => ((last?.parts === parts ? last.long : unmeasured) === next ? last : { parts, long: next }));
     };
-    measure();
+    // perf-hot: a bubble mounting as the reader scrolls. Measured before at this text, it waits for
+    // the observer's first call, which comes after layout, and measures again only at a new width.
+    if (!wasMeasured) measure();
     if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver((entries) => {
+      const width = entries?.[entries.length - 1]?.contentRect.width;
+      const last = knownFold(rowId, text, pasted)?.width;
+      if (width !== undefined && last !== undefined && Math.abs(width - last) < 0.5) return;
+      measure(width);
+    });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, guess, long, open, children]);
+  }, [rowId, text, pasted, parts, wasMeasured, unmeasured, long, open, children]);
   const collapsed = long && !open;
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).
@@ -227,6 +240,38 @@ export function PromptText({
       )}
     </>
   );
+}
+
+/// Each prompt's last measure, by row: whether it is long, at which bubble width, of which text.
+/// Bounded, oldest first out; a row not found measures as it mounts.
+const MEASURED_FOLDS_MAX = 2000;
+const measuredFolds = new Map<
+  string,
+  { text: string; pasted: readonly PasteRange[] | undefined; width: number; long: boolean }
+>();
+
+function knownFold(rowId: string, text: string, pasted: readonly PasteRange[] | undefined) {
+  const known = measuredFolds.get(rowId);
+  if (!known || known.text !== text || !samePastes(known.pasted, pasted)) return undefined;
+  return known;
+}
+
+function rememberFold(
+  rowId: string,
+  text: string,
+  pasted: readonly PasteRange[] | undefined,
+  width: number,
+  long: boolean,
+) {
+  measuredFolds.delete(rowId);
+  measuredFolds.set(rowId, { text, pasted, width, long });
+  if (measuredFolds.size > MEASURED_FOLDS_MAX) measuredFolds.delete(measuredFolds.keys().next().value!);
+}
+
+function samePastes(a: readonly PasteRange[] | undefined, b: readonly PasteRange[] | undefined) {
+  if (a === b) return true;
+  if ((a?.length ?? 0) !== (b?.length ?? 0)) return false;
+  return (a ?? []).every((range, index) => range.start === b![index]!.start && range.end === b![index]!.end);
 }
 
 /// The box `node`'s content is drawn in, for a prompt drawn whole (no box of its own): its text's,

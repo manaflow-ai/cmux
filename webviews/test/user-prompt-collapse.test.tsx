@@ -104,11 +104,13 @@ const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more");
 
 // Supply layout that JSDOM does not perform, while keeping the real component, effects and
 // observer lifecycle. The profiler counts commits, not timings on the test machine.
+let measuredPrompts = 0;
 function measuredPrompt(
   initialHeight: number,
   run: (fixture: {
     render: (text: string) => void;
     resize: (height: number) => void;
+    remount: (text: string) => void;
     commits: string[];
     measurements: () => number;
   }) => void,
@@ -144,18 +146,26 @@ function measuredPrompt(
     }
   };
   const show = (text: string) => text;
+  // Each fixture its own row: a row's measure outlives its mount.
+  const rowId = `measured-prompt-${++measuredPrompts}`;
+  const draw = (text: string) =>
+    act(() =>
+      root.render(
+        <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
+          <div className="cv-user__bubble">
+            <PromptText rowId={rowId} text={text} show={show} />
+          </div>
+        </Profiler>,
+      ),
+    );
   try {
     run({
-      render: (text) =>
-        act(() =>
-          root.render(
-            <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
-              <div className="cv-user__bubble">
-                <PromptText rowId="measured-prompt" text={text} show={show} />
-              </div>
-            </Profiler>,
-          ),
-        ),
+      render: draw,
+      remount: (text) => {
+        act(() => root.unmount());
+        root = createRoot(host);
+        draw(text);
+      },
       resize: (next) => {
         height = next;
         expect(observers.size).toBe(1);
@@ -203,6 +213,24 @@ try {
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
       expect(commits).toEqual(["mount"]);
+    });
+  });
+
+  test("a measured prompt scrolled out and back mounts on its measure, reading no layout", () => {
+    measuredPrompt(240, ({ render, remount, commits, measurements }) => {
+      const text = "word ".repeat(12).trim();
+      render(text);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      const before = measurements();
+      const committed = commits.length;
+      remount(text);
+      expect(measurements()).toBe(before);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      // Mounted on its measure: one commit, no fold flip.
+      expect(commits.slice(committed)).toEqual(["mount"]);
+      // Another text in the same row measures again.
+      remount(lines(3));
+      expect(measurements()).toBeGreaterThan(before);
     });
   });
 
