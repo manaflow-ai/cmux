@@ -28,6 +28,8 @@ import MessagesLabHome
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
 /// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
+/// - `chief.settings {conversation, anchor}`: the Chief's settings under the name pill (`anchor`, page
+///   points) -> `{shown}`; `chief.stop {conversation, all}`: Stop, or Stop All Agents (a click only).
 /// Streams: `appearance` (the bubble look and each chat's colours) and `headerPanels` (the toggles of
 /// the open conversation), each sent on subscribe and on every change.
 @MainActor
@@ -47,6 +49,13 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The observation of what the streams read; runs only while one has a listener.
     private var appearanceWatch: Task<Void, Never>?
     private var panelsWatch: Task<Void, Never>?
+    /// The name pill of Chief conversation `id` was clicked at `pill` (page points): its settings
+    /// toggle; true when they show. Set by the view that holds the page.
+    var onChiefSettings: (@MainActor (ConversationID, CGRect?) -> Bool)?
+    /// Stop (or with `all`, Stop All Agents) on Chief conversation `id`'s compose bar.
+    var onChiefStop: (@MainActor (ConversationID, Bool) -> Void)?
+    /// The first run's facts follow the conversation shown (held strongly: the page's route holds it too).
+    var firstRun: HomeMessagesFirstRunProvider?
     /// The window the page is in (the header panels read it).
     var window: () -> NSWindow? = { nil }
 
@@ -71,6 +80,7 @@ final class HomeMessagesHostProvider: PageProvider {
                 shown = id
                 onShown?(id)
                 restartPanels()
+                firstRun?.restart()
             }
             return .null
         case "requests.list":
@@ -134,6 +144,20 @@ final class HomeMessagesHostProvider: PageProvider {
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             return Self.outcome(await start(fields, home: home))
+        case "chief.settings":
+            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
+            let id = try conversation(fields)
+            let box = fields["anchor"]?.objectValue
+            let number = { (key: String) in box?[key]?.doubleValue }
+            let pill = number("x").flatMap { x in number("y").flatMap { y in number("width").flatMap { w in number("height").map { h in
+                CGRect(x: x, y: y, width: max(1, min(w, 4096)), height: max(1, min(h, 4096)))
+            } } } }
+            return .object(["shown": .bool(onChiefSettings?(id, pill) ?? false)])
+        case "chief.stop":
+            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
+            let id = try conversation(fields)
+            onChiefStop?(id, fields["all"]?.boolValue == true)
+            return .null
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {

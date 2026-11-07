@@ -23,6 +23,7 @@ import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
 import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
 import { noMessagesHost, pageMessagesHost } from "./host";
+import { singleConversation } from "./single";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
 import "../shared/pageBase.css";
@@ -62,6 +63,7 @@ export function mountMessagesPage(
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("home.title");
+  const single = singleConversation(location.hash);
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
   const messages = client ? pageMessagesHost(client) : noMessagesHost;
@@ -77,6 +79,7 @@ export function mountMessagesPage(
             strings={strings}
             carry={carry}
             detail={detail}
+            {...(single ? { single } : {})}
           />
         )}
       </DaemonGate>
@@ -93,6 +96,7 @@ function DaemonMessages({
   strings,
   carry,
   detail,
+  single,
 }: {
   daemon: DaemonSocket;
   owner?: DaemonSocket;
@@ -101,6 +105,7 @@ function DaemonMessages({
   strings: Strings;
   carry: PendingCarry;
   detail: MessagesDetail;
+  single?: string;
 }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
   return (
@@ -111,6 +116,7 @@ function DaemonMessages({
       messages={messages}
       detail={detail}
       widthStorage={globalThis.localStorage ?? null}
+      {...(single ? { single } : {})}
     />
   );
 }

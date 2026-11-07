@@ -12,6 +12,8 @@
 // - Files attach from the + button, a paste or a drop (intake.ts rules); each uploads at once with
 //   its progress in the tray above the field (the Channels plumbing, attachmentService.ts). A file
 //   the data side cannot take is refused before it uploads, with a notice. Send waits for uploads.
+// - While the Chief answers (`working`), the emoji button is Stop (ChatController+Stop.swift): a
+//   click stops the Chief's turn, Option-click stops all its agents.
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
@@ -53,6 +55,10 @@ export interface MessageComposerProps {
   initialText?: string;
   /** The field's text changed (the host keeps the draft per conversation). */
   onDraftChange?(text: string): void;
+  /** The Chief answers now: the emoji button is Stop. */
+  working?: boolean;
+  /** Stop's click; `all` with Option: stop all the Chief's agents. */
+  onStop?(all: boolean): void;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -69,6 +75,8 @@ export function MessageComposer({
   dictation,
   initialText = "",
   onDraftChange,
+  working = false,
+  onStop,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -261,23 +269,38 @@ export function MessageComposer({
             features={{ multiline: true }}
             className="mt-field-editor"
           />
-          <button
-            type="button"
-            className="mt-field-button"
-            aria-label={t("compose.emoji")}
-            title={t("compose.emoji")}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              const anchor = event.currentTarget;
-              setEmoji({ anchor });
-              loadEmoji().then(
-                (table) => setEmoji((open) => (open ? { ...open, table } : open)),
-                () => setEmoji(undefined),
-              );
-            }}
-          >
-            <HomeIcon name="emoji" />
-          </button>
+          {working && onStop ? (
+            <button
+              type="button"
+              className="mt-field-button mt-stop"
+              aria-label={t("compose.stop")}
+              title={t("home.stop.toolTip")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => onStop(event.altKey)}
+            >
+              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+                <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" fill="currentColor" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="mt-field-button"
+              aria-label={t("compose.emoji")}
+              title={t("compose.emoji")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => {
+                const anchor = event.currentTarget;
+                setEmoji({ anchor });
+                loadEmoji().then(
+                  (table) => setEmoji((open) => (open ? { ...open, table } : open)),
+                  () => setEmoji(undefined),
+                );
+              }}
+            >
+              <HomeIcon name="emoji" />
+            </button>
+          )}
           {dictation && <DictationButton dictation={voice} />}
         </div>
         {!empty && (

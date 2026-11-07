@@ -190,7 +190,7 @@ final class OnboardingService {
     }
 
     func historyImportFinished() {
-        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+        UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey)
     }
 
 }

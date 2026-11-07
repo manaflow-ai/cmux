@@ -65,36 +65,16 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG || CMUX_BENCH_HOOKS
-        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
-        // The composer's attach button as an action (home.attachFiles): a path
-        // goes to the shown Home composer through its own intake (as a drop);
-        // without one the shown composer opens its file picker.
-        registry.bind("home.attachFiles", invoke: { invocation in
-            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
-                services.registry.refuse(RefusalStrings.homeAttachNoHome)
-                return
-            }
-            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
-                view.pickFiles()
-                return
-            }
-            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
-                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
-            }
-        })
-        // Reply to Selection (Cmd-Shift-R on Home, the palette): the same path as the transcript's menu item.
-        registry.bind("home.replyToSelection") {
-            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.replyToSelection() else {
-                services.registry.refuse(RefusalStrings.homeReplyNoSelection)
-                return
-            }
-        }
+        // home.attachFiles and home.replyToSelection reached the native Home composer, which is
+        // gone: Home's chat is the web Messages page, which serves neither yet (home-react follow-up).
+        registry.bindEffect("home.attachFiles", effect: { _ in .refused(RefusalStrings.homeAttachNoHome) })
+        registry.bindEffect("home.replyToSelection", effect: { _ in .refused(RefusalStrings.homeReplyNoSelection) })
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
         bindHomeGroups(services)

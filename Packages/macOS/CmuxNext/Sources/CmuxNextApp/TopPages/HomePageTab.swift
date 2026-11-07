@@ -47,16 +47,6 @@ final class HomePageTab: InternalPageProvider {
         order.compactMap { key in views[key].map { (key, $0) } }
     }
 
-    /// The transcript a Home tab shows (its conversation's native view).
-    static func transcript(in view: NSView) -> HomeNativeTranscriptView? {
-        var stack = [view]
-        while let next = stack.popLast() {
-            if let home = next as? HomeNativeTranscriptView { return home }
-            stack.append(contentsOf: next.subviews)
-        }
-        return nil
-    }
-
     /// `home.tab`: one more Home tab in the active window, after the focused
     /// pane's selected tab. A user run selects and focuses it (and leaves a
     /// top page); automation opens it without changing the view. False when

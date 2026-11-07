@@ -83,7 +83,7 @@ class TourFilePathTests(unittest.TestCase):
             ["chief-settings"])
         # The empty Chief conversation's front page is the chief-settings tour's first shot.
         self.assertEqual(
-            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunHero.swift"),
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeMessagesFirstRun.swift"),
             ["chief-settings"])
         self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),

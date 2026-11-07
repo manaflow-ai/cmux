@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -33,6 +34,9 @@ final class HomeMessagesPage: NSView {
     private var watches: [Task<Void, Never>] = []
     /// The Chief conversation the page opened by itself (a later Chief replaces it); nil once the person picked.
     private var followed: String?
+    /// The Chief controls of the conversation the page shows (its settings popover, Stop); remade
+    /// when the page opens another conversation.
+    private var chief: HomeChiefSurface?
     /// The list's pins and hidden conversations (``HomeListPage``): a source over the owner's stores.
     let sidebar: HomeSidebarSource
     /// The header band the traffic lights may lie over (the list's `HEADER.band`, list/layout.ts).
@@ -53,6 +57,7 @@ final class HomeMessagesPage: NSView {
         addSubview(page)
         addSubview(dragStrip)
         watch(services.home)
+        wireChief()
     }
 
     @available(*, unavailable)
@@ -85,6 +90,7 @@ final class HomeMessagesPage: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateWindowControls()
+        chief?.openPendingSettings()
     }
 
     /// The window's traffic lights over the page's top band, in its points from its top-left; nil
@@ -120,6 +126,8 @@ final class HomeMessagesPage: NSView {
         followed = nil
         host.onShown = { [weak self] id in
             guard let self else { return }
+            chief?.close()
+            chief = id.map { HomeChiefSurface(services: home.services, conversation: $0, owner: page) }
             if id == nil, let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) {
                 followed = first.rawValue
                 show(HomeDockSelection(conversation: first.rawValue))
@@ -145,6 +153,30 @@ final class HomeMessagesPage: NSView {
                 self?.route.publishChrome()
             }
         })
+    }
+
+    /// The name pill's settings and the compose bar's Stop, for the conversation shown.
+    private func wireChief() {
+        host.onChiefSettings = { [weak self] id, pill in
+            guard let chief = self?.chief, chief.conversation == id else { return false }
+            return chief.toggleSettings(under: pill)
+        }
+        host.onChiefStop = { [weak self] id, all in
+            guard let self, let chief, chief.conversation == id else { return }
+            if all { chief.stopAllAgents() } else {
+                _ = services?.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
+            }
+        }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow !== window { chief?.close() }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        chief?.close()
     }
 
     /// The listed rows without archived Chiefs' (``HomeArchivedChiefs``).
@@ -232,6 +264,7 @@ final class HomeMessagesPage: NSView {
 
     /// The dock tab closed: the page's document ends.
     func close() {
+        chief?.close()
         for watch in watches { watch.cancel() }
         watches = []
         page.close()
@@ -261,4 +294,8 @@ final class HomeWindowDragStrip: NSView {
         }
         window.performDrag(with: event)
     }
+}
+
+extension HomeMessagesPage: HomeChiefShowing {
+    var shownChief: HomeChiefSurface? { chief.flatMap { $0.showsChiefOnScreen ? $0 : nil } }
 }

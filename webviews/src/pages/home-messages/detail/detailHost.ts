@@ -8,7 +8,10 @@
 //   linkPreview {url, kind, details} -> HomeLinkPreview
 //   openLink {url}: an app link or a path a chip opened (the host opens it, never the system)
 //   firstRun (stream) {introKind?, memoryOffer?, petShown?, shortcuts?, agents?, switchKeys?,
-//                      starters?}: the empty Chief chat's host facts (HomeHostView's setFirstRun*)
+//                      starters?}: the empty Chief chat's host facts (HomeMessagesFirstRun.swift)
+//   chief.settings {conversation, anchor: {x, y, width, height}}: the Chief's settings popover under
+//                      the name pill (a click only)
+//   chief.stop {conversation, all}: stops the Chief's turn, or with `all` every agent of it (a click only)
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
@@ -36,6 +39,8 @@ export const DetailOps = {
   linkPreview: LINK_PREVIEW_OP,
   openLink: "cmux.home.messages.openLink",
   firstRun: "cmux.home.messages.firstRun",
+  chiefSettings: "cmux.home.messages.chief.settings",
+  chiefStop: "cmux.home.messages.chief.stop",
 } as const;
 
 type Json = Record<string, unknown>;

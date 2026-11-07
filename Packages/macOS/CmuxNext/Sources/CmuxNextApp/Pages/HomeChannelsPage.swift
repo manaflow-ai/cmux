@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
@@ -47,8 +48,11 @@ extension PageFactory {
     /// The React Messages page (``PageDescriptor/homeMessages``): the docked Home's Messages view
     /// (``HomeMessagesPage``). Its route serves the row and compose menus (``HomeConversationMenu``,
     /// ``HomePageMenus``), the runs, the unread colour and the traffic lights; ``HomeMessagesHostProvider``
-    /// serves its sheets, cards, colours and the conversation it shows.
-    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
+    /// serves its sheets, cards, colours and the conversation it shows. With `conversation` it is a
+    /// conversation tab's or the Chief panel's page (``HomeConversationPage``): that conversation
+    /// only, no list (`#/conversation/<id>`).
+    func homeMessagesWebPage(dock: HomeDockView? = nil, conversation: ConversationID? = nil)
+        -> (page: PageWebView, route: HomeMessagesPageRoute, host: HomeMessagesHostProvider)? {
         let (home, registry, app) = (services.home, services.registry, services)
         let route = HomeMessagesPageRoute(menu: { id in
             let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
@@ -62,10 +66,14 @@ extension PageFactory {
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
         let host = HomeMessagesHostProvider(services: services)
+        let firstRun = HomeMessagesFirstRunProvider(services: services, shown: { [weak host] in host?.shown })
+        host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
-        guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)]
+        let single = conversation.flatMap { $0.rawValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }.map { "#/conversation/\($0)" }
+        guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra, route: single) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)
         return (page, route, host)
@@ -74,7 +82,7 @@ extension PageFactory {
     /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
-    func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
+    func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = [], route: String? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief, page: descriptor.resource)
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
@@ -82,7 +90,7 @@ extension PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       editRoute] + extra
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        guard let page = PageWebView(descriptor: descriptor, routes: routes,
+        guard let page = PageWebView(descriptor: descriptor, routes: routes, route: route,
                                      options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in

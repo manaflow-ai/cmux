@@ -58,7 +58,7 @@ export interface MessagesTranscriptProps extends TranscriptData {
   colors?: ChatColors;
   panels?: readonly HeaderPanelItem[];
   onPanel?(id: string): void;
-  onContact?(): void;
+  onContact?(anchor: { x: number; y: number; width: number; height: number }): void;
   /** A section pinned under the header (Needs you); it lies over the rows. */
   pinned?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
@@ -66,6 +66,9 @@ export interface MessagesTranscriptProps extends TranscriptData {
   dictation?: DictationCall;
   initialDraft?: string;
   onDraftChange?(text: string): void;
+  /** The Chief answers now: the composer's emoji button is Stop (`onStop`). */
+  working?: boolean;
+  onStop?(all: boolean): void;
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
   onLoadOlder(): void;
   /** My read cursor moves forward to `seq`. */
@@ -342,6 +345,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           dictation={props.dictation}
           initialText={props.initialDraft}
           onDraftChange={props.onDraftChange}
+          working={props.working === true}
+          {...(props.onStop ? { onStop: props.onStop } : {})}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

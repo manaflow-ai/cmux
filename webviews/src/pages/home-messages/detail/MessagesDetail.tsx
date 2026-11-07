@@ -67,7 +67,7 @@ const NO_CONTACTS: Contacts = { contacts: [], inviteTeam: null, pendingInvites: 
 
 /** The page's detail slot. */
 export function MessagesDetail(props: MessagesDetailProps) {
-  const { store, snapshot, conversation, me, host, nav } = props;
+  const { store, snapshot, conversation, me, host, nav, single } = props;
   const view = useSyncExternalStore(nav.subscribe, nav.getSnapshot);
   // The parts' own tables (each keeps the Swift keys it replaces).
   const [words] = useState(() => ({
@@ -84,14 +84,15 @@ export function MessagesDetail(props: MessagesDetailProps) {
     () => ({
       fetchPreview: linkPreviewFetch(host),
       onOpen: (href) => {
-        // A conversation link opens here; any other app link or path is the app's to open.
-        if (parseConversationLink(href)) {
+        // A conversation link opens here (the docked Home's list); any other app link or path, and
+        // every link on a one-conversation page, is the app's to open.
+        if (!single && parseConversationLink(href)) {
           nav.leaveCompose();
           void store.openLink(href);
         } else void host?.call(DetailOps.openLink, { url: href }).catch(() => undefined);
       },
     }),
-    [host, nav, store],
+    [host, nav, store, single],
   );
 
   // Message Requests: read at start, when the list changes size and after the sheet closes.
@@ -291,6 +292,11 @@ function ConversationView(
 ) {
   const { store, snapshot, me, host, nav, view, words, conversation, firstRun } = props;
   if (!me) return null;
+  const isChief = conversation.kind === "chief";
+  const chiefIDs = new Set(conversation.participants.filter((person) => person.chief).map((person) => person.id));
+  // The Chief answers while it types (HomeChiefTurnActions' working): the composer offers Stop.
+  const working = isChief && snapshot.typing.some((id) => chiefIDs.has(id));
+  const hostCall = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
   // A Chief chat with no message ever shows its first run where the rows will be (the list's own
@@ -317,7 +323,14 @@ function ConversationView(
         colors={colors}
         panels={props.panelItems(conversation)}
         onPanel={props.onPanel}
-        onContact={() => nav.present({ kind: "groupInfo", conversation: id })}
+        onContact={(anchor) =>
+          // A Chief's name opens its settings under the pill (the app's popover); others' open Group Info.
+          isChief && host
+            ? hostCall(DetailOps.chiefSettings, { conversation: id, anchor })
+            : nav.present({ kind: "groupInfo", conversation: id })
+        }
+        working={working}
+        onStop={(all) => hostCall(DetailOps.chiefStop, { conversation: id, all })}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
         initialDraft={nav.draft(id)}

@@ -45,6 +45,9 @@ export interface MessagesAppProps {
   nav?: MessagesNav;
   /** Where the column's width is kept (null: not kept, the gallery). */
   widthStorage?: Storage | null;
+  /** The one conversation a conversation tab or the Chief panel shows (single.ts): no list column,
+   * no compose button, and the page keeps that conversation open. */
+  single?: string;
 }
 
 const WIDTH_KEY = "cmux.home.sidebarWidth";
@@ -58,6 +61,7 @@ export function MessagesApp({
   detail,
   onCompose,
   widthStorage,
+  single,
   ...props
 }: MessagesAppProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -126,7 +130,14 @@ export function MessagesApp({
     !unreadOnly &&
     listWidth < COMPACT_BELOW &&
     wanted >= COMPACT_BELOW;
-  const shownWidth = folded ? 0 : listWidth;
+  const listless = folded || single !== undefined;
+  const shownWidth = listless ? 0 : listWidth;
+
+  // One conversation's page keeps it open: the store's own first pick (the newest row) never shows
+  // in its place, and a reconnect that picked another goes back to it.
+  useEffect(() => {
+    if (single && snapshot.selected !== single && !snapshot.loading) void store.select(single);
+  }, [single, snapshot.selected, snapshot.loading, store]);
 
   const keep = (width: number | undefined) => {
     setOwn(width);
@@ -175,7 +186,7 @@ export function MessagesApp({
 
   // Compose at the chat's top-left, after the traffic lights when they lie over it.
   const lights = chrome.windowControls;
-  const slotLeft = shownWidth + (folded ? 0 : WIDTH.divider);
+  const slotLeft = shownWidth + (listless ? 0 : WIDTH.divider);
   let composeX = COMPOSE_INSET;
   let composeY = Math.round((HEADER.band - HEADER.side) / 2);
   if (lights && lights.x < slotLeft + composeX + HEADER.side + 8) {
@@ -199,7 +210,8 @@ export function MessagesApp({
     onSelect: () => void messages.perform(item),
   }));
 
-  const conversation = snapshot.selected ? snapshot.conversations.get(snapshot.selected) : undefined;
+  const openID = single === undefined || snapshot.selected === single ? snapshot.selected : undefined;
+  const conversation = openID ? snapshot.conversations.get(openID) : undefined;
   const style = {
     "--hm-list-width": `${shownWidth}px`,
     ...(chrome.unreadColor ? { "--hm-unread-color": chrome.unreadColor } : {}),
@@ -208,7 +220,7 @@ export function MessagesApp({
   return (
     <AvatarContext.Provider value={store.avatars}>
       <div ref={page} className="hm-page" style={style}>
-        {!folded && (
+        {!listless && (
           <div className="hm-column" style={{ width: shownWidth }}>
             <ConversationList
               model={model}
@@ -248,7 +260,7 @@ export function MessagesApp({
             />
           </div>
         )}
-        {!folded && (
+        {!listless && (
           <div
             // The divider is a pointer affordance only, as the native split's: no accessibility element.
             className="hm-divider"
@@ -268,21 +280,24 @@ export function MessagesApp({
             chrome,
             ...(openedAt !== undefined ? { openedAt } : {}),
             nav,
+            ...(single !== undefined ? { single } : {}),
           })}
-          <ContextMenu items={composeMenu} className="hm-menu-host">
-            <button
-              type="button"
-              className="hm-compose"
-              style={{ transform: `translate(${composeX}px, ${composeY}px)` }}
-              aria-label={t("home.list.newMessage")}
-              title={t("home.list.newMessage")}
-              onPointerEnter={loadCompose}
-              onFocus={loadCompose}
-              onClick={compose}
-            >
-              <HomeIcon name="compose" size={16} />
-            </button>
-          </ContextMenu>
+          {single === undefined && (
+            <ContextMenu items={composeMenu} className="hm-menu-host">
+              <button
+                type="button"
+                className="hm-compose"
+                style={{ transform: `translate(${composeX}px, ${composeY}px)` }}
+                aria-label={t("home.list.newMessage")}
+                title={t("home.list.newMessage")}
+                onPointerEnter={loadCompose}
+                onFocus={loadCompose}
+                onClick={compose}
+              >
+                <HomeIcon name="compose" size={16} />
+              </button>
+            </ContextMenu>
+          )}
         </main>
       </div>
     </AvatarContext.Provider>

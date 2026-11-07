@@ -306,10 +306,6 @@ final class AppControl {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
-            .mainActor("debug.home.drive") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.drive(call.params, services: services))
-            },
             .mainActor("debug.window_record") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(services.windowRecord.start(call.params, services: services))
@@ -387,20 +383,6 @@ final class AppControl {
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
-            },
-            .mainActor("debug.home_native_fixture.open") { [weak services] call in
-                guard let services else { return .value(.null) }
-                let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already.
-                let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
-            },
-            // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
-            // files enter the shown Home composer through the same intake as
-            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
-            .mainActor("debug.home.attach") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }

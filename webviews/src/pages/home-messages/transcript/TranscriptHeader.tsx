@@ -32,7 +32,8 @@ export interface TranscriptHeaderProps {
   alsoHere?: readonly string[];
   panels?: readonly HeaderPanelItem[];
   onPanel?(id: string): void;
-  onContact?(): void;
+  /** The name pill's click, with the pill's box in page points (a host popover anchors there). */
+  onContact?(anchor: { x: number; y: number; width: number; height: number }): void;
   strings: Strings;
 }
 
@@ -86,7 +87,10 @@ export function TranscriptHeader({
             type="button"
             className="mt-name-pill"
             aria-label={strings.format("header.contact", title)}
-            onClick={onContact}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              onContact?.({ x: box.x, y: box.y, width: box.width, height: box.height });
+            }}
           >
             <span className="mt-name-text">{title}</span>
             <HomeIcon name="chevronRight" />
