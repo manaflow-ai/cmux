@@ -24,16 +24,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
-    /// The next page shows the attachment fixture (`{"attachments": true}`).
-    var nextAttachments = false
+    /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
+    var next = (attachments: false, compose: false)
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
-        nextAttachments = false
+        let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
+        next = (false, false)
         fixtures[key] = fixture
         return fixture.container
     }
@@ -234,9 +234,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
-        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])

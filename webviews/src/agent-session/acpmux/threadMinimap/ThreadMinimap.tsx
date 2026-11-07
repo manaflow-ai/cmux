@@ -56,7 +56,7 @@ import {
   railHeight,
   ROW_WIDTH,
   railScrollTop,
-  railTop as railTopAt,
+  railFitTop,
   ROW_PITCH,
   rowTopsOf,
   SETTLE_FRAMES,
@@ -419,8 +419,9 @@ export function ThreadMinimap({
   /// A fixed rail neither moves nor changes height when the stack grows (Leo, 2026-11-04: "the height
   /// of the left scroll rail should never be affected by anything"; 2026-11-03: "i just don't like it
   /// when the thing shifts"): a stack tall enough to reach it lays over its foot. The other arms keep
-  /// their top and shorten from the foot (railClearHeight).
-  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
+  /// their top and shorten from the foot (railClearHeight). A `fit` rail sits at its slot's top, so the
+  /// rows a chat adds grow it down and never move it (railFitTop).
+  const boxTop = railFitTop(boxRail, boxHeight, boxFoot, heightConfig);
   const height = heightConfig.fixed
     ? boxRail
     : railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);

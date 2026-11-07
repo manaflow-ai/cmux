@@ -31,8 +31,8 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
-            // The group forms in one write at `workspaces.newPlacement` (first under `top`, the default; last
-            // under `bottom`), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            // The group forms in one write at `workspaces.newPlacement` (last only under `bottom`, else
+            // first), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             let index = NewWorkspacePlacements.newGroupIndex(context.services)
             try create(context, invocation, anchorFree: nil) { id, bridge in
                 guard let bridge = bridge as? SidebarBridge else { return }
@@ -120,12 +120,19 @@ enum WorkspaceVerbHandlers {
                   fromCurrent: fromCurrent, then: then)
     }
 
+    /// The window a new workspace next to `anchor` opens in: the anchor's window, else the active one. A Home anchor
+    /// is no window's place of its own: a Chief turn names the store's Home (in whichever window holds it) as its
+    /// caller workspace, and a workspace the person started from another window went there (cmux#37366). It goes to
+    /// the window the person acts in.
+    static func window(for anchor: WorkspaceModel?, _ context: AppActionContext) -> String? {
+        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+    }
+
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
-        let target = windows.targetWindow(preferring: window)
+        let target = windows.targetWindow(preferring: window(for: anchor, context))
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
