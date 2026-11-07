@@ -48,11 +48,15 @@ pub trait HistoryWriter {
     fn commit(self: Box<Self>) -> Result<()>;
 }
 
-/// The chat's folder, for a move that replaces it whole: none when the chat has none on disk, and
+/// The chat's folder, for a move that replaces it whole, once the forks that reference its history
+/// hold it themselves: none when the chat has none on disk, and
 /// an error when it has one the store would not give (a fork whose history could not be written
 /// into it, `ForkView::session_dir`), since a move into it would add the incoming log to the old
 /// one (review of #37020).
 pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>> {
+    // Its forks keep the history they show: the folder that comes in may hold the chat compacted
+    // elsewhere (review of #37020).
+    store.release_history(id)?;
     if let Some(dir) = store.session_dir(id) {
         return Ok(Some(dir));
     }
@@ -513,6 +517,13 @@ impl Store for ForkView {
             self.materialize_locked(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
+    }
+    fn release_history(&self, id: &str) -> Result<()> {
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        Ok(())
     }
     /// A chat that forks reference goes only once each holds its history itself. Under
     /// `dropping`, as a reservation is: a fork being made is either known here or refused.

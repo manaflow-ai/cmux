@@ -977,6 +977,11 @@ pub trait Store: Send + Sync {
     }
     /// Takes back a [`Store::reserve_reference`] of a fork that was not made.
     fn forget_reference(&self, _fork: &str) {}
+    /// Before `id`'s folder is replaced whole (a chat moved back here): every fork that references
+    /// its history holds that history itself first, as before a delete.
+    fn release_history(&self, _id: &str) -> Result<()> {
+        Ok(())
+    }
     /// A writer of the history a fork referenced, as its log's first segment. None: this store
     /// writes none ([`Store::writes_history`]).
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
@@ -1563,6 +1568,12 @@ impl HistoryWriter for SegmentZero {
         file.sync_all()?;
         std::fs::rename(&self.tmp, &self.path)?;
         sync_directory(&self.dir)?;
+        // `events/`, and the chat's folder, may be new (a fork with no record of its own yet): the
+        // folders that name them are synced too, or a power loss could keep the meta that drops the
+        // reference and lose the history it now stands for (review of #37020).
+        for made in self.dir.ancestors().skip(1).take(2) {
+            sync_directory(made)?;
+        }
         Ok(())
     }
 }
