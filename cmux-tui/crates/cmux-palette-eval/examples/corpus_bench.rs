@@ -1,6 +1,6 @@
 //! Ranking speed over the equality corpus, through the C ABI the app calls.
 //!
-//!   cargo run --release -p cmux-palette-eval --example corpus_bench [PASSES]
+//!   cargo run --release -p cmux-palette-eval --example corpus_bench [PASSES]   (PASSES > 0, default 30)
 //!
 //! Each pass installs every entry set once, then ranks every corpus request against it, the
 //! way the palette does per keystroke. Prints the median pass and the per-request median and p95.
@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::time::Instant;
 
 fn main() -> Result<(), String> {
-    let passes: usize = std::env::args().nth(1).and_then(|arg| arg.parse().ok()).unwrap_or(30);
+    let passes: usize = std::env::args().nth(1).and_then(|arg| arg.parse().ok()).filter(|&n| n > 0).unwrap_or(30);
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../cmux-palette-ranker/tests/corpus/palette-corpus.json"
