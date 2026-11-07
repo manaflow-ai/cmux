@@ -14,8 +14,9 @@
   initial-value: 0;
 }
 :root {
-  /* motion-allow: a gauge draining after a compaction reads as a drain only past the scale's 240 ms ceiling (Leo's ask); Reduce Motion and motion off take it to none below */
-  --acpmux-ring-ease: 600ms;
+  /* A gauge draining after a compaction reads as a drain only past the scale's 240 ms ceiling (Leo's
+     ask); Reduce Motion and motion off take the transition to none below. */
+  --acpmux-ring-ease: 600ms; /* motion-allow: the ring's drain, above */
 }
 /* The arc: a circle of path length 1, its dash the share used. */
 .acpmux-context-used {
