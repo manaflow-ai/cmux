@@ -583,3 +583,50 @@ async fn a_queue_edited_during_a_restores_hold_keeps_the_edits() {
     let now = edits_during_a_restores_hold(0).await;
     assert_eq!(now, vec![("p1".to_owned(), "p1 new words".to_owned())]);
 }
+
+/// Two prompts waiting on the machine; a restore whose settle, once it wrote what parked and
+/// before it rebuilt the queue, sees the first edited and the second removed by another thread:
+/// each waiting prompt's id and preview after it.
+async fn changes_right_after_the_drain(rules: u8) -> Vec<(String, String)> {
+    let (hub, session) = hub_at(rules).await;
+    for p in ["p1", "p2"] {
+        let text = format!("{p} old words");
+        hub.append(
+            &session,
+            "mux",
+            "queued",
+            json!({"promptId": p, "turnId": format!("t-{p}"), "text": text, "prompt": words(&text),
+                   "held": true}),
+        );
+    }
+    hub.restore_queue(&session);
+    let last = session.seq.load(Ordering::SeqCst);
+    let params = restore_params(&session, json!([chunk(last + 1, 1)]));
+    let (h, s, rt) = (hub.clone(), session.clone(), tokio::runtime::Handle::current());
+    super::journal_restore::after_drain_once(
+        &session.id,
+        Box::new(move || {
+            let edit = json!({"sessionId": s.id, "promptId": "p1", "op": "update",
+                              "text": "p1 new words"});
+            let edited = rt.block_on(h.queue_edit(&s, &edit, Control::Local, false, None)).unwrap();
+            assert_eq!(edited["ok"], json!(true), "{edited}");
+            assert!(h.remove_queued(&s, "p2"));
+        }),
+    );
+    hub.journal_restore(&params).await.unwrap();
+    let queue = session.queue.lock().unwrap();
+    queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect()
+}
+
+/// Review of #37284 at 07f76930, F1: an edit and a removal that land after the settle wrote
+/// what parked, and before it rebuilt the queue, stand: each change logs its record under the
+/// queue's lock, and the settle rebuilds again with every change that parked meanwhile. Under
+/// 07f76930's rules the rebuild read the journal without them: the old words came back, and the
+/// removed prompt waited again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queue_change_between_the_drain_and_the_rebuild_stands() {
+    let old = changes_right_after_the_drain(super::journal_restore::AT_07F7).await;
+    assert_ne!(old, vec![("p1".to_owned(), "p1 new words".to_owned())], "07f76930 kept them");
+    let now = changes_right_after_the_drain(0).await;
+    assert_eq!(now, vec![("p1".to_owned(), "p1 new words".to_owned())]);
+}

@@ -940,17 +940,21 @@ impl Hub {
     pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let held: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue
+            let held: Vec<String> = queue
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
                     q.held = true;
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            if !held.is_empty() {
+                let msg = json!({"turnId": turn_id, "held": held});
+                self.append(session, "mux", "queue_paused", msg);
+            }
+            held
         };
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
             self.retry_held_agent_messages(session);
         }
     }
@@ -964,11 +968,11 @@ impl Hub {
         for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
         }
-        drop(queue);
         if resumed {
             session.queue_moved.notify_waiters();
             self.append(session, "mux", "queue_resumed", json!({"queued": session.queued()}));
         }
+        drop(queue);
         resumed
     }
 
@@ -989,7 +993,6 @@ impl Hub {
                 released.push(q.prompt_id.clone());
             }
         }
-        drop(queue);
         let resumed = !released.is_empty();
         if resumed {
             session.queue_moved.notify_waiters();
@@ -1002,6 +1005,7 @@ impl Hub {
                 json!({"queued": session.queued(), "promptIds": released}),
             );
         }
+        drop(queue);
         resumed
     }
 
@@ -1014,7 +1018,7 @@ impl Hub {
         prompt_id: &str,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let order: Vec<String> = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
@@ -1028,11 +1032,11 @@ impl Hub {
             let mut q = queue.remove(from);
             (q.held, q.sent_now) = (false, true);
             queue.insert(0, q);
-            queue.iter().map(|q| q.prompt_id.clone()).collect()
-        };
+            let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+            let msg = json!({"promptId": prompt_id, "order": order, "next": true});
+            self.append(session, "mux", "queue_order", msg);
+        }
         session.queue_moved.notify_waiters();
-        let msg = json!({"promptId": prompt_id, "order": order, "next": true});
-        self.append(session, "mux", "queue_order", msg);
         Ok(true)
     }
 
@@ -1057,15 +1061,16 @@ impl Hub {
                 return Ok(None);
             }
             session.queued.fetch_sub(1, Ordering::SeqCst);
-            queue.remove(i).run
+            let run = queue.remove(i).run;
+            self.append(
+                session,
+                "mux",
+                "dequeued",
+                json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
+            );
+            run
         };
         session.queue_moved.notify_waiters();
-        self.append(
-            session,
-            "mux",
-            "dequeued",
-            json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
-        );
         Ok(Some(run))
     }
 
@@ -1114,24 +1119,26 @@ impl Hub {
         editor: crate::author::Editor<'_>,
         from_agents_only: bool,
     ) -> Result<Withdrawn, RpcError> {
-        let (removed, mut ledger) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return Ok(Withdrawn::NotWaiting);
-            };
-            let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
-            // Who may change it first: a filtered removal tells no one else whose prompt it is.
-            crate::author::may_change(editor, item.sender())?;
-            if from_agents_only && item.run.agent.is_none() {
-                return Ok(Withdrawn::NotFromAgent);
-            }
-            // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
-            let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            (queue.remove(i), ledger)
+        // Taken out and logged under one lock (`QUEUE_KINDS`): a change and its record are one
+        // step, so nothing rebuilt from the log between them loses it (`log_load.rs`).
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+            return Ok(Withdrawn::NotWaiting);
         };
+        let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
+        // Who may change it first: a filtered removal tells no one else whose prompt it is.
+        crate::author::may_change(editor, item.sender())?;
+        if from_agents_only && item.run.agent.is_none() {
+            return Ok(Withdrawn::NotFromAgent);
+        }
+        // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        session.queued.fetch_sub(1, Ordering::SeqCst);
+        let removed = queue.remove(i);
         let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
         self.settle_removed(session, removed, &mut ledger, why);
+        drop(ledger);
+        drop(queue);
         Ok(Withdrawn::Removed)
     }
 

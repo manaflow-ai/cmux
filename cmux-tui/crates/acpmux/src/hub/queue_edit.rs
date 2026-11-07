@@ -415,7 +415,7 @@ impl Hub {
         index: usize,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let order: Vec<String> = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
@@ -428,10 +428,12 @@ impl Hub {
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
-            queue.iter().map(|q| q.prompt_id.clone()).collect()
-        };
+            let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+            // Logged under the lock that moved it, as `update_queued` logs an edit.
+            let msg = json!({"promptId": prompt_id, "order": order});
+            self.append(session, "mux", "queue_order", msg);
+        }
         session.queue_moved.notify_waiters();
-        self.append(session, "mux", "queue_order", json!({"promptId": prompt_id, "order": order}));
         Ok(true)
     }
 

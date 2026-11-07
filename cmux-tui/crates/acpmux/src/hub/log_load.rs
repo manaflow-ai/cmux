@@ -246,6 +246,8 @@ impl Hub {
         if let Some(from_copy) = from_copy {
             self.replace_queue(session, Vec::new(), from_copy);
         }
+        // A change of the queue made meanwhile is rebuilt in (`settle_queue_changes`).
+        self.settle_queue_changes(session, from_copy.unwrap_or(&Default::default()));
         // A copy's first start runs none of what waited (`clone_boot.rs`).
         self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
@@ -299,14 +301,8 @@ impl Hub {
         let _marked = super::restore_writer::Recovering::start();
         let continued = self.mark_unknown_outcome(session);
         self.settle_subagent_retries(session);
-        let before: Vec<super::queue::QueuedPrompt> = {
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-            let before = std::mem::take(&mut *queue);
-            session.queued.fetch_sub(before.len() as u64, Ordering::SeqCst);
-            before
-        };
-        self.restore_queue(session);
-        self.replace_queue(session, before, from_copy);
+        self.rebuild_queue(session, from_copy);
+        self.settle_queue_changes(session, from_copy);
         self.drop_unsent_subagent_retries(session);
         super::message_events::recover_message_events(self, session);
         if let Some(prompt_id) = continued {
@@ -315,6 +311,36 @@ impl Hub {
         if self.queues_resumed.load(Ordering::SeqCst) {
             self.resume_restored(std::slice::from_ref(session));
             self.resume_agent_pair_drains();
+        }
+    }
+
+    /// `session`'s queue rebuilt whole from its log ([`Self::replace_queue`]).
+    fn rebuild_queue(&self, session: &Arc<Session>, from_copy: &std::collections::HashSet<String>) {
+        let before: Vec<super::queue::QueuedPrompt> = {
+            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            let before = std::mem::take(&mut *queue);
+            session.queued.fetch_sub(before.len() as u64, Ordering::SeqCst);
+            before
+        };
+        self.restore_queue(session);
+        self.replace_queue(session, before, from_copy);
+    }
+
+    /// While a restore owns `session`: each change of its queue made since the queue was last
+    /// rebuilt from the journal (an edit, a removal, a move, a hold: its record parked) goes in,
+    /// and the queue is rebuilt again with it, until none came meanwhile (review of #37284 at
+    /// 07f76930, F1). Each change logs its record under the queue's lock, so the rebuilt queue
+    /// holds every change made before the last check, and one made after it is made on the
+    /// rebuilt queue, its record kept until the restore ends. Each round needs a new change.
+    fn settle_queue_changes(
+        &self,
+        session: &Arc<Session>,
+        from_copy: &std::collections::HashSet<String>,
+    ) {
+        while self.queue_changed_meanwhile(session) {
+            tracing::info!(session = %session.id, "the queue changed while it was rebuilt; rebuilt again with the change");
+            self.write_parked(session);
+            self.rebuild_queue(session, from_copy);
         }
     }
 

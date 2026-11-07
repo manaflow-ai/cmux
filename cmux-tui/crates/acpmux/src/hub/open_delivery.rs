@@ -25,7 +25,9 @@
 //!   another history where its records were (a machine that wrote others there before its
 //!   restore), another generation of the session (stale), or open past
 //!   `outbox::OPEN_ON_PEER_FOR_MS` (lapsed). Never a quiet drop.
-//! - Not proven yet: delivered again on every link of the peer while open, under its own prompt
+//! - Not proven yet, or proven only by records no machine could run it again from (a
+//!   `user_message` with an attachment's hidden context and no `queued` or `turn_started`:
+//!   [`rerunnable`]): delivered again on every link of the peer while open, under its own prompt
 //!   id and pinned generation (`server/outbox.rs` `redeliver_open`): a machine that has it
 //!   answers with its first outcome and nothing runs twice; a stale or refused one fails it.
 //!
@@ -171,6 +173,36 @@ pub(crate) fn restarts(records: &[Value]) -> bool {
     !ended && (left || has(&["queued"]))
 }
 
+/// Whether a machine that holds `records` of a prompt's life, and nothing else of it, runs it
+/// again or knows how it ended: it ended; its `queued` record holds its blocks (`restore_queue`
+/// puts it back); its turn started (a cut turn is continued); or its `user_message` alone
+/// rebuilds what the agent got (`unstarted_prompt.rs` puts it back). A `user_message` with a
+/// hidden context (an attachment's), an inbox digest's, or with an image or another part the
+/// machine kept apart from its journal does not: a machine on another disk could not run it, and
+/// its prompt would be lost if the delivery closed (review of #37284 at 07f76930, F2). Only a
+/// delivery again (`resend`), which carries the whole prompt, runs that one.
+pub(crate) fn rerunnable(records: &[Value]) -> bool {
+    let has = |kinds: &[&str]| records.iter().any(|r| kinds.contains(&kind(r)));
+    if has(&["turn_result", "queue_removed", "queue_declined", "prompt_retracted"])
+        || has(&["queued", "turn_started"])
+    {
+        return true;
+    }
+    records.iter().filter(|r| kind(r) == "user_message").any(|r| {
+        let Some(msg) = r.get("msg") else { return false };
+        let provenance = msg.pointer("/_meta/provenance/kind").and_then(Value::as_str);
+        let images = msg.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty());
+        let apart = msg
+            .get("inlineParts")
+            .and_then(Value::as_array)
+            .is_some_and(|parts| parts.iter().any(|p| p.get("text").is_none()));
+        msg.get("hiddenContext").is_none()
+            && provenance != Some(crate::hub::digest::DIGEST_KIND)
+            && !images
+            && !apart
+    })
+}
+
 /// The seq from which the owner's copy of each session saw every record, with its generation
 /// (`peer_snapshot/restore.rs`).
 pub(crate) type Since = HashMap<String, (u64, u64)>;
@@ -292,6 +324,11 @@ pub(crate) fn step(
         return Step::Lapse;
     }
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return Step::Again };
+    // A proof that holds nothing a machine runs again from proves nothing yet (review of
+    // #37284 at 07f76930, F2): delivered again, as one not proven is.
+    if !rerunnable(&proof.records) && !crate::hub::journal_restore::rules_of_07f7() {
+        return Step::Again;
+    }
     let through = proof.records.iter().filter_map(seq).max();
     // A link of this start after the proof's, or any link of a later start (F6).
     let later = link > proof.link

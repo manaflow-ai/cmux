@@ -58,18 +58,21 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. ff3da306's: the twelfth review's F1 and F2.
-pub(crate) const AT_FF3D: u8 = 1;
+/// head's fixes are missing from an earlier one too. 07f76930's: the fourteenth review's F1 and
+/// F2.
+pub(crate) const AT_07F7: u8 = 1;
+/// ff3da306's (the twelfth review's F1 and F2 are missing too).
+pub(crate) const AT_FF3D: u8 = 2;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 2;
+pub(crate) const AT_C4A6: u8 = 3;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 3;
+pub(crate) const AT_4DCB: u8 = 4;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 4;
+pub(crate) const AT_91B: u8 = 5;
 
 #[cfg(test)]
 thread_local! {
-    /// Tests only: the rules this thread replays ([`AT_FF3D`] and earlier; 0: now).
+    /// Tests only: the rules this thread replays ([`AT_07F7`] and earlier; 0: now).
     pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
@@ -100,6 +103,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of 07f76930 (tests only; never in a build).
+    pub(crate) fn at_07f7(&self) -> bool {
+        self.old_rules() >= AT_07F7
     }
 
     /// Whether this hub replays the rules of ff3da306 (tests only; never in a build).
@@ -134,6 +142,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of 07f76930 (tests only; never in a build).
+pub(crate) fn rules_of_07f7() -> bool {
+    thread_rules() >= AT_07F7
 }
 
 /// Whether this thread replays the rules of 4dcbe192 (tests only; never in a build).
@@ -774,6 +787,37 @@ fn test_fails_here(id: &str, past_first: bool) -> bool {
 #[cfg(not(debug_assertions))]
 fn test_fails_here(_: &str, _: bool) -> bool {
     false
+}
+
+/// Tests only: what runs on another thread once the settle of a restore of chat `id` wrote
+/// what parked, before it rebuilds the queue (`log_load.rs`): a queue change in that gap.
+#[cfg(test)]
+type Gap = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static AFTER_DRAIN: std::sync::Mutex<Option<(String, Gap)>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn after_drain_once(id: &str, change: Gap) {
+    *AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), change));
+}
+
+/// Runs [`after_drain_once`]'s change of chat `id` on its own thread, and waits for it.
+#[cfg(test)]
+pub(super) fn test_after_drain(id: &str) {
+    let change = {
+        let mut armed = AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner());
+        match armed.take() {
+            Some((at, change)) if at == id => Some(change),
+            other => {
+                *armed = other;
+                None
+            }
+        }
+    };
+    if let Some(change) = change {
+        std::thread::spawn(change).join().unwrap();
+    }
 }
 
 /// Debug builds only: the restore of chat `id` waits `ms` once it holds the chat, so a test can

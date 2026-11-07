@@ -1409,6 +1409,63 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     assert_eq!(od::step(&outbox.get("d2").unwrap(), now, (1, 2), &ends(7, 9)), od::Step::Again);
 }
 
+/// The step a later link takes for a delivery of an attachment prompt whose proof holds only
+/// its `user_message` (its hidden context, no turn started yet), under `rules`; then once its
+/// turn started.
+fn steps_of_an_accepted_attachment_prompt(
+    rules: u8,
+) -> (crate::hub::open_delivery::Step, crate::hub::open_delivery::Step) {
+    use crate::hub::open_delivery as od;
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    let mut accepted = life("m1", 4, "user_message", "p1");
+    accepted["msg"]["text"] = json!("see the notes");
+    accepted["msg"]["hiddenContext"] = json!("the notes' text, read from the attachment");
+    od::take_written(&outbox, (PEER, "m1", 7), &[accepted], (1, 1));
+    let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
+    let accepted_only = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
+    od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 5, "turn_started", "p1")], (1, 1));
+    let started = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+    (accepted_only, started)
+}
+
+/// Review of #37284 at 07f76930, F2: a machine that holds only an attachment prompt's
+/// `user_message` (its hidden context is never logged, so it cannot rebuild it) and died before
+/// its turn started does not prove the prompt: the delivery is sent again (a resend runs an
+/// unstarted prompt) and keeps its attachments, until a proof a machine runs it again from (its
+/// turn started, its `queued` record, its end). Under 07f76930's rules a later link checked it,
+/// and its release dropped the prompt and its files.
+#[test]
+fn an_accepted_attachment_prompt_whose_turn_never_started_is_delivered_again() {
+    use crate::hub::open_delivery as od;
+    let old = steps_of_an_accepted_attachment_prompt(crate::hub::journal_restore::AT_07F7);
+    assert_eq!(old.0, od::Step::Check, "07f76930 went on to release it");
+    let now = steps_of_an_accepted_attachment_prompt(0);
+    assert_eq!(now, (od::Step::Again, od::Step::Check));
+    // A text prompt's `user_message` rebuilds it; an image's, a digest's or an attachment's not.
+    let text = json!([{"kind": "user_message", "msg": {"promptId": "p", "text": "hi"}}]);
+    assert!(od::rerunnable(text.as_array().unwrap()));
+    for msg in [
+        json!({"promptId": "p", "text": "hi", "hiddenContext": "x"}),
+        json!({"promptId": "p", "text": "hi", "images": [{"id": "i1"}]}),
+        json!({"promptId": "p", "inlineParts": [{"kind": "image", "id": "i1"}]}),
+        json!({"promptId": "p", "text": "hi", "_meta": {"provenance": {"kind": "agent_digest"}}}),
+    ] {
+        let records = [json!({"kind": "user_message", "msg": msg})];
+        assert!(!od::rerunnable(&records), "{msg}");
+    }
+}
+
 /// What goes back to a machine on a disk that ends at 3 from a proof of p1's `queued` (seq 4),
 /// once its removal (seq 5) came and the copy's bound cut it before a write reported it; under
 /// the rules of 91b1343d when `rules_of_91b`.

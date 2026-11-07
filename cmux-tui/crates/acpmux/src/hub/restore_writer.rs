@@ -171,6 +171,12 @@ impl Hub {
         if self.at_ff3d() || !holds_token(session) {
             return;
         }
+        self.write_parked_now(session);
+        #[cfg(test)]
+        super::journal_restore::test_after_drain(&session.id);
+    }
+
+    fn write_parked_now(&self, session: &Session) {
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let parked = {
             let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
@@ -183,6 +189,23 @@ impl Hub {
         self.catch_up_locked(session);
         session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
         self.store_unparked(session);
+    }
+
+    /// Whether a change of `session`'s queue parked since the last [`Self::write_parked`]: its
+    /// change is in memory, and a queue rebuilt from the journal since lacks it (review of #37284
+    /// at 07f76930, F1: an edit or a removal between the drain and the rebuild was lost). Read
+    /// under the queue's lock: every change of the queue logs its record under that lock, so
+    /// none is half made here, and one made after this is made on the rebuilt queue. Only the
+    /// thread that holds the restore's token asks.
+    pub(super) fn queue_changed_meanwhile(&self, session: &Session) -> bool {
+        if self.at_07f7() || !holds_token(session) {
+            return false;
+        }
+        let _queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+        parked
+            .as_ref()
+            .is_some_and(|p| p.iter().any(|r| Self::QUEUE_KINDS.contains(&r.kind.as_str())))
     }
 
     /// Stores the records kept for `session` ([`Session::unparked`]), in order, each counted
