@@ -123,7 +123,9 @@ jobs:
     needs: e2e
     if: always() && github.ref == 'refs/heads/feat-cmux-next'
     environment: cmux-next-vm-image-dev
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
+    # The light class cmux-ci uses (as cmux-tui-nightly.yml's macOS legs); CI_GATEWAY_E2E_RUNNER may name another
+    # owned pool on the tailnet.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_GATEWAY_E2E_RUNNER || 'glaeda-side-light-xcode-26.6' }}
     timeout-minutes: 45
     steps:
       - name: Refuse any ref but feat-cmux-next
