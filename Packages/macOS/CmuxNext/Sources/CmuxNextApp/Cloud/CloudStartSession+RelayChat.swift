@@ -89,9 +89,9 @@ extension CloudStartSession {
                 do { decided = try await Self.first(within: steps.loginWithin, login); try Self.checked(account, now: now(), asked) } catch let failure as ActionFailure { return refused("cloud.relay.login_account_changed", failure.message) }
                 guard let refusal = decided else { return refused("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(asked)) }
                 if let refusal { let reason = machine.harnessLogin?.reason; return refused(refusal.code, refusal.message).merging(["command": .string(asked.command + ([.needsLoginChoice, .machineLoginMissing].contains(reason) ? " --login none" : ""))].merging(reason.map { ["login_reason": .string($0.rawValue)] } ?? [:]) { $1 }) { $1 } }
-                let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
-                                                    promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
-                return relayFields(answer, machineID: machineID)
+                let linked = clock.now - begun, answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
+                                                                                 promptID: promptID, within: CloudHandlers.answerWithin - linked)
+                return relayFields(answer, machineID: machineID, linkLogin: linked)
             }
         }
     }
@@ -143,15 +143,15 @@ extension CloudStartSession {
         ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)]
     }
 
-    /// The answer's fields: what the CLI prints with `--json`.
-    static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
+    /// The answer's fields: what the CLI prints with `--json`. `linkLogin`: the link and login before the relay's request (cmuxterm-hq#7415's stage trace).
+    static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String, linkLogin: Duration? = nil) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply), "queued": .bool(answer.queued),
                                                    "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
-        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason]
-            .merging(answer.errorTexts) { $1 } // error_code, error_message and the machine's typed error
+        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason].merging(answer.errorTexts) { $1 } // and error_code, error_message, the machine's typed error
         for case let (key, text?) in texts { fields[key] = .string(text) }
         if let retryable = answer.errorRetryable { fields["error_retryable"] = .bool(retryable) }
-        for case let (key, time?) in ["first_text_ms": answer.firstText, "total_ms": answer.total] { fields[key] = .int(Int(time / .milliseconds(1))) }
+        for case let (key, time?) in answer.stageTimes.merging(["link_login_ms": linkLogin]) { $1 } { fields[key] = .int(Int(time / .milliseconds(1))) }
+        if let stages = answer.platformStages { fields["platform_stages_ms"] = .object(stages.mapValues { .int($0) }) }
         return fields
     }
 }

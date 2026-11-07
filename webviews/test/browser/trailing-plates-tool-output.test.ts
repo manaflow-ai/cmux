@@ -38,7 +38,7 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode, reducedMotion: 1 })}`,
       );
       await page.locator(".cv-tool.is-toggle").first().click();
-      await page.locator(".cv-tool.is-toggle").filter({ hasText: "Read coordination.md" }).click();
+      await page.locator(".cv-tool.is-toggle").filter({ hasText: "Summarize the coordination note" }).click();
       const output = page.locator(".cv-tool-output__box").first();
       await output.waitFor();
       const actions = output.locator(".cv-tool-output__actions");

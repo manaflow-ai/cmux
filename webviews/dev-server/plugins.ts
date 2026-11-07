@@ -77,6 +77,7 @@ import {
   splitStyles,
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
+import { perfLintOnSave } from "./perfLint";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -90,6 +91,7 @@ export function cmuxDevServer(): Plugin[] {
     devServerToken(),
     appHostServer(),
     devServerShell(),
+    perfBudgetsDevEntry(),
     agentPaneHost(),
     pagesHost(),
     viewerEmptyHost(),
@@ -99,7 +101,32 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    perfLintOnSave(),
   ];
+}
+
+/// The runtime perf budgets (src/devkit/perfBudgets.ts) as the first script of every HTML page this
+/// server serves: warnings in the console while you edit under `cmux live`. Serve only, so no built
+/// bundle carries them; `CMUX_PERF_BUDGETS=off` leaves them out (a page can also turn them off, see
+/// perfBudgets.dev.ts).
+export function perfBudgetsDevEntry(): Plugin {
+  const entry = path.join(webviewsRoot, "src/devkit/perfBudgets.dev.ts");
+  let src = "/src/devkit/perfBudgets.dev.ts";
+  return {
+    name: "cmux-dev-perf-budgets",
+    apply: "serve",
+    configResolved(config) {
+      const relative = path.relative(config.root, entry);
+      src =
+        relative.startsWith("..") || path.isAbsolute(relative)
+          ? `/@fs${entry}`
+          : `/${relative.split(path.sep).join("/")}`;
+    },
+    transformIndexHtml() {
+      if (process.env.CMUX_PERF_BUDGETS === "off") return [];
+      return [{ tag: "script", attrs: { type: "module", src }, injectTo: "head-prepend" }];
+    },
+  };
 }
 
 /// How this server proves to a cmux app that it is the user's (PageDevServer.token in CmuxNextPages):
