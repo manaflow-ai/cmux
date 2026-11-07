@@ -88,9 +88,13 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
   if (permission.question) return questionHeight(permission.question, width / scale) * scale;
   const room = Math.max(1, width / scale - 2 * padding);
+  const external = permission.externalAccess;
+  const plan = permission.plan;
   let height = 2 * padding + Math.max(16, body.size * 1.35);
-  const description = permissionDetail(permission);
+  const description = external ? translate("permission.external.detail") : permissionDetail(permission);
   if (description) height += 8 + textHeight(description, room, detail.size, detail.size * 1.4);
+  // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
+  if (plan) height += 8 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
   const command = permissionCommand(permission);
   if (command) {
     const preview = commandPreview(command);
@@ -101,7 +105,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   }
   const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
   const labels = [
-    ...(allowOnce ? [translate("permission.allowOnce")] : []),
+    ...(allowOnce ? [translate(plan ? "permission.plan.approve" : "permission.allowOnce")] : []),
     ...(allowAlways
       ? [
           translate(
@@ -109,7 +113,10 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
           ),
         ]
       : []),
-    ...(deny ? [translate("permission.deny")] : []),
+    ...(deny
+      ? [translate(plan ? "permission.plan.keepPlanning" : external ? "permission.external.skip" : "permission.deny")]
+      : []),
+    ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
   const widths = labels.map(
@@ -123,7 +130,8 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   }
   const rows = wrappedRows(widths, room, 8);
   height += padding + rows * Math.max(24, body.size * 1.25 + 8) + Math.max(0, rows - 1) * 8;
-  if (permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways))) height += 8 + caption.size * 1.3;
+  if (!external && (permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways))))
+    height += 8 + caption.size * 1.3;
   return height * scale;
 }
 

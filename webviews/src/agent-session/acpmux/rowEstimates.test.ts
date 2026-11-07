@@ -643,3 +643,25 @@ test("narrow permission action rows and two-line commands reserve their extra he
   });
   expect(layoutConversation([row], 180).heights[0]!).toBeGreaterThan(layoutConversation([row], 720).heights[0]!);
 });
+
+test("plan and blocked-read asks reserve the parts their cards draw", () => {
+  const plain = heightsOf([permissionAsk()])[0]!;
+  const plan = heightsOf([permissionAsk({ plan: "## Plan\n\n" + "1. Step through the change.\n".repeat(4) })])[0]!;
+  expect(plan).toBeGreaterThan(plain + 8 + 16);
+  const long = heightsOf([permissionAsk({ plan: "1. Step.\n".repeat(200) })])[0]!;
+  // The plan scrolls inside the card past 320px.
+  expect(long - plain).toBeLessThanOrEqual(8 + 320);
+  const external = heightsOf([
+    permissionAsk({
+      scope: { kind: "directory", value: "/Users/you/Documents" },
+      externalAccess: {
+        kind: "files_and_folders",
+        target: "/Users/you/Documents/report.txt",
+        operation: "read_text_file",
+        platform: "macos",
+      },
+    }),
+  ])[0]!;
+  // Its macOS detail line shows, and no scope line under the buttons.
+  expect(external).toBeGreaterThan(plain + 8);
+});
