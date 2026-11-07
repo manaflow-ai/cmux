@@ -7,7 +7,7 @@ import Observation
 
 extension NewChatPlacement {
     /// Where a new chat from `controller`'s pane opens (cmux-window-rules `chat::new_chat_placement`);
-    /// `.here` on a daemon without dock roles or with no answer.
+    /// `.here` on a daemon without dock roles (never asked: the rule reads topology only) or with no answer.
     @MainActor static func resolve(from controller: PaneController) -> NewChatPlacement {
         guard controller.workspace?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) == true,
               let read = ChatColumnPlacement.read(controller, services: controller.services) else { return .here }

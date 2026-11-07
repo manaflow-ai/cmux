@@ -35,7 +35,8 @@ extension ChatColumnPlacement {
         return isChat(tabs[0], services: services)
     }
 
-    /// What a person's new tab from `controller`'s pane becomes; `.here` on a daemon without dock roles.
+    /// What a person's new tab from `controller`'s pane becomes; `.here` on a daemon without dock roles
+    /// (`dock-column-role-v1`), which never asks the rule: it reads topology only.
     @MainActor static func resolve(from controller: PaneController, services: AppServices, ignoringPages: Bool = false) -> ChatColumnPlacement {
         guard controller.workspace?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) == true,
               let read = read(controller, services: services, ignoringPages: ignoringPages) else { return .here }

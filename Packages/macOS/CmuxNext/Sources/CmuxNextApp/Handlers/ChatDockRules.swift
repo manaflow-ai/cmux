@@ -22,9 +22,10 @@ enum ChatDockRules {
     }
 
     /// Whether Split Down of `pane` grows its chat dock (`chat::Dock::splits_down`, #29848) on a daemon that takes it.
+    /// The rule reads topology only; a daemon without `dock-column-split-down-v1` never asks it.
     @MainActor static func splitsDownInDock(_ pane: PaneModel, services: AppServices) -> Bool {
-        guard read(pane, services: services)?.splitsDown == true else { return false }
-        return services.daemon(for: pane).supports(DaemonCapability.dockColumnSplitDown.rawValue)
+        guard services.daemon(for: pane).supports(DaemonCapability.dockColumnSplitDown.rawValue) else { return false }
+        return read(pane, services: services)?.splitsDown == true
     }
 
     /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A

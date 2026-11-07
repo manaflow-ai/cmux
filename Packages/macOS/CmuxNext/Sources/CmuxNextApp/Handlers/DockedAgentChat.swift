@@ -22,10 +22,13 @@ enum DockedAgentChat {
     /// The decision is Rust's (cmux-window-rules `chat::docked_open`); with no answer the caller opens the tab.
     static func open(from pane: PaneController, invocation: ActionInvocation, services: AppServices) -> Bool {
         let content = pane.workspace
+        // The chat rules read topology only: a daemon without dock roles is never asked for a dock read.
+        let dockRoles = content?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) ?? false
         let facts = WindowRules.DockedOpen(
             user: invocation.origin == .user, targeted: invocation.target != nil, hasArguments: !invocation.arguments.isEmpty,
-            canHost: services.agentTabs.canHost(on: pane.daemon), dockRoles: content?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) ?? false,
-            pane: pane.layoutPaneID.rawValue, read: ChatColumnPlacement.read(pane, services: services), pendingDock: !pane.pendingDock.isEmpty)
+            canHost: services.agentTabs.canHost(on: pane.daemon), dockRoles: dockRoles,
+            pane: pane.layoutPaneID.rawValue, read: dockRoles ? ChatColumnPlacement.read(pane, services: services) : nil,
+            pendingDock: !pane.pendingDock.isEmpty)
         switch WindowRules().dockedOpen(facts) {
         case .notHandled?, nil:
             return false
