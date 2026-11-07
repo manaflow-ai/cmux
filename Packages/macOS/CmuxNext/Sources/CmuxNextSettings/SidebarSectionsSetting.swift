@@ -146,7 +146,7 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(groupPalettePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
                           help: SettingsText.keyed("settings.sidebar.groupPalette.help",
-                                                   "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."),
+                                                   "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
                           kind: .choice(GroupPalette.allCases.map { palette in
                               switch palette {
                               case .glass: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass"))
@@ -155,10 +155,11 @@ public nonisolated enum SidebarSectionsSetting {
                               case .grayscale: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale"))
                               case .vibrant: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant"))
                               case .gradient: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient"))
+                              case .pictorial: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial"))
                               }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.groupPalette.rawValue),
-                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient"])
+                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"])
     }
 
     /// Leo, 2026-11-07: "you could have, like, a gradients option". The gradient the gradient palette steps through.
