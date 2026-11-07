@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42367783248",
+  "recorded_at": "2026-11-07T11:27:41Z",
+  "reason": "image inputs changed in 70b1a514b797b220e64e5432cb0ba041d97ff7ad..1173f0b50dfa2fe7fb63000bf36fb3237c7fd0d9",
+  "dry_run": false,
+  "cmux_tui": "e76cd52be2c84cd2ea1849e3e348afe91c039bb7",
+  "fixes": [
+    {
+      "sha": "1173f0b50dfa2fe7fb63000bf36fb3237c7fd0d9",
+      "mergedAt": "2026-11-07T03:20:35-08:00",
+      "subject": "image roll: refuse a VM_BOOT_IMAGES list over Cloudflare's 5,120-byte limit, and trim staging under it (#37737)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T11:27:41Z",
+    "snapshot_id": "sh-0d0952c777fc415381a68ca1dc775b29",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42367783248): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c5221fd3b5ca82dc38cee76e18ef9f4a0929b0ac",
+    "image": "cloud-native-auto-e76cd52b-42367783248-1",
+    "revision": "ci-42367783248-1",
+    "at": "2026-11-07T11:27:41Z"
+  },
+  "rolled_back": false
+}
