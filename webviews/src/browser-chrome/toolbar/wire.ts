@@ -86,7 +86,13 @@ export type ToolbarMetrics = {
 export type OmnibarLookWire = {
   /** `transparent`: no fill at rest; anything else: the flat theme fill. */
   material: "transparent" | "off" | "regular" | "clear";
+  /** `browser.omnibar.backgroundOpacity`: how much the bar covers a see-through window, 0 to 1. */
   backgroundOpacity: number;
+  /**
+   * `backgroundOpacity` raised to the text's legibility floor in this window
+   * (`AddressBarSurface.resolvedCoverage`); absent: `backgroundOpacity` as it is.
+   */
+  coverage?: number;
 };
 
 export type ToolbarBadges = {
