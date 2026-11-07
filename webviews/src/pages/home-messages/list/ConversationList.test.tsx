@@ -146,6 +146,7 @@ test("a row's drag start moves no row; the grid opens as the pointer goes up int
   expect(tiles()).toBe(pinned);
   expect(rowIds()).toEqual(rows);
   await pointer("pointermove", 10, dom!.window);
-  expect(tiles()).toBe(pinned + 1);
+  // In the grid the row is a tile at its target: it leaves the rows.
+  expect(rowIds()).toEqual(rows.filter((id) => id !== row.getAttribute("data-list-row")));
   await pointer("pointerup", 10, dom!.window);
 });
