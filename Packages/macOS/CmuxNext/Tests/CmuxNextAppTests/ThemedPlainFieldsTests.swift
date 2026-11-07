@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
-@testable import CmuxNextTasks
 import CmuxNextTestSupport
 import Foundation
 import SwiftUI
@@ -9,8 +8,8 @@ import Testing
 
 /// Theme sweep 3, batch G: the SwiftUI `.plain` text fields that sit in their own chrome (a row, a
 /// capsule search, a filled reply box) were SwiftUI's stock fields, so their placeholder drew
-/// macOS's gray, and their text and caret the appearance's, whatever the room's theme: the new-task
-/// field, the app store search and an app scene's text field. Hosted in a purple room, each draws the scope's text and hint inks.
+/// macOS's gray, and their text and caret the appearance's, whatever the room's theme: the app
+/// store search and an app scene's text field. Hosted in a purple room, each draws the scope's text and hint inks.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ThemedPlainFieldsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 320)) -> (NSWindow, NSView) {
@@ -40,26 +39,6 @@ import Testing
                 "\(name): placeholder in the theme hint ink, not \(String(describing: color))")
     }
 
-    /// Runs the main run loop until `condition` holds (SwiftUI applies state changes on its next pass).
-    private static func settle(_ root: NSView, until condition: () -> Bool) {
-        let deadline = Date().addingTimeInterval(2)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-            root.layoutSubtreeIfNeeded()
-        }
-    }
-
-    private static func isEditing(_ field: NSTextField, in window: NSWindow) -> Bool {
-        window.firstResponder === field || (window.firstResponder as? NSTextView)?.delegate === field
-    }
-
-    @Test func theNewTaskFieldDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = Self.host(NewTaskField(model: TasksModel(source: MockTasksSource())), scope)
-        defer { window.contentView = nil; window.close() }
-        try Self.expectThemedField(in: root, scope, placeholder: TasksStrings.newTaskPlaceholder, "new task")
-    }
-
     @Test func anAppSceneTextFieldDrawsTheTheme() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let model = AppSceneModel()
@@ -67,24 +46,5 @@ import Testing
         let (window, root) = Self.host(AppSceneNodeView(model: model, id: "name"), scope, size: NSSize(width: 240, height: 60))
         defer { window.contentView = nil; window.close() }
         try Self.expectThemedField(in: root, scope, placeholder: "Name", "app scene field")
-    }
-
-    /// New Task still puts the keyboard in the field, and Escape still clears it and lets go.
-    @Test func newTaskFocusesTheFieldAndEscapeClearsIt() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = TasksModel(source: MockTasksSource())
-        model.focusNewTask()
-        let (window, root) = Self.host(NewTaskField(model: model), scope)
-        defer { window.contentView = nil; window.close() }
-        let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
-        Self.settle(root) { Self.isEditing(field, in: window) }
-        #expect(Self.isEditing(field, in: window), "New Task gives the field the keyboard")
-
-        let editor = try #require(field.currentEditor() as? NSTextView)
-        editor.insertText("Buy milk", replacementRange: NSRange(location: 0, length: 0))
-        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
-        Self.settle(root) { field.stringValue.isEmpty && !Self.isEditing(field, in: window) }
-        #expect(field.stringValue.isEmpty, "Escape clears the title: \(field.stringValue)")
-        #expect(!Self.isEditing(field, in: window), "and lets go of the keyboard")
     }
 }

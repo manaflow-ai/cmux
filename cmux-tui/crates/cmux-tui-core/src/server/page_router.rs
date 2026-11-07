@@ -201,6 +201,7 @@ fn run(
         super::bookmarks_routed::OWNER => {
             Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
         }
+        "tasks.local" => crate::tasks_link::call(mux, operation, params),
         #[cfg(unix)]
         "agent_session.trust" => Ok(Answer::Now(super::agent_session_attach::routed_trust(
             mux, client, operation, params,

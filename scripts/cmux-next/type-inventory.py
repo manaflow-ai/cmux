@@ -41,7 +41,6 @@ NATIVE_SURFACES = [
     ("CmuxNextBrowser", "Browser chrome"),
     ("CmuxNextDesign", "Design (shared controls)"),
     ("CmuxNextServer", "Server pages"),
-    ("CmuxNextTasks", "Tasks"),
     ("CmuxNextHome", "Home (native transcript)"),
     ("CmuxNextOnboarding", "Onboarding"),
     ("CmuxNextTerminal", "Terminal overlays"),
