@@ -8,12 +8,20 @@ use super::{
     SYSTEMD_UNIT,
 };
 
-/// Shell defining `acpmux_unit_lines FILE`: FILE and its drop-ins
-/// (`FILE.d/*.conf`, in systemd's order) with each `Key = value` read as
-/// `Key=value`. systemd ignores blanks before a key and around its `=`, so an
-/// indented ` Environment=ACPMUX_HOME=...` names a home like any other line;
-/// a reader that missed it would move another home's unit.
-pub(super) const UNIT_LINES: &str = r#"acpmux_unit_lines() { cat "$1" "$1.d/"*.conf 2>/dev/null | sed 's/^[[:space:]]*\([A-Za-z]*\)[[:space:]]*=[[:space:]]*/\1=/'; }
+/// Shell asking systemd for a unit's effective settings, never its files:
+/// `acpmux_show UNIT PROP` (`systemctl --user show -p PROP --value`), and
+/// `acpmux_runs_daemon UNIT`, true when its effective command is an acpmux
+/// binary running `daemon run` (its `argv[]`, in `$acpmux_a`). systemd has
+/// already joined every drop-in (the unit's, a name prefix's such as
+/// `acpmux-agent-.service.d`, `service.d`), whitespace, continued lines and
+/// specifiers, so what this reads is what would run. A command behind a
+/// wrapper (`/usr/bin/env ACPMUX_HOME=... acpmux daemon run`) is not the
+/// daemon's: its home is in its arguments, where no check here looks.
+pub(super) const UNIT_SHOW: &str = r#"acpmux_show() { systemctl --user show "$1" -p "$2" --value 2>/dev/null; }
+acpmux_runs_daemon() { acpmux_a=$(acpmux_show "$1" ExecStart | sed -n 's/^.*argv\[\]=\(.*\) ; ignore_errors=.*$/\1/p' | tail -1)
+  case "${acpmux_a%% *}" in *=*) return 1;; esac
+  case "${acpmux_a%% *}" in */acpmux|*/acpmux[-._]*) ;; *) return 1;; esac
+  case "${acpmux_a#* }" in "daemon run"|"daemon run "*) ;; *) return 1;; esac; }
 "#;
 
 /// What a script prints before it refuses (exit 3) to move a hand-written
@@ -42,11 +50,13 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
 /// refused. A unit whose daemon is not running (`$p` empty, a stopped or
-/// disabled unit) is read from its file and drop-ins instead: the last
-/// `ExecStart=` and every `Environment=` assignment, `%h` as the home. One
-/// that quotes or escapes a value, continues a line with `\`, or reads an
-/// `EnvironmentFile=`, is refused:
-/// a value read wrong would move the daemon to another home.
+/// disabled unit) is read from systemd's effective settings instead
+/// ([`UNIT_SHOW`]): its command and its `Environment=` assignments. One that
+/// quotes or escapes a value, reads an `EnvironmentFile=`, or takes a drop-in
+/// from anywhere but its own `.d` folder or the `service.d` every service
+/// shares (a name prefix's, `/etc`'s) is refused: a value read wrong would
+/// move the daemon to another home, and a setting left behind would change
+/// how it runs.
 const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
 refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
 fail() { [ -z "$t" ] || rm -rf "$t"; exit 1; }
@@ -55,9 +65,13 @@ unwritten() { refuse writeFailed "the files for moving the daemon from $u to acp
 t=$(mktemp -d) && mkdir "$t/d" || unwritten
 pe=/proc/$p/environ; pa=/proc/$p/cmdline
 if [ -z "$p" ]; then pe=$t/environ; pa=$t/cmdline
-! acpmux_unit_lines "$d/$u" | grep -q '^EnvironmentFile=\|^Environment=.*["'\''\\]\|\\$' || refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand"
-acpmux_unit_lines "$d/$u" | sed -n 's/^Environment=//p' | tr ' ' '\n' | sed "s|%h|$HOME|g" | tr '\n' '\000' > "$pe" || unwritten
-acpmux_unit_lines "$d/$u" | sed -n 's/^ExecStart=[-@:+!]*//p' | tail -1 | sed "s|%h|$HOME|g" | tr ' ' '\000' > "$pa" || unwritten
+acpmux_e=$(acpmux_show "$u" Environment)
+case "$acpmux_e" in *[\"\'\\]*) refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand";; esac
+[ -z "$(acpmux_show "$u" EnvironmentFiles)" ] || refuse unitSettings "$u reads an EnvironmentFile=, which acpmux does not copy into a unit: move it to acpmux.service by hand"
+for acpmux_x in $(acpmux_show "$u" DropInPaths); do case "${acpmux_x%/*}" in "$d/$u.d"|*/service.d) ;; *) refuse unitSettings "$u takes settings from $acpmux_x, which acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; done
+acpmux_runs_daemon "$u" || refuse unitSettings "$u does not run acpmux daemon run itself: move it to acpmux.service by hand"
+printf '%s\n' "$acpmux_e" | tr ' ' '\000' > "$pe" || unwritten
+printf '%s\n' "$acpmux_a" | tr ' ' '\000' > "$pa" || unwritten
 fi
 envof() { tr '\000' '\n' < "$pe" 2>/dev/null | sed -n "s/^$1=//p" | tail -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env" || unwritten; }
@@ -165,7 +179,7 @@ pub(super) fn migrate(dry: bool) -> String {
     };
     let old = super::old_unit_check();
     format!(
-        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{UNIT_LINES}{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{UNIT_SHOW}{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
     )
 }
 

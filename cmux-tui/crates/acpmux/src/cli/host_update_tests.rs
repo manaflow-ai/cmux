@@ -202,8 +202,11 @@ esac
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
 /// no manager answers. A timer only needs its unit file; `show -p LoadState`
 /// and `-p FragmentPath` find a unit in `~/.config/systemd/user` only. `show` (not
-/// logged: every update script reads it) prints `acpmux.service`'s
-/// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
+/// logged: every update script reads it) answers as systemd does from the
+/// unit, its own drop-ins and its name prefixes' (`acpmux-agent-.service.d`),
+/// `%h` and blanks around `=` resolved: `ActiveState` (`$HOME/active-<unit>`),
+/// the last `ExecStart`, `EnvironmentFiles`, `DropInPaths`, and otherwise the
+/// `Environment=` settings, or `$HOME/unit-environment`
 /// as it is (what systemd prints for values it quotes). Like the daemon
 /// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
 /// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
@@ -213,8 +216,14 @@ const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
 if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo loaded; else echo not-found; fi; exit 0; fi
 if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
+dirs() { n=${1%.service}; x=; while case "$n" in *-*) true;; *) false;; esac; do x="$x${n%%-*}-"; n=${n#*-}; echo "$d/$x.service.d"; done; echo "$d/$1.d"; }
+lines() { { cat "$d/$1"; for x in $(dirs "$1"); do cat "$x/"*.conf; done; } 2>/dev/null | sed 's/^[[:space:]]*\([A-Za-z]*\)[[:space:]]*=[[:space:]]*/\1=/' | sed "s|%h|$HOME|g"; }
+if [ "$2" = show ] && [ "$5" = ActiveState ]; then if [ -f "$HOME/active-$3" ]; then echo active; else echo inactive; fi; exit 0; fi
+if [ "$2" = show ] && [ "$5" = ExecStart ]; then a=$(lines "$3" | sed -n 's/^ExecStart=[-@:+!]*//p' | tail -1); [ -z "$a" ] || echo "{ path=${a%% *} ; argv[]=$a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"; exit 0; fi
+if [ "$2" = show ] && [ "$5" = EnvironmentFiles ]; then lines "$3" | sed -n 's/^EnvironmentFile=\(.*\)$/\1 (ignore_errors=no)/p'; exit 0; fi
+if [ "$2" = show ] && [ "$5" = DropInPaths ]; then for x in $(dirs "$3"); do ls "$x/"*.conf 2>/dev/null; done | tr '\n' ' '; echo; exit 0; fi
 if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
-if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
+if [ "$2" = show ]; then lines "$3" | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"
 under() { echo "0::/user.slice/user-1001.slice/user@1001.service/app.slice/$1" > "$HOME/proc/4242/cgroup"; }
 # Type=simple: the start succeeds once the process forks; a daemon that then
@@ -1135,25 +1144,48 @@ fn a_stopped_unit_is_moved_only_when_it_is_this_homes_one() {
     assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
     assert!(!peer.exists(&format!("{UNITS}/acpmux.service")));
-    // systemd reads ` Key = value` as `Key=value`: an indented home is the
-    // unit's home all the same, and an indented `EnvironmentFile=` is refused.
-    let peer = FakePeer::new("stopped-indented-home");
-    peer.stopped_foreign_unit(false);
-    peer.write(
-        &format!("{UNITS}/{FOREIGN}.d/home.conf"),
-        "[Service]\n  Environment = ACPMUX_HOME=%h/other\n",
-    );
-    peer.offer(NEW, Some(NEW));
-    let up = peer.update(false);
-    assert_eq!(up.migrated_from, None, "{up:?}");
-    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
-    for (tag, conf) in [
-        ("stopped-indented-file", "[Service]\n\tEnvironmentFile=%h/env\n"),
-        ("stopped-continued", "[Service]\nEnvironment=NOTE=a \\\n  ACPMUX_HOME=%h/other\n"),
+    // Settings are systemd's effective ones: a home set by a name prefix's
+    // drop-in, or behind an `env` wrapper, is another home's unit, and a
+    // unit systemd says is running is not a stopped one.
+    for (tag, path, text) in [
+        (
+            "stopped-prefix-home",
+            "acpmux-agent-.service.d/home.conf",
+            "[Service]\nEnvironment=ACPMUX_HOME=%h/other\n",
+        ),
+        (
+            "stopped-env-wrapper",
+            "acpmux-agent-hb.service.d/run.conf",
+            "[Service]\nExecStart=\nExecStart=/usr/bin/env ACPMUX_HOME=%h/other %h/.local/bin/acpmux daemon run\n",
+        ),
+        ("stopped-active", "", ""),
     ] {
         let peer = FakePeer::new(tag);
         peer.stopped_foreign_unit(false);
-        peer.write(&format!("{UNITS}/{FOREIGN}.d/env.conf"), conf);
+        if path.is_empty() {
+            peer.write(&format!("active-{FOREIGN}"), "");
+        } else {
+            peer.write(&format!("{UNITS}/{path}"), text);
+        }
+        peer.offer(NEW, Some(NEW));
+        let up = peer.update(false);
+        assert_eq!(up.migrated_from, None, "{tag}: {up:?}");
+        assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{tag}");
+        assert!(!peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")), "{tag}");
+    }
+    // This home's unit, but with settings the move would leave behind: an
+    // `EnvironmentFile=`, or a name prefix's drop-in. Refused before anything changes.
+    for (tag, path, text) in [
+        (
+            "stopped-env-file",
+            "acpmux-agent-hb.service.d/env.conf",
+            "[Service]\nEnvironmentFile=%h/env\n",
+        ),
+        ("stopped-prefix-setting", "acpmux-.service.d/mem.conf", "[Service]\nMemoryMax=1G\n"),
+    ] {
+        let peer = FakePeer::new(tag);
+        peer.stopped_foreign_unit(false);
+        peer.write(&format!("{UNITS}/{path}"), text);
         peer.offer(NEW, Some(NEW));
         let up = peer.update(false);
         assert_eq!(up.outcome, Outcome::Failed, "{tag}: {up:?}");
