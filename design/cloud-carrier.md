@@ -90,7 +90,7 @@ These are NEXT paths only. Classic `web/` and `/api` are untouched.
 - **The login copy over Freestyle exec,** the terminal-typing secrets receiver, and `machine-io`'s part in
   both.
 - **The native link and its fallback:** the nested WireGuard route (`link/native_*`, `link/mesh_cloud.rs`,
-  the Cloud mesh in `cmux-wg`, including the 1 s handshake resend), the per-device mesh access list,
+  the Cloud mesh in `cmux-wg`), the per-device mesh access list,
   `CloudNativeFirstLauncher`, and the plain `cmux link` route.
 - **The waits the old paths needed:** `ConnectWait.ts`, the receiver's policy reads, and the 180 s link
   wait with its redial loop.
