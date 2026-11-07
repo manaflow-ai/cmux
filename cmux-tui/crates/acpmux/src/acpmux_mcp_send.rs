@@ -871,8 +871,8 @@ fn sent_line(row: &Value) -> String {
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
+delivering it, retrying while the target is slow or its peer is down. Do not send it again; \
+send_status with this deliveryId says where it is."
             );
         }
     };
