@@ -108,8 +108,9 @@ describe("auto-roll rollback", () => {
   });
 
   test("rolls back an auto image only staging lists while production's list is empty, and production keeps its pin", () => {
-    const empty = replaceList(wrangler, "production", []);
-    const text = replaceList(empty, "staging", [...locate(empty, "staging").images, entry("400")]);
+    // An image staging lists (approve's staging entry, with staging's services) while production lists none.
+    const both = approve(wrangler, entry("400")).text;
+    const text = replaceList(both, "production", []);
     const result = rollback(text, entry("400").id);
     expect(result.rolledBack).toBe(true);
     expect(result.nowFirst).toBe("");
