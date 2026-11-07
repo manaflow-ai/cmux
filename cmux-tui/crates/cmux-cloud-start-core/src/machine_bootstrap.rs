@@ -203,21 +203,7 @@ pub fn wait_command() -> String {
 
 // MARK: The start's plan
 
-/// What the bootstrap clones, as the app's repo record has it.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Repo {
-    /// `OWNER/NAME` (the group path on another host), for a person reading why it failed.
-    pub display: String,
-    /// The clone's folder relative to the work user's home (`work/NAME`).
-    pub directory: String,
-    /// `repo.json`'s text.
-    #[serde(default)]
-    pub record: String,
-    /// The repo step (`~/.cmux/bootstrap/repo`).
-    #[serde(default)]
-    pub step: String,
-}
+pub use crate::machine_repo::Repo;
 
 /// One step of a plan: a file write over the Cloud file API, or one exec.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -290,12 +276,8 @@ pub fn start_plan(request: &StartRequest) -> Plan {
             write("run", 0o700, runner().to_owned()),
             // Always both, so no step or record of an earlier start is left: no repo is `null` and
             // a no-op.
-            write(
-                "repo.json",
-                0o644,
-                repo.map_or_else(|| "null\n".to_owned(), |r| r.record.clone()),
-            ),
-            write("repo", 0o700, repo.map_or_else(|| NO_SCRIPT.to_owned(), |r| r.step.clone())),
+            write("repo.json", 0o644, repo.map_or_else(|| "null\n".to_owned(), Repo::record)),
+            write("repo", 0o700, repo.map_or_else(|| NO_SCRIPT.to_owned(), Repo::step)),
             Step::Exec {
                 command: start_command(&staged),
                 said: ["started", "running", "skipped"].map(String::from).to_vec(),
@@ -412,10 +394,9 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
         return Read::Unreadable;
     };
     let head: Vec<&str> = head.split(' ').filter(|part| !part.is_empty()).collect();
-    let (3, Some(now)) = (head.len(), head.get(2).and_then(|n| n.parse::<i64>().ok())) else {
-        return Read::Unreadable;
-    };
-    let lock = head[1];
+    let [_, lock, now] = head.as_slice() else { return Read::Unreadable };
+    let Ok(now) = now.parse::<i64>() else { return Read::Unreadable };
+    let lock = *lock;
     if lock == "held" {
         return Read::Wait;
     }
@@ -432,7 +413,7 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
     let code = integer(status.get("exit_code"));
     let cloned = status.get("repo").and_then(Value::as_object);
     let repo_status = cloned.and_then(|c| c.get("status")).and_then(Value::as_str);
-    let name = repo.map(|r| r.display.clone()).unwrap_or_else(|| {
+    let name = repo.map(Repo::display).unwrap_or_else(|| {
         cloned.and_then(|c| c.get("url")).and_then(Value::as_str).unwrap_or("").to_owned()
     });
     let repo_end = |repo_status: Option<&str>| {
@@ -454,7 +435,9 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
                 .filter(|dir| dir.starts_with('/'))
                 .map(str::to_owned);
             Read::Ended(Run::Finished {
-                repo_path: Some(dir.unwrap_or_else(|| format!("/home/{USER}/{}", repo.directory))),
+                repo_path: Some(
+                    dir.unwrap_or_else(|| format!("/home/{USER}/{}", repo.directory())),
+                ),
             })
         }
         "failed" => {
@@ -484,7 +467,11 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
         "running" => Read::Unreadable,
         "starting" => {
             let at = integer(status.get("at")).unwrap_or(now);
-            if now - at >= 60 { Read::Ended(Run::RunnerNeverCame) } else { Read::Wait }
+            if now.saturating_sub(at) >= 60 {
+                Read::Ended(Run::RunnerNeverCame)
+            } else {
+                Read::Wait
+            }
         }
         _ => Read::Unreadable,
     }
@@ -531,9 +518,9 @@ pub fn wait_next(read_: &WaitRead) -> WaitNext {
                 return WaitNext { ended: Some(run), failures: read_.failures, unreachable: None };
             }
             Read::Wait => (0, String::new()),
-            Read::Unreadable => (read_.failures + 1, "unreadable answer".to_owned()),
+            Read::Unreadable => (read_.failures.saturating_add(1), "unreadable answer".to_owned()),
         },
-        (None, error) => (read_.failures + 1, error.clone().unwrap_or_default()),
+        (None, error) => (read_.failures.saturating_add(1), error.clone().unwrap_or_default()),
     };
     WaitNext {
         ended: None,
