@@ -773,5 +773,5 @@
   background: var(--cmux-hover);
 }
 .hm-header-panels__button[aria-pressed="true"] {
-  color: var(--cmux-accent);
+  color: var(--cmux-lit-glyph);
 }

@@ -175,9 +175,18 @@ const SOURCES = new Set([
   "toml",
 ]);
 
+/** A path part with its escapes decoded; a malformed escape (`%ZZ`) keeps the raw text. */
+function decodedName(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
 function fileKind(link: string): HomeLinkChipKind {
   if (link.endsWith("/")) return "folder";
-  const name = decodeURIComponent(new URL(link).pathname.split("/").pop() ?? "");
+  const name = decodedName(new URL(link).pathname.split("/").pop() ?? "");
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
   if (!ext) return "folder";

@@ -89,25 +89,29 @@ export function useLinkPreview(
   open: boolean,
   fetchPreview: LinkPreviewFetch,
 ): HomeLinkPreview | undefined {
-  const [preview, setPreview] = useState<HomeLinkPreview | undefined>();
+  // Each answer is kept with the link it answers, so a chip that now shows another link (or
+  // closes) never draws the last link's facts while its own are on the way.
+  const [answer, setAnswer] = useState<{ request: string; preview: HomeLinkPreview } | undefined>();
+  const request = `${kind}\n${href}`;
   useEffect(() => {
     if (!open) return;
     let current = true;
+    const keep = (preview: HomeLinkPreview | null | undefined) => {
+      if (preview && current) setAnswer({ request, preview });
+    };
     void fetchPreview({ url: href, kind, details: false })
       .then((quick) => {
         if (!current) return;
-        if (quick) setPreview(quick);
+        keep(quick);
         return fetchPreview({ url: href, kind, details: true });
       })
-      .then((full) => {
-        if (full && current) setPreview(full);
-      })
+      .then(keep)
       .catch(() => undefined);
     return () => {
       current = false;
     };
-  }, [href, kind, open, fetchPreview]);
-  return preview;
+  }, [href, kind, open, fetchPreview, request]);
+  return open && answer?.request === request ? answer.preview : undefined;
 }
 
 /** The card's body: the kind's icon and the live title with its state, where the target is, a few

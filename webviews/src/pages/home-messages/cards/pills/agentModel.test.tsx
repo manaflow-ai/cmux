@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { cardStrings } from "../strings";
+import { AgentChat } from "./AgentChat";
 import { AgentPills } from "./AgentPills";
 import {
   agentChatContent,
@@ -209,5 +210,62 @@ describe("AgentPills", () => {
       />,
     );
     expect(host.querySelector(".hm-pill__status")?.textContent).toBe("Reported · a1");
+  });
+});
+
+describe("AgentChat", () => {
+  const content = (messages: { sender: "agent" | "chief" | "you"; text: string }[]) => ({
+    peer: "a1",
+    title: "Fix",
+    status: "Working",
+    task: "",
+    workedFor: "",
+    details: [],
+    messages,
+  });
+  const bubbles = (host: HTMLElement) =>
+    [...host.querySelectorAll(".hm-agent-chat__out[data-sender=you] .hm-agent-chat__bubble")].map(
+      (node) => node.textContent ?? "",
+    );
+
+  test("a sent message stays through a refresh until the store echoes it, once", () => {
+    const sends: string[] = [];
+    const draw = (messages: { sender: "agent" | "chief" | "you"; text: string }[]) => (
+      <AgentChat content={content(messages)} strings={strings} actions={{ sent: (text) => sends.push(text) }} />
+    );
+    const host = render(draw([{ sender: "you", text: "go" }]));
+    const field = host.querySelector("form input")! as HTMLInputElement;
+    const form = host.querySelector("form")!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+      setter.call(field, "go");
+      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    act(() => {
+      form.dispatchEvent(new dom!.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(bubbles(host).filter((text) => text === "go").length).toBe(2);
+    expect(sends).toEqual(["go"]);
+    // A refresh that does not carry it yet keeps it.
+    act(() =>
+      root!.render(
+        draw([
+          { sender: "you", text: "go" },
+          { sender: "agent", text: "ok" },
+        ]),
+      ),
+    );
+    expect(bubbles(host).filter((text) => text === "go").length).toBe(2);
+    // The echo replaces it: no doubled bubble.
+    act(() =>
+      root!.render(
+        draw([
+          { sender: "you", text: "go" },
+          { sender: "agent", text: "ok" },
+          { sender: "you", text: "go" },
+        ]),
+      ),
+    );
+    expect(bubbles(host).filter((text) => text === "go").length).toBe(2);
   });
 });

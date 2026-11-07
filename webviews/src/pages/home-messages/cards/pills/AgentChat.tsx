@@ -24,6 +24,11 @@ export interface AgentChatActions {
   sent?(text: string): void;
 }
 
+/** How many of the person's own messages say `text`. */
+function yours(messages: AgentChatContent["messages"], text: string): number {
+  return messages.filter((message) => message.sender === "you" && message.text === text).length;
+}
+
 export interface AgentChatProps {
   content: AgentChatContent;
   compact?: boolean;
@@ -36,23 +41,26 @@ export function AgentChat({ content, compact = false, strings, actions }: AgentC
   const [taskOpen, setTaskOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  // What the person sent shows at once; the store's next content carries it.
-  const [sent, setSent] = useState<string[]>([]);
+  // What the person sent shows at once and stays until the store's content carries it (a refresh
+  // before the echo keeps it). `before` counts the person's messages with that text when it was
+  // sent, so an earlier message with the same words is not taken for its echo.
+  const [sent, setSent] = useState<{ text: string; before: number }[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const follow = useRef(false);
-  useEffect(() => setSent([]), [content]);
+  useEffect(() => setSent([]), [content.peer]);
+  const pending = sent.filter(({ text, before }) => yours(content.messages, text) <= before);
   useLayoutEffect(() => {
     if (!follow.current || !scroller.current) return;
     follow.current = false;
     scroller.current.scrollTop = scroller.current.scrollHeight;
   });
-  const messages = [...content.messages, ...sent.map((text) => ({ sender: "you" as const, text }))];
+  const messages = [...content.messages, ...pending.map(({ text }) => ({ sender: "you" as const, text }))];
   const shown = compact ? messages.slice(-1) : messages;
   const send = () => {
     const text = draft.trim();
     if (!text || !actions.sent) return;
     setDraft("");
-    setSent((list) => [...list, text]);
+    setSent((list) => [...list, { text, before: yours(content.messages, text) }]);
     follow.current = true;
     actions.sent(text);
   };
