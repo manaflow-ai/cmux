@@ -108,7 +108,12 @@ function directionSpecs(value: unknown): AvatarDirections | string {
       const spec = stateSpec(entry, `${motion}.${direction}`);
       if (typeof spec === "string") return spec.replace(/^states\./, "directions.");
       const { row, frames, fps, loop } = spec;
-      specs[direction] = { row, frames, ...(fps === undefined ? {} : { fps }), ...(loop === undefined ? {} : { loop }) };
+      specs[direction] = {
+        row,
+        frames,
+        ...(fps === undefined ? {} : { fps }),
+        ...(loop === undefined ? {} : { loop }),
+      };
     }
     out[motion] = specs;
   }

@@ -59,7 +59,14 @@ function SetStates({ set, size }: { set: AvatarSet; size: number }) {
                   </td>
                   <td className="cmux-avatar-sheet-frames">
                     {Array.from({ length: spec.frames }, (_, frame) => (
-                      <AnimatedAvatar key={frame} set={set} motion={motion} toward={toward} frame={frame} size={size / 2} />
+                      <AnimatedAvatar
+                        key={frame}
+                        set={set}
+                        motion={motion}
+                        toward={toward}
+                        frame={frame}
+                        size={size / 2}
+                      />
                     ))}
                   </td>
                 </tr>
@@ -121,7 +128,13 @@ function SetVariants({
   );
 }
 
-export function AvatarSetSheet({ ids, view = "states", size = 64, motion = "look", variants = [] }: AvatarSetSheetProps) {
+export function AvatarSetSheet({
+  ids,
+  view = "states",
+  size = 64,
+  motion = "look",
+  variants = [],
+}: AvatarSetSheetProps) {
   const sets = ids ? ids.flatMap((id) => avatarSet(id) ?? []) : AVATAR_SETS;
   if (view === "variants")
     return (

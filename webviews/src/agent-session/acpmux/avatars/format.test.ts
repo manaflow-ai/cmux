@@ -139,7 +139,13 @@ test("direction rows parse, count toward the sheet's size and draw toward the sc
   const parsed = manifest(directed);
   expect(sheetSize(parsed)).toEqual({ width: 5 * 32, height: 12 * 32 });
   // Facing the way the rows are drawn: each direction's own row.
-  expect(directionTrack(parsed, "look", "left", "right")).toEqual({ row: 6, frames: 5, fps: 5, loop: true, mirrored: false });
+  expect(directionTrack(parsed, "look", "left", "right")).toEqual({
+    row: 6,
+    frames: 5,
+    fps: 5,
+    loop: true,
+    mirrored: false,
+  });
   expect(directionTrack(parsed, "look", "up", "right")).toMatchObject({ row: 8, fps: 8, mirrored: false });
   // Turned: looking left is the look-right row mirrored; up and down mirror with the facing.
   expect(directionTrack(parsed, "look", "left", "left")).toMatchObject({ row: 7, mirrored: true });
