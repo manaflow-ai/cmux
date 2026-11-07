@@ -60,7 +60,7 @@ fn terms(ttl_secs: u64, uses: u32, create_id: Option<String>) -> Result<ShareTer
     {
         return Err("share.bad_request");
     }
-    Ok(ShareTerms { ttl_secs, uses, create_id })
+    Ok(ShareTerms { ttl_secs, uses, create_id, role: None })
 }
 
 /// The session `surface` shows, refused when the caller named another one.
@@ -93,7 +93,9 @@ pub(super) fn create(
     directory: Option<&Path>,
     p: Create,
 ) -> Result<Value, &'static str> {
-    let terms = terms(p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS), p.uses.unwrap_or(1), p.create_id)?;
+    let mut terms =
+        terms(p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS), p.uses.unwrap_or(1), p.create_id)?;
+    terms.role = p.role;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     match room_for_new(shares, p.owner_token)? {
         None => shares.insert(directory, session, p.surface, terms, false),
@@ -167,7 +169,7 @@ pub(super) fn push(
     terms: ShareTerms,
     provisioning: bool,
 ) -> Result<Value, &'static str> {
-    let ShareTerms { ttl_secs, uses, create_id } = terms;
+    let ShareTerms { ttl_secs, uses, create_id, role } = terms;
     let NewIds(share_id, secret, provision_key) = ids;
     if shares.len() >= MAX_SHARES {
         prune(shares);
@@ -191,13 +193,14 @@ pub(super) fn push(
         pending_room_ops: Vec::new(),
         guests: Vec::new(),
         invitees: Vec::new(),
+        role,
     });
     // The records there may fit while the new one does not: ended ones go first.
     if !fits_or_prune(shares) {
         return Err("share.limit");
     }
     Ok(json!({"share_id": share_id, "secret": secret, "url": null, "expires_at": expires_at,
-        "session": session, "surface": surface, "uses_left": uses}))
+        "session": session, "surface": surface, "uses_left": uses, "role": role}))
 }
 
 /// Invites `account` to share `share_id` of `shares` (see [`LinkShares::invite`]); answers the
