@@ -219,6 +219,62 @@ pub fn claude_session_exists(root: &Path, id: &str) -> bool {
     is_bare_id(id) && find_claude(root, id).is_some()
 }
 
+/// Lines [`claude_transcript_is_empty`] reads before it calls a transcript stored.
+const CONVERSATION_SCAN_LINES: usize = 400;
+
+/// Whether the Claude store at `root` holds session `id`'s file but no conversation in it: no
+/// `user` or `assistant` record, only the metadata Claude Code appends when a process exits
+/// (`last-prompt`, `cost-state`, `pr-link`). `claude --resume` of such an id fails with "No
+/// conversation found with session ID" on every start: 13 chats of Aziz's Mac, 2026-11-02, whose
+/// transcripts lost their messages while their processes still ran; each exit at the 13:10
+/// restart then wrote this stub. False when the file is absent (a remote or other store: nothing
+/// to say) or holds a record of the conversation within its first lines.
+pub fn claude_transcript_is_empty(root: &Path, id: &str) -> bool {
+    if !is_bare_id(id) {
+        return false;
+    }
+    // Claude Code keeps one folder per working directory: a stub in one may sit beside the real
+    // conversation in another, so the store is empty only when no copy holds a conversation.
+    let name = format!("{id}.jsonl");
+    let Ok(projects) = std::fs::read_dir(root.join("projects")) else { return false };
+    let mut found = false;
+    for project in projects.flatten() {
+        let file = project.path().join(&name);
+        if !file.is_file() {
+            continue;
+        }
+        found = true;
+        if !file_has_no_conversation(&file) {
+            return false;
+        }
+    }
+    found
+}
+
+/// Whether one Claude transcript file holds no `user` or `assistant` record in its first
+/// [`CONVERSATION_SCAN_LINES`] lines. False when it cannot be read or is longer.
+fn file_has_no_conversation(file: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(file) else { return false };
+    let mut lines = 0usize;
+    for line in BufReader::new(file).lines() {
+        let Ok(line) = line else { return false };
+        lines += 1;
+        if lines > CONVERSATION_SCAN_LINES {
+            return false;
+        }
+        #[derive(serde::Deserialize)]
+        struct Kind<'a> {
+            #[serde(rename = "type", borrow)]
+            kind: Option<std::borrow::Cow<'a, str>>,
+        }
+        let Ok(record) = serde_json::from_str::<Kind<'_>>(&line) else { continue };
+        if matches!(record.kind.as_deref(), Some("user" | "assistant")) {
+            return false;
+        }
+    }
+    true
+}
+
 /// `<claude>/projects/<project>/<id>.jsonl`.
 pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");
