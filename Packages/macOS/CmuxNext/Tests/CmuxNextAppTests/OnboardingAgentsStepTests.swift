@@ -193,7 +193,8 @@ import Testing
     @Test func aRecheckWithNoHarnessListForgetsTheLastHealth() async {
         let health = Health(#"{"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","auth":"signedIn"}]}"#)
         let (harnesses, _) = await make(health: health)
-        #expect(await harnesses.agentSignIns(recheck: false).map(\.auth) == [.signedIn])
+        // Claude Code, not found, is listed ahead as not installed, for Install.
+        #expect(await harnesses.agentSignIns(recheck: false).filter(\.installed).map(\.auth) == [.signedIn])
         health.listed = false
         _ = await harnesses.agentSignIns(recheck: true)
         #expect(harnesses.health.isEmpty)
