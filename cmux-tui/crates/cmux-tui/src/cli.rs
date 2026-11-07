@@ -39,6 +39,8 @@ mod billing;
 mod caller_browser;
 mod capability_cache;
 #[cfg(unix)]
+mod chat_send;
+#[cfg(unix)]
 mod chat_start;
 #[cfg(unix)]
 mod chief;
@@ -93,6 +95,8 @@ mod live_code;
 mod sandbox_run;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_short;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
@@ -434,6 +438,8 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "device",
     "workflow",
     "remote-host",
+    "chat",
+    "vm",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -504,6 +510,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
+    #[cfg(unix)]
+    if let Some(code) = vm_short::run_if_requested(args) {
+        return code;
+    }
     // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
     // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
     #[cfg(unix)]
@@ -568,6 +579,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send SESSION` and `chat --resume SESSION`: the next prompt to a running agent chat,
+    // wherever it runs (chat_send.rs); `chat send --to` stays the message below.
+    #[cfg(unix)]
+    if let Some(code) = chat_send::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -1120,12 +1137,12 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
-/// where those verbs do not exist.
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
+/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
-        machine_join::own_switch(command, flag)
+        machine_join::own_switch(command, flag) || chat_start::own_switch(command, flag)
     }
     #[cfg(not(unix))]
     {
@@ -1219,16 +1236,8 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
             Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::VM_POINTER))
         }
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => {
-            let root = catalog.local_server.cmux_root_help;
-            // `vm` is the one noun that makes and runs VMs (CMUX-43: `cmux cloud` is `cmux vm`).
-            let cloud = if root.contains("SCOPES") {
-                "  vm            Cloud VMs: new, run, pause, resume, rm (`cmux vm --help`)\n"
-            } else {
-                "  vm            Cloud VM: new、run、pause、resume、rm (`cmux vm --help`)\n"
-            };
-            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
-        }
+        // The root help lists `vm` itself, with `cloud` as its old name, in each language.
+        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();

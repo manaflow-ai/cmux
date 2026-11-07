@@ -10,6 +10,7 @@ import {
   approve,
   locate,
   modeOf,
+  replaceList,
   rollback,
   rolledImage,
   settle,
@@ -106,6 +107,18 @@ describe("auto-roll rollback", () => {
     expect(gone.reason).toMatch(/in neither list/);
   });
 
+  test("rolls back an auto image only staging lists while production's list is empty, and production keeps its pin", () => {
+    // An image staging lists (approve's staging entry, with staging's services) while production lists none.
+    const both = approve(wrangler, entry("400")).text;
+    const text = replaceList(both, "production", []);
+    const result = rollback(text, entry("400").id);
+    expect(result.rolledBack).toBe(true);
+    expect(result.nowFirst).toBe("");
+    expect(result.reason).toMatch(/boots its pin/);
+    expect(locate(result.text, "staging").images.map((i) => i.id)).not.toContain(entry("400").id);
+    expect(locate(result.text, "production").images).toEqual([]);
+  });
+
   test("never rolls back a hand-approved image", () => {
     const first = locate(wrangler, "production").images[0]!.id;
     const result = rollback(wrangler, first);
@@ -131,10 +144,10 @@ describe("auto-roll settle", () => {
   const image = entry("500").id;
   const previous = locate(wrangler, "production").images[0]!.id;
   const roll = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, attempt: 1, ...over,
+    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, deployedStagingHas: true, attempt: 1, ...over,
   });
   const back = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, attempt: 1, ...over,
+    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, deployedStagingHas: false, attempt: 1, ...over,
   });
 
   test("a roll whose deploy and product create booted the image is green", () => {
@@ -170,6 +183,16 @@ describe("auto-roll settle", () => {
       expect(settle(back({ deploy: "failure", product: "", attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
     }
     expect(settle(back({ deploy: "cancelled", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback_failed");
+  });
+
+  test("a staging-only rollback with no production image is verified by the deployed lists, not a production boot", () => {
+    // Production lists nothing (it boots its pin), so no create boots a "first entry".
+    const none = { deployedFirst: "", tipFirst: "", bootImage: "", product: "" };
+    expect(settle(back(none)).outcome).toBe("verified");
+    expect(settle(back(none)).reason).toMatch(/boots its pin/);
+    // Still in staging in the deployed commit, or a deploy that did not succeed: not verified.
+    expect(settle(back({ ...none, deployedStagingHas: true })).outcome).toBe("retry");
+    expect(settle(back({ ...none, deploy: "failure" })).outcome).toBe("retry");
   });
 
   test("a rollback's settle never asks for another rollback commit", () => {
@@ -355,6 +378,11 @@ describe("auto-roll scripts", () => {
       const cut = await plan(shallow, tip);
       expect(cut.status).not.toBe(0);
       expect(cut.stderr).toMatch(/shallow/);
+      // A build outside the shallow history: the branch check would answer "not on the branch" (roll: false) from
+      // the cut alone, so the shallow refusal has to come first (review of #37409, F1).
+      const beyond = await plan(shallow, older);
+      expect(beyond.status).not.toBe(0);
+      expect(beyond.stderr).toMatch(/shallow/);
 
       // Full history without the pinned commit (a pin off the branch that was never fetched).
       writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: "f".repeat(40) }] }));

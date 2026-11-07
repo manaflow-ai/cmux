@@ -1115,6 +1115,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-cloud-client",
+ "cmux-cloud-machine",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1168,6 +1169,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]

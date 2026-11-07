@@ -192,6 +192,12 @@ fn an_upgrade_url_off_cmux_com_or_a_plan_not_sold_here_is_not_kept() {
         vm_error(402, plain_http, None),
         Failure::PlanRequired { upgrade_url: None, .. }
     ));
+    // A browser reads `\` as `/`: this link is evil.example's, whatever follows the `@`.
+    let backslash = br#"{"error":"x","upgradeRequired":true,"upgradeUrl":"https://evil.example\\@cmux.com/pricing"}"#;
+    assert!(matches!(
+        vm_error(402, backslash, None),
+        Failure::PlanRequired { upgrade_url: None, .. }
+    ));
     let team = br#"{"error":"x","upgradeRequired":true,"upgradePlanId":"team"}"#;
     assert!(matches!(vm_error(402, team, None), Failure::Http { .. }));
 }
@@ -798,9 +804,7 @@ fn the_harness_login_copy_switch_decodes_plain_or_wrapped_and_caps_its_ttl() {
 
 #[test]
 fn the_github_app_status_says_why() {
-    let state = |status: u16, text: &str| {
-        github_app_state(status, serde_json::from_str::<Value>(text).ok().as_ref())
-    };
+    let state = |status: u16, text: &str| github_app_state(status, text.as_bytes());
     assert_eq!(
         state(
             200,
@@ -1206,4 +1210,124 @@ fn a_local_stack_that_is_not_running_is_no_backend_for_a_worker_machine_io() {
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
     assert!(matches!(go(&call), Err(Failure::Transport(_))));
+}
+
+// MARK: review follow-ups (#37350)
+
+#[test]
+fn a_preview_call_ends_at_its_own_30_second_deadline() {
+    assert_eq!(previews::PREVIEW_TIMEOUT, Duration::from_secs(30));
+    // A server that takes each request and never answers.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    for (call, args) in [
+        ("previews.refresh", json!({ "machine": "vm_abc" })),
+        ("previews.create_link", json!({ "machine": "vm_abc", "port": 3000 })),
+        ("previews.revoke_link", json!({ "machine": "vm_abc", "port": 3000, "linkId": "l1" })),
+    ] {
+        // Paused time: the runtime moves its clock to the next deadline while it waits.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        let call = request(&origin, Auth::Worker, call, args);
+        let (failure, waited) = runtime.block_on(async {
+            let started = tokio::time::Instant::now();
+            let failure = perform(&call, Zeroizing::new(Vec::new())).await.unwrap_err();
+            (failure, started.elapsed())
+        });
+        assert!(matches!(failure, Failure::TimedOut(_)), "{}: {failure:?}", call.call);
+        assert!(
+            waited >= Duration::from_secs(30) && waited < Duration::from_secs(60),
+            "{}: {waited:?}",
+            call.call
+        );
+    }
+}
+
+#[test]
+fn owner_handoffs_reads_at_most_50_pages() {
+    let (origin, seen) = fake(|_| ok(r#"{"handoffs":[{"id":"h"}],"nextCursor":"next"}"#));
+    let answer =
+        go(&request(&origin, Auth::Owner, "owner.handoffs", json!({ "pages": 100_000 }))).unwrap();
+    assert_eq!(answer.as_array().map(Vec::len), Some(50));
+    assert_eq!(seen.lock().unwrap().len(), 50);
+}
+
+#[test]
+fn owner_handoffs_stops_at_the_answer_limit() {
+    let page = format!(
+        r#"{{"handoffs":[{{"id":"h","note":"{}"}}],"nextCursor":"next"}}"#,
+        "x".repeat(MAX_ANSWER_BYTES / 3)
+    );
+    let (origin, seen) = fake(move |_| ok(&page));
+    let failure = go(&request(&origin, Auth::Owner, "owner.handoffs", json!({}))).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
+        "{failure:?}"
+    );
+    assert_eq!(seen.lock().unwrap().len(), 3, "refused at the page that passed the limit");
+}
+
+#[test]
+fn a_run_start_that_is_not_one_is_refused_as_it_is_and_sends_nothing() {
+    let (origin, seen) = fake(|_| ok(r#"{"id":"run_1"}"#));
+    for args in [json!({ "idempotencyKey": "k" }), json!({ "task": "hi" })] {
+        let failure = go(&request(&origin, Auth::Stack, "runs.start", args)).unwrap_err();
+        assert!(
+            matches!(&failure, Failure::Transport(message) if message.starts_with("the call needs")),
+            "{failure:?}"
+        );
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+// MARK: review follow-ups (#37526)
+
+#[test]
+fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let started = tokio::time::Instant::now();
+        let deadline = started + previews::PREVIEW_TIMEOUT;
+        // The answer takes 25 s, then its refusal's body 20 s more: 30 s in all, not 45.
+        let sent = async {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            Err::<Value, ()>(())
+        };
+        let failure = previews::within(deadline, "/p".into(), sent, |()| async {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            Failure::http(500, None, None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(failure, Failure::TimedOut("/p".into()));
+        assert_eq!(started.elapsed(), Duration::from_secs(30));
+
+        // A refusal read in time is the refusal.
+        let started = tokio::time::Instant::now();
+        let deadline = started + previews::PREVIEW_TIMEOUT;
+        let sent = async {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            Err::<Value, ()>(())
+        };
+        let failure = previews::within(deadline, "/p".into(), sent, |()| async {
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            Failure::http(500, None, None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(failure, Failure::http(500, None, None));
+    });
 }

@@ -52,6 +52,32 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Machine::Target("vm-1".into())
     );
     assert_eq!(request(&["--prompt", "-"]).prompt, "from stdin");
+    // After `--`, the prompt is text: an output flag or `-` is what it says.
+    assert_eq!(request(&["--wait", "--", "--json"]).prompt, "--json");
+    assert_eq!(request(&["--", "-"]).prompt, "-");
+}
+
+/// `cmux cloud start-chat -- --json` (cmuxterm-hq#7487 item 4): the global scan and the output
+/// lift leave `-- --json` to the parser, whose prompt it is.
+#[test]
+fn an_output_flag_after_the_separator_is_the_prompt() {
+    for scope in ["cloud", "vm"] {
+        for typed in [&["--"][..], &["--wait", "--"], &["--no-wait", "--"]] {
+            let mut args = vec![scope, "start-chat"];
+            args.extend_from_slice(typed);
+            args.push("--json");
+            let (mut global, command) = super::super::parse_globals(&strings(&args)).ok().unwrap();
+            let words = lift_output(&command[2..], &mut global.output);
+            assert_eq!(global.output, OutputMode::Human, "{args:?}");
+            assert!(
+                matches!(
+                    parse(&words, || Ok(String::new())),
+                    Ok(Parsed::Run(run)) if run.prompt == "--json"
+                ),
+                "{args:?}: {words:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -65,6 +91,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
+        vec!["--prompt", "x", "--", "y"],
+        vec!["--", "two", "words"],
+        vec!["--"],
     ] {
         assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
     }
@@ -201,7 +230,8 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     }
     assert_eq!(answer["sent"], true);
     assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
-    assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
+    assert_eq!(answer["placement"], "vm:vm-1", "the answer names where it ran");
+    assert_eq!(answer["follow_up"]["send"], json!("cmux chat send sess-1 'PROMPT' --wait"));
     // A new machine with a fresh name: `start-session --name` makes it.
     assert_eq!(
         fake.ran[1],
@@ -865,4 +895,41 @@ fn a_start_with_no_machine_named_says_the_machine_is_new_only_when_it_has_the_fr
     let mut fake = Fake::new(vec![taken, started(), sent()]);
     let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x"])) else { panic!() };
     assert!(answer.get("new_machine").is_none());
+}
+
+#[test]
+fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
+    let mut fake = Fake::new(vec![
+        exec_out(
+            "@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n@@send\nd-2\n@@exit 0\n",
+        ),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":4,\"status\":\"completed\",\"endedAt\":12}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"5\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = Request {
+        prompt: "And 2+3?".into(),
+        agent: String::new(),
+        cwd: None,
+        machine: Machine::Target("vm-1".into()),
+        wait: true,
+        timeout: Duration::from_secs(60),
+    };
+    let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
+        panic!("{:?}", fake.ran)
+    };
+    // The reply of the turn after the one before the send, never the older one.
+    assert_eq!(answer["reply"], "5");
+    assert_eq!(
+        (answer["session_id"].as_str(), answer["sent"].as_bool()),
+        (Some("sess-1"), Some(true))
+    );
+    // No list, no start: only the two runs on the machine.
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+    assert!(
+        fake.ran
+            .iter()
+            .all(|ran| ran[..4] == strings(&["cloud", "exec", "--target", "machine:vm-1"]))
+    );
 }
