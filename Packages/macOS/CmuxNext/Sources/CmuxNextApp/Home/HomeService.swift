@@ -199,9 +199,8 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
-    /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
+    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (its React page).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
-    /// The Chat Colors… panel (one for the app): the React page in a floating panel.
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsService(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
