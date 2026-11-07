@@ -92,9 +92,13 @@ export function HeaderNewButton({
               key={kind}
               data-value={kind}
               className="acpmux-chat-menu-item"
-              // The arrow keys move focus to the highlighted row, so the preview follows them as well as the pointer.
+              // The arrow keys move the highlight and focus with it, so the preview follows them as well as the
+              // pointer. Only the highlighted row's focus counts: the menu's own first focus as it opens lands on
+              // a row the pointer may already have left.
               onPointerEnter={() => setPreviewed(kind)}
-              onFocus={() => setPreviewed(kind)}
+              onFocus={(event) => {
+                if (event.currentTarget.hasAttribute("data-highlighted")) setPreviewed(kind);
+              }}
               onSelect={() => run(kind)}
             >
               <Icon name={KIND_ICONS[kind]} size={14} />
