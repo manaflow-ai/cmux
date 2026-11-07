@@ -158,9 +158,10 @@
    them, the shell paints the page's color only below the row (Leo, 2026-11-02, above; 2026-11-03, on the chat's color
    drawn as a rectangle behind the header buttons: "it's so obvious to just remove the thing"). The document root
    carries the page background (WebTheme's html rule, --cmux-surface-background: a chat's own color under
-   appearance.surfaces.agentPane), so it is clear here and the shell paints that background below the row instead.
+   appearance.surfaces.agentPane), so it is clear here (the root's data-acpmux-tab-row mark, header/tabRow.ts
+   useTabRowRoot) and the shell paints that background below the row instead.
    test/chat-header-tab-row-surface.test.ts loads the agent page's own sheets with WebTheme's rule. */
-html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
+:root[data-acpmux-tab-row]{background:transparent !important}
 .acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--cmux-surface-background,transparent) var(--acpmux-tab-row-height))}
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
