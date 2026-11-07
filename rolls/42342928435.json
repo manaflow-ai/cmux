@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42342928435",
+  "recorded_at": "2026-11-07T05:35:51Z",
+  "reason": "image inputs changed in 0ce494052c2e58eb6331732dcbcdc3d59fedbad8..b74084fda78ff6a78c05edeeabc1d45f52025bf9",
+  "dry_run": true,
+  "cmux_tui": "bd31f93eff9dc86fc1b1f57f26dc341cc4871fb9",
+  "fixes": [
+    {
+      "sha": "b74084fda78ff6a78c05edeeabc1d45f52025bf9",
+      "mergedAt": "2026-11-06T21:29:13-08:00",
+      "subject": "Cloud VM image lock: pin cmux-tui bd31f93e, with the updater's connect hold (#37483)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T05:35:51Z",
+    "snapshot_id": "sh-78ec93b5a0484ad898d1a3950eafa5da",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42342928435): 34 checks passed"
+  },
+  "promotion": {
+    "result": "dry-run",
+    "job": "success",
+    "commit": "609c715ebdc27ac440fadeb50510c0557eae44bb",
+    "image": "cloud-native-auto-bd31f93e-42342928435-1",
+    "revision": "ci-42342928435-1",
+    "at": null
+  },
+  "rolled_back": false
+}
