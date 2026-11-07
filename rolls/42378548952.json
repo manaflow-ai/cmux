@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42378548952",
+  "recorded_at": "2026-11-07T13:56:06Z",
+  "reason": "cmux-tui b39be9238d9c changes the image's cmux-tui (pinned 9035d3ab42f7)",
+  "dry_run": false,
+  "cmux_tui": "b39be9238d9c61fb16ae3ba0d6d73c333555dcb8",
+  "fixes": [
+    {
+      "sha": "b39be9238d9c61fb16ae3ba0d6d73c333555dcb8",
+      "mergedAt": "2026-11-07T05:32:56-08:00",
+      "subject": "base red: request_stack has a row for _acpmux/who_else (#37826)"
+    },
+    {
+      "sha": "bf96b6387e63aac47826fccdea712545c55b94ba",
+      "mergedAt": "2026-11-07T05:31:29-08:00",
+      "subject": "acpmux: approve-reads reads a command substitution by its inner command (#37795)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T13:56:06Z",
+    "snapshot_id": "sh-464f2f4207c14606ab9148a4c784a138",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42378548952): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5a066555bcc5d550e197bb28842e139c2400ff93",
+    "image": "cloud-native-auto-b39be923-42378548952-1",
+    "revision": "ci-42378548952-1",
+    "at": "2026-11-07T13:56:06Z"
+  },
+  "rolled_back": false
+}
