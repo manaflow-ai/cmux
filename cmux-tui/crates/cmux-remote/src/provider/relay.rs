@@ -117,9 +117,10 @@ impl RelayCredentialSource {
 
     /// Execute an argv-based command without a shell on every authentication.
     /// The credential is read from stdout and never appears in an error. When
-    /// the command fails or times out, its error carries the exit status and
-    /// the last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] of its stderr, with
-    /// anything token-shaped redacted.
+    /// the command fails or times out, its error carries the exit status and a
+    /// summary of the last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] of its
+    /// stderr: the byte length and the error codes in it
+    /// ([`stderr_summary`]), never its free text.
     pub fn command<I, S>(program: impl Into<OsString>, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -313,8 +314,9 @@ impl StderrTail {
         Self { tail, task }
     }
 
-    /// `; stderr: …` with the redacted tail, or nothing when it was empty.
-    /// Waits briefly for the reader to drain what an exited command wrote.
+    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
+    /// was empty. Waits briefly for the reader to drain what an exited
+    /// command wrote.
     async fn describe(&mut self) -> String {
         if let Some(task) = &mut self.task
             && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
@@ -326,8 +328,7 @@ impl StderrTail {
             let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             tail.iter().copied().collect()
         };
-        let text = redact_token_shaped(&String::from_utf8_lossy(&bytes));
-        if text.is_empty() { String::new() } else { format!("; stderr: {text}") }
+        stderr_summary(&bytes)
     }
 }
 
@@ -339,122 +340,57 @@ impl Drop for StderrTail {
     }
 }
 
-/// One line of diagnostic text with anything that may be a secret replaced
-/// by `[REDACTED]`: a run of 20 or more token characters (base64, base64url,
-/// hex, JWT) that mixes letters and digits (one segment at a time in a
-/// lowercase path; base64 that starts with `/` goes whole), the value after
-/// `Bearer`, and the value of a
-/// `key=value`, `key: value` or JSON `"key": "value"` whose key names a secret.
-fn redact_token_shaped(text: &str) -> String {
-    const SECRET_KEYS: [&str; 7] =
-        ["token", "ticket", "secret", "password", "authorization", "credential", "key"];
-    fn token_char(character: char) -> bool {
-        character.is_ascii_alphanumeric()
-            || matches!(character, '-' | '_' | '.' | '~' | '+' | '/' | '=')
+/// The most error codes a summary names.
+const MAX_STDERR_CODES: usize = 4;
+
+/// What a failed credential command's stderr `tail` may add to its error:
+/// `; stderr: N bytes`, then `, codes …` naming up to [`MAX_STDERR_CODES`]
+/// distinct error codes and an `HTTP NNN` status found in it, or nothing
+/// when it is empty. Free text never reaches the log: stderr can hold a
+/// ticket, a header or a JSON body in any shape, and only these allowlisted
+/// forms can't be one.
+fn stderr_summary(tail: &[u8]) -> String {
+    if tail.is_empty() {
+        return String::new();
     }
-    // The key as written, without the quotes and brackets of JSON or a
-    // structured log (`{"password":` is the key `password`).
-    fn bare(key: &str) -> &str {
-        key.trim_matches(|character| matches!(character, '"' | '\'' | '{' | '[' | '(' | ','))
-    }
-    fn secret_key(key: &str) -> bool {
-        let key = bare(key).to_ascii_lowercase();
-        SECRET_KEYS.iter().any(|secret| key.contains(secret))
-    }
-    // A key that is itself a secret's name (`ticket`, `Password`,
-    // `access_token`, `api_key`), not a label that mentions one
-    // (`carrier-ticket`): every value after it is redacted, however short.
-    fn exact_secret_key(key: &str) -> bool {
-        let key = bare(key).to_ascii_lowercase();
-        SECRET_KEYS.iter().any(|secret| key == *secret || key.ends_with(&format!("_{secret}")))
-    }
-    let line: String = text
-        .chars()
-        .map(|character| if character.is_control() { ' ' } else { character })
-        .collect();
-    // After `Bearer` the next word is the credential, and after an exact
-    // secret key (`ticket:`, `password:`) the next word is its value. After a
-    // label that only mentions one (`carrier-ticket:`) the next word is one
-    // only when it looks like a value (8 or more token characters with a
-    // digit), so `carrier-ticket: agent answered 503` keeps its reason.
-    let value_like = |word: &str| {
-        word.len() >= 8
-            && word.chars().all(token_char)
-            && word.chars().any(|character| character.is_ascii_digit())
-    };
-    let mut words = Vec::new();
-    let mut after_bearer = false;
-    let mut after_key = false;
-    let mut after_exact_key = false;
-    for word in line.split_whitespace() {
-        let follows_key = std::mem::take(&mut after_key);
-        let follows_exact_key = std::mem::take(&mut after_exact_key);
-        if std::mem::take(&mut after_bearer) {
-            words.push("[REDACTED]".to_owned());
-            continue;
+    let text = String::from_utf8_lossy(tail);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut codes: Vec<String> = Vec::new();
+    for word in &words {
+        if codes.len() == MAX_STDERR_CODES {
+            break;
         }
-        // `Bearer` first, so `Authorization: Bearer abc` redacts `abc`.
-        if bare(word).eq_ignore_ascii_case("bearer") {
-            after_bearer = true;
-            words.push(word.to_owned());
-            continue;
-        }
-        if follows_exact_key || (follows_key && value_like(word)) {
-            words.push("[REDACTED]".to_owned());
-            continue;
-        }
-        if let Some(index) = word.find(['=', ':'])
-            && secret_key(&word[..index])
+        if let Some(code) = error_code(word)
+            && !codes.iter().any(|known| known == code)
         {
-            if index + 1 == word.len() {
-                after_key = true;
-                after_exact_key = exact_secret_key(&word[..index]);
-                words.push(word.to_owned());
-            } else {
-                words.push(format!("{}[REDACTED]", &word[..=index]));
-            }
-            continue;
+            codes.push(code.to_owned());
         }
-        let mut redacted = String::with_capacity(word.len());
-        let mut run = String::new();
-        let flush = |run: &mut String, redacted: &mut String| {
-            let secret_like = |text: &str| {
-                text.len() >= 20
-                    && text.chars().any(|character| character.is_ascii_digit())
-                    && text.chars().any(|character| character.is_ascii_alphabetic())
-            };
-            // A path (`/v1/cloud/machines/carrier`) is lowercase with no `+`
-            // or `=`, which base64 almost never is: its segments are judged
-            // one by one. Anything else is judged whole.
-            let path = run.starts_with('/')
-                && !run.chars().any(|character| {
-                    character.is_ascii_uppercase() || matches!(character, '+' | '=')
-                });
-            if path {
-                let segments: Vec<&str> = run
-                    .split('/')
-                    .map(|segment| if secret_like(segment) { "[REDACTED]" } else { segment })
-                    .collect();
-                redacted.push_str(&segments.join("/"));
-            } else if secret_like(run) {
-                redacted.push_str("[REDACTED]");
-            } else {
-                redacted.push_str(run);
-            }
-            run.clear();
-        };
-        for character in word.chars() {
-            if token_char(character) {
-                run.push(character);
-            } else {
-                flush(&mut run, &mut redacted);
-                redacted.push(character);
-            }
-        }
-        flush(&mut run, &mut redacted);
-        words.push(redacted);
     }
-    words.join(" ")
+    let http = words.windows(2).find_map(|pair| {
+        let status = pair[1].trim_end_matches([':', ',', ';', ')']);
+        let http = pair[0] == "HTTP" || pair[0].starts_with("HTTP/");
+        (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| format!("HTTP {status}"))
+    });
+    codes.extend(http);
+    if codes.is_empty() {
+        format!("; stderr: {} bytes", tail.len())
+    } else {
+        format!("; stderr: {} bytes, codes {}", tail.len(), codes.join(", "))
+    }
+}
+
+/// `word` without a trailing `:` when it is an error code: dotted lowercase
+/// segments of letters and `_`, such as `carrier.unavailable:` or
+/// `vm.agent_unreachable`, at most 64 bytes. Segments carry no digits, so a
+/// lowercase hex or dotted ticket (`v1.0af3.9c2e`) is never one.
+fn error_code(word: &str) -> Option<&str> {
+    let code = word.strip_suffix(':').unwrap_or(word);
+    let segment = |part: &str| {
+        part.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            && part.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    };
+    (code.len() <= 64 && code.contains('.') && code.split('.').all(segment)).then_some(code)
 }
 
 /// Kill and reap a credential command on every cancellation or failure path.
@@ -2393,35 +2329,50 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn failed_credential_command_reports_its_status_and_redacted_stderr_tail() {
+    async fn failed_credential_command_reports_its_status_and_stderr_codes_only() {
+        // What `cmux host cloud carrier-ticket` prints for a platform 404.
+        let line = "cmux host cloud carrier-ticket: carrier.unavailable: cmux has no carrier \
+                    route here yet.";
         let source = RelayCredentialSource::command(
             "/bin/sh",
-            [
-                "-c",
-                "head -c 5000 /dev/zero | tr '\\0' x >&2; \
-                 echo ' agent refused: token=short Bearer sk_live_9 \
-                 0123456789abcdefABCDEF0123 see /var/lib/cmux/carrier.json' >&2; exit 3",
-            ],
+            ["-c".to_owned(), format!("echo '{line}' >&2; exit 3")],
         );
         let error = source.fetch().await.unwrap_err();
         assert!(is_credential_source_error(&error), "{error}");
-        let message = error.to_string();
-        assert!(message.contains("unsuccessful (exit status: 3)"), "{message}");
-        assert!(message.contains("agent refused: token=[REDACTED] Bearer [REDACTED]"), "{message}");
-        assert!(message.contains("[REDACTED] see /var/lib/cmux/carrier.json"), "{message}");
-        for secret in ["short", "sk_live_9", "0123456789abcdefABCDEF0123"] {
-            assert!(!message.contains(secret), "{secret} leaked: {message}");
-        }
-        assert!(
-            message.len() < CREDENTIAL_COMMAND_STDERR_TAIL_BYTES + 200,
-            "the stderr tail is unbounded: {} bytes",
-            message.len()
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "relay credential source command was unsuccessful (exit status: 3); \
+                 stderr: {} bytes, codes carrier.unavailable",
+                line.len() + 1
+            )
         );
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn timed_out_credential_command_reports_its_stderr() {
+    async fn failed_credential_command_keeps_only_a_bounded_tail() {
+        let source = RelayCredentialSource::command(
+            "/bin/sh",
+            [
+                "-c",
+                "echo 'auth.refused: early' >&2; head -c 5000 /dev/zero | tr '\\0' x >&2; \
+                 echo ' carrier.unreachable: late' >&2; exit 1",
+            ],
+        );
+        let message = source.fetch().await.unwrap_err().to_string();
+        assert!(
+            message.ends_with(&format!(
+                "; stderr: {CREDENTIAL_COMMAND_STDERR_TAIL_BYTES} bytes, codes carrier.unreachable"
+            )),
+            "{message}"
+        );
+        assert!(!message.contains("auth.refused"), "the tail is unbounded: {message}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timed_out_credential_command_reports_its_stderr_length() {
         let source = RelayCredentialSource::command_with_timeout(
             "/bin/sh",
             ["-c", "echo stuck on the agent >&2; exec sleep 30"],
@@ -2430,10 +2381,7 @@ mod tests {
         let started = Instant::now();
         let message = source.fetch().await.unwrap_err().to_string();
         assert!(started.elapsed() < Duration::from_secs(5), "the command was not stopped");
-        assert!(
-            message.contains("timed out after 200 ms; stderr: stuck on the agent"),
-            "{message}"
-        );
+        assert!(message.ends_with("timed out after 200 ms; stderr: 19 bytes"), "{message}");
     }
 
     #[cfg(unix)]
@@ -2484,52 +2432,60 @@ mod tests {
     }
 
     #[test]
-    fn redaction_keeps_words_and_paths_and_drops_token_shaped_values() {
-        assert_eq!(
-            redact_token_shaped("POST /v1/cloud/machines/carrier failed:\n503 retry later"),
-            "POST /v1/cloud/machines/carrier failed: 503 retry later"
-        );
-        assert_eq!(
-            redact_token_shaped(
-                "ticket: abc12345xyz password=hunter2 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.x1"
+    fn stderr_summary_keeps_our_ticket_error_codes() {
+        // carrier_ticket.rs (cmux-host): every refusal `host cloud
+        // carrier-ticket` prints leads with its code.
+        for (line, code) in [
+            ("carrier.unavailable: cmux has no carrier route here yet.", "carrier.unavailable"),
+            ("auth.refused: cmux refused this machine's carrier ticket.", "auth.refused"),
+            ("carrier.rate_limited: cmux is rate limited.", "carrier.rate_limited"),
+            ("carrier.unreachable: Check this machine's connection.", "carrier.unreachable"),
+            ("carrier.bad_answer: cmux did not return a carrier ticket.", "carrier.bad_answer"),
+            ("vm.unbound: this machine is not bound to cmux Cloud yet", "vm.unbound"),
+            (
+                "vm.agent_unreachable: /run/cmux-vm-agent/agent.sock (refused)",
+                "vm.agent_unreachable",
             ),
-            "ticket: [REDACTED] password=[REDACTED] [REDACTED]"
-        );
+            ("carrier.busy: too many asks are waiting; retry", "carrier.busy"),
+        ] {
+            let stderr = format!("cmux host cloud carrier-ticket: {line}\n");
+            assert_eq!(
+                stderr_summary(stderr.as_bytes()),
+                format!("; stderr: {} bytes, codes {code}", stderr.len())
+            );
+        }
         assert_eq!(
-            redact_token_shaped("carrier-ticket: agent answered 503"),
-            "carrier-ticket: agent answered 503"
-        );
-        // #37670 review F1: a short or digit-free value after an exact secret
-        // key is still that secret.
-        assert_eq!(
-            redact_token_shaped(
-                "ticket: abcdefgh password: abc Token: x access_token: plain api_key: k"
+            stderr_summary(
+                b"carrier.unavailable: owner.unreachable carrier.unavailable HTTP/1.1 503"
             ),
-            "ticket: [REDACTED] password: [REDACTED] Token: [REDACTED] access_token: [REDACTED] \
-             api_key: [REDACTED]"
+            "; stderr: 71 bytes, codes carrier.unavailable, owner.unreachable, HTTP 503"
         );
         assert_eq!(
-            redact_token_shaped("relay-ticket: command timed out"),
-            "relay-ticket: command timed out"
+            stderr_summary(b"a.a b.b c.c d.d e.e HTTP 500"),
+            "; stderr: 28 bytes, codes a.a, b.b, c.c, d.d, HTTP 500"
         );
-        // #37670 second review F1: `Bearer` after an authorization key, a
-        // base64 value starting with `/`, and JSON secret fields.
-        assert_eq!(
-            redact_token_shaped("Authorization: Bearer abc"),
-            "Authorization: Bearer [REDACTED]"
-        );
-        assert_eq!(
-            redact_token_shaped("token /9j4AAQSkZJRgABAQ1Ab3c+x/YZ answered"),
-            "token [REDACTED] answered"
-        );
-        assert_eq!(
-            redact_token_shaped("GET /v1/cloud/keyset at /var/lib/cmux/x1y2z3a4b5c6d7e8f9g0/carrier.json"),
-            "GET /v1/cloud/keyset at /var/lib/cmux/[REDACTED]/carrier.json"
-        );
-        assert_eq!(
-            redact_token_shaped(r#"{"password": "hunter2", "ticket":"t0ps3cret"}"#),
-            r#"{"password": [REDACTED] "ticket":[REDACTED]"#
-        );
+        assert_eq!(stderr_summary(b""), "");
+    }
+
+    #[test]
+    fn stderr_summary_never_carries_a_secret() {
+        let secrets = [
+            ("ticket: abcdefgh", "abcdefgh"),
+            ("password: abc", "abc"),
+            ("Authorization: Bearer abc", "abc"),
+            ("token /9j4AAQSkZJRgABAQ1Ab3c+x/YZ answered", "9j4AAQ"),
+            ("/abcdefghijklmnopqrst/1234567890", "abcdefghijklmnopqrst"),
+            ("/abcdefghijklmnopqrst/1234567890", "1234567890"),
+            (r#"{"password": "hunter2"}"#, "hunter2"),
+            ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJl", "eyJ"),
+            ("ticket v1.0af3.9c2e", "0af3"),
+            ("ticket v1.abc.def", "abc"),
+        ];
+        for (stderr, secret) in secrets {
+            let summary = stderr_summary(stderr.as_bytes());
+            assert_eq!(summary, format!("; stderr: {} bytes", stderr.len()), "{stderr}");
+            assert!(!summary.contains(secret), "{secret} leaked: {summary}");
+        }
     }
 
     #[tokio::test]
