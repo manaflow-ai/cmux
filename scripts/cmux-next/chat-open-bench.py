@@ -27,7 +27,10 @@ to the first frame the pane shows the chat's content, with every surface the pan
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
   click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
-             (`debug.mouse` move, the sidebar's hover path), as a person's pointer does before a click
+             (`debug.pointer_hover`, the sidebar's hover path), as a person's pointer does before a click
+Each click case also samples the app's footprint (every process of the bundle) before its first round and
+after its last: every round leaves its chat's page kept, so the difference over the rounds is the memory one
+kept chat costs (`memory` in the JSON, and the table's last lines).
 
 The click cases read the window as the window server composited it, frame after frame, from the click
 (`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
@@ -939,6 +942,9 @@ def main():
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
+                # Each click round leaves its chat's page kept (hidden, mounted): the app's footprint before
+                # and after the case, over the rounds, is the memory one kept chat costs.
+                memory_before = bm.sample(run.pid, APP, f"{condition}-{case}-before", 0) if case in CLICK_CASES and run.pid else None
                 for index in range(opts.runs):
                     if case in CLICK_CASES:
                         record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
@@ -955,6 +961,18 @@ def main():
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                if memory_before:
+                    time.sleep(2)  # test script: the last round's page and the spare's refill settle
+                    after = bm.sample(run.pid, APP, f"{condition}-{case}-after", 0)
+                    kept = sum(1 for r in records if not r.get("error"))
+                    kinds = {k: round(v["footprint_mb"] - memory_before["kinds"].get(k, {}).get("footprint_mb", 0.0), 1)
+                             for k, v in after["kinds"].items()}
+                    results.setdefault("memory", {}).setdefault(condition, {})[case] = {
+                        "before_footprint_mb": memory_before["total_footprint_mb"],
+                        "after_footprint_mb": after["total_footprint_mb"], "kept_pages": kept,
+                        "per_kept_page_mb": round((after["total_footprint_mb"] - memory_before["total_footprint_mb"]) / kept, 1) if kept else None,
+                        "delta_by_kind_mb": kinds}
+                    say(f"chat-open: {condition} {case} memory: {json.dumps(results['memory'][condition][case])}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
             if "relaunched" in CASES:
@@ -1048,6 +1066,9 @@ def markdown(results):
             cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    for condition, cases in results.get("memory", {}).items():
+        lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
+            f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))
     return "\n".join(lines)
 
 
