@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What the composer's capture bar asks native for (plans/cmux-next/capture-bar-DESIGN.md,
 /// "Contract"): a screenshot (`composer.capture`), a recording of the cmux window
