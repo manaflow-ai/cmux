@@ -7,6 +7,8 @@
 import { memo, useSyncExternalStore, type MouseEvent } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Dialog } from "../../ui/Dialog";
+import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { KIND_ICON, healthHelp, isLinked, joinedCaption, sectionItems, showsStateLine, stateText } from "./model";
 import type { MachinesStore } from "./store";
@@ -23,49 +25,83 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
   if (!snapshot) return <div className="machines" data-loading="" />;
   const stateLine = showsStateLine(snapshot.style);
   const busy = new Set(snapshot.busy);
+  const asked = state.confirmRemove ? snapshot.rows.find((row) => row.id === state.confirmRemove) : undefined;
   return (
-    <ul className="machines" data-style={snapshot.style}>
-      {sectionItems(snapshot, strings).map((item) => {
-        switch (item.type) {
-          case "header":
-            return (
-              <li key={item.key} className="machines-header" data-first={item.first ? "" : undefined}>
-                {item.title}
-              </li>
-            );
-          case "add":
-            return (
-              <AddRow
-                key={item.key}
-                gap={item.gap}
-                label={strings.t("machines.addMachine")}
-                onAdd={() => store.addMachine()}
-              />
-            );
-          case "row":
-            return item.row.joined ? (
-              <JoinedRow
-                key={item.key}
-                row={item.row}
-                strings={strings}
-                busy={busy.has(item.row.joined.id)}
-                failed={snapshot.failed[item.row.joined.id]}
-                menuOpen={state.menuOpen === item.row.id || snapshot.openMenu === item.row.joined.id}
-                store={store}
-              />
-            ) : (
-              <MachineRowView
-                key={item.key}
-                row={item.row}
-                strings={strings}
-                stateLine={stateLine}
-                menuOpen={state.menuOpen === item.row.id}
-                store={store}
-              />
-            );
-        }
-      })}
-    </ul>
+    <>
+      <ul className="machines" data-style={snapshot.style}>
+        {sectionItems(snapshot, strings, state.removed).map((item) => {
+          switch (item.type) {
+            case "header":
+              return (
+                <li key={item.key} className="machines-header" data-first={item.first ? "" : undefined}>
+                  {item.title}
+                </li>
+              );
+            case "add":
+              return (
+                <AddRow
+                  key={item.key}
+                  gap={item.gap}
+                  label={strings.t("machines.addMachine")}
+                  onAdd={() => store.addMachine()}
+                />
+              );
+            case "row":
+              return item.row.joined ? (
+                <JoinedRow
+                  key={item.key}
+                  row={item.row}
+                  strings={strings}
+                  busy={busy.has(item.row.joined.id)}
+                  failed={snapshot.failed[item.row.joined.id]}
+                  menuOpen={state.menuOpen === item.row.id || snapshot.openMenu === item.row.joined.id}
+                  store={store}
+                />
+              ) : (
+                <MachineRowView
+                  key={item.key}
+                  row={item.row}
+                  strings={strings}
+                  stateLine={stateLine}
+                  menuOpen={state.menuOpen === item.row.id}
+                  store={store}
+                />
+              );
+          }
+        })}
+      </ul>
+      {asked && <RemoveQuestion row={asked} strings={strings} store={store} />}
+    </>
+  );
+}
+
+/** Remove's question: what it does, Cancel (Escape) and Remove (Return), as the app's dialogs ask. */
+function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Strings; store: MachinesStore }) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) store.cancelRemove();
+      }}
+      label={strings.format("machines.joined.removeTitle", row.name)}
+      className="machines-dialog"
+    >
+      <h2 className="machines-dialog-title">{strings.format("machines.joined.removeTitle", row.name)}</h2>
+      <p className="machines-dialog-body">{strings.t("machines.joined.removeBody")}</p>
+      <div className="machines-dialog-actions">
+        <DialogButton dialogKey="escape" className="machines-dialog-button" onClick={() => store.cancelRemove()}>
+          {strings.t("machines.joined.cancel")}
+        </DialogButton>
+        <DialogButton
+          dialogKey="return"
+          className="machines-dialog-button"
+          data-danger=""
+          onClick={() => void store.remove(row.id)}
+        >
+          {strings.t("machines.joined.removeButton")}
+        </DialogButton>
+      </div>
+    </Dialog>
   );
 }
 
@@ -201,6 +237,16 @@ const JoinedRow = memo(function JoinedRow({
           }}
         >
           <Icon name="overflow.more" size={SMALL_ICON} />
+        </button>
+      )}
+      {!busy && (
+        <button
+          type="button"
+          className="machines-action machines-remove"
+          aria-label={strings.format("machines.joined.remove", row.name)}
+          onClick={() => store.askRemove(row.id)}
+        >
+          <Icon name="action.remove" size={SMALL_ICON} />
         </button>
       )}
       <button
