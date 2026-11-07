@@ -51,6 +51,11 @@ public final class CmuxDialogPresentation {
     /// What it shows must never leave the screen (``CmuxDialogCaptureExcludedHost``): no capture, and its
     /// drawing refuses page probes.
     public internal(set) var isPrivate = false
+    /// What it shows is never read by automation: a private dialog, or one that asks for a secret
+    /// (a secure text field), so its drawing refuses page probes.
+    public var holdsSecret: Bool {
+        isPrivate || spec.fields.contains { if case .text(_, _, _, _, true) = $0 { true } else { false } }
+    }
 
     /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
     /// card draws); false again when the overlay hides it.

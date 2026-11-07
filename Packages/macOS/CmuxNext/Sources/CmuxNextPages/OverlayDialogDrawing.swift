@@ -25,8 +25,8 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
     public func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? {
         if let shown = views[ObjectIdentifier(dialog)] { return shown.container }
         guard let (page, provider) = pool.claim() else { return nil }
-        // A private dialog's page (a revealed password) refuses page probes while it shows it.
-        page.refusesProbes = dialog.isPrivate
+        // A page that shows a secret (a private dialog, a password field) refuses page probes while it shows it.
+        page.refusesProbes = dialog.holdsSecret
         let container = OverlayDialogView(page: page, activeLook: dialog.activeLook)
         container.setAccessibilityIdentifier(dialog.spec.identifier ?? "cmux.dialog")
         views[ObjectIdentifier(dialog)] = (container, page)

@@ -120,6 +120,21 @@ import Testing
         #expect(shownIn?.sharingType != NSWindow.SharingType.none)
     }
 
+    /// Review 19 of #37296 (F1): only a capture-excluded dialog's page refused probes, so a password
+    /// prompt on the ordinary host (Firefox's primary password) let `debug.page` read the typed secret. A
+    /// dialog with a secure field holds a secret on any host.
+    @Test func aDialogWithASecureFieldHoldsASecretOnAnyHost() {
+        let secure = CmuxDialogSpec(title: "Password", fields: [
+            .text(id: "pw", label: nil, initial: "", placeholder: nil, secure: true)], buttons: [.cancel(), .ok()])
+        let plain = CmuxDialogSpec(title: "Name", fields: [
+            .text(id: "name", label: nil, initial: "", placeholder: nil, secure: false)], buttons: [.cancel(), .ok()])
+        #expect(CmuxDialogPresentation(id: 1, spec: secure, activeLook: nil).holdsSecret)
+        #expect(!CmuxDialogPresentation(id: 2, spec: plain, activeLook: nil).holdsSecret)
+        let excluded = CmuxDialogPresentation(id: 3, spec: plain, activeLook: nil)
+        excluded.isPrivate = true
+        #expect(excluded.holdsSecret)
+    }
+
     /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was
     /// clipped. The region grows about the tab to hold the card, inside the window; a card that fits keeps
     /// the tab.
