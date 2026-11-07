@@ -72,6 +72,7 @@ fn file_write() {
         ("cat <<EOF > notes.md\nbody\nEOF", FileWrite, ">"),
         ("find . -name '*.orig' -delete", FileWrite, "find -delete"),
         ("sort -o sorted.txt input.txt", FileWrite, "sort -o"),
+        ("sort -u names.txt", FileRead, "sort"),
         ("awk '{print > \"out.txt\"}' in", FileWrite, "awk >"),
         ("curl -sSLo out.tar.gz https://example.com/x", FileWrite, "curl -o"),
         ("curl -L -O https://example.com/x.tar.gz", FileWrite, "curl -o"),

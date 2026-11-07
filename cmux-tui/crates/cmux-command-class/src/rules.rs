@@ -48,6 +48,7 @@ const FILE_READ: &[&str] = &[
     "readlink",
     "file",
     "du",
+    "sort",
     "uniq",
     "cut",
     "tr",
