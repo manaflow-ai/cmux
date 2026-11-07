@@ -15,7 +15,7 @@ public enum HomeMessagesFollow {
     public static func start(_ read: @escaping @MainActor @Sendable () -> JSONValue?,
                              onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         // task-owner: lives while the page listens (cancelled with its subscription) or until what it follows is gone; event-driven (Observation)
-        let watch = Task { @MainActor in
+        let watch = Task {
             for await value in ObservationStream({ read() }) {
                 guard let value else { onEvent(gone); return }
                 onEvent(value)
