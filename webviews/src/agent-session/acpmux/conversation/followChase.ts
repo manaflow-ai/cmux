@@ -1,0 +1,212 @@
+// The followed transcript's motion on a send and while a reply streams (Leo, 2026-11-07: "When it
+// comes to sending messages, I feel like the jump, the jolt is a bit too jarring ... the way the
+// messages actually stream through, like, that can be made a lot smoother ... what is satisfying at
+// 120 hertz? That's what we want to aim at.").
+//
+// The view's offset still lands at the latest row in the pass that moved it, before the frame
+// paints (VirtualTranscript's follow, "IMMEDIATELY ... at the bottom", Leo 2026-10-21); only what the
+// reader sees moves smoothly. Each pass measures how far the rows the reader sees moved on screen
+// (VirtualTranscript `chaseFollow`: a row in view, before and after), whatever moved them: a new
+// line, the sent prompt's row and the live line arriving, the composer's card shrinking as it
+// clears, a block landing. The thread is drawn back by exactly that (`translate`, so layout, the
+// scroll offset and the scrollbar stay exact) and the drawn offset chases home on the display's
+// frames. Every move in a pass is one displacement of one chase, so the bubble, the rows above it
+// and the composer's room move together, and a move that comes while one plays continues from where
+// the thread is drawn and how fast it is going: no restart, no jolt per chunk.
+//
+// The chase (the `spring` arm and the default `blocks` arm of followMotion.experiment.ts) is a critically damped spring
+// over the motion scale's standard step (no overshoot, so nothing moves away from where it rests),
+// at most CHASE_MAX_SPEED px/s (under 4 px a 120 Hz frame) while it trails by under a line, and
+// faster as it nears its bound. It never trails by more than CHASE_MAX_TRAIL_LINES (two lines): what
+// lands past that bound moves at once, so the view stays within two lines of the newest one. In the
+// default `blocks` arm content may pass under the glass composer while it settles, held only by that
+// bound (cmux#37614); the `spring` arm keeps new text at most a line under the bottom stack
+// (VirtualTranscript CHASE_UNDER_STACK_PX) and moves the rest at once, as followGlide.ts did. A
+// send's rows rise out from behind the composer they left in every arm (`below` unbounded).
+//
+// Stop condition: the frame loop runs only while the thread is drawn away from its layout and ends
+// at rest (within REST_PX and REST_SPEED); `stop` ends it at once (reader input, Jump to latest, a
+// chat switch, a resize, a fold that animates the thread itself, unmount). With Reduce Motion, the
+// host's motion switch off (`data-agent-motion`/`data-cmux-motion`) or a zero move token, `shift`
+// moves nothing and the view steps at once, as before.
+import { MOTION_MS } from "../../../motion/scale.generated";
+import { motionMode } from "../../../ui/motion/motionMode";
+import { currentChatMetrics } from "../chatDisplay";
+import { cssTimeMs } from "./fold";
+import { FOLLOW_GLIDE_OFF } from "./followGlide";
+import type { FollowMotionArm } from "./followMotion.experiment";
+
+/// The spring's response: the motion scale's standard step (180 ms, the glide it replaces), damping 1
+/// (critically damped), as the native `move` spring (motion.md, 150 ms) is.
+const RESPONSE_S = MOTION_MS.standard / 1000;
+/// The most the chase moves the rows in a second while it is near home: 3.75 px a 120 Hz frame (7.5
+/// at 60 Hz), a sixth of a line, within CATCH_UP_LINES of home.
+export const CHASE_MAX_SPEED = 450;
+/// The most the view trails the newest line, in the chat's lines (chatDisplay's line height, so it
+/// follows the reader's font settings): a move past it is taken at once down to it, so the bound
+/// always holds. A move of more than this is also a block landing, not a line.
+export const CHASE_MAX_TRAIL_LINES = 2;
+/// Past this many lines behind the chase speeds up by what is further behind over CATCH_UP_S
+/// (at the bound, 600 px/s: 5 px a 120 Hz frame).
+const CATCH_UP_LINES = 1;
+const CATCH_UP_S = 0.15;
+/// At rest: drawn within this of its layout and moving slower than REST_SPEED px/s.
+const REST_PX = 0.25;
+const REST_SPEED = 4;
+/// A frame gap longer than this (a hidden page, a long task) integrates as this long.
+const MAX_STEP_S = 1 / 30;
+/// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
+const CHUNK_S = MOTION_MS.standard / 1000;
+
+export type FollowChase = {
+  readonly arm: FollowMotionArm;
+  /// The rows the reader sees moved `moved` px on screen in this pass (negative: up). The thread is
+  /// drawn back by that and chases home, drawn down at most `below` px (what may lie under the
+  /// bottom stack: the room under the last row and a line, VirtualTranscript); the rest moves at
+  /// once. False when it moved at once (motion off, nothing to move).
+  shift(thread: HTMLElement | null, moved: number, below?: number): boolean;
+  /// What may lie under the bottom stack is now `below` px: a chase drawn further down rests there.
+  fit(below: number): void;
+  /// How far the thread is drawn from its layout (px, positive: drawn down), 0 at rest.
+  outstanding(): number;
+  /// Ends the chase where the rows lay out.
+  stop(): void;
+};
+
+/// The host's motion speed as a factor of the standard step (`--agent-motion-move`), 0 with motion
+/// off, Reduce Motion or a hidden page.
+function speedOf(node: HTMLElement): number {
+  const doc = node.ownerDocument;
+  if (motionMode(doc) !== "full") return 0;
+  const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
+  return token === undefined ? 1 : token / MOTION_MS.standard;
+}
+
+/// The most the thread is drawn from its layout (px): CHASE_MAX_TRAIL_LINES of the chat's lines.
+export function chaseMaxTrail(): number {
+  return CHASE_MAX_TRAIL_LINES * currentChatMetrics().lineHeight;
+}
+
+export function createFollowChase(arm: FollowMotionArm): FollowChase {
+  let thread: HTMLElement | null = null;
+  /// Drawn offset (px, positive: down) and its speed (px/s).
+  let x = 0;
+  let v = 0;
+  /// The fixed-duration arm: the segment in flight (from, elapsed s, duration s).
+  let chunk = { from: 0, at: 0, duration: CHUNK_S };
+  let frame: number | undefined;
+  /// A send's rows, or anything in the `blocks` arm: it may pass under the glass composer while it
+  /// settles, so `below` holds nothing back until the chase rests (the trail bound still does).
+  let rising = false;
+  let last: number | undefined;
+  let scale = 1;
+  /// While it chases the thread is its own compositor layer, so a frame's step moves it without
+  /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
+  const draw = () => {
+    if (!thread) return;
+    if (x === 0) {
+      thread.style.removeProperty("translate");
+      thread.style.removeProperty("will-change");
+    } else {
+      thread.style.willChange = "translate";
+      thread.style.translate = `0 ${x}px`;
+    }
+  };
+  const stop = () => {
+    if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
+    frame = undefined;
+    last = undefined;
+    x = 0;
+    v = 0;
+    rising = false;
+    draw();
+  };
+  const step = (now: number) => {
+    frame = undefined;
+    const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
+    last = now;
+    // Past CATCH_UP_LINES behind (a burst faster than the limit) the limit rises by what is further
+    // behind over CATCH_UP_S, so a frame never moves far while the view stays near the newest line.
+    const catchUp = CATCH_UP_LINES * currentChatMetrics().lineHeight;
+    const limit = (CHASE_MAX_SPEED + Math.max(0, Math.abs(x) - catchUp) / CATCH_UP_S) / Math.max(scale, 0.25);
+    if (arm === "spring" || arm === "blocks") {
+      // Critically damped toward 0, exact over the step: x(t) = (x0 + (v0 + w x0) t) e^(-w t).
+      const w = (2 * Math.PI) / (RESPONSE_S * scale);
+      const decay = Math.exp(-w * dt);
+      const carry = v + w * x;
+      let nextX = (x + carry * dt) * decay;
+      let nextV = (v - w * carry * dt) * decay;
+      // No frame moves more than the speed limit allows.
+      const most = limit * dt;
+      if (Math.abs(nextX - x) > most) {
+        nextX = x + Math.sign(nextX - x) * most;
+        nextV = Math.sign(nextV) * Math.min(Math.abs(nextV), limit);
+      }
+      // Critically damped never crosses its rest; a clamp's rounding must not either.
+      if (Math.sign(nextX) !== Math.sign(x) && x !== 0) nextX = nextV = 0;
+      x = nextX;
+      v = nextV;
+    } else if (arm === "chunk") {
+      chunk.at += dt;
+      const progress = Math.min(1, chunk.at / (chunk.duration * scale));
+      const nextX = chunk.from * (1 - progress) * (1 - progress);
+      v = (nextX - x) / Math.max(dt, 1e-3);
+      x = nextX;
+    } else {
+      // `linear`: a steady approach at the speed limit, then a stop.
+      const most = limit * dt;
+      const nextX = Math.abs(x) <= most ? 0 : x - Math.sign(x) * most;
+      v = (nextX - x) / Math.max(dt, 1e-3);
+      x = nextX;
+    }
+    if (Math.abs(x) < REST_PX && Math.abs(v) < REST_SPEED) {
+      stop();
+      return;
+    }
+    draw();
+    frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
+  };
+  return {
+    arm,
+    outstanding: () => x,
+    stop,
+    fit(below) {
+      if (!rising && x > Math.max(0, below)) {
+        x = Math.max(0, below);
+        chunk = { from: x, at: 0, duration: CHUNK_S };
+        if (x === 0) stop();
+        else draw();
+      }
+    },
+    shift(node, moved, below = Number.POSITIVE_INFINITY) {
+      // A shell that opts out (`data-follow-glide="off"`, the gallery's and harnesses' before) steps.
+      if (!node || !(Math.abs(moved) > 0.5) || arm === "instant" || node.closest(FOLLOW_GLIDE_OFF)) return false;
+      const speed = speedOf(node);
+      if (!(speed > 0)) {
+        stop();
+        return false;
+      }
+      if (thread && thread !== node) stop();
+      thread = node;
+      scale = speed;
+      // Drawn back by the move: the rows stay where the reader saw them this frame, up to the trail
+      // bound; what is past it moves at once.
+      const most = chaseMaxTrail();
+      // A send's rows rise out from behind the composer (`below` unbounded). In the `blocks` arm
+      // (the default) everything may pass under the glass composer while it settles, held only by
+      // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
+      if (arm === "blocks" || below === Number.POSITIVE_INFINITY) rising = true;
+      x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
+      chunk = { from: x, at: 0, duration: CHUNK_S };
+      draw();
+      if (frame === undefined) {
+        // Integrate from this frame's time: the first step lands one display frame on.
+        const view = node.ownerDocument.defaultView;
+        const timeline = node.ownerDocument.timeline?.currentTime;
+        last = typeof timeline === "number" ? timeline : performance.now();
+        frame = view?.requestAnimationFrame(step);
+      }
+      return true;
+    },
+  };
+}
