@@ -26,6 +26,8 @@ mod health;
 
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
+#[path = "peer_tokens.rs"]
+mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
@@ -218,6 +220,10 @@ pub struct Peer {
     withheld: AtomicBool,
     /// The peer token this connection presented (`stale_token`).
     presented: StdMutex<Option<String>>,
+    /// The remote's tokens from the last ssh read, for the next connect (`peer_tokens.rs`).
+    read_tokens: tokens::TokenCache,
+    /// A link of this peer was connected once: a later read runs before its tunnel opens.
+    linked_once: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -380,6 +386,8 @@ impl Peer {
             person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
+            read_tokens: tokens::TokenCache::default(),
+            linked_once: AtomicBool::new(false),
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
@@ -601,6 +609,13 @@ impl Peer {
         Ok((tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
+    /// End the owned ssh tunnel process, if any.
+    async fn end_tunnel(&self) {
+        if let Some(mut child) = self.tunnel.lock().await.take() {
+            let _ = child.start_kill();
+        }
+    }
+
     /// The dashboard token (configured, else the remote daemon's own) and
     /// the remote daemon's peer token of this launch (configured, else none
     /// when the remote has none: an older daemon serves this one as Web),
@@ -673,7 +688,26 @@ impl Peer {
             }
             tokens = self.remote_tokens().await?;
         }
+        self.read_tokens.keep(&tokens);
         Ok(tokens)
+    }
+
+    /// The tokens for a connect: the last read's (`peer_tokens.rs`), else a read; true when
+    /// they came from the last read, so a refusal reads again.
+    async fn connect_tokens(&self) -> Result<(tokens::Tokens, bool), String> {
+        if self.token.is_none() || self.peer_token.is_none() {
+            if let Some(kept) = self.read_tokens.get() {
+                return Ok((kept, true));
+            }
+        }
+        Ok((self.remote_tokens_settled().await?, false))
+    }
+
+    /// A replacement of the same peer (`Hub::spawn_peer`) skips the read the old one made.
+    pub(crate) fn carry_read_tokens(&self, old: &Peer) {
+        if old.url == self.url && old.token == self.token && old.peer_token == self.peer_token {
+            self.read_tokens.carry(&old.read_tokens);
+        }
     }
 
     /// Sleeps `wait` before a token reread; false, at once, when the peer
@@ -711,10 +745,13 @@ impl Peer {
             return None;
         }
         let presented = self.presented.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // What it presented did not make it a peer: the next connect reads again, or takes
+        // what this read finds.
+        self.read_tokens.forget();
         if self.stop.load(Ordering::SeqCst) {
             return None;
         }
-        let (_, mut now) = self.remote_tokens().await.ok()?;
+        let (mut token, mut now) = self.remote_tokens().await.ok()?;
         for wait in TOKEN_REREADS {
             if now.is_some() {
                 break;
@@ -722,7 +759,10 @@ impl Peer {
             if !self.reread_wait(wait).await {
                 return None;
             }
-            now = self.remote_tokens().await.ok()?.1;
+            (token, now) = self.remote_tokens().await.ok()?;
+        }
+        if now != presented {
+            self.read_tokens.keep(&(token, now.clone()));
         }
         (now.is_some() && now != presented).then(|| {
             "the peer served this daemon as remote, and it has a new peer token; reconnecting"
@@ -1251,6 +1291,8 @@ impl Peer {
                 backoff.reset();
             }
             self.with_link(|l| l.restarting(now));
+            // Its next launch writes a new peer token.
+            self.read_tokens.forget();
             return Some(PeerNotice::Restarting);
         }
         // A genuinely stable link starts failure backoff over; a flapping one does not.
@@ -1323,14 +1365,14 @@ impl Peer {
         // An SSH peer may source this launch's application credentials over
         // SSH. Resolve them before WG too, or a remote-origin handshake can
         // reread a newer peer token and reconnect forever with the old one.
-        let ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
-            Some(self.remote_tokens_settled().await?)
+        let mut ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
+            Some(self.connect_tokens().await?)
         } else {
             None
         };
         let credentials = ssh_tokens
             .as_ref()
-            .map(|(token, peer)| (token.as_str(), peer.as_deref()))
+            .map(|((token, peer), _)| (token.as_str(), peer.as_deref()))
             .or_else(|| self.token.as_deref().map(|token| (token, self.peer_token.as_deref())));
         if let Some((transport, address)) = self.wireguard.get()
             && let Some((token, peer_token)) = credentials
@@ -1362,13 +1404,42 @@ impl Peer {
             }
             tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
         }
-        if self.ssh_parts().is_some() {
-            let (token, peer_token) = match ssh_tokens {
-                Some(tokens) => tokens,
-                None => self.remote_tokens_settled().await?,
+        while self.ssh_parts().is_some() {
+            // A first connect with nothing read: the tunnel logs in while the read does, so the
+            // read costs no time of its own. A later one (a redial, a restarted remote that may
+            // not listen yet) opens its tunnel after the read, as one with kept tokens has none.
+            let reading = tokio::time::Instant::now();
+            let mut early = if ssh_tokens.is_none()
+                && self.read_tokens.get().is_none()
+                && !self.linked_once.load(Ordering::SeqCst)
+            {
+                Some(self.open_tunnel().await?)
+            } else {
+                None
             };
+            let read = match ssh_tokens.take() {
+                Some(tokens) => Ok(tokens),
+                None => self.connect_tokens().await,
+            };
+            let ((token, peer_token), kept) = match read {
+                Ok(tokens) => tokens,
+                Err(error) => {
+                    self.end_tunnel().await;
+                    return Err(error);
+                }
+            };
+            // A read that waited for the remote's peer token (`TOKEN_REREADS`) outlasted the
+            // remote's upgrade deadline (5 s, `server::WS_HANDSHAKE_TIMEOUT`): a new tunnel.
+            if early.is_some() && reading.elapsed() > EARLY_TUNNEL_FOR {
+                early = None;
+                self.end_tunnel().await;
+            }
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
-            let (stream, remote_port, errors) = self.open_tunnel().await?;
+            let (stream, remote_port, errors) = match early {
+                Some(tunnel) => tunnel,
+                None => self.open_tunnel().await?,
+            };
+            let mut refused = false;
             let outcome = async {
                 let req = self.ws_request(
                     &format!("ws://127.0.0.1:{remote_port}"),
@@ -1386,13 +1457,22 @@ impl Peer {
                 )
                 .await
                 .map_err(|_| connect_timed_out(self.timings.connect))?
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| {
+                    refused = tokens::refused(&e);
+                    e.to_string()
+                })?;
                 self.serve(ws, out_rx).await
             }
             .await;
             // End the owned SSH process now, including when its next attempt is an hour away.
-            if let Some(mut child) = self.tunnel.lock().await.take() {
-                let _ = child.start_kill();
+            self.end_tunnel().await;
+            if refused {
+                self.read_tokens.forget();
+                // Kept tokens the remote no longer takes: read them again and retry once, now.
+                if kept && !self.stop.load(Ordering::SeqCst) {
+                    tracing::info!(peer = %self.name, "the remote refused the kept token; reading it again");
+                    continue;
+                }
             }
             return match outcome {
                 Ok(end) => Ok(end),
@@ -1721,6 +1801,7 @@ impl Peer {
                 let live = me.link_epoch() == link;
                 if live {
                     me.connected.store(true, Ordering::SeqCst);
+                    me.linked_once.store(true, Ordering::SeqCst);
                     l.ready(crate::store::now_ms());
                 }
                 live
@@ -2287,6 +2368,9 @@ fn too_large(e: &RpcError) -> bool {
     e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
         == Some("message.too_large")
 }
+
+/// How long a tunnel opened beside the token read may wait for it (`Peer::connect_once`).
+const EARLY_TUNNEL_FOR: Duration = Duration::from_secs(3);
 
 /// The waits before each reread of a remote that has no peer token yet
 /// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
