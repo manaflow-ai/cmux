@@ -112,6 +112,8 @@ extension TabStripView {
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
+        // A tab that moved to another pane is shown there: it leaves here with no close (`departures`).
+        let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !model.departures.contains($0) }
         let structureAnimates = !(adding || removing) || Motion.tabs.animates(.newTab)
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
@@ -124,7 +126,7 @@ extension TabStripView {
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            if cellsAnimate {
+            if cellsAnimate, !model.departures.contains(id) {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
@@ -136,6 +138,8 @@ extension TabStripView {
                 removeTab(id)
             }
         }
+        // A departure ends when its tab left the model (shown or not: a torn-out tab has no cell).
+        if !model.departures.isEmpty { model.departures.formIntersection(modelOrdered.map(\.id)) }
 
         var added: Set<TabID> = []
         for item in ordered {
@@ -183,7 +187,7 @@ extension TabStripView {
         newTabMenuButton.isHidden = !model.showsNewTabButton || !showsNewTabMenuButton
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
-                 token: cellsAnimate && removing && !adding ? .tabClose : nil)
+                 token: cellsAnimate && closing && !adding ? .tabClose : nil)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {

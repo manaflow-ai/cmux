@@ -47,4 +47,22 @@ extension PaneController {
             workspace.layoutModel.settlePaneClose(close)
         }
     }
+
+    /// Tab `id` leaves this pane by a move, not a close (Leo 2026-11-07: "it's trying to play the
+    /// close animation when there's no need to play that at all"): the strip drops it with no close
+    /// and its other tabs close up (`TabStripModel.departures`). When the move's destination shows
+    /// in this turn (`closesPane`) and the tab is the strip's last, the pane leaves now too, on the
+    /// close's one motion, instead of sitting empty until the daemon's tree and then closing.
+    func showDeparture(_ id: StripTabID, closesPane: Bool) -> PendingPaneClose? {
+        stripModel.departures.insert(id)
+        // The strip's tabs, not the daemon's: a pane that also shows an app-local tab stays.
+        let empties = stripModel.tabs.count == 1 && stripModel.tab(id) != nil
+        return closesPane && empties ? showPaneClose() : nil
+    }
+
+    /// The move's outcome: a refused move shows the pane again, and the tab closes as usual later.
+    func finishDeparture(_ id: StripTabID, paneClose: PendingPaneClose?, ok: Bool) {
+        if !ok { stripModel.departures.remove(id) }
+        finishPaneClose(paneClose, failed: !ok)
+    }
 }
