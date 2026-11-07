@@ -846,6 +846,13 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
  * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
  * tree it reads is the snapshot's: nothing else runs on the builder in between.
  */
+/** The error the collect throws when a step rejected, if any: a step that ran and failed wins over the other step's
+ * cut connection, so inventory.ts never retries past a guest failure. */
+export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unknown>>): unknown {
+  const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected").map((s) => s.reason as unknown);
+  return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -865,8 +872,8 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
   ].join(" && "))]);
-  const failed = settled.find((s) => s.status === "rejected");
-  if (failed) throw failed.reason;
+  const failed = inventoryFailure(settled);
+  if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();

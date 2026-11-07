@@ -21,6 +21,9 @@ export function retriesInventory(error: unknown, attempt: number): boolean {
   if (attempt >= INVENTORY_TRIES) return false;
   const text = String(error);
   if (/\bstep \S+ failed\b/.test(text)) return false;
+  // freestyle's FreestyleApiError carries the HTTP status apart from its prose message (cleanup.ts notFound).
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 502 || status === 503 || status === 504) return true;
   return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
 }
 
