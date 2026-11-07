@@ -194,11 +194,13 @@ describe("cmux VM image apt index", () => {
 
 describe("cmux VM image snapshot-ready check", () => {
   const homes = [CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME];
-  async function ready(root: string, acpmuxRunning = true) {
+  async function ready(root: string, acpmuxRunning = true, findFails = false) {
     const bin = path.join(root, "stub-bin");
     mkdirSync(bin, { recursive: true });
     writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     writeFileSync(path.join(bin, "pgrep"), `#!/bin/sh\nexit ${acpmuxRunning ? 0 : 1}\n`, { mode: 0o755 });
+    // A scan error (an unreadable tree), whoever runs the test: root reads through a chmod 000.
+    if (findFails) writeFileSync(path.join(bin, "find"), "#!/bin/sh\necho 'find: Permission denied' >&2\nexit 1\n", { mode: 0o755 });
     return runChild("bash", ["-c", bake.snapshotReadyCommand(root)], {
       env: { PATH: `${bin}:/usr/bin:/bin`, HOME: root },
       timeout: 20_000,
@@ -255,6 +257,18 @@ describe("cmux VM image snapshot-ready check", () => {
         homes.map((h) => `${h}/${rel}`),
         "per-machine identity in the snapshot",
       );
+  });
+
+  test("refuses when the identity tree exists but cannot be scanned (fails closed)", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "snapshot-ready-"));
+    try {
+      for (const h of homes) mkdirSync(path.join(root, h, ".local/state/cmux/remote"), { recursive: true });
+      const result = await ready(root, true, true);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("cannot scan");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("runs right before the snapshot, after the page cache warm and before the machine-health arm", () => {

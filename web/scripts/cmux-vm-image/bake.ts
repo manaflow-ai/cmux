@@ -362,8 +362,10 @@ export function snapshotReadyCommand(root = ""): string {
     "pgrep -f '[a]cpmux daemon run' >/dev/null",
     `for f in ${files}; do if [ -e "$f" ]; then echo "per-machine file in the snapshot: $f" >&2; exit 1; fi; done`,
     `state=${sq(root)}"$CMUX_TUI_HOME/.local/state"`,
-    // `|| true`: ls exits 2 for a missing file, which would end the && chain with no message.
-    'held="$({ find "$state/cmux/remote" -name identity.json; ls "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper"; } 2>/dev/null || true)"',
+    // Fail closed: a missing tree holds nothing, but one that exists and cannot be scanned refuses the snapshot.
+    'held=""',
+    'if [ -e "$state/cmux/remote" ] || [ -L "$state/cmux/remote" ]; then held="$(find "$state/cmux/remote" -name identity.json)" || { echo "cannot scan $state/cmux/remote for per-machine identity" >&2; exit 1; }; fi',
+    'for f in "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper"; do if [ -e "$f" ] || [ -L "$f" ]; then held="$held $f"; fi; done',
     'if [ -n "$held" ]; then echo "per-machine identity in the snapshot: $held" >&2; exit 1; fi',
     "echo snapshot-ready",
   ].join(" && ");
