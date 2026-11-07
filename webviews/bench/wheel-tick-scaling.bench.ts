@@ -230,7 +230,14 @@ async function tickRun({
   const tick = (lines: number) => {
     ticks += 1;
     scroller.dispatchEvent(
-      new WheelEvent("wheel", { deltaY: lines, deltaMode: 1, cancelable: true, bubbles: true, clientX: 10, clientY: 10 }),
+      new WheelEvent("wheel", {
+        deltaY: lines,
+        deltaMode: 1,
+        cancelable: true,
+        bubbles: true,
+        clientX: 10,
+        clientY: 10,
+      }),
     );
   };
   /// After a tick: frames until the first move (the response), then until the glide rests for 6 frames.
@@ -439,7 +446,10 @@ try {
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
     const seeded = (await page.evaluate(
-      (turns) => (window as unknown as { cmuxAcpmuxDebug: { loadSeed(turns: number): Promise<unknown> } }).cmuxAcpmuxDebug.loadSeed(turns),
+      (turns) =>
+        (
+          window as unknown as { cmuxAcpmuxDebug: { loadSeed(turns: number): Promise<unknown> } }
+        ).cmuxAcpmuxDebug.loadSeed(turns),
       turns,
     )) as { error?: string; session: string; rows: number; open_ms: number };
     if (seeded.error) throw new Error(`wheel-tick-scaling: seed ${turns}: ${seeded.error}`);
@@ -490,7 +500,9 @@ try {
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
     if ((INPUT === "precise" ? run.moved_frames === 0 : run.response_frames.p50 === 0) || run.frames < ROUNDS * 4)
-      throw new Error(`wheel-tick-scaling: ${turns} turns: the ticks did not move the transcript ${JSON.stringify(run)}`);
+      throw new Error(
+        `wheel-tick-scaling: ${turns} turns: the ticks did not move the transcript ${JSON.stringify(run)}`,
+      );
     const result = { turns, open_ms: seeded.open_ms, ...run };
     results.push(result);
     const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
@@ -515,8 +527,15 @@ try {
   const last = results.at(-1)!;
   if (results.length > 1) {
     const ratio = Math.round((last.work.p95 / Math.max(0.01, first.work.p95)) * 100) / 100;
-    console.log(`wheel-tick-scaling ${ENGINE} ${MODE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`);
-    perfRow({ name: `wheel_tick.${ENGINE}.${MODE}${INPUT === "precise" ? ".precise" : ""}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
+    console.log(
+      `wheel-tick-scaling ${ENGINE} ${MODE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`,
+    );
+    perfRow({
+      name: `wheel_tick.${ENGINE}.${MODE}${INPUT === "precise" ? ".precise" : ""}.scaling.work_p95_ratio`,
+      p95: ratio,
+      unit: "x",
+      target: 1.2,
+    });
   }
   void TARGET_MS;
 } finally {
