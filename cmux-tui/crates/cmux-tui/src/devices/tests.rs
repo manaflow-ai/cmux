@@ -526,5 +526,41 @@ fn an_unreadable_removed_file_hides_nothing() {
     assert!(removed::ids_in(dir.path()).is_empty());
     removed::add_in(dir.path(), "m_9", 3).unwrap();
     assert!(removed::ids_in(dir.path()).contains("m_9"));
-    assert!(!dir.path().join(format!("{}.tmp", removed::FILE)).exists());
+    assert!(!dir.path().join(format!("{}.{}.tmp", removed::FILE, std::process::id())).exists());
+}
+
+/// Removing a joined machine without a revoke needs the hub's own list to show it revoked: a
+/// list that could not be read, or a machine still live or unknown, is never a quiet removal.
+#[test]
+fn only_a_machine_the_hub_lists_as_revoked_leaves_without_a_revoke() {
+    use super::removed::listed_revoked;
+    let rows = || {
+        Some(Ok(vec![
+            json!({"id": "m_gone", "state": "revoked"}),
+            json!({"id": "m_live", "state": "online"}),
+        ]))
+    };
+    assert!(listed_revoked(rows(), "m_gone").unwrap());
+    assert!(!listed_revoked(rows(), "m_live").unwrap(), "a live machine is revoked first");
+    assert!(!listed_revoked(rows(), "m_unknown").unwrap(), "an unknown id proves nothing");
+    assert!(listed_revoked(Some(Err("hub down".into())), "m_gone").is_err(), "an unread list");
+    assert!(listed_revoked(None, "m_gone").is_err(), "signed out");
+}
+
+/// Removals at once all stay recorded: the read, append and write hold the file's lock.
+#[test]
+fn removals_at_once_all_stay_recorded() {
+    use super::removed;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let threads: Vec<_> = (0..16)
+        .map(|n| {
+            let path = path.clone();
+            std::thread::spawn(move || removed::add_in(&path, &format!("m_{n}"), n).unwrap())
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert_eq!(removed::ids_in(&path).len(), 16);
 }

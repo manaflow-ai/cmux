@@ -619,8 +619,23 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
     }
     let Some(device) = model::find(&listing, key).cloned() else {
         // A joined machine the list no longer offers (revoked, so it lets nothing in) still
-        // shows in `machine list` as revoked: removing it only takes it off the lists.
+        // shows in `machine list` as revoked: removing it only takes it off the lists. Only
+        // the hub's own list says it is revoked; one already removed stays removed.
         if let Some(machine_id) = key.strip_prefix("joined:").filter(|id| !id.is_empty()) {
+            if !removed::ids().contains(machine_id) {
+                #[cfg(unix)]
+                let rows = crate::cli::joined_machine_rows(
+                    auth.platform.as_deref(),
+                    auth.credential.clone(),
+                );
+                #[cfg(not(unix))]
+                let rows = None;
+                if !removed::listed_revoked(rows, machine_id)? {
+                    bail!(
+                        "{machine_id} is not a revoked machine of this team (cmux machine list shows them)"
+                    );
+                }
+            }
             removed::add(machine_id)?;
             record("device.removed", json!({"device": key, "done": ["leave the machine list"]}));
             if flags.has("json") {

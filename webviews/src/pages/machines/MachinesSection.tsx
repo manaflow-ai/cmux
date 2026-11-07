@@ -4,7 +4,7 @@
 // line. New Workspace (and a joined machine's "…") show on the row's hover, keyboard focus, or while
 // its menu is open; the menus are the app's native registry menus. Rows past the viewport skip
 // layout and paint (`content-visibility`), so the cost of a frame stays that of the visible rows.
-import { memo, useSyncExternalStore, type MouseEvent } from "react";
+import { memo, useRef, useSyncExternalStore, type MouseEvent } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Dialog } from "../../ui/Dialog";
@@ -75,8 +75,10 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
   );
 }
 
-/** Remove's question: what it does, Cancel (Escape) and Remove (Return), as the app's dialogs ask. */
+/** Remove's question: what it does, Cancel (Escape) and Remove (Return), as the app's dialogs ask.
+ * Remove takes the focus and is the form's submit, so Return removes and Escape cancels. */
 function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Strings; store: MachinesStore }) {
+  const confirm = useRef<HTMLButtonElement | null>(null);
   return (
     <Dialog
       open
@@ -85,22 +87,30 @@ function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Str
       }}
       label={strings.format("machines.joined.removeTitle", row.name)}
       className="machines-dialog"
+      initialFocus={confirm}
     >
-      <h2 className="machines-dialog-title">{strings.format("machines.joined.removeTitle", row.name)}</h2>
-      <p className="machines-dialog-body">{strings.t("machines.joined.removeBody")}</p>
-      <div className="machines-dialog-actions">
-        <DialogButton dialogKey="escape" className="machines-dialog-button" onClick={() => store.cancelRemove()}>
-          {strings.t("machines.joined.cancel")}
-        </DialogButton>
-        <DialogButton
-          dialogKey="return"
-          className="machines-dialog-button"
-          data-danger=""
-          onClick={() => void store.remove(row.id)}
-        >
-          {strings.t("machines.joined.removeButton")}
-        </DialogButton>
-      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void store.remove(row.id);
+        }}
+      >
+        <h2 className="machines-dialog-title">{strings.format("machines.joined.removeTitle", row.name)}</h2>
+        <p className="machines-dialog-body">{strings.t("machines.joined.removeBody")}</p>
+        <div className="machines-dialog-actions">
+          <DialogButton
+            dialogKey="escape"
+            type="button"
+            className="machines-dialog-button"
+            onClick={() => store.cancelRemove()}
+          >
+            {strings.t("machines.joined.cancel")}
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" ref={confirm} className="machines-dialog-button" data-danger="">
+            {strings.t("machines.joined.removeButton")}
+          </DialogButton>
+        </div>
+      </form>
     </Dialog>
   );
 }

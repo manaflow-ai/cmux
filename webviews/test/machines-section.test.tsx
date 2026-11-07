@@ -193,6 +193,10 @@ test("Remove asks first, then the joined row leaves in the same frame, before th
   const remove = [...dialog.querySelectorAll<HTMLElement>("button")].find((button) =>
     button.textContent?.startsWith("Remove"),
   )!;
+  // Return presses Remove: it holds the focus and is the form's submit.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  expect(host.ownerDocument.activeElement).toBe(remove);
+  expect(remove.getAttribute("type")).toBe("submit");
   await act(async () => remove.click());
   // Gone now, while the host still works on it.
   expect(host.querySelectorAll(".machines-row")).toHaveLength(before - 1);
