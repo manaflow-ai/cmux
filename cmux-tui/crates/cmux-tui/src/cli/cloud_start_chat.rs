@@ -487,6 +487,7 @@ fn signed_out(error: &Value) -> bool {
         || code == "auth.required"
         || message.contains("sign in to use cloud")
         || message.contains("cmux cloud sign-in")
+        || message.contains("cmux login")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -810,8 +811,8 @@ fn steps(
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
-            "cmux is signed out: run `cmux cloud sign-in`, then this command again",
-            json!({"sign_in": "cmux cloud sign-in"}),
+            "cmux is signed out: run `cmux login`, then this command again",
+            json!({"sign_in": "cmux login"}),
             1,
         );
     }
@@ -1164,7 +1165,7 @@ const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
 /// create row leaves `creating` and a machine of the run's `name`, or else the one machine the first list
 /// (`listed`) did not have, appears. Waits
 /// only while the `--timeout` deadline has time left, each pause bounded by it; `pending` is the answer
-/// when it runs out, or when the create left the list with no machine.
+/// when it runs out.
 fn await_created(
     runner: &mut dyn Runner,
     listed: &Value,
@@ -1224,7 +1225,7 @@ fn await_created(
         let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
         match new.as_slice() {
             [id] => return Ok(id.clone()),
-            [] if creation.is_some() => return Err(pending()),
+            // The create row can leave the list a moment before its machine is listed: read again.
             [] => {}
             _ => return Err(pending()),
         }
@@ -1776,8 +1777,8 @@ fn app_failure(error: Value) -> Outcome {
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
-            format!("{message} (run `cmux cloud sign-in`, then this command again)"),
-            json!({"sign_in": "cmux cloud sign-in", "app": error}),
+            format!("{message} (run `cmux login`, then this command again)"),
+            json!({"sign_in": "cmux login", "app": error}),
             1,
         );
     }

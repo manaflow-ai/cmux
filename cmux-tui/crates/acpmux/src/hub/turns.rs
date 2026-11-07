@@ -893,12 +893,20 @@ impl Hub {
         };
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
-            Err(e) => {
+            Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
-                    && self.hands_off(session)
-                {
+                let failed =
+                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
+                }
+                // Nor is it answered with what the shutdown did to its start (the agent it
+                // ended, a host detached before it answered: "no agent session"): the prompt
+                // hears the daemon is restarting, as one cut mid-turn does (chaos fault
+                // `daemon-restart-session-new`).
+                if !failed && self.shutting_down() && e.message != super::shutdown::SHUTTING_DOWN {
+                    tracing::info!(session = %session.id, "agent start ended by the shutdown: {e}");
+                    e = super::shutdown::shutting_down_error();
                 }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);

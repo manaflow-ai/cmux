@@ -656,7 +656,7 @@ fn a_signed_out_app_says_how_to_sign_in() {
         panic!()
     };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.signed_out"), 1));
-    assert!(error["message"].as_str().unwrap().contains("cmux cloud sign-in"));
+    assert!(error["message"].as_str().unwrap().contains("cmux login"));
 }
 
 #[test]
@@ -1269,6 +1269,27 @@ fn wait_covers_a_create_slower_than_the_apps_answer() {
     };
     assert_eq!(answer["reply"], "4");
     assert_eq!(answer["new_machine"], true);
+    assert_eq!(&fake.ran[4][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
+
+    // A list between the create row and its machine (neither listed) is read past, not the answer.
+    let gap = ok(json!({"account": {"signed_in": true}, "creating": [],
+                        "machines": [{"machine_id": "vm-0", "title": "dev"}]}));
+    let up = ok(json!({"account": {"signed_in": true}, "creating": [],
+                       "machines": [{"machine_id": "vm-0", "title": "dev"}, {"machine_id": "vm-1", "title": "chat-1"}]}));
+    let listed = ok(
+        json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}]}),
+    );
+    let mut fake = Fake::new(vec![
+        listed,
+        creating(),
+        gap,
+        up,
+        relayed(json!({"session_id": "relay-1", "reply": "4"})),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
     assert_eq!(&fake.ran[4][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
 
     // A create that fails says why and sends nothing.

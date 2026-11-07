@@ -70,17 +70,6 @@ nonisolated enum OmnibarSettingsSchema {
         ] + OmnibarLookSettingsSchema.descriptors
     }
 
-    /// Agents may change how many rows show and inline completion; the
-    /// engine and remote suggestions decide what leaves the machine.
-    static var agentSettableKeys: Set<String> {
-        Set(["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator", "browser.omnibar.showFullURLs"])
-            .union(OmnibarLookSettingsSchema.agentSettableKeys)
-    }
-
-    static var privacyKeys: [String] {
-        ["browser.searchEngine", "browser.customSearchEngine.search", "browser.customSearchEngine.suggest", "browser.omnibar.remoteSuggestions"]
-    }
-
     /// The diagnostic text for a refused value of `descriptor`.
     static func expectation(_ descriptor: SettingDescriptor) -> String {
         switch descriptor.kind {
