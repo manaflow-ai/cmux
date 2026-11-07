@@ -36,9 +36,27 @@ pub(super) fn run_dial_tcp(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let multiplexer = connected.runtime.multiplexer();
-        let client = WorkspaceClient::connect(multiplexer.clone()).await?;
-        let route = create_loopback_route(&client, workspace_root, host, port).await?;
         let mut finished = connected.runtime.subscribe_finished();
+        // Setup waits on the daemon too: a signal or a lost session must end a
+        // ProxyCommand whose workspace or route reply never comes.
+        let setup = async {
+            let client = WorkspaceClient::connect(multiplexer.clone()).await?;
+            let route = create_loopback_route(&client, workspace_root, host, port).await?;
+            anyhow::Ok((client, route))
+        };
+        let (client, route) = tokio::select! {
+            biased;
+            shutdown = crate::wait_for_shutdown_signal_async() => {
+                return match shutdown {
+                    Ok(()) => Err(anyhow!(messages.dial_tcp_interrupted)),
+                    Err(error) => Err(error.into()),
+                };
+            }
+            _ = finished.wait_for(|finished| *finished) => {
+                return Err(anyhow!(messages.dial_tcp_session_ended));
+            }
+            setup = setup => setup?,
+        };
         let outcome = if crate::shutdown_requested() {
             Err(anyhow!(messages.dial_tcp_interrupted))
         } else {
