@@ -52,6 +52,7 @@ function OmniboxField({
     <div className="bc-omnibox-field" data-resting={resting || undefined}>
       <input
         ref={inputRef}
+        id="browser.toolbar.omnibar"
         className="bc-omnibox-input"
         type="text"
         tabIndex={-1}

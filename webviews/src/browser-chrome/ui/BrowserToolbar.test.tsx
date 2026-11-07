@@ -169,11 +169,27 @@ test("while the field edits, a press on a pinned extension leaves the keys in th
   const sent: BrowserToolbarCommand[] = [];
   const doc = render(toolbar(sent, {}, "off", true));
   const action = doc.getElementById("browser.extension.action.abc")!;
-  const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
-  act(() => {
-    action.dispatchEvent(down);
-  });
-  expect(down.defaultPrevented).toBe(true);
+  const mouseDown = () => {
+    const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    act(() => {
+      action.dispatchEvent(down);
+    });
+    return down.defaultPrevented;
+  };
+  // At rest the press goes through, so a drag can reorder the extension.
+  expect(mouseDown()).toBe(false);
+  // While the field has the keys, the press keeps them there.
+  const field = doc.createElement("input");
+  doc.body.append(field);
+  field.focus();
+  expect(mouseDown()).toBe(true);
   press(action, "click");
   expect(sent).toEqual([{ type: "extensionAction", id: "abc" }]);
+});
+
+test("Back, Forward and Reload keep their native accessibility identifiers", () => {
+  const doc = render(toolbar([]));
+  for (const id of ["browser.toolbar.back", "browser.toolbar.forward", "browser.toolbar.reload"]) {
+    expect(doc.getElementById(id)).not.toBeNull();
+  }
 });
