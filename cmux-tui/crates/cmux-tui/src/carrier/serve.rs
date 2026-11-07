@@ -130,9 +130,13 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
             accepted = listener.listener().accept() => match accepted {
                 Ok((stream, _)) => {
                     backoff.reset();
+                    // The deadline runs from the accept, not from when the
+                    // task first runs.
+                    let deadline = Instant::now() + shared.deadline;
                     // One past the cap is closed at once.
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
-                        tasks.spawn(connection(stream, shared.clone(), stopped.clone(), permit));
+                        let task = connection(stream, deadline, shared.clone(), stopped.clone(), permit);
+                        tasks.spawn(task);
                     }
                 }
                 Err(error) => match backoff.retry_delay(&error) {
@@ -189,16 +193,19 @@ async fn read_stdin(source: &HttpSource) {
         }
         let complete = line.last() == Some(&b'\n');
         if !complete && line.len() > MAX_STDIN_LINE {
-            // The rest of an overlong line, up to its newline.
-            loop {
+            // The rest of an overlong line, up to its newline or the end.
+            let ended = loop {
                 line.clear();
                 match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(_) if line.last() == Some(&b'\n') => break,
+                    Ok(0) | Err(_) => break true,
+                    Ok(_) if line.last() == Some(&b'\n') => break false,
                     Ok(_) => {}
                 }
-            }
+            };
             reply(&contract::failure_line(BAD_REQUEST, Some("a stdin line is too long")));
+            if ended {
+                return;
+            }
             continue;
         }
         let text = line.strip_suffix(b"\n").unwrap_or(&line[..]);
@@ -217,6 +224,7 @@ async fn read_stdin(source: &HttpSource) {
 /// stream.
 async fn connection(
     stream: UnixStream,
+    deadline: Instant,
     shared: Arc<Shared>,
     mut stopped: watch::Receiver<bool>,
     _permit: OwnedSemaphorePermit,
@@ -225,7 +233,7 @@ async fn connection(
         machine: shared.machine.clone(),
         source: shared.source.clone(),
         identity: shared.identity.clone(),
-        deadline: Instant::now() + shared.deadline,
+        deadline,
         log: shared.log.clone(),
     };
     let dialed = tokio::select! {

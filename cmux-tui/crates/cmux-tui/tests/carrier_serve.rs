@@ -244,3 +244,19 @@ fn each_connected_connection_says_the_grant_s_vmk() {
     drop(child.stdin.take());
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
+
+#[test]
+fn an_overlong_last_stdin_line_is_refused_before_serve_exits() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all("x".repeat(40 * 1024).as_bytes()).unwrap();
+    drop(stdin);
+    let refused: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    assert_eq!(refused["error_code"], "bad_request", "{refused}");
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+    assert!(!socket.exists());
+}
