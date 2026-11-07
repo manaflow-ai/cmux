@@ -120,11 +120,14 @@
    "wait": 0.5
   },
   {
-   "title": "Right-click the subagent's tab: the tab menu, with Close Tab (debug.object_menu, the menu the strip's right-click builds)",
+   "title": "Right-click the subagent's tab (a right-button mouse event through the window, as a person's): the tab menu, with Close Tab",
    "rpc": {
-    "method": "debug.object_menu",
+    "method": "debug.mouse",
     "params": {
-     "menu": "tab"
+     "action": "click",
+     "button": "right",
+     "x": 780,
+     "y": 15
     }
    },
    "wait": 1.5
