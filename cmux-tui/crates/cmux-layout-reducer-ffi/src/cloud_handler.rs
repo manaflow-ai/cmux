@@ -81,7 +81,7 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "applyMachineConfig" => checked(args::apply_machine_config(given, &request.home)),
         "firewallRule" => checked(args::firewall_rule(given)),
         "newMachine" => checked(args::new_machine(given, &request.home)),
-        other => checked(args::needed(given, other)),
+        other => checked(args::needed(given, other, &request.names)),
     }
 }
 
