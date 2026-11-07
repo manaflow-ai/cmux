@@ -21,8 +21,9 @@ import Testing
     /// The ink of an icon's Line drawing on the 24 grid: the union of its fill layers' outlines.
     private static func ink(_ name: IconName) -> CGRect? {
         guard let drawing = IconPack.bundled.drawing(for: name) else { return nil }
-        return drawing.line.filter { $0.op == .fill }.compactMap { CGPath.icon($0.d)?.boundingBoxOfPath }
-            .reduce(nil) { $0.map { box in box.union($1) } ?? $1 }
+        let boxes = drawing.line.filter { $0.op == .fill }.compactMap { CGPath.icon($0.d)?.boundingBoxOfPath }
+        guard let first = boxes.first else { return nil }
+        return boxes.dropFirst().reduce(first) { union, box in union.union(box) }
     }
 
     @Test func everyToolbarGlyphHasTheBackArrowsInkBox() throws {
@@ -58,7 +59,7 @@ import Testing
     }
 
     /// The toolbar band and pane tab bar buttons draw their SF Symbols at the shared size and weight.
-    @Test func bandButtonsReadTheSharedSymbolToken() throws {
+    @Test func bandButtonsReadTheSharedSymbolToken() {
         for preset in DensityPreset.allCases {
             DensityTokens.$scoped.withValue(preset.tokens) {
                 let button = TitlebarBandButton(symbol: "chevron.left")
