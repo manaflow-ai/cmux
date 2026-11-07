@@ -427,6 +427,35 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
+// Review of #37516 (P1 at 8b9b479d): an oversized paste made in a code block has no place in the
+// text, so its chip waits in the strip. Keep as .txt puts the file where the chip was, the strip,
+// never at a caret outside the block: an undo there would take the file out with no chip to bring
+// back, and the paste would be gone from the draft.
+test("Keep as .txt on a chip with no place keeps its file through an undo", async () => {
+  const composer = await openComposer();
+  await showAttachments("inline");
+  await act(async () => composer.current!.restore("```\nlet x = 1\n```\n\nhello world", []));
+  await until(() => field().textContent?.includes("hello world") === true, "the prompt");
+  await act(async () => {
+    markdownField().focus();
+    markdownField().setCaret(2);
+  });
+  await paste(LOG);
+  const pasted = chips(composer).find((chip) => chip.kind === "pasted")!;
+  expect(placed()).not.toContain(pasted.id);
+  // The caret leaves the block before the click.
+  await act(async () => markdownField().selectAll());
+  await act(async () => keepButton("strip")!.click());
+  await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+  const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
+  await settle();
+  expect(placed()).not.toContain(file.id);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).some((chip) => chip.name === "Pasted text.txt" || chip.text === LOG)).toBe(true);
+  expect(markdownField().value()).toContain("hello world");
+});
+
 // ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's
 // text: no chip, no pasted block, sent as typed text is.
 const DICTATED =
