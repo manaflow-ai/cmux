@@ -12,7 +12,10 @@ struct HomePageAgentsTests {
     private func until(_ condition: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(10)
         while !condition() {
-            guard ContinuousClock.now < deadline else { return Issue.record("the condition never held") }
+            guard ContinuousClock.now < deadline else {
+                Issue.record("the condition never held")
+                return
+            }
             await Task.yield()
         }
     }
