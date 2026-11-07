@@ -192,7 +192,7 @@ final class TabHoverCardView: NSView {
         guard let item else { return }
         let lines = TabHoverCardLines.make(item, report: report, now: Date())
         titleLabel.stringValue = lines.title
-        setCardWidth(Self.width(forPlace: lines.place, textLeading: textLeading))
+        setCardWidth(Self.width(forPlace: lines.path, textLeading: textLeading))
         // Plain text under the title: the title's glyph is the card's one icon.
         set(placeRow, lines.place.map { HoverCardRowContent(text: $0) }, truncation: .byTruncatingMiddle)
         // The run state as a dot in its color, unless the title's indicator already shows it.

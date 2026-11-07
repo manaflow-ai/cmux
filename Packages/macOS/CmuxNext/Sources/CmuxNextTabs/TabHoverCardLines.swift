@@ -10,6 +10,8 @@ import Foundation
 struct TabHoverCardLines: Equatable {
     var title: String
     var place: String?
+    /// The part of `place` that is a path (a folder and branch, a page's host): only it widens the card.
+    var path: String? = nil
     var status: String?
     var detail: String?
     var memory: String?
@@ -29,6 +31,7 @@ struct TabHoverCardLines: Equatable {
         return TabHoverCardLines(
             title: title(item),
             place: badges.compactMap(\.self).nilIfEmpty,
+            path: where_,
             status: status(facts, now: now) ?? exitStatus(item) ?? output(facts, now: now),
             detail: item.statusDetail.flatMap { $0.isEmpty ? nil : $0 },
             memory: memory(item, report: report)

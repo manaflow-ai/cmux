@@ -79,6 +79,23 @@ import Testing
         #expect(f.panel.isVisible)
     }
 
+    /// Review of #37719 (F1): the panel is shared, so a fade right after a sliding card starts at rest.
+    @Test func aFadeAfterASlideStartsAtRest() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = Self.fixture()
+        defer { f.tearDown() }
+
+        f.show(.slide)
+        #expect(f.slideStart != nil)
+        f.panel.dismiss()
+        f.panel.orderOut(nil)
+        f.show(.fade)
+        #expect(f.slideStart == nil, "the fade kept the last card's slide")
+        let transform = try #require(f.panel.contentView?.layer).sublayerTransform
+        #expect(CATransform3DIsIdentity(transform), "the fading card is off its rest place")
+    }
+
     @Test func aSlidingCardKeepsTheStandardEntrance() {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }

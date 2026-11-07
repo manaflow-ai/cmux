@@ -67,6 +67,13 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     public func enter(_ panel: NSWindow, placement: HoverCardPlacement, leading: Bool = false, slides: Bool = true) {
         Motion.withoutAnimation { panel.animator().alphaValue = 0 }
         panel.orderFront(nil)
+        // The panel is shared: a fade or a grow starts at rest, never inside the last card's slide.
+        if !slides, let layer = panel.contentView?.layer {
+            Motion.hoverCards.transaction(nil) {
+                layer.removeAnimation(forKey: "sublayerTransform")
+                layer.sublayerTransform = CATransform3DIdentity
+            }
+        }
         if slides, let layer = panel.contentView?.layer {
             let offset = entryVector(for: placement, leading: leading)
             Motion.hoverCards.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: entrySpring,

@@ -35,6 +35,18 @@ import Testing
         #expect(abs(huge - TabHoverCardView.maxWidth) < 0.5, "the cap is \(TabHoverCardView.maxWidth) pt, the card \(huge) pt")
     }
 
+    /// Review of #37719 (F2): a machine or profile badge on the place row is no path; only the path widens the card.
+    @Test func aLongBadgeDoesNotWidenTheCard() {
+        var item = TabItem(id: TabID("remote"), title: "build", subtitle: "~/src", icon: .icon(.agentChat))
+        item.machineBadgeHelp = "On the machine named my-very-long-remote-build-host-in-another-region"
+        item.hover = TabHoverFacts(kind: .terminal)
+        let card = TabHoverCardView()
+        card.configure(.tab(item))
+        card.setThumbnailVisible(false)
+        card.layoutSubtreeIfNeeded()
+        #expect(abs(card.fittingSize.width - Metrics.tabMaxWidth) < 0.5, "a badge widened the card to \(card.fittingSize.width) pt")
+    }
+
     @Test func onlyTheTitleHasAGlyph() {
         let card = card(subtitle: "~/Projects")
         #expect(!card.kindIcon.isHidden, "the title lost the tab's own glyph")
