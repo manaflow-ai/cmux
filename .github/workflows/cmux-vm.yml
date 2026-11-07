@@ -786,7 +786,9 @@ jobs:
   journey-production:
     needs: deploy-production
     # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
-    if: ${{ !cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success' }}
+    if: >-
+      (!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success') &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-next-cloud-journey
