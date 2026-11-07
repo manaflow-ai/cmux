@@ -163,6 +163,8 @@ function InboxThreadLine({
     <AgentMessageRow
       direction="received"
       className="cv-received cv-inbox__thread"
+      // Find counts the thread's messages, never the line that sums them up (IncomingMessageCard.tsx).
+      lineAttributes={{ "data-find-skip": "" }}
       icon={<ReceivedMark message={sender} />}
       // The sender named once, first, as every received line reads (cmux#25002, #32711): the
       // family mark before it says which way the message went.

@@ -233,6 +233,8 @@ export function AgentMessageRow({
         <div
           className={`cv-msgline__preview cv-agentmsg__below${belowClassName ? ` ${belowClassName}` : ""}`}
           aria-hidden
+          // A copy of the card's first line, as the line's preview is: Find counts the card's words.
+          data-find-skip=""
           onClick={collapse.toggle}
         >
           {below}

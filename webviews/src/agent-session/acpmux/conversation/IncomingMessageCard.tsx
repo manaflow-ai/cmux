@@ -642,6 +642,10 @@ export function IncomingMessageLine({
       <AgentMessageRow
         direction="received"
         className="cv-received"
+        // Find counts the message's text (chatFind.ts rowText), never the line that sums it up: the
+        // sender's chip and machine and the first line add no matches, as DisclosureRow's line added
+        // none (cmux#37653 review).
+        lineAttributes={{ "data-find-skip": "" }}
         icon={<ReceivedMark message={message} />}
         // The sender named once, first, as every received line reads (cmux#25002, #32711): the
         // family mark before it says which way the message went.

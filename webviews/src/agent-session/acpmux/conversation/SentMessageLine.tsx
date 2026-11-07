@@ -240,6 +240,9 @@ export function SentMessageLine({
       className={`cv-received cv-sent-msg look-${look}${state === "sending" ? " is-live" : ""}`}
       attributes={{ "data-send-state": state }}
       lineClassName="cv-sent"
+      // Find counts the send, never the line that sums it up, as DisclosureRow's line added no
+      // matches (IncomingMessageCard.tsx).
+      lineAttributes={{ "data-find-skip": "" }}
       previewClassName="cv-received__preview cv-sent__preview"
       belowClassName="cv-sent__below"
       icon={
