@@ -50,6 +50,15 @@
  * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
  * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
  *
+ * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
+ * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
+ * or by default the shared model stub with the journey's nonce, as `stub`), and CMUX_BIN runs `cmux inference setup
+ * --gateway-machine` (the install token in a 0600 file), which names it, starts `cmux inference gateway` there and
+ * checks one real call from the chat machine. The chat's model calls then go chat machine -> coderouter edge -> cmux
+ * (InferenceGateway) -> gateway machine -> proxy. Checked: the reply (with the stub, its nonce and tool round trip),
+ * the gateway's log line for the chat machine's /v1/responses or /v1/messages, the proxy's own log, and that the chat
+ * machine has no login file. The gateway machine is deleted with the chat machine.
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
@@ -716,6 +725,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
   const modelStub = argValue("--model", argv) === "stub";
+  const gatewayCmux = argValue("--gateway", argv);
+  const gatewayUpstream = argValue("--gateway-upstream", argv) ?? "stub";
+  // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
+  const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
@@ -748,6 +761,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const api = new Api(backend.api, team);
   let machine: string | null = null;
+  let gatewayMachine: string | null = null;
   let deleted = false;
   let cleaned = false;
   let headlessLink: HeadlessLink | null = null;
@@ -758,8 +772,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await headlessLink.close().catch(() => undefined);
       headlessLink = null;
     }
-    if (cleaned || keep || deleted || !api.bearer) return;
+    if (cleaned || keep || !api.bearer) return;
     cleaned = true;
+    if (gatewayMachine) {
+      const g: string = gatewayMachine;
+      await J.step("delete gateway machine (cleanup)", async () => {
+        await api.op("cloud.machine.delete", { machine: g }, `${tag}-gw-delete`);
+        return { value: null, detail: g };
+      }).catch(() => undefined);
+    }
+    if (deleted) return;
     let id = machine;
     if (!id) {
       const v = await api.read("cloud.machine.list", {}).catch(() => null);
@@ -895,7 +917,59 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    if (!provider || only.has("chat") || only.has("login")) {
+    const gwLog = "/home/cmux/.cache/cmux/inference-gateway.log";
+    const gwStubLog = "/home/cmux/.cmux/gateway-proxy-stub.log";
+    let gwExec: Exec | null = null;
+    if (gatewayCmux) {
+      const g = await J.step("gateway machine", async () => {
+        const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        gatewayMachine = v.machine.id as string;
+        const m = await waitMachine(api, gatewayMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+        return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
+      });
+      gwExec = directExec(api, g.id, J);
+      let upstream = gatewayUpstream;
+      if (gatewayStub) {
+        // The person's own proxy, as they would run it on their gateway machine: here the shared model stub.
+        upstream = await J.step("the person's proxy on the gateway machine (stub)", async () => {
+          const file = "/home/cmux/.cmux/gateway-proxy-stub.py";
+          const script = "/home/cmux/.cmux/gateway-proxy-stub.json";
+          const ready = "/home/cmux/.cmux/gateway-proxy-stub.ready";
+          for (const [p, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+            const w = await api.raw("POST", `/v1/cloud/machines/${g.id}/fs/write`, { path: p, dataBase64: data.toString("base64"), mode: 0o644 });
+            if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${p}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+          }
+          const r = await gwExec!(
+            `mkdir -p /home/cmux/.cmux; rm -f ${shq(gwStubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(gwStubLog)} --ready-file ${shq(ready)} >${shq(gwStubLog)}.out 2>&1 &); ` +
+              `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+              `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+              `[ -n "$port" ] && echo "@@port $port" || { echo stub-down; tail -5 ${shq(gwStubLog)}.out; exit 1; }`,
+          );
+          const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+          if (!port) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)}`);
+          return { value: `http://127.0.0.1:${port}`, detail: `the model stub at 127.0.0.1:${port} on the gateway machine, nonce ${nonce}` };
+        });
+      }
+      await J.step("cmux inference setup (gateway machine)", async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-"));
+        const tokenFile = path.join(dir, "token");
+        writeFileSync(tokenFile, install.token, { mode: 0o600 });
+        try {
+          const args = ["inference", "setup", "--machine", created.id, "--gateway-machine", g.id, "--upstream", upstream, "--path", "gateway", "--api", backend.api, "--token-file", tokenFile];
+          if (team) args.push("--team", team);
+          const r = spawnSync(gatewayCmux, args, { encoding: "utf8", timeout: 600_000, env: { PATH: process.env.PATH ?? "", HOME: dir } });
+          const out = scrub(`${r.stdout ?? ""}${r.stderr ?? ""}`, J.secrets);
+          if (r.status !== 0 || !out.includes("Path: gateway")) throw new Error(`exit ${r.status}: ${out.slice(-600)}`);
+          return { value: null, detail: out.trim().split("\n").filter((l) => l.startsWith("Path:") || l.startsWith("This machine")).join(" ").slice(0, 300) };
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+    }
+
+    if (gatewayCmux) {
+      J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
+    } else if (!provider || only.has("chat") || only.has("login")) {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
     } else if (!login) {
       J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
@@ -1021,7 +1095,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
-    const lifecycle = provider && !only.has("chat") && !only.has("lifecycle");
+    const lifecycle = provider && !gatewayCmux && !only.has("chat") && !only.has("lifecycle");
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
@@ -1037,7 +1111,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("reply", async () => {
         const last = await awaitReply();
         // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
-        if (modelStub && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
+        if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
         return { value: last, detail: last.slice(0, 280) };
       });
       if (modelStub && provider) {
@@ -1052,6 +1126,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent})`);
           if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
           return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
+        });
+      }
+      if (gwExec) {
+        await J.step("gateway: the call went through it", async () => {
+          const route = provider === "claude" ? "/v1/messages" : "/v1/responses";
+          const r = await gwExec!(`cat ${shq(gwLog)} 2>/dev/null`);
+          const line = r.stdout.split("\n").find((l) => l.includes(`${created.id} POST ${route}`) && / -> 200 /.test(l));
+          if (!line) throw new Error(`no ${route} call from ${created.id} answered 200 in the gateway's log: ${r.stdout.slice(-400)}`);
+          if (gatewayStub) {
+            const s = await gwExec!(`cat ${shq(gwStubLog)} 2>/dev/null`);
+            const rows = s.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+            if (!rows.some((x: any) => x.method === "POST" && String(x.path).startsWith(route) && x.stream)) throw new Error("the proxy on the gateway machine logged no streamed model request");
+          }
+          return { value: null, detail: `chat machine -> edge -> cmux -> gateway machine -> proxy: ${line.replace(/^.*?: /, "").slice(0, 160)}` };
+        });
+        await J.step("the chat machine holds no login", async () => {
+          const r = await exec(
+            `H=/home/cmux; for f in "$H/.codex/auth.json" "$H/.claude/.credentials.json"; do [ -e "$f" ] && echo "has $f"; done; ` +
+              `grep -qs CLAUDE_CODE_OAUTH_TOKEN "$H/.claude/settings.json" && echo "has CLAUDE_CODE_OAUTH_TOKEN"; ` +
+              `grep -rlsE '"refresh_token"|sk-ant-oat' "$H/.codex" "$H/.claude" "$H/.config/cmux" 2>/dev/null | sed 's/^/has /'; echo "@@done"`,
+          );
+          if (!r.stdout.includes("@@done")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+          const found = r.stdout.split("\n").filter((l) => l.startsWith("has "));
+          if (found.length) throw new Error(`the chat machine holds a login: ${found.join(", ")}`);
+          return { value: null, detail: "no ~/.codex/auth.json, no ~/.claude/.credentials.json, no OAuth or refresh token in the harness folders" };
         });
       }
       if (!lifecycle) {

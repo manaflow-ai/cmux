@@ -44,6 +44,8 @@ pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
 pub mod daemon_noise_key;
+#[cfg(target_os = "linux")]
+pub mod gateway_token;
 pub mod github;
 #[cfg(unix)]
 pub mod github_minter;
@@ -58,8 +60,6 @@ pub mod receiver_agent;
 mod receiver_files;
 #[cfg(target_os = "linux")]
 mod receiver_lifecycle;
-#[cfg(target_os = "linux")]
-pub mod gateway_token;
 #[cfg(unix)]
 pub mod relay;
 #[cfg(target_os = "linux")]

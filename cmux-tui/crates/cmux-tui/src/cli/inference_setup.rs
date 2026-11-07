@@ -169,6 +169,9 @@ pub(super) fn parse(
             if !matches!(url.scheme(), "http" | "https") || url.query().is_some() || u.contains(['\'', '"', ' ']) {
                 return Err("--upstream must be an http(s) URL with no query".into());
             }
+            if !url.username().is_empty() || url.password().is_some() {
+                return Err("--upstream takes no user or password; put the key in --upstream-key-file".into());
+            }
             if key_file.as_deref().is_some_and(|k| !k.starts_with('/') || k.contains(['\'', '"', ' '])) {
                 return Err("--upstream-key-file must be an absolute path on the gateway machine".into());
             }
@@ -580,6 +583,8 @@ mod tests {
             "http://x/'y",
         ];
         assert!(parse(&args(&quoted), &none).is_err());
+        let userinfo = quoted.map(|a| if a == "http://x/'y" { "https://u:secret@x" } else { a });
+        assert!(parse(&args(&userinfo), &none).is_err());
         assert!(
             parse(
                 &args(&[
