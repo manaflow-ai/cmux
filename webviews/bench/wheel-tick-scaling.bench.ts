@@ -278,7 +278,7 @@ type ProfileNode = {
 async function printProfile(
   server: ViteDevServer,
   turns: number,
-  profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] },
+  profile: { nodes: ProfileNode[]; samples?: number[]; timeDeltas?: number[] },
 ) {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const maps = new Map<string, SourceMapConsumer | null>();
@@ -307,9 +307,9 @@ async function printProfile(
   const self = new Map<string, number>();
   const callers = new Map<string, Map<string, number>>();
   let total = 0;
-  profile.samples.forEach((id, index) => {
+  (profile.samples ?? []).forEach((id, index) => {
     const node = byId.get(id);
-    const ms = (profile.timeDeltas[index] ?? 0) / 1000;
+    const ms = (profile.timeDeltas?.[index] ?? 0) / 1000;
     if (!node) return;
     const { functionName, url } = node.callFrame;
     if (functionName === "(idle)" || functionName === "(program)") return;
