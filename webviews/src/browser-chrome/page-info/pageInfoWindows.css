@@ -1,0 +1,254 @@
+/* PAGE INFO WINDOWS (SiteSettingsWindow.tsx, SiteDataWindow.tsx, CertificateViewer.tsx): the content
+   of the native windows, drawn over the window's own surface. The native windows' metrics: an 18 pt
+   inset (PageInfoStyle.inset x 1.5), 6 pt between lines, section titles at the header step, rows
+   on the bubble's 28 / 42 pt scale. Theme grays only; danger is the theme's red. */
+.piw {
+  --piw-inset: 18px;
+  --piw-gap: 6px;
+  --piw-row: 28px;
+  --piw-row-subtitle: 42px;
+  --piw-row-inset: 6px;
+  --piw-icon-column: 20px;
+  --piw-row-gap: 2px;
+  --piw-fields-height: 150px; /* the native Details table's least height */
+  --piw-value-height: 96px; /* the native Field Value box */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--piw-gap);
+  padding: var(--piw-inset);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  outline: none;
+}
+
+.piw-section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--piw-gap);
+}
+.piw-section + .piw-section {
+  margin-block-start: var(--piw-inset);
+}
+.piw-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--text-heading--line-height);
+}
+.piw-muted {
+  margin: 0;
+  color: var(--ds-color-muted);
+}
+.piw-caption {
+  margin: 0;
+  color: var(--ds-color-faint);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.piw-danger {
+  color: var(--ds-color-danger);
+}
+.piw-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+/* Grouped: each section on an inset card. */
+.piw[data-look="grouped"] .piw-section {
+  align-items: stretch;
+  padding: var(--piw-row-inset) calc(var(--piw-row-inset) * 2) calc(var(--piw-row-inset) * 2);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-hover);
+}
+.piw[data-look="grouped"] .piw-section > .ui-btn,
+.piw[data-look="grouped"] .piw-section > .ui-dialog-button {
+  align-self: flex-start;
+}
+.piw[data-look="grouped"] .piw-section + .piw-section {
+  margin-block-start: var(--piw-gap);
+}
+
+/* ROWS: icon column, title over subtitle, a trailing control. */
+.piw-list {
+  display: flex;
+  align-self: stretch;
+  flex-direction: column;
+  align-self: stretch;
+  gap: var(--piw-row-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.piw-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--piw-row-inset);
+  min-height: var(--piw-row);
+  padding-inline: var(--piw-row-inset);
+  border-radius: var(--ds-radius-sm);
+}
+.piw-row[data-subtitle] {
+  min-height: var(--piw-row-subtitle);
+}
+.piw-list[data-divided] > .piw-row + .piw-row {
+  border-block-start: 1px solid var(--ds-color-separator);
+  border-radius: 0;
+}
+.piw-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--piw-icon-column);
+}
+.piw-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.piw-row-title,
+.piw-row-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.piw-row-subtitle {
+  color: var(--ds-color-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.piw-row > .ui-select,
+.piw-row > .piw-segments,
+.piw-row > .ui-btn {
+  flex: none;
+}
+
+/* Compact: the details trail the domain on one 28 pt line. */
+.piw[data-look="compact"] .piw-row[data-subtitle] {
+  min-height: var(--piw-row);
+}
+.piw[data-look="compact"] .piw-row-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--piw-row-inset);
+}
+.piw[data-look="compact"] .piw-row-title {
+  flex: none;
+  max-width: 55%;
+}
+.piw[data-look="compact"] .piw-row-subtitle {
+  flex: 1;
+  text-align: end;
+}
+
+/* Site settings: every value menu one width (the widest choice), so the menus align. */
+.piw-permissions .ui-select-button {
+  min-width: 11em;
+}
+.piw-segments {
+  display: inline-flex;
+  gap: var(--piw-row-gap);
+  padding: var(--piw-row-gap);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-hover);
+}
+.piw-segments > .ui-btn[aria-pressed="true"] {
+  background: var(--ds-color-fg);
+  color: var(--ds-color-elevated);
+}
+
+/* Footer: the window's button at its trailing edge. */
+.piw-footer {
+  display: flex;
+  align-self: stretch;
+  justify-content: flex-end;
+  margin-block-start: var(--piw-gap);
+}
+
+/* CERTIFICATE VIEWER: the tabs centered; both panels stacked in one cell, so switching never
+   resizes the window. */
+.piw-tabs {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--piw-inset);
+}
+.piw-tabs > .ui-tabs-list {
+  align-self: center;
+}
+.piw-panels {
+  display: grid;
+}
+.piw-panels > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.piw-panels > [hidden] {
+  display: block;
+  visibility: hidden;
+}
+.piw-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: calc(var(--piw-inset) / 1.5);
+  row-gap: var(--piw-gap);
+  align-items: baseline;
+  margin: 0;
+}
+.piw-grid > .piw-title {
+  grid-column: 1 / -1;
+}
+.piw-grid > .piw-title:not(:first-child) {
+  margin-block-start: var(--piw-gap);
+}
+.piw-grid-row {
+  display: contents;
+}
+.piw-grid-label {
+  color: var(--ds-color-muted);
+}
+.piw-grid-value {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.piw-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--piw-gap);
+}
+.piw-details > .ui-select {
+  align-self: stretch;
+}
+.piw-details > .ui-select .ui-select-button {
+  width: 100%;
+}
+.piw-fields {
+  height: var(--piw-fields-height);
+  overflow-y: auto;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-sm);
+}
+.piw-value {
+  box-sizing: border-box;
+  height: var(--piw-value-height);
+  margin: 0;
+  padding: var(--piw-row-inset);
+  overflow-y: auto;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-sm);
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.piw-details > .ui-btn {
+  align-self: flex-start;
+}
