@@ -174,7 +174,7 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(PaneRingConfigParser.focusRingEnabledDefault),
                 keywords: []
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 PaneRingConfigParser.focusRingStylePath,
                 section: .appearance,
@@ -210,7 +210,7 @@ extension AppearanceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
                 keywords: []
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 PaneRingConfigParser.focusRingWidthPath,
                 section: .appearance,
@@ -219,7 +219,7 @@ extension AppearanceSettingsSchema {
                 kind: .number(SettingNumber(PaneRingConfigParser.focusRingWidthRange, step: 0.5, unit: .points)),
                 default: .number(PaneRingConfigParser.focusRingWidthDefault),
                 keywords: []
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 PaneRingConfigParser.focusRingShowWhenSinglePanePath,
                 section: .appearance,

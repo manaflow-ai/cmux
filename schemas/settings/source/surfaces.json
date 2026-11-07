@@ -30,6 +30,10 @@
             "transparency",
             "opacity",
             "sidebar"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         },
         {
@@ -80,6 +84,10 @@
             "transparency",
             "opacity",
             "tabBar"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         },
         {
@@ -380,6 +388,10 @@
             "transparency",
             "opacity",
             "browserChrome"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         },
         {

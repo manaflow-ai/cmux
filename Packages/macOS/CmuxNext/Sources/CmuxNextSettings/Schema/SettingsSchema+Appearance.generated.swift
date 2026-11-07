@@ -287,7 +287,7 @@ nonisolated enum AppearanceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 ChromeThemeSetting.configPath,
                 section: .appearance,

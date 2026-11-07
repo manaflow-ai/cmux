@@ -40,6 +40,10 @@
             "light",
             "ghostty",
             "palette"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         },
         {
@@ -768,6 +772,10 @@
             "liquid glass",
             "background-blur",
             "transparency"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         },
         {
@@ -1511,6 +1519,10 @@
           "keywords": [
             "motion",
             "speed"
+          ],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
           ]
         }
       ]
@@ -1976,7 +1988,11 @@
             "prefixed": true
           },
           "default": false,
-          "keywords": []
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
         },
         {
           "key": "focusRing.style",
@@ -2081,7 +2097,11 @@
             "key": "settings.default.theme",
             "text": "Theme"
           },
-          "keywords": []
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
         },
         {
           "key": "focusRing.width",
@@ -2102,7 +2122,11 @@
             "unit": "points"
           },
           "default": 1,
-          "keywords": []
+          "keywords": [],
+          "consumers": [
+            "cmux-browser",
+            "cmux-next"
+          ]
         },
         {
           "key": "focusRing.showWhenSinglePane",

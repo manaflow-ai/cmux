@@ -131,7 +131,7 @@ extension AppearanceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 WindowBackgroundSetting.inactiveDimPath,
                 section: .appearance,
@@ -370,7 +370,7 @@ extension AppearanceSettingsSchema {
                 ]),
                 default: .string(AnimationSpeedSetting.fallback.rawValue),
                 keywords: ["motion", "speed"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
         ]
     }
 }

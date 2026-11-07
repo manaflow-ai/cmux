@@ -89,7 +89,7 @@ nonisolated enum SurfaceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.sameAsWindow", "Same as window"),
                 keywords: ["background", "surface", "color", "transparency", "opacity", "sidebar"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 SurfaceBackgroundSetting.sidebarOpacityPath,
                 section: .appearance,
@@ -109,7 +109,7 @@ nonisolated enum SurfaceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.sameAsWindow", "Same as window"),
                 keywords: ["background", "surface", "color", "transparency", "opacity", "tabBar"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 SurfaceBackgroundSetting.tabBarOpacityPath,
                 section: .appearance,
@@ -229,7 +229,7 @@ nonisolated enum SurfaceSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.sameAsWindow", "Same as window"),
                 keywords: ["background", "surface", "color", "transparency", "opacity", "browserChrome"]
-            ),
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
                 SurfaceBackgroundSetting.browserChromeOpacityPath,
                 section: .appearance,
