@@ -8,12 +8,13 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import { parseConversationLink } from "../../home-channels/model";
 import type { HomeChannelsStore, HomeSnapshot } from "../../home-channels/store";
-import type { HomeConversation, HomeParticipant } from "../../home-channels/types";
+import type { HomeConversation, HomeMessage, HomeParticipant } from "../../home-channels/types";
 import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
 import { chiefIntroText, FIRST_RUN_OPS, starterPrompts } from "../cards/firstRun/firstRunModel";
 import { HEADER_PANELS, headerPanelItems } from "../cards/header/HeaderPanelBar";
+import { NeedsYouSection, parseNeedsYou, type NeedsYouState } from "../cards/needsYou/NeedsYouSection";
 import { cardStrings } from "../cards/strings";
 import type { MessagesNav, NavState } from "../nav";
 import { hostActions, type GroupInfoActions } from "../sheets/actions";
@@ -37,13 +38,16 @@ import {
   DEFAULT_APPEARANCE,
   DetailOps,
   linkPreviewFetch,
+  NO_CHIEF_TURN,
   NO_FIRST_RUN,
   NO_HEADER_PANELS,
   parseAppearance,
+  parseChiefTurn,
   parseFirstRun,
   parseHeaderPanels,
   useHostDictation,
   useHostStream,
+  type ChiefTurnState,
   type FirstRunFacts,
 } from "./detailHost";
 import "../sheets/sheets.css";
@@ -79,6 +83,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const appearance = useHostStream(host, DetailOps.appearance, parseAppearance, DEFAULT_APPEARANCE);
   const panels = useHostStream(host, DetailOps.headerPanels, parseHeaderPanels, NO_HEADER_PANELS);
   const firstRun = useHostStream(host, DetailOps.firstRun, parseFirstRun, NO_FIRST_RUN);
+  const chiefTurn = useHostStream(host, DetailOps.chiefTurn, parseChiefTurn, NO_CHIEF_TURN);
+  const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYou, undefined);
   const dictation = useHostDictation(host);
   const links = useMemo<RowLinks>(
     () => ({
@@ -172,6 +178,8 @@ export function MessagesDetail(props: MessagesDetailProps) {
     dictation,
     links,
     transcript,
+    chiefTurn,
+    needsYou,
   };
 
   let main: ReactNode = null;
@@ -284,6 +292,8 @@ interface ConversationViewProps {
   dictation?: DictationCall;
   links: RowLinks;
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
+  chiefTurn: ChiefTurnState;
+  needsYou: NeedsYouState | undefined;
 }
 
 /** The open conversation: its transcript and composer, a Chief's first run while it is empty. */
@@ -304,6 +314,10 @@ function ConversationView(
   const hostCall = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
+  const continueAvailable =
+    isChief && !working && props.chiefTurn.conversation === id && props.chiefTurn.continueAvailable;
+  // Retry Reply: a one-to-one Chief chat while no one answers (HomeProjection.canRetryChiefTurn).
+  const retryChief = isChief && snapshot.typing.length === 0;
   // A Chief chat with no message ever shows its first run where the rows will be (the list's own
   // count, so a chat whose page is still loading never flashes it).
   const firstRunShown = conversation.kind === "chief" && conversation.lastSeq === 0 && snapshot.messages.length === 0;
@@ -336,6 +350,26 @@ function ConversationView(
         }
         working={working}
         onStop={(all) => hostCall(DetailOps.chiefStop, { conversation: id, all })}
+        continueAvailable={continueAvailable}
+        onContinue={() => hostCall(DetailOps.chiefContinue, { conversation: id })}
+        {...(retryChief
+          ? {
+              onRetryChief: (message: HomeMessage) =>
+                hostCall(DetailOps.chiefRetry, { conversation: id, message: message.id }),
+            }
+          : {})}
+        {...(isChief && props.needsYou
+          ? {
+              pinned: (
+                <NeedsYouSection
+                  state={props.needsYou}
+                  onOpen={(item) => hostCall(DetailOps.needsYouOpen, { id: item })}
+                  onAnswer={(item, answer) => hostCall(DetailOps.needsYouAnswer, { id: item, answer })}
+                  onShowAll={() => hostCall(DetailOps.needsYouShowAll, {})}
+                />
+              ),
+            }
+          : {})}
         {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}
         {...(props.dictation ? { dictation: props.dictation } : {})}
         initialDraft={nav.draft(id)}

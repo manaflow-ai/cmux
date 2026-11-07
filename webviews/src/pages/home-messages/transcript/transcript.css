@@ -230,7 +230,8 @@
 
 .mt-pinned {
   position: absolute;
-  top: var(--mt-top-room);
+  z-index: var(--layer-raised);
+  top: var(--mt-header-room);
   left: 50%;
   width: min(calc(100% - var(--ds-space-6)), 640px);
   transform: translateX(-50%);

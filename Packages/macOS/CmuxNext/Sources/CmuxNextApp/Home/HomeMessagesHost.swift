@@ -4,7 +4,9 @@ import CmuxHomeRender
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeed
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
@@ -30,30 +32,36 @@ import MessagesLabHome
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
 /// - `chief.settings {conversation, anchor}`: the Chief's settings under the name pill (`anchor`, page
 ///   points) -> `{shown}`; `chief.stop {conversation, all}`: Stop, or Stop All Agents (a click only).
-/// Streams: `appearance` (the bubble look and each chat's colours) and `headerPanels` (the toggles of
-/// the open conversation), each sent on subscribe and on every change.
+/// - `chief.continue {conversation}`, `chief.retry {conversation, message}`, `needsYou.open {id}`,
+///   `needsYou.answer {id, answer}`, `needsYou.showAll {}`: Continue, Retry Reply, the Needs you pin (clicks).
+/// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
+/// `chiefTurn` (`{conversation, continueAvailable}`), `needsYou` (``FeedNeedsYouRows`` or null).
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance"].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "needsYou"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
     private(set) var shown: ConversationID?
     var onShown: (@MainActor (ConversationID?) -> Void)?
     private var previewProvider: HomeLinkPreviewProvider?
-    private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    /// The observation of what the streams read; runs only while one has a listener.
-    private var appearanceWatch: Task<Void, Never>?
-    private var panelsWatch: Task<Void, Never>?
+    /// The page's streams; an observed one reads only while it has a listener.
+    private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
+    private lazy var panelsStream = HomePageStream(observing: { [weak self] in self?.panels() ?? .null })
+    private lazy var needsYouStream = HomePageStream(observing: { [weak self] in self?.needsYouRows() ?? .null })
+    private let chiefTurn = HomePageStream(initial: .object(["continueAvailable": .bool(false)]))
     /// The name pill of Chief conversation `id` was clicked at `pill` (page points): its settings
     /// toggle; true when they show. Set by the view that holds the page.
     var onChiefSettings: (@MainActor (ConversationID, CGRect?) -> Bool)?
     /// Stop (or with `all`, Stop All Agents) on Chief conversation `id`'s compose bar.
     var onChiefStop: (@MainActor (ConversationID, Bool) -> Void)?
+    var onChiefContinue: (@MainActor (ConversationID) -> Void)?
+    var onChiefRetry: (@MainActor (ConversationID, MessageID) -> Void)?
+    /// The pinned Needs you section, made on the first listener.
+    private var needsYou: FeedNeedsYouPin?
     /// The first run's facts follow the conversation shown (held strongly: the page's route holds it too).
     var firstRun: HomeMessagesFirstRunProvider?
     /// The window the page is in (the header panels read it).
@@ -63,11 +71,6 @@ final class HomeMessagesHostProvider: PageProvider {
 
     init(services: AppServices) {
         self.services = services
-    }
-
-    nonisolated deinit {
-        appearanceWatch?.cancel()
-        panelsWatch?.cancel()
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -81,7 +84,8 @@ final class HomeMessagesHostProvider: PageProvider {
             if id != shown {
                 shown = id
                 onShown?(id)
-                restartPanels()
+                panelsStream.restart()
+                needsYouStream.restart()
                 firstRun?.restart()
             }
             return .null
@@ -131,7 +135,7 @@ final class HomeMessagesHostProvider: PageProvider {
         case "invite.send":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let text = fields["email"]?.stringValue ?? ""
-            guard let address = ContactAddress.parse(text), address.isEmail else { return Self.outcome(HomeComposeOutcome.invalidAddress(text)) }
+            guard let address = ContactAddress.parse(text), address.isEmail else { return HomeComposeOutcome.invalidAddress(text).pageOutcome }
             return (await home.invite(address)).pageOutcome
         case "teamInvite.seatImpact":
             guard let team = services.cloud.auth.activeTeam.team else { return .object(["impact": .object(["kind": .string("unknown")])]) }
@@ -160,6 +164,25 @@ final class HomeMessagesHostProvider: PageProvider {
             let id = try conversation(fields)
             onChiefStop?(id, fields["all"]?.boolValue == true)
             return .null
+        case "chief.continue", "chief.retry":
+            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
+            let id = try conversation(fields)
+            if name == "chief.continue" {
+                onChiefContinue?(id)
+            } else {
+                guard let message = fields["message"]?.stringValue, Self.isID(message) else { throw PageError.invalidParams("message must be a message id") }
+                onChiefRetry?(id, MessageID(message))
+            }
+            return .null
+        case "needsYou.open", "needsYou.answer", "needsYou.showAll":
+            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
+            let item = fields["id"]?.stringValue ?? ""
+            switch name {
+            case "needsYou.open": needsYou?.open(id: item)
+            case "needsYou.answer": needsYou?.answer(item, with: fields["answer"]?.stringValue ?? "")
+            default: needsYou?.showFeed()
+            }
+            return .null
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
@@ -168,7 +191,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let previews = previewProvider ?? HomeLinkPreviewProvider(services: services)
             previewProvider = previews
             let quick = previews.preview(for: url, kind: kind)
-            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
+            return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreview.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
@@ -189,29 +212,39 @@ final class HomeMessagesHostProvider: PageProvider {
 
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
-        let key = UUID()
         switch stream {
-        case HomeMessagesPageRoute.prefix + "appearance":
-            appearanceListeners[key] = onEvent
-            onEvent(appearance())
-            if appearanceWatch == nil { watchAppearance() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                appearanceListeners[key] = nil
-                if appearanceListeners.isEmpty { appearanceWatch?.cancel(); appearanceWatch = nil }
+        case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "needsYou":
+            if let services, needsYou == nil {
+                needsYou = FeedNeedsYouPin.home(services)
+                services.feed.startIfSignedIn() // the Feed's mirror runs once the account is signed in, as the Feed panel starts it
             }
-        case HomeMessagesPageRoute.prefix + "headerPanels":
-            panelListeners[key] = onEvent
-            onEvent(panels())
-            if panelsWatch == nil { restartPanels() }
-            return PageSubscription { [weak self] in
-                guard let self else { return }
-                panelListeners[key] = nil
-                if panelListeners.isEmpty { panelsWatch?.cancel(); panelsWatch = nil }
-            }
+            return needsYouStream.subscribe(onEvent)
         default:
             throw PageError.unknownOp(stream)
         }
+    }
+
+    /// Follows `chief`'s turn (Continue after a Stop) for the `chiefTurn` stream.
+    func follow(_ chief: HomeChiefSurface) {
+        let id = chief.conversation
+        chief.turnActions.onContinueAvailable = { [weak self] in self?.publishChiefTurn(id, continueAvailable: $0) }
+        publishChiefTurn(id, continueAvailable: chief.turnActions.continueAvailable)
+    }
+
+    /// The shown Chief's turn changed (``HomeChiefTurnActions/onContinueAvailable``).
+    func publishChiefTurn(_ id: ConversationID, continueAvailable: Bool) {
+        chiefTurn.publish(.object(["conversation": .string(id.rawValue), "continueAvailable": .bool(continueAvailable)]))
+    }
+
+    /// The Needs you section: its rows while the shown conversation is a Chief's and the section is
+    /// on (opt-in, off by default), else null. Off reads no Feed state, so the Feed's changes never wake it.
+    private func needsYouRows() -> JSONValue {
+        guard let pin = needsYou, let store = services?.home.homeStore else { return .null }
+        let chief = shown.flatMap { id in store.rows.first { $0.id == id } }?.kind == .chief
+        return chief && pin.isEnabled() ? pin.rows().flatMap { try? JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode($0)) } ?? .null : .null
     }
 
     // MARK: New Message's first send
@@ -252,18 +285,6 @@ final class HomeMessagesHostProvider: PageProvider {
         ])
     }
 
-    private func watchAppearance() {
-        guard let chats = services?.home.chatColors else { return }
-        // task-owner: lives while the page listens to `appearance` (cancelled with its last listener); event-driven (Observation)
-        appearanceWatch = Task { [weak self] in
-            for await _ in ObservationStream({ (chats.chats, DesignSettings.shared.homeBubbleColors, DesignSettings.shared.homeChiefBubblesThemed) }) {
-                guard let self else { return }
-                let value = appearance()
-                for listener in appearanceListeners.values { listener(value) }
-            }
-        }
-    }
-
     /// What the header's toggles read: the page's window and its open conversation's Chief.
     private func panelContext(_ services: AppServices) -> HomeHeaderPanelContext {
         let home = services.home
@@ -285,20 +306,6 @@ final class HomeMessagesHostProvider: PageProvider {
         return .object(["enabled": .bool(HomeTunables.headerPanelToggles.value), "panels": .array(states)])
     }
 
-    /// Follows the toggles while the page listens, for the conversation it shows now.
-    private func restartPanels() {
-        panelsWatch?.cancel()
-        panelsWatch = nil
-        guard !panelListeners.isEmpty else { return }
-        // task-owner: lives while the page listens to `headerPanels` (restarted on a new conversation, cancelled with its last listener); event-driven (Observation)
-        panelsWatch = Task { [weak self] in
-            guard let self else { return }
-            for await value in ObservationStream({ [weak self] in self?.panels() ?? .null }) {
-                for listener in panelListeners.values { listener(value) }
-            }
-        }
-    }
-
     // MARK: Wire
 
     private func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
@@ -316,5 +323,21 @@ final class HomeMessagesHostProvider: PageProvider {
         case .notAllowed: "notAllowed"
         case .unreachable: "unreachable"
         }
+    }
+}
+
+/// A Chief chat's pinned Needs you section (``FeedNeedsYouPin``) over the app's Feed, as the page draws it.
+@MainActor
+extension FeedNeedsYouPin {
+    /// The Messages page's pin over the app's Feed, its hooks installed once (the Inbox page installs
+    /// the same when it is made: a request's answers, its row's who and where).
+    static func home(_ services: AppServices) -> FeedNeedsYouPin {
+        let model = services.feed.model, store = services.daemon.store
+        if model.onOpenItem == nil { FeedGitHubActions.install(on: model, services: services) }
+        if model.place == nil { model.place = FeedPlace.lookup(store.place) }
+        let isEnabled = HomeNeedsYouSetting.reader { [weak services] in services?.settings } // opt-in, off by default
+        return FeedNeedsYouPin(model: model, isEnabled: isEnabled, prepare: {}, reveal: { [weak services] at in
+            store.tab(reported: at.tab, terminal: at.terminal, agentSession: at.acpSession).map { services?.revealTab($0.id) == true } ?? false
+        }, showFeed: { [weak services] in try? (services?.pages.provider(.inbox) as? FeedPageService)?.open(focus: true) })
     }
 }

@@ -39,6 +39,8 @@ export interface RowActions {
   /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back). */
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
+  /** Retry Reply on my message in a Chief chat (absent: not offered now, as while the Chief answers). */
+  onRetryChief?(message: HomeMessage): void;
   links?: RowLinks;
 }
 
@@ -161,6 +163,8 @@ function BubbleRow({
       onSelect: () => actions.onDiscard?.(pendingKey),
     });
   }
+  if (!failed && outgoing && committed && !message.retracted && actions.onRetryChief)
+    items.push({ id: "retryChief", label: t("home.menu.retryReply"), onSelect: () => actions.onRetryChief?.(message) });
   if (text)
     items.push({
       id: "copy",

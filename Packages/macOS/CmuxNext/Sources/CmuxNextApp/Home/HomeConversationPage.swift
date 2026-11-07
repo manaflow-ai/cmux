@@ -43,6 +43,9 @@ final class HomeConversationPage: NSView {
             guard let self, id == conversation else { return }
             if all { chief.stopAllAgents() } else { stopChief() }
         }
+        host.onChiefContinue = { [weak self] id in if id == conversation { self?.chief.turnActions.continueTurn() } }
+        host.onChiefRetry = { [weak self] id, message in if id == conversation { self?.chief.turnActions.retry(message) } }
+        host.follow(chief)
         // A launch holds a Home still being made until its page paints (WorkspaceContentController).
         let reveal = services.launchReveal
         page.whenPainted { reveal.markReady(.home) }

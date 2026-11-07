@@ -36,6 +36,7 @@ import {
   type HeaderPanelContext,
   type HeaderPanelState,
 } from "./header/HeaderPanelBar";
+import { NeedsYouSection, type NeedsYouLook, type NeedsYouRow } from "./needsYou/NeedsYouSection";
 
 const strings = cardStrings();
 
@@ -422,6 +423,44 @@ function Header({
   );
 }
 
+// The Feed's open requests as a Chief chat pins them (Swift FeedNeedsYouView's playground rows).
+const NEEDS_YOU: NeedsYouRow[] = [
+  {
+    id: "r1",
+    headline: "Allow a12 to push to manaflow-ai/cmux?",
+    who: "a12 · cmux · Terminal",
+    urgent: true,
+    answers: [
+      { id: "decline", title: "Decline", role: "plain", enabled: true },
+      { id: "primary", title: "Confirm", role: "primary", enabled: true },
+    ],
+  },
+  {
+    id: "r2",
+    headline: "Sign in to Linear",
+    who: "Chief",
+    urgent: false,
+    answers: [
+      { id: "decline", title: "Decline", role: "plain", enabled: true },
+      { id: "primary", title: "Sign In", role: "primary", enabled: true },
+    ],
+  },
+  { id: "r3", headline: "Which branch should the fix go to?", who: "b7 · web", urgent: false, answers: [] },
+];
+
+function NeedsYouStage({ look }: { look: NeedsYouLook }) {
+  return (
+    <div style={{ maxWidth: 640, padding: 16 }}>
+      <NeedsYouSection
+        state={{ title: "Needs you", rows: NEEDS_YOU, more: "2 more", look }}
+        onOpen={() => {}}
+        onAnswer={() => {}}
+        onShowAll={() => {}}
+      />
+    </div>
+  );
+}
+
 type Props =
   | { card: "mcp"; server: string; style: McpCardStyle; phase: McpPhaseName }
   | { card: "pills"; shape: AgentPillShape; width: number }
@@ -429,7 +468,8 @@ type Props =
   | { card: "peek"; peer: string }
   | { card: "links"; cards: string[] }
   | ({ card: "first-run" } & FirstRunStage)
-  | { card: "header"; context: HeaderPanelContext; states: HeaderPanelState[]; enabled: boolean };
+  | { card: "header"; context: HeaderPanelContext; states: HeaderPanelState[]; enabled: boolean }
+  | { card: "needs-you"; look: NeedsYouLook };
 
 function Cards(props: Props) {
   switch (props.card) {
@@ -449,6 +489,8 @@ function Cards(props: Props) {
     }
     case "header":
       return <Header {...props} />;
+    case "needs-you":
+      return <NeedsYouStage look={props.look} />;
   }
 }
 
@@ -471,6 +513,7 @@ export default componentEntry<Props>({
     "pages/home-messages/cards/links/HomeLinkChip.tsx",
     "pages/home-messages/cards/firstRun/FirstRunPanel.tsx",
     "pages/home-messages/cards/header/HeaderPanelBar.tsx",
+    "pages/home-messages/cards/needsYou/NeedsYouSection.tsx",
   ],
   load: async () => Cards,
   styles: () => import("./cards.gallery.css"),
@@ -594,6 +637,15 @@ export default componentEntry<Props>({
         enabled: false,
       },
     },
+    "needs-you-rows": {
+      note: "Picked: the Feed's rows under a Chief chat's header, one-click answers in place.",
+      props: { card: "needs-you", look: "rows" },
+    },
+    "needs-you-bar": {
+      note: "One line: the first request; a click opens the Feed.",
+      props: { card: "needs-you", look: "bar" },
+    },
+    "needs-you-cards": { note: "Each request in its own card.", props: { card: "needs-you", look: "cards" } },
     "header-person": {
       note: "A chat with a person: only the right sidebar.",
       props: { card: "header", context: { isChief: false }, states: [], enabled: true },

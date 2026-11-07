@@ -129,6 +129,7 @@ final class HomeMessagesPage: NSView {
             guard let self else { return }
             chief?.close()
             chief = id.map { HomeChiefSurface(services: home.services, conversation: $0, owner: page) }
+            if let chief { host.follow(chief) }
             if id == nil, let first = HomeDefaultConversation.defaultConversation(rows: visibleRows(home), home: home) {
                 followed = first.rawValue
                 show(HomeDockSelection(conversation: first.rawValue))
@@ -168,6 +169,8 @@ final class HomeMessagesPage: NSView {
                 _ = services?.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
             }
         }
+        host.onChiefContinue = { [weak self] id in if let chief = self?.chief, chief.conversation == id { chief.turnActions.continueTurn() } }
+        host.onChiefRetry = { [weak self] id, message in if let chief = self?.chief, chief.conversation == id { chief.turnActions.retry(message) } }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {

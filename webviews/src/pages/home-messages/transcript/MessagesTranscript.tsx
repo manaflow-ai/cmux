@@ -71,6 +71,11 @@ export interface MessagesTranscriptProps extends TranscriptData {
   /** The Chief answers now: the composer's emoji button is Stop (`onStop`). */
   working?: boolean;
   onStop?(all: boolean): void;
+  /** A stopped Chief turn may go on: the composer's emoji button is Continue (`onContinue`). */
+  continueAvailable?: boolean;
+  onContinue?(): void;
+  /** Retry Reply on my messages (a Chief chat while it does not answer). */
+  onRetryChief?(message: HomeMessage): void;
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
   onLoadOlder(): void;
   /** My read cursor moves forward to `seq`. */
@@ -180,9 +185,10 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onDiscard: props.onDiscard,
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
+      ...(props.onRetryChief ? { onRetryChief: props.onRetryChief } : {}),
       ...(links ? { links } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, links],
+    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onRetryChief, links],
   );
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {
@@ -258,7 +264,11 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   const other = conversation.kind === "group" ? undefined : conversation.participants.find((p) => p.id !== me);
   const alsoHere = alsoHereNames(props.viewing ?? [], conversation.participants, me, strings.language);
   const history = () => historyEntries(messages, me);
-  const style = { ...bubbleStyle(colors), "--mt-top-room": `${HEADER_ROOM + pinnedHeight}px` } as CSSProperties;
+  const style = {
+    ...bubbleStyle(colors),
+    "--mt-top-room": `${HEADER_ROOM + pinnedHeight}px`,
+    "--mt-header-room": `${HEADER_ROOM}px`,
+  } as CSSProperties;
 
   return (
     <AttachmentContext.Provider value={attachments}>
@@ -350,6 +360,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           onDraftChange={props.onDraftChange}
           working={props.working === true}
           {...(props.onStop ? { onStop: props.onStop } : {})}
+          continueAvailable={props.continueAvailable === true}
+          {...(props.onContinue ? { onContinue: props.onContinue } : {})}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

@@ -12,6 +12,12 @@
 //   chief.settings {conversation, anchor: {x, y, width, height}}: the Chief's settings popover under
 //                      the name pill (a click only)
 //   chief.stop {conversation, all}: stops the Chief's turn, or with `all` every agent of it (a click only)
+//   chiefTurn (stream) {conversation, continueAvailable}: the shown Chief's turn after a Stop
+//   chief.continue {conversation}: goes on with a stopped turn; chief.retry {conversation, message}:
+//                      the Chief answers my message again (Retry Reply) (each a click only)
+//   needsYou (stream) {title, rows, more?, look} | null: the pinned Needs you section of the shown
+//                      Chief chat (cards/needsYou); needsYou.open {id}, needsYou.answer {id, answer},
+//                      needsYou.showAll {} (each a click only)
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
@@ -41,7 +47,29 @@ export const DetailOps = {
   firstRun: "cmux.home.messages.firstRun",
   chiefSettings: "cmux.home.messages.chief.settings",
   chiefStop: "cmux.home.messages.chief.stop",
+  chiefContinue: "cmux.home.messages.chief.continue",
+  chiefRetry: "cmux.home.messages.chief.retry",
+  chiefTurn: "cmux.home.messages.chiefTurn",
+  needsYou: "cmux.home.messages.needsYou",
+  needsYouOpen: "cmux.home.messages.needsYou.open",
+  needsYouAnswer: "cmux.home.messages.needsYou.answer",
+  needsYouShowAll: "cmux.home.messages.needsYou.showAll",
 } as const;
+
+// ---------- The Chief's turn ----------
+
+export interface ChiefTurnState {
+  conversation?: string;
+  continueAvailable: boolean;
+}
+
+export const NO_CHIEF_TURN: ChiefTurnState = { continueAvailable: false };
+
+export function parseChiefTurn(event: unknown): ChiefTurnState {
+  const raw = record(event);
+  const conversation = typeof raw?.conversation === "string" && raw.conversation ? raw.conversation : undefined;
+  return { ...(conversation ? { conversation } : {}), continueAvailable: raw?.continueAvailable === true };
+}
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json | undefined =>

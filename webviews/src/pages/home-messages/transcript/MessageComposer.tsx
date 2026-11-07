@@ -13,7 +13,8 @@
 //   its progress in the tray above the field (the Channels plumbing, attachmentService.ts). A file
 //   the data side cannot take is refused before it uploads, with a notice. Send waits for uploads.
 // - While the Chief answers (`working`), the emoji button is Stop (ChatController+Stop.swift): a
-//   click stops the Chief's turn, Option-click stops all its agents.
+//   click stops the Chief's turn, Option-click stops all its agents. After a Stop, while nothing
+//   runs, it is Continue (`continueAvailable`): a click asks the Chief to go on with the turn.
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
@@ -61,6 +62,9 @@ export interface MessageComposerProps {
   working?: boolean;
   /** Stop's click; `all` with Option: stop all the Chief's agents. */
   onStop?(all: boolean): void;
+  /** A stopped Chief turn may go on: the emoji button is Continue. */
+  continueAvailable?: boolean;
+  onContinue?(): void;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -79,6 +83,8 @@ export function MessageComposer({
   onDraftChange,
   working = false,
   onStop,
+  continueAvailable = false,
+  onContinue,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -310,6 +316,22 @@ export function MessageComposer({
             >
               <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
                 <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" fill="currentColor" />
+              </svg>
+            </button>
+          ) : continueAvailable && onContinue ? (
+            <button
+              type="button"
+              className="mt-field-button mt-continue"
+              aria-label={t("home.compose.continue")}
+              title={t("home.compose.continue")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onContinue()}
+            >
+              <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M6.5 4.8v10.4a.8.8 0 0 0 1.2.7l8.2-5.2a.8.8 0 0 0 0-1.4L7.7 4.1a.8.8 0 0 0-1.2.7Z"
+                  fill="currentColor"
+                />
               </svg>
             </button>
           ) : (
