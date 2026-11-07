@@ -23,8 +23,9 @@ pane (`content: "rightmost"`, where every right-side open lands) stops changing:
   reopen_right Reopen Closed (Cmd-Shift-T) of a subagent's chat that was open on the chat's right: the subagent's
                chat opens on the right and closes again (both untimed), then the key is timed. Leo, 2026-11-07: "it
                should just reopen on the right straight up and just play that rightmost opening animation. And also
-               it should load a lot faster." `motion.phases` 2 or more is the old two-step (a tab opened in the main
-               pane, then the split on the right); `main_steps` counts it per surface.
+               it should load a lot faster." `multi_phase` counts opens whose window motion ran in two phases or
+               more (`motion.phases`): the old two-step (a tab opened in the main pane, then the split on the right)
+               shows as one, and so does content that pops in after the split landed.
 
 Per open, from the frames (chat_open_frames.final_frame) and frame_strip's own report:
 
@@ -515,9 +516,14 @@ def open_and_close_right(run, chat, round_index, before):
         return "the subagent's chat never opened"
     time.sleep(2.5)  # test script: the subagent's chat draws its transcript before it closes, as a person reads it
     for tab in chat.tabs() - before:
-        chat.stress.action("closeTab", target=f"tab:{tab}", focus=False)
-    STRESS.wait(lambda: not (chat.tabs() - before), 10, step=0.1)
-    STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) <= 1, 10, step=0.1)
+        closed = chat.stress.action("closeTab", target=f"tab:{tab}", focus=False) or {}
+        if closed.get("error"):
+            return f"close the subagent's chat: {str(closed['error'])[:300]}"
+    # A close that did not land would leave Cmd-Shift-T reopening an older entry, timed as this one.
+    if not STRESS.wait(lambda: not (chat.tabs() - before), 10, step=0.1):
+        return "the subagent's chat never closed"
+    if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) <= 1, 10, step=0.1):
+        return "the subagent's pane never closed"
     chat.show()
     time.sleep(0.6)  # test script: the close's own motion ends before the timed key
     return None
@@ -588,8 +594,8 @@ def summarize(records):
     frames = [r.get("mean_interval_ms") for r in good if isinstance(r.get("mean_interval_ms"), (int, float))]
     out["frame_ms"] = round(sum(frames) / len(frames), 1) if frames else None
     out["over"] = over_budget(out)
-    # Opens that moved in two steps or more (`reopen_right`'s tab in the main pane first, then the split on the right).
-    out["main_steps"] = sum(1 for r in good if ((r.get("motion") or {}).get("phases") or 0) >= 2)
+    # Opens whose window motion ran in two phases or more (motion_stats): a placement in two steps, or late content.
+    out["multi_phase"] = sum(1 for r in good if ((r.get("motion") or {}).get("phases") or 0) >= 2)
     if opts.motion:
         out["motion"] = motion_summary([r.get("motion") for r in good], [r.get("main_frames") for r in good])
         closes = [r.get("close_motion") for r in good if isinstance(r.get("close_motion"), dict) and not r["close_motion"].get("error")]
@@ -636,14 +642,14 @@ def markdown(results):
              f"content: its first non-blank frame; final: the first frame of its settled run. OVER: p95 commit past a frame "
              f"plus 10 ms (commit), or the final frame more than a frame after the commit (content); missed: an open that "
              f"errored or never settled in {opts.strip_ms:g} ms",
-             "", "| surface | condition | n | commit | content | final | two-step | over |", "|---|---|---|---|---|---|---|---|"]
+             "", "| surface | condition | n | commit | content | final | multi-phase | over |", "|---|---|---|---|---|---|---|---|"]
     for surface in WANTED:
         for condition in CONDITIONS:
             s = results["surfaces"].get(surface, {}).get(condition)
             if not s:
                 continue
             lines.append(f"| {surface} | {condition} | {s['ok']}/{s['n']} | {triple(s, 'commit_ms')} | {triple(s, 'first_content_ms')} | "
-                         f"{triple(s, 'final_ms')} | {s.get('main_steps', 0)} | {s['over'] or 'ok'} |")
+                         f"{triple(s, 'final_ms')} | {s.get('multi_phase', 0)} | {s['over'] or 'ok'} |")
     if opts.motion:
         lines += ["", "Transition (--motion): composited frames from the first change to the last, p50/p95/max. stalls: unchanged "
                   "frames inside it; longest stall ms; phases: moving runs split by a stand of "
