@@ -26,6 +26,7 @@ import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
+import { reportHostGlass } from "../../ui/glass/hostGlass";
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.
@@ -76,6 +77,10 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
+  // Floating glass the page marks (data-host-glass: Session Info first) is the App's own glass under
+  // the page, as its native menus are (ui/glass/hostGlass.ts).
+  if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
+    reportHostGlass(document, (surfaces) => postNative("pane.glass", { surfaces }));
   // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
   if (!pageHostClient()) startFlickerLog();
   createRoot(root).render(
