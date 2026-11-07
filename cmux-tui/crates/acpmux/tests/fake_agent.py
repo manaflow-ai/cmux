@@ -408,6 +408,8 @@ def handle_prompt(rid, params):
             update(sid, {"sessionUpdate": "compaction", "state": "failed", "error": "Prompt is too long"})
         else:
             update(sid, {"sessionUpdate": "compaction", "state": "completed"})
+        # Echoed as any other prompt is, so a test can see where the command went in.
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
