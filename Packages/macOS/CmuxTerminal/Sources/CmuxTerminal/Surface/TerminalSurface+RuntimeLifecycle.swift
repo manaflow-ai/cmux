@@ -319,6 +319,7 @@ extension TerminalSurface {
         retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
+        cancelRuntimeWorkingDirectoryPreflight()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
@@ -425,6 +426,7 @@ extension TerminalSurface {
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
+        cancelRuntimeWorkingDirectoryPreflight()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
@@ -783,6 +785,8 @@ extension TerminalSurface {
         )
         guard agentShimState.isReady else { return }
         let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
+        // Ahead of pacing, so restored spawns keep their cadence after the open.
+        guard runtimeWorkingDirectoryStateForSurface(view: view, source: source) else { return }
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
@@ -820,6 +824,8 @@ extension TerminalSurface {
             spawnPolicy: spawnPolicy
         )
         surface = runtimeSurfaceCreation.createdSurface
+        // Each native creation gets a fresh off-main open of its directory.
+        preparedRuntimeWorkingDirectory = nil
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
         if surface == nil {

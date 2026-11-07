@@ -120,6 +120,16 @@ extension TerminalSurface {
         view: (any TerminalSurfaceNativeViewing)?,
         source: RuntimeSurfaceCreationSource
     ) {
+        resumeDeferredRuntimeSurfaceCreation(view: view, source: source, reason: "agent-shims-ready")
+    }
+
+    /// Re-enters native creation after an asynchronous readiness gate.
+    @MainActor
+    func resumeDeferredRuntimeSurfaceCreation(
+        view: (any TerminalSurfaceNativeViewing)?,
+        source: RuntimeSurfaceCreationSource,
+        reason: String
+    ) {
         guard allowsRuntimeSurfaceCreation(), surface == nil else { return }
 
         if let view, view.window != nil {
@@ -127,7 +137,7 @@ extension TerminalSurface {
         } else if let attachedView, attachedView.window != nil {
             createSurface(for: attachedView, source: source)
         } else {
-            scheduleHeadlessRuntimeStartIfNeeded(reason: "agent-shims-ready", source: source)
+            scheduleHeadlessRuntimeStartIfNeeded(reason: reason, source: source)
         }
     }
 }
