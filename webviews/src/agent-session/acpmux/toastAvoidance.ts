@@ -7,6 +7,11 @@
 // it (AgentPaneView+ToastAvoidance.swift, `CmuxToastAvoiding`), as it does over Home's message box.
 // Nothing about a toast reaches the page's layout: the stage and the stack keep their place.
 //
+// Every layout with a composer at its foot reports it: the chat's bottom stack (App.tsx's dock), the
+// New Tab screen's composer card in its stage layout (newtab/NewTabScreen.tsx) and the Quick Chat's
+// composer under its thread (QuickSurface.tsx). The host keeps one box per page, so the reports
+// stack: the newest mounted one is sent, and when it stops the one under it is sent again.
+//
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
 // never on the transcript), and sent only when it changed.
@@ -41,22 +46,36 @@ export function bottomStackBox(dock: Element): StackBox | undefined {
   return { left: round(box.left), top: round(box.top), right: round(box.right), bottom: round(box.bottom) };
 }
 
+/// One element's own box (a composer card), or none while it takes no room.
+export function elementBox(element: Element | null | undefined): StackBox | undefined {
+  const rect = element?.getBoundingClientRect();
+  if (!rect || !(rect.width > 0 && rect.height > 0)) return undefined;
+  const round = (value: number) => Math.round(value);
+  return { left: round(rect.left), top: round(rect.top), right: round(rect.right), bottom: round(rect.bottom) };
+}
+
 const same = (a: StackBox | undefined, b: StackBox | undefined) =>
   a === b || (!!a && !!b && a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom);
 
-/// Keeps the host told where `dock`'s stack is; the stop sends none, so the host's toasts stop
-/// avoiding a stack that left. `send` gets the box (none: nothing to avoid).
-export function watchToastAvoidance(dock: HTMLElement, send: (box: StackBox | undefined) => void): () => void {
+/// Keeps the host told where `dock`'s stack is (`box` measures it: by default the union of its
+/// parts); the stop sends none, so the host's toasts stop avoiding a stack that left. `send` gets the
+/// box (none: nothing to avoid).
+export function watchToastAvoidance(
+  dock: HTMLElement,
+  send: (box: StackBox | undefined) => void,
+  box: (dock: HTMLElement) => StackBox | undefined = bottomStackBox,
+): () => void {
   const view = dock.ownerDocument.defaultView;
-  if (!view || typeof view.ResizeObserver !== "function") return () => {};
+  if (!view || typeof view.ResizeObserver !== "function" || typeof view.requestAnimationFrame !== "function")
+    return () => {};
   let sent: StackBox | undefined;
   let frame = 0;
   const measure = () => {
     frame = 0;
-    const box = bottomStackBox(dock);
-    if (same(box, sent)) return;
-    sent = box;
-    send(box);
+    const next = box(dock);
+    if (same(next, sent)) return;
+    sent = next;
+    send(next);
   };
   const schedule = () => {
     if (!frame) frame = view.requestAnimationFrame(measure);
@@ -86,18 +105,53 @@ export function watchToastAvoidance(dock: HTMLElement, send: (box: StackBox | un
   };
 }
 
-/// Reports `dock`'s stack to the host for as long as it is mounted. A host that does not know the
-/// call (an older app) ends the reports.
-export function reportToastAvoidance(dock: HTMLElement): () => void {
+/// The mounted reports, oldest first; the host hears the newest one's box.
+type Report = { box: StackBox | undefined };
+const reports: Report[] = [];
+/// What the host last heard (null: nothing yet), and whether it knows the call at all.
+let posted: StackBox | undefined | null = null;
+let unsupported = false;
+
+function post(): void {
+  if (unsupported) return;
+  const box = reports.at(-1)?.box;
+  if (posted !== null && same(box, posted)) return;
+  posted = box;
+  void postNative("pane.toastAvoidance", { rects: box ? [box] : [] }).catch(() => {
+    // A host that does not know the call (an older app) ends the reports.
+    unsupported = true;
+  });
+}
+
+/// Reports `dock`'s stack (or what `box` measures of it) to the host for as long as it is mounted.
+/// A report mounted later takes over; when it stops, the host hears the one under it again.
+export function reportToastAvoidance(
+  dock: HTMLElement,
+  box: (dock: HTMLElement) => StackBox | undefined = bottomStackBox,
+): () => void {
+  const report: Report = { box: undefined };
+  reports.push(report);
   let live = true;
-  let stop: (() => void) | undefined;
-  const end = () => {
+  const stop = watchToastAvoidance(
+    dock,
+    (next) => {
+      report.box = next;
+      if (live) post();
+    },
+    box,
+  );
+  return () => {
     if (!live) return;
     live = false;
-    stop?.();
+    reports.splice(reports.indexOf(report), 1);
+    stop();
+    post();
   };
-  stop = watchToastAvoidance(dock, (box) => {
-    void postNative("pane.toastAvoidance", { rects: box ? [box] : [] }).catch(end);
-  });
-  return end;
+}
+
+/// Forgets every report and what the host heard (tests).
+export function resetToastAvoidanceReports(): void {
+  reports.length = 0;
+  posted = null;
+  unsupported = false;
 }

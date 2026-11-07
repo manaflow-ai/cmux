@@ -1,7 +1,12 @@
 import type React from "react";
+import { useEffect, useState } from "react";
 import { FloatingCompactBar, FloatingHeader, useFloatingKeys, type QuickFloating } from "./FloatingChat";
 import { QuickKeyHints } from "./QuickKeyHints";
 import { ChiefDock, type ChiefDockProps } from "./ChiefDock";
+import { elementBox, reportToastAvoidance } from "./toastAvoidance";
+
+/// The panel's composer, its direct child.
+const quickComposer = (root: HTMLElement) => elementBox(root.querySelector(":scope > .acpmux-composer"));
 
 /// The Quick Composer panel's page: the composer filling the panel, and once the chat has a
 /// first prompt its transcript above, scrolling within what the panel leaves it. No session
@@ -27,6 +32,11 @@ export function QuickSurface({
 }) {
   useFloatingKeys(floating);
   const holding = floating?.state.holding === true;
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  // Under a thread (or the floating chat's header) the composer rests at the panel's foot: the app's
+  // toasts lift above it and never cover it (toastAvoidance.ts). Alone it fills the panel.
+  const atFoot = !!transcript || holding;
+  useEffect(() => (root && atFoot ? reportToastAvoidance(root, quickComposer) : undefined), [root, atFoot]);
   if (floating && holding && floating.state.collapsed)
     return (
       <div className="acpmux-quick" data-floating="compact">
@@ -38,6 +48,7 @@ export function QuickSurface({
     );
   return (
     <div
+      ref={setRoot}
       className="acpmux-quick"
       data-has-transcript={transcript ? "" : undefined}
       data-floating={holding ? "open" : undefined}
