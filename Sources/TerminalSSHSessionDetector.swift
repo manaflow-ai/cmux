@@ -559,7 +559,7 @@ struct DetectedSSHSession: Equatable, Sendable {
 enum TerminalSSHSessionDetector {
     private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
     private static let nonInteractiveFlags = Set("nNGV")
-    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOoPpQRSWw")
 
     struct ProcessSnapshot: Equatable {
         let pid: Int32
@@ -734,27 +734,46 @@ enum TerminalSSHSessionDetector {
             return !Self.isNonInteractiveSSHOption(rawOption)
         }
 
-        func allowsSession(destinationIndex: Int) -> Bool {
+        func allowsSession(hasRemoteCommand: Bool) -> Bool {
             if directTTY == false || (directTTY == nil && requestTTYDisabled) {
                 return false
             }
             let forcedTTY = directTTY == true || (directTTY == nil && requestTTYForced)
-            return (allowsForcedTTYRemoteCommand && forcedTTY) ||
-                destinationIndex == arguments.count - 1
+            // OpenSSH normally runs a remote command without a terminal, but
+            // `ssh -tt host command` is still an interactive PTY session. This
+            // is how local panes commonly enter tmux over SSH, so keep the
+            // forced-PTY lane eligible for paste upload.
+            return (allowsForcedTTYRemoteCommand && forcedTTY) || !hasRemoteCommand
         }
 
+        // OpenSSH keeps reading options after the destination, up to the first
+        // word of the remote command, so `ssh host -t command` forces a TTY just
+        // as `ssh -t host command` does. A `--` before the destination ends
+        // option parsing for good; one after it starts the remote command.
+        var destinationSeen = false
+        var optionsTerminated = false
         while index < arguments.count {
             let argument = arguments[index]
+            if destinationSeen, optionsTerminated {
+                return allowsSession(hasRemoteCommand: true)
+            }
             if argument == "--" {
+                if destinationSeen {
+                    return allowsSession(hasRemoteCommand: index + 1 < arguments.count)
+                }
                 guard index + 1 < arguments.count else { return false }
-                return allowsSession(destinationIndex: index + 1)
+                optionsTerminated = true
+                destinationSeen = true
+                index += 2
+                continue
             }
             if !argument.hasPrefix("-") || argument == "-" {
-                // OpenSSH normally runs a remote command without a terminal,
-                // but `ssh -tt host command` is still an interactive PTY
-                // session. This is how local panes commonly enter tmux over
-                // SSH, so keep the forced-PTY lane eligible for paste upload.
-                return allowsSession(destinationIndex: index)
+                if destinationSeen {
+                    return allowsSession(hasRemoteCommand: true)
+                }
+                destinationSeen = true
+                index += 1
+                continue
             }
 
             if argument.count > 2,
@@ -801,7 +820,7 @@ enum TerminalSSHSessionDetector {
             }
             index += 1
         }
-        return false
+        return destinationSeen && allowsSession(hasRemoteCommand: false)
     }
 
     private static func parsedSSHOption(_ rawOption: String) -> (key: String, value: String?)? {
@@ -927,6 +946,9 @@ enum TerminalSSHSessionDetector {
         var compressionEnabled = false
         var sshOptions: [String] = []
 
+        // OpenSSH keeps the first value it reads for a setting, whether it came
+        // before or after the destination, so a later one never replaces it.
+        // `-S` is the exception: each one replaces the control path.
         func consumeValue(_ value: String, for option: Character) -> Bool {
             let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedValue.isEmpty else { return false }
@@ -934,25 +956,26 @@ enum TerminalSSHSessionDetector {
             switch option {
             case "p":
                 guard let parsedPort = Int(trimmedValue) else { return false }
-                port = parsedPort
+                port = port ?? parsedPort
                 return true
             case "i":
-                identityFile = trimmedValue
+                identityFile = identityFile ?? trimmedValue
                 return true
             case "F":
                 configFile = trimmedValue
                 return true
             case "J":
-                jumpHost = trimmedValue
+                jumpHost = jumpHost ?? trimmedValue
                 return true
             case "S":
                 controlPath = trimmedValue
                 return true
             case "l":
-                loginName = trimmedValue
+                loginName = loginName ?? trimmedValue
                 return true
             case "o":
-                return RemoteShellSessionParsing.consumeSSHOption(
+                let earlier = (port, identityFile, controlPath, jumpHost, loginName)
+                let consumed = RemoteShellSessionParsing.consumeSSHOption(
                     trimmedValue,
                     port: &port,
                     identityFile: &identityFile,
@@ -961,23 +984,32 @@ enum TerminalSSHSessionDetector {
                     loginName: &loginName,
                     sshOptions: &sshOptions
                 )
+                port = earlier.0 ?? port
+                identityFile = earlier.1 ?? identityFile
+                controlPath = earlier.2 ?? controlPath
+                jumpHost = earlier.3 ?? jumpHost
+                loginName = earlier.4 ?? loginName
+                return consumed
             default:
                 return valueArgumentFlags.contains(option)
             }
         }
 
+        // Options after the destination apply too, up to the first word of the
+        // remote command (`ssh host -p 2222 tmux`), as in OpenSSH.
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                index += 1
-                if index < arguments.count {
-                    destination = arguments[index]
+                if destination == nil, index + 1 < arguments.count {
+                    destination = arguments[index + 1]
                 }
                 break
             }
             if !argument.hasPrefix("-") || argument == "-" {
+                guard destination == nil else { break }
                 destination = argument
-                break
+                index += 1
+                continue
             }
 
             if argument.count > 2,
