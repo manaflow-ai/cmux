@@ -421,3 +421,237 @@ test("the status line draws its parts and names its steps list", async () => {
     "Editing app.ts · 3s",
   ]);
 });
+
+// Agent pills and the agent pane (HomeAgentRunMapping, HomeAgentMessages, +AgentPane.swift).
+const { agentMessages, agentRows, agentThread, taskTitle, workspaceLink } =
+  await import("../src/pages/home-messages/cards/pills/agentRuns");
+const { useAgents, windowEntries } = await import("../src/pages/home-messages/cards/pills/useAgents");
+const { cardStrings } = await import("../src/pages/home-messages/cards/strings");
+type HomeRunStep = import("../src/pages/home-channels/types").HomeRunStep;
+type RunEntry = import("../src/pages/home-channels/runs").RunEntry;
+
+const toolStep = (
+  id: string,
+  seq: number,
+  at: number,
+  tool: Partial<NonNullable<HomeRunStep["tool"]>>,
+  status?: "failed",
+) =>
+  ({
+    id,
+    seq,
+    at,
+    rev: 1,
+    kind: "tool",
+    ...(status ? { status } : {}),
+    tool: { name: "spawn", files: [], ...tool },
+    attachments: [],
+    links: [],
+  }) as HomeRunStep;
+const noteStep = (id: string, seq: number, at: number, text: string) =>
+  ({ id, seq, at, rev: 1, kind: "note", text, attachments: [], links: [] }) as unknown as HomeRunStep;
+const homeMessage = (fields: Partial<HomeMessage> & { id: string; seq: number; author: string; text?: string }) =>
+  ({
+    conversation: "c1",
+    createdAt: fields.seq * 1000,
+    retracted: false,
+    reactions: [],
+    ...fields,
+    parts: [{ type: "text", text: fields.text ?? "", mentions: [] }],
+  }) as unknown as HomeMessage;
+const runEntry = (id: string, turn: string, steps: HomeRunStep[], answers: string[] = []): RunEntry =>
+  ({
+    run: {
+      id,
+      conversation: "c1",
+      author: "chief",
+      status: "done",
+      startedAt: 1,
+      updatedAt: 1,
+      rev: 1,
+      stepCount: steps.length,
+      turn,
+      answers,
+    },
+    steps,
+    complete: true,
+  }) as unknown as RunEntry;
+
+const spawnStep = toolStep("s1", 1, 100, {
+  name: "mcp__optchat__spawn",
+  input: { tasks: ["Title: Fix the login\nLook at auth.ts", "Write tests, then run them"] },
+  output: "spawned:\n- a1: started\n- a2: queued",
+});
+
+test("a run's spawn, tell and report steps are the Chief's messages with its agents", () => {
+  const steps = [
+    spawnStep,
+    toolStep("t1", 2, 200, {
+      name: "tell",
+      input: { id: "a1", message: "also check logout" },
+      output: "outcome: refused",
+    }),
+    // Codex wraps an MCP call in an envelope.
+    toolStep("t2", 3, 300, {
+      name: "mcp_tool_call",
+      input: { server: "optchat", tool: "tell", arguments: { id: "a2", message: "go" } },
+      output: "outcome: queued",
+    }),
+    noteStep("report:a1", 4, 400, "[a1] Fixed it."),
+  ];
+  const messages = agentMessages(steps, 0);
+  expect(messages.map((m) => [m.peer, m.outgoing, m.text, m.queued])).toEqual([
+    ["a1", true, "Title: Fix the login\nLook at auth.ts", false],
+    ["a2", true, "Write tests, then run them", true],
+    ["a1", true, "also check logout\n[Error: outcome: refused]", false],
+    ["a2", true, "go", true],
+    ["a1", false, "Fixed it.", false],
+  ]);
+  // A spawn whose ids do not match its tasks names no one.
+  expect(agentMessages([toolStep("s", 1, 1, { input: { tasks: ["x", "y"] }, output: "- a1: started" })], 0)).toEqual(
+    [],
+  );
+  expect(taskTitle("Write tests, then run them")).toBe("Write tests");
+  expect(taskTitle('User (Nov 4): "Fix the dock icon"')).toBe("Fix the dock icon");
+});
+
+test("one pill per agent, in the row of its newest message, under the turn's own message", () => {
+  // The Chief's own `send` in turn 1 carries its pills (not its reply after it).
+  const ask = homeMessage({ id: "m1", seq: 1, author: "chief", clientMessageId: "send-c1-turn1-0123456789abcdef" });
+  const reply1 = homeMessage({ id: "m2", seq: 2, author: "chief", clientMessageId: "turn1" });
+  const ask2 = homeMessage({ id: "m3", seq: 3, author: "me" });
+  const reply2 = homeMessage({ id: "m4", seq: 4, author: "chief", clientMessageId: "turn2" });
+  const first = runEntry("r1", "turn1", [spawnStep]);
+  const second = runEntry("r2", "turn2", [noteStep("report:a1", 5, 500, "[a1] Done.")], ["m3"]);
+  const rows = agentRows([ask, reply1, ask2, reply2], [first, second]);
+  // The turn's send anchors turn 1; turn 2 has no send, so the message it answered.
+  expect([...rows.keys()]).toEqual(["m1", "m3"]);
+  expect(rows.get("m1")).toEqual({ peers: ["a2"], titles: ["Write tests"], states: ["queued"], unread: [false] });
+  expect(rows.get("m3")).toEqual({ peers: ["a1"], titles: ["Fix the login"], states: ["reported"], unread: [true] });
+  // Opened: its dot clears until a newer report.
+  expect(agentRows([ask, reply1, ask2, reply2], [first, second], new Map([["a1", 500]])).get("m3")?.unread).toEqual([
+    false,
+  ]);
+  // A run whose messages are not loaded has no row.
+  expect(agentRows([ask2], [first]).size).toBe(0);
+  // Two sends in the turn: a pill goes beside the one that names its agent.
+  const said1 = homeMessage({
+    id: "s1",
+    seq: 1,
+    author: "chief",
+    clientMessageId: "send-c1-turn1-0123456789abcdef",
+    text: "On it.",
+  });
+  const said2 = homeMessage({
+    id: "s2",
+    seq: 2,
+    author: "chief",
+    clientMessageId: "send-c1-turn1-fedcba9876543210",
+    text: "a2 writes tests (not a20)",
+  });
+  expect([...agentRows([said1, said2], [first])].map(([anchor, row]) => [anchor, row.peers])).toEqual([
+    ["s1", ["a1"]],
+    ["s2", ["a2"]],
+  ]);
+  // A status note is Stopped.
+  const stopped = runEntry("r3", "turn2", [noteStep("report:a1", 6, 600, "[a1] (gone: deleted)")], ["m3"]);
+  expect(agentRows([ask2], [stopped]).get("m3")?.states).toEqual(["stopped"]);
+});
+
+test("an agent's chat: its task, later messages, my notes as You once, and the Chief's link", () => {
+  const link = "cmux://chief/0123abcd/session/sess-1";
+  const entry = runEntry("r1", "turn1", [
+    spawnStep,
+    toolStep("t1", 2, 5000, {
+      name: "tell",
+      input: { id: "a1", message: "check logout" },
+      output: "outcome: delivered",
+    }),
+    noteStep("report:a1", 3, 9000, "[a1] Fixed."),
+  ]);
+  const messages = [
+    homeMessage({ id: "n1", seq: 4, author: "me", text: "[to a1] check logout" }),
+    homeMessage({ id: "n2", seq: 5, author: "me", text: "[to a1] and the tests" }),
+    homeMessage({ id: "c1", seq: 6, author: "chief", text: `Started [a1](${link}) on it.` }),
+  ];
+  const thread = agentThread("a1", [entry], messages, "me")!;
+  expect(thread.title).toBe("Fix the login");
+  expect(thread.task).toBe("Title: Fix the login\nLook at auth.ts");
+  expect(thread.state).toBe("reported");
+  expect(thread.entries.map((e) => [e.sender, e.text])).toEqual([
+    ["you", "check logout"],
+    ["you", "and the tests"],
+    ["agent", "Fixed."],
+  ]);
+  expect(thread.workspaceLink).toBe(link);
+  expect(workspaceLink("a1", ["[a1](cmux://chief/zz/session/x)"])).toBeUndefined();
+});
+
+function fakeAgentStore(entries: RunEntry[]) {
+  const sent: string[] = [];
+  const loads: string[] = [];
+  const store = {
+    runs: {
+      subscribe: () => () => {},
+      getVersion: () => 0,
+      forReply: (m: HomeMessage) => entries.find((e) => e.run.turn === m.clientMessageId),
+      liveFor: (m: HomeMessage) => entries.filter((e) => e.run.answers.includes(m.id)),
+    },
+    loadRunSteps: async (run: { id: string }) => void loads.push(run.id),
+    send: async (text: string) => {
+      sent.push(text);
+      return true;
+    },
+  };
+  return { store: store as never, sent, loads };
+}
+
+function AgentsHarness(props: { store: never; messages: HomeMessage[]; openOutside?: (link: string) => boolean }) {
+  const view = useAgents(props.store, props.messages, "me", props.openOutside, cardStrings(["en"]), true);
+  return (
+    <div>
+      {[...view.after].map(([anchor, extras]) => (
+        <div key={anchor} data-anchor={anchor}>
+          {extras.map((extra) => (
+            <div key={extra.key}>{extra.node}</div>
+          ))}
+        </div>
+      ))}
+      {view.pane}
+    </div>
+  );
+}
+
+test("a pill opens its agent right of Home through the host, else in the pane, and the pane sends", async () => {
+  const link = "cmux://chief/0123abcd/session/sess-1";
+  const ask = homeMessage({ id: "m1", seq: 1, author: "chief", clientMessageId: "send-c1-turn1-0123456789abcdef" });
+  const reply = homeMessage({ id: "m2", seq: 2, author: "chief", clientMessageId: "turn1", text: `[a1](${link})` });
+  const entry = runEntry("r1", "turn1", [spawnStep]);
+  const pending = { ...runEntry("r2", "turn9", []), complete: false } as RunEntry;
+  (pending.run as { stepCount: number }).stepCount = 3;
+  (pending.run as { answers: string[] }).answers = ["m2"];
+  const { store, sent, loads } = fakeAgentStore([entry, pending]);
+  expect(windowEntries((store as { runs: never }).runs, [ask, reply])).toEqual([entry, pending]);
+  const opened: string[] = [];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <AgentsHarness store={store} messages={[ask, reply]} openOutside={(url) => (opened.push(url), true)} />,
+    );
+  });
+  // A run without its steps is read for the rows.
+  expect(loads).toEqual(["r2"]);
+  const pills = () => [...container.querySelectorAll<HTMLButtonElement>("[data-anchor=m1] .hm-pill")];
+  expect(pills().length).toBe(2);
+  await act(async () => pills()[0]!.click());
+  expect(opened).toEqual([link]);
+  expect(container.querySelector(".hm-agent-pane")).toBeNull();
+  // a2 has no link: its chat opens in the pane here.
+  await act(async () => pills()[1]!.click());
+  expect(container.querySelector(".hm-agent-pane")).not.toBeNull();
+  expect(container.querySelector(".hm-agent-pane__tab-name")?.textContent).toBe("Write tests");
+  await act(async () => container.querySelector<HTMLButtonElement>(".hm-agent-pane__tab-close")!.click());
+  expect(container.querySelector(".hm-agent-pane")).toBeNull();
+  expect(sent).toEqual([]);
+});

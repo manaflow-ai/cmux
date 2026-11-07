@@ -745,7 +745,7 @@
   max-width: 420px;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   font: var(--text-caption);
 }
 

@@ -47,6 +47,7 @@ import type { MessagesDetailProps } from "../types";
 import { useChiefTurn } from "../transcript/useChiefTurn";
 import { ChiefStatusLine, useChiefActivity } from "../transcript/ChiefStatusLine";
 import type { TranscriptExtras } from "../transcript/extras";
+import { useAgents } from "../cards/pills/useAgents";
 import {
   bubbleHostActions,
   chatAppearance,
@@ -448,21 +449,45 @@ function ConversationView(
   const live = useChiefActivity(store.live, store.runs, conversation.id);
   const activity = live?.activity;
   const steps = live?.steps;
-  const extras = useMemo<TranscriptExtras | undefined>(
+  // The Chief's agents: a row of pills under each message that told or heard from them, and the
+  // agent pane on the right (HomeNativeTranscriptView+AgentPane). A pill's chat opens right of Home
+  // through the host, as its `aN` link does.
+  const openOutside = useMemo(
     () =>
-      activity && steps
-        ? {
-            tail: [
+      host
+        ? (url: string) => {
+            void host.call(DetailOps.openLink, { url }).catch(() => undefined);
+            return true;
+          }
+        : undefined,
+    [host],
+  );
+  const agents = useAgents(store, snapshot.messages, me?.id, openOutside, words.cards, conversation.kind === "chief");
+  const extras = useMemo<TranscriptExtras | undefined>(
+    () => {
+      const tail =
+        activity && steps
+          ? [
               {
                 key: "chief-status",
                 estimate: 24,
                 node: <ChiefStatusLine activity={activity} steps={steps} strings={words.transcript} />,
               },
-            ],
-          }
-        : undefined,
+            ]
+          : undefined;
+      if (!tail && !agents.after.size) return undefined;
+      return { ...(tail ? { tail } : {}), ...(agents.after.size ? { after: agents.after } : {}) };
+    },
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the activity's own fields, not its object
-    [activity?.run, activity?.author, activity?.activity.line, activity?.activity.since, steps, words.transcript],
+    [
+      activity?.run,
+      activity?.author,
+      activity?.activity.line,
+      activity?.activity.since,
+      steps,
+      words.transcript,
+      agents.after,
+    ],
   );
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
@@ -503,7 +528,8 @@ function ConversationView(
     );
   }
   return (
-    <>
+    // The agent pane takes the chat's right (min(440, max(280, 42%)), leaving the chat 320).
+    <div className="hm-detail-split">
       <MessagesTranscript
         ref={props.transcript}
         strings={words.transcript}
@@ -575,7 +601,8 @@ function ConversationView(
             }
           : {})}
       />
-    </>
+      {agents.pane}
+    </div>
   );
 }
 
