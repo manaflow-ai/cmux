@@ -129,6 +129,8 @@ afterEach(async () => {
   host.replaceChildren();
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
   (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: false });
+  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+  choice.setCloudEnvironmentPick(choice.AUTO_ENVIRONMENT);
 });
 
 afterAll(async () => {
@@ -264,6 +266,66 @@ test("Auto is the default and sends no environment; a pick is what the send name
   await openChip();
   expect(rowLabels().slice(0, 2)).toEqual([t("composer.envAuto"), "GPU training"]);
   expect(rowLabels()).toContain(t("composer.envEdit", { name: "GPU training" }));
+});
+
+test("cloud.startChat's payload: Auto and the flag off send today's, a pick adds its environment", async () => {
+  const choice = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+  const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  const start = { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude" };
+  // What App.tsx sendToCloud hands startCloudChat, and what reaches the host.
+  const payload = async () => {
+    const sent: [string, Record<string, unknown>][] = [];
+    const environment = choice.cloudStartEnvironment(undefined);
+    await startCloudChat(
+      async (method, params) => void sent.push([method, params]),
+      { ...start, ...(environment ? { environment } : {}) },
+      "send-1",
+    );
+    return sent;
+  };
+  const today = [
+    ["cloud.startChat", { task: "Fix the build", cwd: "/Users/you/src/cmux", harness: "claude", key: "send-1" }],
+  ];
+  // The flag off: no chip, and the payload is today's.
+  await mount({ flag: false, mode: "cloud" });
+  expect(slot()).toBeNull();
+  expect(await payload()).toEqual(today);
+  // The flag on, on Auto: still today's, with no `environment`.
+  await mount({ flag: true, mode: "cloud" });
+  expect(choice.cloudEnvironmentPick()).toBe(choice.AUTO_ENVIRONMENT);
+  expect(await payload()).toEqual(today);
+  // A picked environment: the same payload with its id.
+  await openChip();
+  await act(async () => row("GPU training")!.click());
+  await flush();
+  expect(await payload()).toEqual([["cloud.startChat", { ...today[0]![1], environment: "env_gpu" }]]);
+  // A pick left over when the flag goes off sends nothing either.
+  act(() => setComposerSettings({ cloudEnvironments: false }));
+  expect(await payload()).toEqual(today);
+  // A start that names its own environment keeps it.
+  expect(choice.cloudStartEnvironment("env_web")).toBe("env_web");
+});
+
+test("the GUI hooks: the chip and every drop-up row carry a stable test id", async () => {
+  await mount({ flag: true, mode: "cloud" });
+  expect(host.querySelector('[data-testid="cloud-environment-chip"] button[data-menu="Environment"]')).toBe(
+    chipButton()!,
+  );
+  await openChip();
+  const ids = [...menu()!.querySelectorAll<HTMLElement>("[data-testid]")].map(
+    (node) =>
+      `${node.dataset.testid}${node.dataset.environmentName && node.dataset.testid === "cloud-environment-option" ? `:${node.dataset.environmentName}` : ""}`,
+  );
+  expect(ids).toEqual([
+    "cloud-environment-auto",
+    "cloud-environment-option:docs",
+    "cloud-environment-option:atlas-web",
+    "cloud-environment-option:GPU training",
+    "cloud-environment-new",
+    "cloud-environment-edit",
+    "cloud-environment-new-machine",
+  ]);
 });
 
 test("New Cloud machine… runs New Cloud Machine with the picked environment, and with none on Auto", async () => {

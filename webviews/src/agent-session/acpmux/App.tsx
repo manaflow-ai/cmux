@@ -49,7 +49,7 @@ import {
 } from "./sessionAuth";
 import { postNative } from "./native";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
-import { cloudEnvironmentPick, environmentForStart } from "./cloudEnvironmentChoice";
+import { cloudStartEnvironment } from "./cloudEnvironmentChoice";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -3980,7 +3980,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-    const environment = start.environment ?? environmentForStart(cloudEnvironmentPick());
+    const environment = cloudStartEnvironment(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
     const request: CloudStart = {
       task: text,

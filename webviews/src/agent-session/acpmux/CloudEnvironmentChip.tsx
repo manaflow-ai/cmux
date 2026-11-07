@@ -91,6 +91,15 @@ function folderName(folder: string | undefined): string | undefined {
   return name || undefined;
 }
 
+/// Stable hooks for GUI automation (the start matrix's flag-on row): the chip is
+/// `cloud-environment-chip` (its button: `data-menu="Environment"`), Auto `cloud-environment-auto`,
+/// each environment `cloud-environment-option` with `data-environment-name`, and the actions below.
+const ACTION_TEST_IDS: Partial<Record<CloudEnvironmentRow["kind"], string>> = {
+  new: "cloud-environment-new",
+  edit: "cloud-environment-edit",
+  newMachine: "cloud-environment-new-machine",
+};
+
 /// How the drop-up draws its rows (gallery seam; `list` ships):
 /// - `list`: one line per row, hairlines between the environments, their actions and New Cloud
 ///   machine…; no headers and no second lines (design/environment-picker.md rule 0).
@@ -147,7 +156,11 @@ export function CloudEnvironmentChip({
           : t("composer.envNewMachine");
     return (
       <MenuItem key={row.kind} className="acpmux-menu-item" data-value={row.kind} onSelect={() => action(row)}>
-        <span className="acpmux-location-row acpmux-cloud-env-row" data-action={row.kind}>
+        <span
+          className="acpmux-location-row acpmux-cloud-env-row"
+          data-action={row.kind}
+          data-testid={ACTION_TEST_IDS[row.kind]}
+        >
           {row.kind === "new" ? <PlusIcon /> : row.kind === "edit" ? <GearIcon /> : <ServerIcon />}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{text}</span>
@@ -162,7 +175,12 @@ export function CloudEnvironmentChip({
     const rowName = row.kind === "auto" ? auto : row.environment.name;
     return (
       <MenuRadioItem key={id} value={id} className="acpmux-menu-item" closeOnClick>
-        <span className="acpmux-location-row acpmux-cloud-env-row" data-environment={id}>
+        <span
+          className="acpmux-location-row acpmux-cloud-env-row"
+          data-environment={id}
+          data-environment-name={rowName}
+          data-testid={row.kind === "auto" ? "cloud-environment-auto" : "cloud-environment-option"}
+        >
           {row.kind === "auto" ? <SparkIcon /> : <BoxIcon />}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{rowName}</span>
@@ -192,6 +210,7 @@ export function CloudEnvironmentChip({
       ref={box}
       className="acpmux-location-picker acpmux-cloud-env"
       data-kind="cloud-environment"
+      data-testid="cloud-environment-chip"
       title={`${name}: ${value}`}
     >
       <Menu
@@ -223,7 +242,7 @@ export function CloudEnvironmentChip({
           anchor={anchor}
           align="start"
           label={name}
-          className={`acpmux-menu acpmux-location-menu acpmux-cloud-env-menu acpmux-cloud-env-${dropUp}`}
+          className={`acpmux-menu acpmux-location-menu acpmux-cloud-env-menu acpmux-cloud-env-menu-${dropUp}`}
         >
           {dropUp === "sections" && <div className="acpmux-env-heading">{label}</div>}
           <MenuRadioGroup value={control.current} onValueChange={(next) => pick(String(next))}>

@@ -14,6 +14,7 @@
 ///   none yet lists the account's most recently changed ones.
 
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
+import { composerSettingsSnapshot } from "./composerSettings";
 
 /// The pick that sends no environment.
 export const AUTO_ENVIRONMENT = "auto";
@@ -90,6 +91,14 @@ export function cloudEnvironmentValue(control: CloudEnvironmentControl, autoName
 /// What a Cloud start sends as `environment`: nothing for Auto.
 export function environmentForStart(pick: string | undefined): string | undefined {
   return pick && pick !== AUTO_ENVIRONMENT ? pick : undefined;
+}
+
+/// The `environment` a Cloud send names (App.tsx `sendToCloud`): the start's own, else the chip's
+/// pick. Auto names none, and so does any pick while CLOUD_ENVIRONMENTS_ENABLED is off, so the flag
+/// off sends exactly what it sent before the chip.
+export function cloudStartEnvironment(explicit: string | undefined): string | undefined {
+  if (explicit) return explicit;
+  return composerSettingsSnapshot().cloudEnvironments ? environmentForStart(pick) : undefined;
 }
 
 /// The account's Default environment (Auto's), from `cloud.environment.list`: the personal one.
