@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { carrierDial, machineIds, newMachineIds } from "./cloud-journey";
+import { carrierDial, hopTimes, machineIds, newMachineIds } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -252,5 +252,13 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&
     await expect(carrierDial(gone.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial");
     await expect(carrierDial("/nonexistent/cmux", api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial: ");
     for (const d of [refused.dir, bare.dir, gone.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("the gateway hop cost drops the warm-up, needs every call answered 200, and reports ms percentiles", () => {
+    const lines = (rows: string[]) => ["noise", ...rows.map((r) => `@@t ${r}`)].join("\n");
+    const out = lines(["200 9.000 9.000", ...Array.from({ length: 10 }, (_, i) => `200 ${((i + 1) / 100).toFixed(3)} ${((i + 1) / 10).toFixed(3)}`)]);
+    expect(hopTimes(out, 10)).toEqual({ ttfb_p50: 50, ttfb_p90: 90, total_p50: 500, total_p90: 900 });
+    expect(() => hopTimes(lines(["200 0.1 0.1", "200 0.1 0.1"]), 2)).toThrow("1 of 2 timed calls");
+    expect(() => hopTimes(lines(["200 0.1 0.1", "502 0.1 0.1"]), 1)).toThrow("did not answer 200 (502)");
   });
 });

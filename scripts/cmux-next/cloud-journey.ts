@@ -479,6 +479,29 @@ export function swiftRawString(source: string, name: string): string {
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
+const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
+/** Calls timed each way by the gateway hop cost. */
+const HOP_SAMPLES = 20;
+
+/**
+ * Curl's `@@t <status> <starttransfer> <total>` lines (seconds) after the warm-up, as ms percentiles. Every timed call
+ * must answer 200. Pure, for the tests.
+ */
+export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: number; total_p50: number; total_p90: number } => {
+  const rows = out.split("\n").filter((l) => l.startsWith("@@t ")).map((l) => l.split(" "));
+  const timed = rows.slice(1);
+  if (timed.length !== n) throw new Error(`${timed.length} of ${n} timed calls answered: ${out.slice(-300)}`);
+  const bad = timed.filter((r) => r[1] !== "200");
+  if (bad.length) throw new Error(`${bad.length} of ${n} calls did not answer 200 (${bad.map((r) => r[1]).join(", ")})`);
+  const pct = (xs: number[], q: number) => {
+    const s = [...xs].sort((x, y) => x - y);
+    return Math.round(s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]! * 1000);
+  };
+  const ttfb = timed.map((r) => Number(r[2]));
+  const total = timed.map((r) => Number(r[3]));
+  return { ttfb_p50: pct(ttfb, 0.5), ttfb_p90: pct(ttfb, 0.9), total_p50: pct(total, 0.5), total_p90: pct(total, 0.9) };
+};
 /**
  * The journey's stub script: one Bash call whose output (printf joins it, so neither the command nor an error that
  * quotes it carries it) the reply then repeats, so the reply shows the tool round trip.
@@ -1074,6 +1097,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const gwLog = "/home/cmux/.cache/cmux/inference-gateway.log";
     const gwStubLog = "/home/cmux/.cmux/gateway-proxy-stub.log";
     let gwExec: Exec | null = null;
+    // The stub's URL on the gateway machine (--gateway with the stub), for the hop cost.
+    let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
         const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
@@ -1104,6 +1129,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: `http://127.0.0.1:${port}`, detail: `the model stub at 127.0.0.1:${port} on the gateway machine, nonce ${nonce}` };
         });
       }
+      gwStubUrl = upstream;
       await J.step("cmux inference setup (gateway machine)", async () => {
         const dir = mkdtempSync(path.join(tmpdir(), "cmux-gw-"));
         const tokenFile = path.join(dir, "token");
@@ -1366,6 +1392,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (found.length) throw new Error(`the chat machine holds a login: ${found.join(", ")}`);
           return { value: null, detail: "no ~/.codex/auth.json, no ~/.claude/.credentials.json, no OAuth or refresh token in the harness folders" };
         });
+        if (gwExec && gwStubUrl) {
+          const stubUrl: string = gwStubUrl;
+          // What the gateway route costs a call (cmuxterm-hq#7415 F1): GET /v1/models, which the stub answers without
+          // moving its script, from the chat machine through edge -> Worker -> team object -> gateway socket -> stub,
+          // and from the gateway machine straight to the stub. One warm-up call each is not counted.
+          await J.step("gateway: hop cost", async () => {
+            const n = HOP_SAMPLES;
+            const loop = (auth: string, url: string) =>
+              `for i in $(seq 0 ${n}); do curl -sS -o /dev/null -m 30 ${auth} -w '@@t %{http_code} %{time_starttransfer} %{time_total}\n' ${url}; done`;
+            const via = await exec(`. ${VM_MODEL_PLANE_ENV} && ${loop(`-H "Authorization: Bearer $OPENAI_API_KEY"`, `"$OPENAI_BASE_URL/models"`)}`, 300_000);
+            const direct = await gwExec!(loop("", shq(`${stubUrl}/v1/models`)), 300_000);
+            const a = hopTimes(via.stdout, n);
+            const b = hopTimes(direct.stdout, n);
+            const result = { samples: n, gateway_path: a, direct: b, added_ms: { ttfb_p50: a.ttfb_p50 - b.ttfb_p50, total_p50: a.total_p50 - b.total_p50 } };
+            if (outDir) writeFileSync(path.join(outDir, "gateway-hop.json"), `${JSON.stringify(result, null, 2)}\n`);
+            return {
+              value: null,
+              detail: `n=${n}: through the gateway TTFB p50 ${a.ttfb_p50} ms p90 ${a.ttfb_p90} ms, total p50 ${a.total_p50} ms; ` +
+                `gateway machine to the stub TTFB p50 ${b.ttfb_p50} ms; the route adds ${result.added_ms.ttfb_p50} ms at p50`,
+            };
+          });
+        }
       }
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
