@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -15,7 +16,7 @@ import {
   type BootImage,
   type SettleInput,
 } from "../../images/cmux-vm/auto-roll";
-import { runChild } from "./helpers/run-child";
+import { runChild, runChildOk } from "./helpers/run-child";
 
 // images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
 const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
@@ -88,12 +89,19 @@ describe("auto-roll rollback", () => {
     expect(locate(result.text, "staging").images).toEqual(locate(wrangler, "staging").images);
   });
 
-  test("does nothing when a newer roll is already first", () => {
+  test("removes a failed image a newer roll sits above, so that roll's own rollback cannot bring it back", () => {
     let text = approve(wrangler, entry("300")).text;
     text = approve(text, entry("301")).text;
     const result = rollback(text, entry("300").id);
-    expect(result.rolledBack).toBe(false);
-    expect(result.text).toBe(text);
+    expect(result.rolledBack).toBe(true);
+    expect(result.nowFirst).toBe(entry("301").id);
+    const ids = (t: string) => [...locate(t, "production").images, ...locate(t, "staging").images].map((i) => i.id);
+    expect(ids(result.text)).not.toContain(entry("300").id);
+    // The newer roll fails too: its rollback leaves the hand-approved first entry, never the earlier failed image.
+    const second = rollback(result.text, entry("301").id);
+    expect(second.nowFirst).toBe(locate(wrangler, "production").images[0]!.id);
+    expect(locate(second.text, "production").images).toEqual(locate(wrangler, "production").images);
+    expect(rollback(second.text, entry("300").id)).toMatchObject({ rolledBack: false, reason: expect.stringMatching(/in neither list/) });
   });
 
   test("never rolls back a hand-approved image", () => {
@@ -121,10 +129,10 @@ describe("auto-roll settle", () => {
   const image = entry("500").id;
   const previous = locate(wrangler, "production").images[0]!.id;
   const roll = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, attempt: 1, ...over,
+    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, attempt: 1, ...over,
   });
   const back = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, attempt: 1, ...over,
+    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, attempt: 1, ...over,
   });
 
   test("a roll whose deploy and product create booted the image is green", () => {
@@ -138,16 +146,19 @@ describe("auto-roll settle", () => {
     expect(settle(roll({ bootImage: previous })).outcome).toBe("rollback");
   });
 
-  test("only a tip whose first image moved off this one is a supersede", () => {
+  test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
     const newer = entry("501").id;
-    expect(settle(roll({ deploy: "cancelled", product: "", tipFirst: newer })).outcome).toBe("superseded");
-    expect(settle(roll({ deploy: "failure", product: "", tipFirst: previous })).outcome).toBe("superseded");
+    expect(settle(roll({ deploy: "cancelled", product: "", tipFirst: newer })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "failure", product: "", tipFirst: newer, tipHas: true })).outcome).toBe("rollback");
+    expect(settle(roll({ deploy: "failure", product: "", tipFirst: previous, tipHas: false })).outcome).toBe("superseded");
   });
 
   test("a rollback is verified only when the create booted the deployed first entry, not the rolled-back image", () => {
     expect(settle(back({})).outcome).toBe("verified");
     expect(settle(back({ bootImage: image })).outcome).not.toBe("verified");
-    expect(settle(back({ deployedFirst: image, bootImage: image })).outcome).not.toBe("verified");
+    expect(settle(back({ deployedFirst: image, bootImage: image, deployedHas: true })).outcome).not.toBe("verified");
+    // Still in the deployed list below another first entry: not taken out yet.
+    expect(settle(back({ deployedHas: true })).outcome).not.toBe("verified");
     expect(settle(back({ bootImage: "" })).outcome).not.toBe("verified");
   });
 
@@ -180,6 +191,9 @@ describe("auto-roll settle", () => {
       expect(await run("cancelled")).toMatchObject({ outcome: "rollback", tipFirst: image, deployedFirst: image });
       writeFileSync(path.join(dir, "tip.jsonc"), rollback(rolled, image).text);
       expect(await run("cancelled")).toMatchObject({ outcome: "superseded", tipFirst: previous });
+      // A newer roll on top of this failed one: the image is still listed, so it rolls back.
+      writeFileSync(path.join(dir, "tip.jsonc"), approve(rolled, entry("502")).text);
+      expect(await run("cancelled")).toMatchObject({ outcome: "rollback", tipFirst: entry("502").id });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -231,5 +245,120 @@ describe("auto-roll workflows", () => {
     const promote = roll.jobs["promote"]!;
     expect(stepOf(promote, "message").run).toContain('image="cloud-native-auto-${tui:0:8}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
     expect(stepOf(promote, "push").run).toContain('--attempt "$GITHUB_RUN_ATTEMPT"');
+  });
+});
+
+// The shell steps around the decisions, run for real against local git remotes (file://).
+describe("auto-roll scripts", () => {
+  const repoRoot = new URL("../../", import.meta.url).pathname;
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const git = (cwd: string, ...args: string[]) => runChildOk("git", args, { cwd, env: gitEnv });
+  const withDir = async (body: (dir: string) => Promise<void>) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-script-"));
+    try {
+      await body(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test("the record script writes the first record, deep-merges rollback deploys and never lets a null erase one", () =>
+    withDir(async (dir) => {
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      const record = async (patch: object) =>
+        runChildOk("bash", [path.join(repoRoot, "images/cmux-vm/image-roll-record.sh"), "77"], {
+          cwd: dir,
+          input: JSON.stringify(patch),
+          env: { ...gitEnv, TOKEN: "unused", GITHUB_REPOSITORY: "remote", GITHUB_SERVER_URL: `file://${dir}`, CMUX_IMAGE_ROLL_BRANCH: "cloud-image-rolls" },
+        });
+      const read = async () => JSON.parse((await git(path.join(dir, "remote.git"), "show", "cloud-image-rolls:rolls/77.json")).stdout) as Record<string, unknown>;
+      // No record yet: the patch is the record.
+      await record({ schema: 1, gate: { result: "passed" } });
+      expect(await read()).toEqual({ schema: 1, gate: { result: "passed" } });
+      await record({ rollback: { result: "pushed", commit: "abc" } });
+      await record({ rollback: { result: "retrying", deploys: { "1": { deploy: "failure" } } } });
+      await record({ rollback: { result: "verified", deploys: { "2": { deploy: "success" } } } });
+      // A re-run of the roll's settle (now superseded) patches rollback: null.
+      await record({ production: { superseded: true }, rollback: null });
+      expect(await read()).toEqual({
+        schema: 1,
+        gate: { result: "passed" },
+        production: { superseded: true },
+        rollback: { result: "verified", commit: "abc", deploys: { "1": { deploy: "failure" }, "2": { deploy: "success" } } },
+      });
+    }), 60_000);
+
+  test("the push script names the image with the workflow run attempt, not its own push retry counter", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"));
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify({ ...candidate, lock_sha256: createHash("sha256").update(lock).digest("hex") }));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChildOk(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242",
+          "--attempt", "2", "--message-file", path.join(temp, "message.txt"), "--dry-run"],
+        { cwd: src, env: { ...gitEnv, RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^dry-run [0-9a-f]{40}/);
+      const approved = JSON.parse(readFileSync(path.join(temp, "approve.json"), "utf8")) as { image: { id: string } };
+      expect(approved.image.id).toMatch(/^cloud-native-auto-[0-9a-f]{8}-4242-2$/);
+    }), 60_000);
+
+  test("plan fails closed on a shallow checkout or a pin it lacks, and still refuses a build older than the pin", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string) => {
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const tip = await commitOf("tip");
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const plan = (repo: string, commit: string) => runChild("bun", [script, "plan", "--event", "build", "--commit", commit, "--tip", "HEAD", "--lock", lock, "--repo", repo]);
+
+      const ok = await plan(full, older);
+      expect(ok.status).toBe(0);
+      expect(JSON.parse(ok.stdout)).toMatchObject({ roll: false, reason: expect.stringMatching(/older than the pinned/) });
+
+      // A depth-1 clone of the tip: the old build is unreachable, the guard cannot decide, the plan errors.
+      const shallow = path.join(dir, "shallow");
+      await git(dir, "clone", "-q", "--depth", "1", "--branch", "feat-cmux-next", `file://${full}`, shallow);
+      const cut = await plan(shallow, tip);
+      expect(cut.status).not.toBe(0);
+      expect(cut.stderr).toMatch(/shallow/);
+
+      // Full history without the pinned commit (a pin off the branch that was never fetched).
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: "f".repeat(40) }] }));
+      const missing = await plan(full, tip);
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toMatch(/not in this checkout/);
+    }), 60_000);
+
+  test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
+    const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
+    type Step = { id?: string; run?: string; with?: Record<string, unknown> };
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
+    const steps = roll.jobs["plan"]!.steps;
+    expect(steps[0]!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const run = steps.find((s) => s.id === "plan")!.run!;
+    expect(run).toContain('git fetch -q --filter=blob:none origin "$pinned"; fi');
+    expect(run).not.toMatch(/--depth 1/);
   });
 });

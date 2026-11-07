@@ -42,7 +42,8 @@ git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 report() { echo "$1 $2"; { echo "result=$1"; echo "sha=$3"; } >> "$out"; }
 
-for attempt in 1 2 3 4 5; do
+# `push_try` is the push retry counter; `attempt` is the workflow run attempt that names the image.
+for push_try in 1 2 3 4 5; do
   git fetch -q --depth 50 origin "refs/heads/${branch}"
   git checkout -q --detach FETCH_HEAD
   git reset -q --hard FETCH_HEAD
@@ -79,7 +80,7 @@ for attempt in 1 2 3 4 5; do
     exit 0
   fi
   if git push -q origin "HEAD:refs/heads/${branch}"; then report pushed "$sha" "$sha"; exit 0; fi
-  echo "feat-cmux-next moved under the push; making the change again on the new tip (attempt ${attempt})"
+  echo "feat-cmux-next moved under the push; making the change again on the new tip (attempt ${push_try})"
 done
 echo "image-roll-push: feat-cmux-next kept moving; nothing landed" >&2
 exit 1

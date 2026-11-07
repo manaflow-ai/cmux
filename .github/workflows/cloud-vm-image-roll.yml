@@ -77,8 +77,10 @@ jobs:
         with:
           persist-credentials: false
           ref: feat-cmux-next
-          # The fix commits since the pinned build; a pin older than this window lists only the newest.
-          fetch-depth: 400
+          # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's
+          # real ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout).
+          fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -91,10 +93,11 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || 'auto' }}
         run: |
           set -euo pipefail
-          # The pin's own commit, when it is on the branch past this window, still answers "older than the pin".
+          # A pin off the branch (a hand pin of a lane build) is fetched with its history; a pin that cannot be
+          # fetched fails the plan, never skips the guard. A build commit off the branch is "not on the tip" anyway.
           pinned="$(jq -r '.programs[] | select(.name == "cmux-tui") | .version' images/cmux-vm/inputs.lock.json)"
-          git fetch -q --depth 1 origin "$pinned" 2> /dev/null || true
-          if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch -q --depth 1 origin "$COMMIT" 2> /dev/null || true; fi
+          if ! git cat-file -e "$pinned^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$pinned"; fi
+          if [ -n "$COMMIT" ] && ! git cat-file -e "$COMMIT^{commit}" 2> /dev/null; then git fetch -q --filter=blob:none origin "$COMMIT" || true; fi
           bun images/cmux-vm/auto-roll.ts plan --event "$EVENT" --commit "$COMMIT" --before "${BEFORE:-}" --dry-run "$DRY_RUN" --tip HEAD > "$RUNNER_TEMP/plan.json"
           cat "$RUNNER_TEMP/plan.json"
           {
