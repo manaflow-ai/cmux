@@ -126,7 +126,7 @@ import Testing
     /// Router review F2: under the Wallpaper palette, a new desktop picture's color repaints a header already drawn, with
     /// no other event (`DesignSettings.groupWallpaperTint` is read under the header's observation): the solid bar's color
     /// follows the new picture after one turn of the run loop, with no paint call from the test.
-    @Test func aNewWallpaperColorRepaintsTheHeaders() async throws {
+    @Test func aNewWallpaperColorRepaintsTheHeaders() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let glassKey = SidebarGroupGlass.tunable.key, before = DesignSettings.shared.sidebarSections.groupPalette
@@ -145,7 +145,7 @@ import Testing
         DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.8, green: 0.2, blue: 0.15)
         var now = fromBlue
         for _ in 0 ..< 40 where now == fromBlue {
-            await Task.yield()
+            // The observation's repaint is a main-actor task: the run loop drains the main queue.
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
             header.displayIfNeeded()
             now = try Fixture.rgb(header.pill.backgroundColor)
