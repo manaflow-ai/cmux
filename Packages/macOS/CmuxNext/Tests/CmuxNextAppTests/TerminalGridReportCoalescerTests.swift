@@ -257,36 +257,36 @@ struct TerminalGridReportCoalescerTests {
 
     // MARK: Frame ticks (B3, diag bf2b674a: a 25 ms window's timer fired 124 ms late on a loaded runner)
 
-    /// (7) While frames run, a window ends at the first refresh at or after 25 ms, though its timer has not fired (late):
-    /// one send, at that refresh, and the late timer sends nothing more.
-    @Test func whileFramesRunAWindowEndsAtTheFirstRefreshAtOrAfter25msEvenWhenItsTimerIsLate() async throws {
+    /// (7) RESIZE P0 6 (cause T): while frames run, a window ends at the next refresh of its window, not at the first one at
+    /// or after 25 ms. A held key moves a pane 10-20 pt per 120 Hz refresh; one grid per 25 ms window (4 refreshes) left the
+    /// program's own drawing 40-80 pt off its pane edge (px-keys-held-2-s1r x1, runner 2b757265: 63 frames, band 36 and
+    /// edge 27). Chromium sends a new size with the next frame (visual properties at the begin-frame), never on a timer.
+    /// Here: a change in every refresh goes to the PTY at that refresh, only the newest of that refresh, at most one per
+    /// refresh, and the late timers send nothing more.
+    @Test func whileFramesRunEachWindowEndsAtTheNextRefresh() async throws {
         let rig = Rig(ticking: true)
         let ticks = try #require(rig.ticks)
-        let a = Self.grid(100)
-        let b = Self.grid(104)
-        rig.coalescer.viewSized(a)
-        #expect(ticks.registrations == 1, "the open window was not handed to its window's refreshes")
-        // Refreshes at 8.3, 16.7 and 25.0 - 1 ns ms: still inside the window. No await between them: the timer's task gets
-        // no turn, as on a main thread too busy for it.
-        for refresh in 1...3 {
+        var newest: [TerminalGridSize] = []
+        // No await between the refreshes: the timers' tasks get no turn, as on a busy main thread.
+        for refresh in 1...4 {
+            rig.coalescer.viewSized(Self.grid(100 + 2 * refresh))
+            let grid = Self.grid(101 + 2 * refresh)
+            rig.coalescer.viewSized(grid) // a second change in the same refresh: only it goes
+            newest.append(grid)
             rig.clock.advance(by: Self.frame)
-            if refresh == 2 { rig.coalescer.viewSized(b) }
             ticks.refresh()
-            #expect(rig.sent.grids.isEmpty, "the window ended at refresh \(refresh), before 25 ms")
+            #expect(rig.sent.grids == newest, "refresh \(refresh) did not send its newest grid: \(rig.sent.grids)")
+            #expect(!rig.coalescer.isWaiting, "a grid still waits after refresh \(refresh)")
         }
-        // The next refresh, at 33.3 ms, is the first at or after 25 ms: the newest grid goes in it.
-        rig.clock.advance(by: Self.frame)
-        ticks.refresh()
-        #expect(rig.sent.grids == [b], "the first refresh at or after 25 ms did not end the window")
-        #expect(rig.sent.times == [Self.frame * 4])
-        #expect(!rig.coalescer.isWaiting)
+        #expect(rig.sent.times == (1...4).map { Self.frame * $0 }, "the grids did not go at their refreshes: \(rig.sent.times)")
         #expect(ticks.ticked.isEmpty, "a closed window is still ticked")
 
-        // The late timer comes now: the window is closed, nothing more goes.
+        // A refresh with no change sends nothing, and the late timers send nothing.
+        ticks.refresh()
         rig.clock.advance(by: .milliseconds(100))
         await rig.drain()
         ticks.refresh()
-        #expect(rig.sent.grids == [b], "the late timer or a later refresh sent the window's grid again")
+        #expect(rig.sent.grids == newest, "a refresh with no change or a late timer sent again: \(rig.sent.grids)")
     }
 
     /// (8) No refresh comes (no frames run, or a test steps frames by hand): the timer ends the window, and the grid goes
