@@ -566,6 +566,9 @@ public final class AgentPaneView: NSView {
         if window == nil {
             dictation.handle(.stop)
             popupHostStorage?.dismiss()
+            // The rect it last told a window belongs to that window: moved into another one (even
+            // at the same frame), it tells the new window afresh.
+            lastToastAvoidance = .zero
         } else {
             // The composer's + > Attach files or images opens without making a panel (PageOpenPanel).
             openPanel?.warmWhenIdle()

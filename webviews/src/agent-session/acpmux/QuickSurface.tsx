@@ -3,10 +3,13 @@ import { useEffect, useState } from "react";
 import { FloatingCompactBar, FloatingHeader, useFloatingKeys, type QuickFloating } from "./FloatingChat";
 import { QuickKeyHints } from "./QuickKeyHints";
 import { ChiefDock, type ChiefDockProps } from "./ChiefDock";
-import { elementBox, reportToastAvoidance } from "./toastAvoidance";
+import { bottomStackBox, reportToastAvoidance } from "./toastAvoidance";
 
-/// The panel's composer, its direct child.
-const quickComposer = (root: HTMLElement) => elementBox(root.querySelector(":scope > .acpmux-composer"));
+/// The panel's bottom stack: its direct children under the thread (permission and trust asks, the
+/// composer, the key hints). The floating header, the thread and the Chief Dock (drawn over the
+/// panel on its own) are not part of it.
+const QUICK_NOT_STACK = ":is(.acpmux-floating-header, .acpmux-quick-thread, .acpmux-chief-dock)";
+const quickBottomStack = (root: HTMLElement) => bottomStackBox(root, QUICK_NOT_STACK);
 
 /// The Quick Composer panel's page: the composer filling the panel, and once the chat has a
 /// first prompt its transcript above, scrolling within what the panel leaves it. No session
@@ -33,10 +36,10 @@ export function QuickSurface({
   useFloatingKeys(floating);
   const holding = floating?.state.holding === true;
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
-  // Under a thread (or the floating chat's header) the composer rests at the panel's foot: the app's
-  // toasts lift above it and never cover it (toastAvoidance.ts). Alone it fills the panel.
-  const atFoot = !!transcript || holding;
-  useEffect(() => (root && atFoot ? reportToastAvoidance(root, quickComposer) : undefined), [root, atFoot]);
+  // The panel is a bottom-aligned column, so its asks and composer rest at its foot, where the app's
+  // toasts rest, with or without a thread above: the app's toasts lift above the whole stack and
+  // never cover it (toastAvoidance.ts), and the composer never moves for them.
+  useEffect(() => (root ? reportToastAvoidance(root, quickBottomStack) : undefined), [root]);
   if (floating && holding && floating.state.collapsed)
     return (
       <div className="acpmux-quick" data-floating="compact">

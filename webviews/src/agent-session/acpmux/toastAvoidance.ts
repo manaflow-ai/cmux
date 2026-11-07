@@ -9,7 +9,7 @@
 //
 // Every layout with a composer at its foot reports it: the chat's bottom stack (App.tsx's dock), the
 // New Tab screen's composer card in its stage layout (newtab/NewTabScreen.tsx) and the Quick Chat's
-// composer under its thread (QuickSurface.tsx). The host keeps one box per page, so the reports
+// panel's bottom stack (QuickSurface.tsx: its asks, composer and key hints, whenever it is mounted). The host keeps one box per page, so the reports
 // stack: the newest mounted one is sent, and when it stops the one under it is sent again.
 //
 // The box is measured once per frame in which the stack or the pane changed size (a resize observer
@@ -25,11 +25,12 @@ export type StackBox = { left: number; top: number; right: number; bottom: numbe
 const NOT_STACK = ".acpmux-home-area";
 
 /// The union of the dock's drawn parts (the dock is `display: contents` outside the floating
-/// layout, so its own box is empty there), or none when no part takes room.
-export function bottomStackBox(dock: Element): StackBox | undefined {
+/// layout, so its own box is empty there), or none when no part takes room. Parts matching `skip`
+/// are not the stack.
+export function bottomStackBox(dock: Element, skip: string = NOT_STACK): StackBox | undefined {
   let box: StackBox | undefined;
   for (const part of dock.children) {
-    if (part.matches(NOT_STACK)) continue;
+    if (part.matches(skip)) continue;
     const rect = part.getBoundingClientRect();
     if (!(rect.width > 0 && rect.height > 0)) continue;
     box = box
