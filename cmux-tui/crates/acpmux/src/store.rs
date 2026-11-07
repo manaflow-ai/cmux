@@ -735,10 +735,20 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    #[cfg(test)]
+    let now = now + CLOCK_AHEAD_MS.with(std::cell::Cell::get);
+    now
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: how far this thread's [`now_ms`] is put forward (the move simulation's clock,
+    /// `hub/move_sim_tests.rs`).
+    pub(crate) static CLOCK_AHEAD_MS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 pub trait Store: Send + Sync {

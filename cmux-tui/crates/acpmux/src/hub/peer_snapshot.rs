@@ -1623,3 +1623,7 @@ mod warm;
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "move_sim_tests.rs"]
+mod move_sim_tests;

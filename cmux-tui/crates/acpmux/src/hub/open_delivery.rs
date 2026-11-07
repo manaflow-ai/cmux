@@ -111,22 +111,34 @@ impl Hub {
         generation: u64,
         prompts: &[String],
     ) {
-        for d in self.outbox.open_on_peers() {
-            let pinned = d.pin.as_ref().is_some_and(|p| {
-                (p.peer.as_str(), p.session.as_str(), p.generation) == (peer, session, generation)
-            });
-            if !pinned || !prompts.iter().any(|p| p == d.prompt_id()) {
-                continue;
-            }
-            let path = self.outbox.attachments_path(&d);
-            self.outbox.update(&d.id, |d| {
-                if close_if_held(d, true) {
-                    crate::attach::strip(&mut d.request);
-                }
-            });
-            if let Some(path) = path {
-                let _ = std::fs::remove_file(path);
-            }
+        for path in close_captured(&self.outbox, (peer, session, generation), prompts) {
+            let _ = std::fs::remove_file(path);
         }
     }
+}
+
+/// [`Hub::close_captured`] on `outbox`: closes the open deliveries pinned to `pinned` whose
+/// prompt is one of `prompts`; answers the attachment files they kept, to remove.
+pub(crate) fn close_captured(
+    outbox: &super::outbox::Outbox,
+    pinned: (&str, &str, u64),
+    prompts: &[String],
+) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    for d in outbox.open_on_peers() {
+        let same = d
+            .pin
+            .as_ref()
+            .is_some_and(|p| (p.peer.as_str(), p.session.as_str(), p.generation) == pinned);
+        if !same || !prompts.iter().any(|p| p == d.prompt_id()) {
+            continue;
+        }
+        files.extend(outbox.attachments_path(&d));
+        outbox.update(&d.id, |d| {
+            if close_if_held(d, true) {
+                crate::attach::strip(&mut d.request);
+            }
+        });
+    }
+    files
 }

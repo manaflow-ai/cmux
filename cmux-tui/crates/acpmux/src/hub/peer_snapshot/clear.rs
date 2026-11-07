@@ -6,7 +6,7 @@ use super::*;
 
 /// The caller holds this home's daemon lock, so there is no concurrent snapshot writer.
 pub(crate) fn clear_offline(home: &Path) -> anyhow::Result<()> {
-    let mut store = Store::new(disk::root(home), Arc::default());
+    let mut store = Store::new(disk::root(home), Arc::default(), Arc::default());
     store.scan();
     if !store.clear() {
         anyhow::bail!("peer snapshot removal did not complete");
