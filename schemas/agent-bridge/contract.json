@@ -8,6 +8,8 @@
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",
     "agent.avatar.set": "agent.avatar.set",
+    "agent.mini": "agent.mini",
+    "agent.mini.show": "agent.mini.show",
     "app.action": "app.action",
     "attachment.sourceIcon": "attachment.sourceIcon",
     "browser.list": "browser.list",
@@ -297,8 +299,6 @@
   },
   "unserved": {
     "git.capabilities": "checkpoints/controller.tsx asks whether the app takes checkpoints; no app serves it yet, so the request is refused and the checkpoint review stays off. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
-    "agent.mini": "header/miniRow.ts asks what the app's mini shows (`{ sessionId }`, null for the Chief) to offer the chat menu's Show in Mini; until the app serves it, the request is refused and the row stays hidden. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
-    "agent.mini.show": "header/miniRow.ts points the app's mini at a chat (`{ sessionId }`) or back at the Chief (null) from the chat menu's Show in Mini; the row only shows once `agent.mini` answers. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
     "chat.subagentBack": "subagentPanes.ts backToOpeningChat asks the app to close a subagent split and focus the chat tab that opened it; until the app serves it, the page shows the chat in place. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it).",
     "models.catalog": "modelCatalogHost.ts asks for the app's model catalog; no app serves it yet, so the page keeps the bundled snapshot. Remove this entry when the app serves it (the Swift test fails once AgentPageOps has it)."
   },

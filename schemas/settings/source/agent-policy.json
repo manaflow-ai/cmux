@@ -199,6 +199,13 @@
     },
     {
       "agent": "settable",
+      "why": "Cosmetic icon preference; the reserved Neko value currently falls back to default artwork",
+      "keys": [
+        "appearance.iconTheme"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "The app's one selected-text color (looks only)",
       "keys": [
         "appearance.highlightColor"

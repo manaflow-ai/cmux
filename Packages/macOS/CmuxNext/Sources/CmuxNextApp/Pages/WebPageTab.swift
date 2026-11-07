@@ -79,7 +79,7 @@ extension WebPageTab {
     @discardableResult
     static func registerGitHub(_ services: AppServices) -> WebPageTab {
         if let tab = services.pages.provider(.github) as? WebPageTab { return tab }
-        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", title: GitHubPageProvider.title) { [weak services] _, route in
+        let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", icon: .gitPullrequest, title: GitHubPageProvider.title) { [weak services] _, route in
             guard let services else { return nil }
             let opener = services.linkOpener
             let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, openWeb: { url, view in
