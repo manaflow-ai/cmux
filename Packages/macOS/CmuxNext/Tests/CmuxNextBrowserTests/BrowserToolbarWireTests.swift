@@ -214,6 +214,14 @@ struct BrowserToolbarWireTests {
         _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.rowClick(0, meta: true, shift: false, alt: false))
     }
 
+    @Test func anOmnibarRowWithNoNavigationYetDrawsReloadOff() throws {
+        let row = OmnibarToolbarView(suggestionEngine: OmniboxSuggestionEngine(), navigation: true)
+        let navigation = try #require(row.addressBar.wireState()["navigation"] as? [String: Bool])
+        #expect(navigation["canReload"] == false)
+        row.setNavigation(canGoBack: false, canGoForward: false, canReload: true)
+        #expect((row.addressBar.wireState()["navigation"] as? [String: Bool])?["canReload"] == true)
+    }
+
     @Test func theStateSerializesAndCarriesTheRow() throws {
         let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
         bar.update(url: URL(string: "https://example.com/a"), security: .secure)

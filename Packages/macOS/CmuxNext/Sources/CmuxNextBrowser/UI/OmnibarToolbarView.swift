@@ -28,6 +28,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
         addressBar = BrowserToolbarWebView(suggestionEngine: suggestionEngine, showsButtons: navigation)
         hasButtons = navigation
         super.init(frame: .zero)
+        // Nothing to reload until a host sets the row's navigation (an empty Markdown tab never does).
+        addressBar.navigation = ToolbarNavigation(canReload: false)
         // The row is `preferredHeight` tall unless its host sets a height (the popup window's row).
         setContentHuggingPriority(.defaultHigh, for: .vertical)
         setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
