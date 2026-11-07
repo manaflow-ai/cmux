@@ -50,6 +50,7 @@ pub(super) enum ParsedCommand {
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
+    AgentSkills(acpmux::skills_install::Plan),
     Protocol(Box<RequestPlan>),
     SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
@@ -1537,6 +1538,20 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
+        // `--global` names the only scope there is (the person's own skill folders); it is
+        // accepted so the command reads as what it does.
+        ["skills", action @ ("install" | "uninstall" | "status"), targets @ ..] => {
+            let _ = flags.boolean("global");
+            let action = match *action {
+                "install" => acpmux::skills_install::Action::Install,
+                "uninstall" => acpmux::skills_install::Action::Uninstall,
+                _ => acpmux::skills_install::Action::Status,
+            };
+            Ok(CommandPlan::AgentSkills(acpmux::skills_install::Plan {
+                action,
+                targets: targets.iter().map(|target| (*target).to_string()).collect(),
+            }))
+        }
         ["list"] => agent_list::parse(flags),
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
@@ -2942,6 +2957,21 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
         let error = json!({
             "code": "local.agent_hooks",
             "message": "one or more coding-agent hook operations failed",
+            "details": result.value,
+            "retryable": false,
+        });
+        super::wire::print_local_error(&error, global.output, 1)
+    } else {
+        super::wire::print_local_success(&result.value, global.output)
+    }
+}
+
+pub(super) fn run_agent_skills(global: GlobalArgs, plan: acpmux::skills_install::Plan) -> i32 {
+    let result = acpmux::skills_install::run(&plan);
+    if result.failed {
+        let error = json!({
+            "code": "local.agent_skills",
+            "message": "one or more cmux skill operations failed",
             "details": result.value,
             "retryable": false,
         });

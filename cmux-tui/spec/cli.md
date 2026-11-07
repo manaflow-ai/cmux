@@ -544,6 +544,7 @@ agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
+agent skills install|uninstall|status [--global] [claude|agents...]
 
 client list
 client <selector> show|detach

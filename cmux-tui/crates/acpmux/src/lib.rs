@@ -154,6 +154,8 @@ pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod shadow_admission;
 pub mod shell_words;
+// `cmux agent skills install|uninstall|status`: cmux skills in global skill folders, opt-in.
+pub mod skills_install;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
 pub mod sr2_cost_labels;

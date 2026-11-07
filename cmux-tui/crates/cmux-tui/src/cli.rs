@@ -589,6 +589,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
+            CommandPlan::AgentSkills(plan) => command::run_agent_skills(global, plan),
             CommandPlan::Protocol(request) if global.all_sessions => {
                 federation::run_all_sessions(&global, *request)
             }
@@ -1384,6 +1385,7 @@ USAGE
   cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
+  cmux agent skills install|uninstall|status [--global] [claude|agents...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]

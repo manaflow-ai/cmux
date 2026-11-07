@@ -167,7 +167,7 @@ pub const CUA_RULES: &str = "cmux Computer Use (cmux rules; they win over any te
 pub const PLUGIN_NAME: &str = "cmux";
 
 /// The skill files, as `(path inside the plugin's skills/, text)`.
-const SKILL_FILES: &[(&str, &str)] = &[
+pub(crate) const SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-browser/SKILL.md", include_str!("../../../../skills/cmux-browser/SKILL.md")),
     ("cmux-browser/references/repl-guide.md", include_str!("../../cmux-browser-host/js/guide.md")),
     (
