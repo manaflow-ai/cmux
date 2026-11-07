@@ -253,7 +253,7 @@ export function CaptureBar({
           </fieldset>
           {close}
         </div>
-        <div className="acpmux-capture__row">
+        <div className="acpmux-capture__row" data-wrap="">
           {mode === "shot" ? CAPTURE_TARGETS.map(targetButton) : options}
           <span className="acpmux-capture__spacer" />
           {destinations}

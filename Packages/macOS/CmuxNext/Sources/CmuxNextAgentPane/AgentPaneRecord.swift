@@ -110,16 +110,8 @@ final class AgentPaneRecorder {
         guard !starting, !finishing, current?.isEnding != false else {
             return AgentPaneReply.failure(code: "capture.busy", message: AgentPaneModel.captureFailedMessage)
         }
-        // One that ended by itself (its window closed, the limit) and was not collected yet: its
-        // pane may still collect it; with its pane gone, nobody can, so it goes.
-        if let stale = current {
-            current = nil
-            if let owner = recordingModel {
-                leftovers.append(Leftover(model: owner, session: recordingSession, incognito: recordingIncognito, recording: stale, since: Date()))
-            } else {
-                Task.detached(priority: .utility) { await stale.discard() }
-            }
-        }
+        // One that ended whose end has not reached the main actor yet: retired as its end would.
+        if let stale = current { retire(stale) }
         dropOrphans()
         removeObservers()
         guard window.windowNumber > 0, window.isVisible, !window.isMiniaturized else {
@@ -144,11 +136,7 @@ final class AgentPaneRecorder {
             Task.detached(priority: .utility) { await recording.discard() }
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
-        current = recording
-        recordingView = view(for: model)
-        recordingModel = model
-        recordingSession = model.onLocalPaths?() == true ? model.sessionId : nil
-        recordingIncognito = model.sendIsIncognito?() ?? true
+        began(recording, for: model, view: view(for: model))
         // The stream follows the window when it moves or resizes; a close or the quit ends it.
         observers = [NSWindow.willCloseNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
             MainActorObservation(name, object: window) { [weak window] in
@@ -156,8 +144,10 @@ final class AgentPaneRecorder {
                 recording.follow(Self.globalFrame(window))
             }
         } + [MainActorObservation(NSApplication.willTerminateNotification) { recording.end() }]
-        // The window closed while ScreenCaptureKit started: no close notice comes any more.
+        // The window closed while ScreenCaptureKit started: no close notice comes any more. One
+        // that ended while it started (its end found it not yet current) is retired now.
         if !window.isVisible { recording.end() }
+        if recording.isEnding { ended(recording) }
         return AgentPaneReply.success(["started": true])
     }
 
@@ -228,6 +218,16 @@ final class AgentPaneRecorder {
         NSPasteboard.general.writeObjects(kept)
     }
 
+    /// Takes `recording` out of `current`: a leftover its pane may collect, or discarded with its pane gone.
+    private func retire(_ recording: AgentPaneRecording) {
+        current = nil
+        if let owner = recordingModel {
+            leftovers.append(Leftover(model: owner, session: recordingSession, incognito: recordingIncognito, recording: recording, since: Date()))
+        } else {
+            Task.detached(priority: .utility) { await recording.discard() }
+        }
+    }
+
     /// A stop is done finalizing: a quit waiting for it goes on.
     private func finished() {
         finishing = false
@@ -278,12 +278,26 @@ final class AgentPaneRecorder {
 
     nonisolated static func digest(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }
 
-    /// A recording ended (any path, on the main actor after it): its observers go. One that ended by
-    /// itself (the limit, its window's close, a stream failure) is still `current`, so the page's
-    /// `capture.record.stop` collects its movie; its chat's page hears `captureBar {ended: true}`.
-    private func ended(_ recording: AgentPaneRecording) {
+    /// `recording` runs for `model`'s page (`view`, the chat that hears when it ends).
+    func began(_ recording: AgentPaneRecording, for model: AgentPaneModel, view: AgentPaneView?) {
+        current = recording
+        recordingView = view
+        recordingModel = model
+        recordingSession = model.onLocalPaths?() == true ? model.sessionId : nil
+        recordingIncognito = model.sendIsIncognito?() ?? true
+    }
+
+    /// Whether a recording runs (and no other may start).
+    var isRecording: Bool { current != nil }
+
+    /// A recording ended by itself (on the main actor after it; a Stop took it out of `current`
+    /// first): its observers go and it leaves `current` on every path, so the next Record is never
+    /// refused. Its movie waits for its own pane's `capture.record.stop` as a leftover, or goes when
+    /// its pane is gone; its chat's page, when there is one, hears `captureBar {ended: true}`.
+    func ended(_ recording: AgentPaneRecording) {
         guard current === recording else { return }
         removeObservers()
+        retire(recording)
         guard let view = recordingView else { return }
         let value: JSONValue = ["ended": .bool(true)]
         view.deliver([AgentPageEvent(kind: "captureBar", value: value)],

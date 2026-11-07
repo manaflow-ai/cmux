@@ -73,6 +73,16 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
       if (cardBox.bottom > window.innerHeight + 0.5) problems.push(`composer past the pane (${cardBox.bottom})`);
       if (card.scrollHeight > card.clientHeight + 0.5)
         problems.push(`composer squeezed to ${card.clientHeight} under ${card.scrollHeight}`);
+      // No two controls overlap (a row that cannot wrap pushes them into each other).
+      const controls = [...document.querySelectorAll<HTMLElement>(".acpmux-capture button, .acpmux-capture label")];
+      const boxes = controls.map((control) => control.getBoundingClientRect());
+      for (let a = 0; a < boxes.length; a++)
+        for (let b = a + 1; b < boxes.length; b++) {
+          const [p, q] = [boxes[a], boxes[b]];
+          const overlap = Math.min(p.right, q.right) - Math.max(p.left, q.left) > 0.5 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 0.5;
+          if (overlap && !controls[a].contains(controls[b]) && !controls[b].contains(controls[a]))
+            problems.push(`${controls[a].textContent} overlaps ${controls[b].textContent}`);
+        }
       for (const control of document.querySelectorAll<HTMLElement>(".acpmux-capture button, .acpmux-capture label")) {
         const box = control.getBoundingClientRect();
         if (box.bottom > body.bottom + 0.5 || box.right > body.right + 0.5 || box.top < body.top - 0.5)
@@ -114,6 +124,18 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
             await page.close();
           }
         });
+
+    for (const variant of ["segmented", "chip"])
+      test(`the ${variant} arm wraps in a narrow pane, nothing cut off or overlapping`, async () => {
+        const page = await open(variant, "dark", 360);
+        try {
+          const problems = await clipped(page);
+          if (out) await page.screenshot({ path: path.join(out, `capture-bar-${variant}-narrow-dark.png`) });
+          expect(problems).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      });
 
     test("the band wraps in a narrow pane, nothing cut off", async () => {
       const page = await open("band", "dark", 420);

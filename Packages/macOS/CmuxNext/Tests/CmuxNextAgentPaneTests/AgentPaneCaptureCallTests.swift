@@ -7,6 +7,10 @@ import Testing
 /// each decodes, that the page host routes them, the recording's name, size and limit, and that
 /// Copy and Save take a path only when this bridge wrote it.
 struct AgentPaneCaptureCallTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     private static func request(_ method: String, _ params: [String: Any] = [:]) -> AgentPaneRequest {
         AgentPaneRequest(body: ["method": method, "params": params])
     }
@@ -150,6 +154,38 @@ struct AgentPaneCaptureCallTests {
         gestures.record(click: true)
         clock += AgentPaneUserGestures.answerWindow + 1
         #expect(!AgentPaneCapture.personClicked(gestures))
+    }
+
+    /// A recording that ends by itself (its window closed, the limit, a failure) leaves the
+    /// recorder's current slot on every path, its chat's view gone or not, so the next Record is
+    /// never refused; its pane can still collect it, and with its pane gone it is discarded.
+    @MainActor @Test func aRecordingThatEndsByItselfNeverBlocksTheNext() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-end-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorder = AgentPaneRecorder()
+        func recording(_ name: String) -> AgentPaneRecording {
+            AgentPaneRecording(AgentPaneRecording.Options(window: 1, scale: 1, cursor: false, clicks: false,
+                                                          url: root.appendingPathComponent("\(name)/Recording.mp4"), windows: [1])) { over in
+                // end() runs on the test's main actor, which calls this at once.
+                MainActor.assumeIsolated { recorder.ended(over) }
+            }
+        }
+        // Its chat's view is gone (none was given): it still leaves `current`, and its pane collects it.
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        let first = recording("first")
+        recorder.began(first, for: model, view: nil)
+        #expect(recorder.isRecording)
+        first.end()
+        #expect(!recorder.isRecording)
+        let collected = await recorder.stop(for: model)
+        #expect((collected["value"] as? [String: Any])?["cancelled"] as? Bool == true)
+        // Its pane is gone too: it is discarded, and nothing is left to block or collect.
+        var gone: AgentPaneModel? = AgentPaneModel(host: NoHost(), sessionId: "chat-2")
+        let second = recording("second")
+        recorder.began(second, for: try #require(gone), view: nil)
+        gone = nil
+        second.end()
+        #expect(!recorder.isRecording)
     }
 
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.
