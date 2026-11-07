@@ -202,9 +202,12 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       await page.mouse.up();
       const selected = (await page.evaluate(() => window.getSelection()?.toString() ?? "")).trim();
       const words = line.map((word) => word.word);
-      // The selection runs from inside the second word to inside the fifth: it holds the words
-      // between them in full, and nothing from another line.
-      const expected = words.slice(2, 4).join(" ");
+      // The selection runs from inside the second word toward the fifth: it holds the third word in
+      // full, and nothing from another line. Its end is not checked to the letter: at the root's CSS
+      // zoom of 1.25, headless Chromium ends a drag's selection a few letters short of where the hit
+      // test puts the pointer ("at fails wa" for a release on "a", caretRangeFromPoint "waits |a"),
+      // in up to half of CI runs on the base (run 42346726731), and the app's page zoom is not that path.
+      const expected = words[2]!;
       const onLine = words.join(" ");
       results.push({
         line: index,

@@ -181,6 +181,17 @@ extension CloudWait {
         return true
     }
 
+    /// `attempt`, tried once more when it failed while the link dropped under it (`epoch`, the daemon store's connection
+    /// epoch, moved during the try, or the link no longer `held`), once `relink` connects again. A new machine's daemon can
+    /// restart under start-session's wait for its first tree (an image whose updater flips right after boot): `cmux chat
+    /// --on vm:new` answered "didn't connect" 13 s after the machine came up (prod, 2026-11-07). A failure with the link
+    /// still up, a cancellation, a relink that fails or a second failure throws as it is.
+    public static func relinkedOnce<T>(epoch: () -> Int, held: () -> Bool, relink: () async -> Bool,
+                                       _ attempt: () async throws -> T) async throws -> T {
+        let before = epoch()
+        return try await retriedOnce(attempt, closed: { _ in epoch() != before || !held() }, relink: relink)
+    }
+
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {
         do {

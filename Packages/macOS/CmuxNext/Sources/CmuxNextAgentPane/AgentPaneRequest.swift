@@ -177,6 +177,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
     case cloudRepickChat(AgentPaneCloudRepick)
+    /// `cloud.answerStart {key, id, answer}`: the button the person clicked on a question a Cloud
+    /// start asks in its card (``AgentPaneCloudAsks``).
+    case cloudAnswerStart(AgentPaneCloudAnswer)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
@@ -288,6 +291,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
+    case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
     /// machine the chat runs on (``AgentPaneDictationUpload``).
     case dictationRecordingUpload(path: String)
