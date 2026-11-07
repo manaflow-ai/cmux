@@ -699,8 +699,8 @@ export function useSessionInfo({
   // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
   const scopeId = subagent?.agent.id;
   useEffect(() => backFromAside(), [scopeId, backFromAside]);
-  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
-  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // Lucas, 2026-11-06: "In a narrow layout: it becomes a popover and starts closed." (Every new chat
+  // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
   // stays, as a popover; and once the pane has room again, the chat's own open choice shows.

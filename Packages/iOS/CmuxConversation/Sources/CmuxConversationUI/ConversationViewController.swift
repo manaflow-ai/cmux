@@ -883,7 +883,8 @@ public final class ConversationViewController: UIViewController {
         let probeStart = probeClock()
         defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
-        if store.hasLoadedNewest, initialSpinner.isAnimating {
+        // Kept messages from an earlier run show at once; the server's page replaces them.
+        if store.hasLoadedNewest || store.isShowingKeptTranscript, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }

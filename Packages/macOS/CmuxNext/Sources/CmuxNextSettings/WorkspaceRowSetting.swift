@@ -87,9 +87,6 @@ extension WorkspaceRowSetting {
             + SidebarSettingsSchema.browserWorkspaceRows + SidebarSettingsSchema.mixedWorkspaceRows
     }
 
-    /// Every `sidebar.workspaceRow.*` key (agents may set them: looks only).
-    static var keys: Set<String> { Set(descriptors.map(\.id)) }
-
     /// Whether `element` shows when its `sidebar.workspaceRow.<element>` key is unset.
     static func fallback(_ element: WorkspaceRowElement) -> Bool {
         switch element {
