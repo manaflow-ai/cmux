@@ -150,6 +150,35 @@ import Testing
         #expect(first?["id"]?.stringValue == "", "a reload after the close drew the closed editor again")
     }
 
+    /// Review of #37299 at 44de463 (F1): the page zooms with `app.uiScale`, so its CSS pixels are not points; the card
+    /// is the page's height and the editor's width at that zoom, so nothing under the swatches is cut off.
+    @Test func theCardFollowsThePageZoom() throws {
+        let design = DesignSettings.shared
+        let saved = design.uiScale
+        design.uiScale = 1.5
+        defer { design.uiScale = saved }
+        let service = GroupEditorService()
+        let parent = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        defer { parent.closeAfterTest() }
+        let anchor = PopupAnchor(rect: CGRect(x: 240, y: 1000, width: 100, height: 30), edge: .leading)
+        service.present(Self.group, items: Self.items, anchor: anchor, parent: parent, themeAnchor: parent.contentView ?? NSView(),
+                        ordersFront: false, events: Self.events(Record()))
+        service.provider?.onCall?(.ready(revision: 1, height: 300))
+        let card = PopupStyle.standard.cardFrame(inWindow: service.frame(anchor: anchor, parent: parent))
+        #expect(abs(card.height - 450) <= 0.5, "a 300 px page at 150% got a card \(card.height) points tall")
+        #expect(abs(card.width - SidebarGroupEditor.width * 1.5) <= 0.5, "the zoomed swatch row is cut off at \(card.width) points")
+        service.dismiss()
+    }
+
+    /// Review of #37299 at 44de463 (F2): a closed editor leaves no shadow over its window.
+    @Test func aVeiledCardCastsNoShadow() {
+        let panel = GroupEditorPanel(content: NSView(), width: SidebarGroupEditor.width)
+        defer { panel.closeAfterTest() }
+        panel.veil()
+        #expect(!panel.castsShadow, "the closed editor's shadow stayed over the window")
+    }
+
     /// Review of #37299 at c21ec81 (F1): the editor draws in the sidebar's theme at full strength, as the native
     /// bubble did, in each room it opens in, not in its own panel's or the last room's.
     @Test func theEditorDrawsInTheSidebarsTheme() throws {
