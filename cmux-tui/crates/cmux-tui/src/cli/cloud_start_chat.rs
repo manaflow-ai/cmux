@@ -613,13 +613,26 @@ struct Progress {
     chat: Option<(String, String, Value)>,
     /// The prompt is on its way to the machine, or there: the relay was asked, or the send ran.
     sending: bool,
+    /// The name this run gave its own `cloud new-machine`, once the app took that create: a rerun names it (in
+    /// `machine` too), so a create still on its way with no machine id yet is found by name, never made twice.
+    created: Option<String>,
+    /// That create's `creation_id`, when the app answered it pending with no machine id.
+    creation: Option<String>,
 }
 
 impl Progress {
+    /// The request to ask again: once the app took this run's create, that machine has its environment. A create
+    /// with no answer keeps it: a rerun of the name then finds the create, or makes it in the environment.
+    fn rerun(&self, request: &Request) -> Request {
+        let environment = if self.created.is_some() { None } else { request.environment.clone() };
+        Request { environment, ..request.clone() }
+    }
+
     /// The deadline passed during a step: that phase's timeout, whatever the step answered. Before the prompt may
     /// have reached the machine, `cloud.start_pending`; once it may have, `chat.wait_timeout` on the chat's session
     /// or, with no session (the relay's answer never came back), `cloud.start_pending` that says it may be there.
     fn late(&self, request: &Request) -> Outcome {
+        let request = &self.rerun(request);
         let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
         match (&self.chat, self.sending) {
             (Some((machine_id, session, answer)), true) => {
@@ -675,6 +688,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
+                if let Some(creation) = &progress.creation {
+                    details.entry("creation_id").or_insert_with(|| json!(creation));
+                }
             }
         }
     }
@@ -781,6 +797,13 @@ fn steps(
             Err(outcome) => return outcome,
         }
     }
+    // A name whose create is still on its way (a rerun of a pending create): `start-session --name` does not
+    // see it, so it would make a second machine.
+    if let (None, Machine::Named(name)) = (&request.environment, &wanted)
+        && let Err(outcome) = in_flight(&listed, name)
+    {
+        return outcome;
+    }
     // No prompt: nothing to relay, so the chat starts over the link alone.
     if request.wait && request.prompt.is_some() {
         match relay_chat(runner, request, &wanted, &listed, deadline, progress) {
@@ -793,21 +816,8 @@ fn steps(
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
-            let taken = |name: &str| {
-                at(&listed, "machines")
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|row| at(row, "title").as_str() == Some(name))
-            };
-            let mut name = runner.fresh_name();
-            for _ in 0..3 {
-                if !taken(&name) {
-                    break;
-                }
-                name = runner.fresh_name();
-            }
-            fresh = (!taken(&name)).then(|| name.clone());
+            let (name, unused) = unused_name(runner, &listed);
+            fresh = unused.then(|| name.clone());
             Machine::Named(name)
         }
         other => other.clone(),
@@ -1148,7 +1158,7 @@ fn relay_chat(
         }
         // No time left to make one: the start below says so.
         Machine::New if deadline.passed(runner) => return Relayed::Fallback(None),
-        Machine::New => match new_machine(runner, request, listed, &[], progress) {
+        Machine::New => match new_machine(runner, request, listed, None, None, progress) {
             Ok(id) => {
                 progress.made = Some(id.clone());
                 progress.machine = Some(Machine::Target(id.clone()));
@@ -1314,7 +1324,6 @@ fn in_environment(
     progress: &mut Progress,
 ) -> Result<String, Outcome> {
     let machine = &request.machine;
-    let mut extra = Vec::new();
     if let Machine::Named(name) = machine {
         if at(listed, "loaded").as_bool() == Some(false) {
             return Err(failed(
@@ -1327,36 +1336,7 @@ fn in_environment(
                 75,
             ));
         }
-        let creation = at(listed, "creating")
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|row| at(row, "name").as_str() == Some(name.as_str()));
-        if let Some(creation) = creation {
-            let details = json!({"machine_name": name, "creation": creation,
-                                 "list": "cmux cloud list-machines --json"});
-            if at(creation, "status").as_str() == Some("failed") {
-                let reason = at(creation, "reason").as_str().unwrap_or("no reason given");
-                return Err(failed(
-                    "cloud.start_failed",
-                    format!(
-                        "the create of {name} failed ({reason}) and waits in cmux for Retry, so no second one \
-                         was made: retry or dismiss it there, or give a new --name"
-                    ),
-                    details,
-                    1,
-                ));
-            }
-            return Err(failed(
-                "cloud.start_pending",
-                format!(
-                    "a machine named {name} is still being made, so no second one was made; find it with \
-                     `cmux cloud list-machines`, then run this command again with --target machine:ID"
-                ),
-                details,
-                75,
-            ));
-        }
+        in_flight(listed, name)?;
         let mut rows = at(listed, "machines").as_array().into_iter().flatten();
         if rows.any(|row| at(row, "title").as_str() == Some(name.as_str())) {
             return Err(failed(
@@ -1369,54 +1349,120 @@ fn in_environment(
                 2,
             ));
         }
-        extra.extend(["--name".to_owned(), name.clone()]);
     }
-    extra.extend(["--environment".to_owned(), environment.to_owned()]);
-    new_machine(runner, request, listed, &extra, progress)
+    let name = match machine {
+        Machine::Named(name) => Some(name.as_str()),
+        _ => None,
+    };
+    new_machine(runner, request, listed, name, Some(environment), progress)
 }
 
-/// `cloud new-machine` with `extra`: the new machine's id once the app has it. Any id the app answers, a pending
-/// create's included, goes into `progress` first: the command to ask again names that machine, never a new one.
+/// A create of `name` still on its way (`list-machines`' `creating` rows) answers pending, and one that failed (it
+/// waits in cmux for Retry) is refused: either way nothing makes a second machine of that name.
+fn in_flight(listed: &Value, name: &str) -> Result<(), Outcome> {
+    let creation = at(listed, "creating")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| at(row, "name").as_str() == Some(name));
+    if let Some(creation) = creation {
+        let details = json!({"machine_name": name, "creation": creation,
+                             "list": "cmux cloud list-machines --json"});
+        if at(creation, "status").as_str() == Some("failed") {
+            let reason = at(creation, "reason").as_str().unwrap_or("no reason given");
+            return Err(failed(
+                "cloud.start_failed",
+                format!(
+                    "the create of {name} failed ({reason}) and waits in cmux for Retry, so no second one \
+                     was made: retry or dismiss it there, or give a new --name"
+                ),
+                details,
+                1,
+            ));
+        }
+        return Err(failed(
+            "cloud.start_pending",
+            format!(
+                "a machine named {name} is still being made, so no second one was made; once \
+                 `cmux cloud list-machines` lists it, run this command again"
+            ),
+            details,
+            75,
+        ));
+    }
+    Ok(())
+}
+
+/// `cloud new-machine` in `environment`, named `name` or a fresh name no machine or create has: the new machine's id
+/// once the app has it. The name goes into `progress` before the call, and any id the app answers (a pending
+/// create's included) after it: the command to ask again names that machine, never a new one. A pending create with
+/// no id yet is asked again by its name, which a rerun finds among the creates on their way ([`in_flight`]).
 fn new_machine(
     runner: &mut dyn Runner,
     request: &Request,
     listed: &Value,
-    extra: &[String],
+    name: Option<&str>,
+    environment: Option<&str>,
     progress: &mut Progress,
 ) -> Result<String, Outcome> {
-    let mut args = words(&["cloud", "new-machine"]);
-    args.extend_from_slice(extra);
+    let name = name.map_or_else(|| unused_name(runner, listed).0, str::to_owned);
+    let mut args = words(&["cloud", "new-machine", "--name"]);
+    args.push(name.clone());
+    if let Some(environment) = environment {
+        args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
     args.push("--json".to_owned());
+    progress.machine = Some(Machine::Named(name.clone()));
     let made =
         step_result(&runner.cmux(&args)).map_err(|error| start_refused(error, listed, request))?;
+    progress.created = Some(name.clone());
     let id = at(&made, "machine_id").as_str().map(str::to_owned);
     if let Some(id) = &id {
         progress.made = Some(id.clone());
         progress.machine = Some(Machine::Target(id.clone()));
     }
-    match id {
-        Some(id) if at(&made, "pending").as_bool() != Some(true) => Ok(id),
-        Some(id) => {
-            let again = again_command(request, &Machine::Target(id.clone()));
-            Err(failed(
-                "cloud.start_pending",
-                format!(
-                    "the new machine {id} is still being made; once `cmux cloud list-machines` lists it, \
-                     run: {again}"
-                ),
-                json!({"again": again, "machine_id": id, "app": made,
-                       "list": "cmux cloud list-machines --json"}),
-                75,
-            ))
-        }
-        None => Err(failed(
-            "cloud.start_pending",
-            "the new machine is still being made; find it with `cmux cloud list-machines`, \
-             then run this command again with --target machine:ID",
-            json!({"app": made, "list": "cmux cloud list-machines --json"}),
-            75,
-        )),
+    progress.creation = at(&made, "creation_id").as_str().map(str::to_owned);
+    if at(&made, "pending").as_bool() != Some(true)
+        && let Some(id) = id
+    {
+        return Ok(id);
     }
+    let machine = progress.machine.clone().unwrap_or(Machine::Named(name.clone()));
+    let again = again_command(&progress.rerun(request), &machine);
+    let what = id.as_deref().unwrap_or(&name);
+    Err(failed(
+        "cloud.start_pending",
+        format!(
+            "the new machine {what} is still being made; once `cmux cloud list-machines` lists it, run: {again}"
+        ),
+        json!({"again": again, "machine_id": id, "machine_name": name, "app": made,
+               "list": "cmux cloud list-machines --json"}),
+        75,
+    ))
+}
+
+/// A machine name for this run: a fresh one no listed machine or create on its way has, and whether it found one.
+fn unused_name(runner: &mut dyn Runner, listed: &Value) -> (String, bool) {
+    let rows = |key: &str, field: &'static str| {
+        at(listed, key)
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(move |row| at(row, field).as_str())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let mut used = rows("machines", "title");
+    used.extend(rows("creating", "name"));
+    let mut name = runner.fresh_name();
+    for _ in 0..3 {
+        if !used.contains(&name) {
+            break;
+        }
+        name = runner.fresh_name();
+    }
+    let unused = !used.contains(&name);
+    (name, unused)
 }
 
 /// The relay answer's stage times the CLI answer passes on: link and login, then the relay's own events, then the platform's.

@@ -354,7 +354,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     assert_eq!(answer["sent"], true);
     assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
     assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
-    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
     // The app had no relay chat: the link path, on the machine just made.
     assert_eq!(
@@ -488,8 +488,8 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     }
 }
 
-/// With `--environment` the chat's machine is made first, in that environment (`cloud new-machine
-/// --environment`), and the chat starts on it: over the link without --wait or without a prompt, over the
+/// With `--environment` the chat's machine is made first, in that environment (`cloud new-machine --name
+/// --environment`, a fresh name without `--name`), and the chat starts on it: over the link without --wait or without a prompt, over the
 /// relay with both.
 #[test]
 fn an_environment_makes_the_chats_machine_in_it_first() {
@@ -518,7 +518,7 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
     let asked = request(&["--prompt", "x", "--environment", "python-dev"]);
     let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["machine_id"], "vm-1");
-    assert_eq!(fake.ran[1], new_machine(&["--environment", "python-dev"]));
+    assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "python-dev"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 4);
     // No prompt: new-machine and start-session only.
@@ -528,14 +528,14 @@ fn an_environment_makes_the_chats_machine_in_it_first() {
         panic!("{:?}", fake.ran)
     };
     assert_eq!(answer["sent"], false);
-    assert_eq!(fake.ran[1], new_machine(&["--environment", "env_1"]));
+    assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(fake.ran[2], on_vm_1);
     assert_eq!(fake.ran.len(), 3);
     // --wait with a prompt: the relay chat on the machine made in the environment, and no second machine.
     let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "r-1"}))]);
     let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-    assert_eq!(fake.ran[1], new_machine(&["--environment", "env_1"]));
+    assert_eq!(fake.ran[1], new_machine(&["--name", "chat-fresh", "--environment", "env_1"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
     assert_eq!(fake.ran.len(), 3);
     // --name of no machine yet: that name, in the environment.
