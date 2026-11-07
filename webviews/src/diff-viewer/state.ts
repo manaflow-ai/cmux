@@ -97,7 +97,7 @@ export type AppAction =
   | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reconcile" }
   | { type: "end-reconcile" }
-  | { type: "replace-items"; items: DiffItem[] }
+  | { type: "replace-items"; items: DiffItem[]; renames?: readonly { oldId: string; newId: string }[] }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -373,14 +373,22 @@ export function reducer(state: AppState, action: AppAction): AppState {
       // The new diff's files in one commit, prepared as appended ones; the reader's file stays active
       // when it is still in the diff (ids come from paths, so an unchanged file keeps its id).
       // The inner append starts with no active file, so a reader's file that left the diff yields to the first.
+      // A path's second entry renames its first (`a.ts` to `a.ts?deleted`): the reader and the draft follow,
+      // as they do while a diff streams in place (`rename-item`).
+      let activeItemId = state.activeItemId;
+      let draft = state.draft;
+      for (const { oldId, newId } of action.renames ?? []) {
+        if (activeItemId === oldId) activeItemId = newId;
+        if (draft?.itemId === oldId) draft = { ...draft, itemId: newId };
+      }
       const next = reducer(
-        { ...state, activeItemId: "", items: [], languages: ["text"] },
+        { ...state, activeItemId: "", draft, items: [], languages: ["text"] },
         { type: "append-items", items: action.items },
       );
-      const kept = next.items.some((item) => item.id === state.activeItemId);
+      const kept = next.items.some((item) => item.id === activeItemId);
       return {
         ...next,
-        activeItemId: kept ? state.activeItemId : next.activeItemId,
+        activeItemId: kept ? activeItemId : next.activeItemId,
         activeTreePath: kept ? state.activeTreePath : "",
         reconciling: false,
         replaceCount: state.replaceCount + 1,
