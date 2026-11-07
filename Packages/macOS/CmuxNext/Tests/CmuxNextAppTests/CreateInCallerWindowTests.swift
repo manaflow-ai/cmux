@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextControl
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 import Testing
 
@@ -119,4 +121,70 @@ struct CreateInCallerWindowTests {
             try services.windows.expectCreate(["idempotency_key": "k", "window": "win_00000000000000000000000000000000"], topology: ControlSnapshotPublisher.topology(services))
         }
     }
+    /// The create actions a Chief turn can run (`workspace.newAtTop`, `newBelow`, `newOnMachine`, a group's
+    /// new workspace, `agent.openSessionWorkspace`) take the caller's window and the workspace it shows,
+    /// not the active window's; a person's run (no caller window) keeps the active window.
+    @Test func aCallersCreateActionsUseItsWindowNotTheActiveOne() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let (prompted, other) = try await Self.twoWindows(services)
+        defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
+        let context = AppActionContext(services: services)
+
+        var chief = ActionInvocation(origin: .cli)
+        chief.callerWindow = prompted.state.id
+        #expect(context.createWindow(chief)?.state.id == prompted.state.id)
+        #expect(try context.createAnchor(chief).id == "ws-a", "a Chief's create was placed next to another window's workspace")
+
+        // A named target still wins over the caller's window.
+        var targeted = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "ws-b"), origin: .cli)
+        targeted.callerWindow = prompted.state.id
+        #expect(try context.createAnchor(targeted).id == "ws-b")
+
+        // A closed caller window, or none: the active window, as before.
+        var gone = ActionInvocation(origin: .cli)
+        gone.callerWindow = "window-that-closed"
+        #expect(context.createWindow(gone)?.state.id == services.windows.active?.state.id)
+        #expect(context.createWindow(ActionInvocation())?.state.id == services.windows.active?.state.id)
+    }
+
+    /// A message to the Chief that no window's Home transcript sent (the phone, another Mac, New Message, an
+    /// action) means no window prompted that turn: its workspaces go to the most recent window again.
+    @Test func aMessageFromElsewhereStopsNamingThePromptedWindow() {
+        let prompt = ChiefPromptWindow()
+        prompt.personMessages(["m0"]) // launch: the baseline
+        prompt.note("window-a")
+        prompt.personMessages(["m1"]) // the window's own send arriving
+        #expect(prompt.id == "window-a")
+        prompt.personMessages([]) // the Chief replied: no person message is last
+        #expect(prompt.id == "window-a")
+        prompt.personMessages(["m2"]) // sent from the phone
+        #expect(prompt.id == nil, "a message from elsewhere kept the old prompting window")
+        prompt.note("window-b")
+        prompt.personMessages(["m3"])
+        #expect(prompt.id == "window-b")
+    }
+
+    /// Only a person's last message in a Chief conversation counts; the Chief's own replies and other chats don't.
+    @Test func personMessagesAreReadFromChiefConversationsOnly() {
+        let person = ConversationParticipant(id: ConversationParticipant.localUserID, kind: .human, displayName: "Me")
+        let mux = ConversationParticipant(id: "agent_mux", kind: .agent, displayName: "Chief", agentClass: "mux")
+        let friend = ConversationParticipant(id: "user_friend", kind: .human, displayName: "Friend")
+        func message(_ id: String, by author: String, in conversation: String) -> ConversationMessage {
+            ConversationMessage(id: id, conversation: conversation, seq: 1, clientMsgID: id, author: author, parts: [], createdAt: "2026-11-06T00:00:00.000Z")
+        }
+        func summary(_ id: String, _ participants: [ConversationParticipant], last: ConversationMessage) -> CmuxNextDaemon.ConversationSummary {
+            .init(id: id, title: id, participants: participants, lastSeq: 1, rev: 1, createdAt: "2026-11-06T00:00:00.000Z",
+                  updatedAt: "2026-11-06T00:00:00.000Z", lastMessage: last)
+        }
+        let ids = HomeService.personMessagesToChief(in: [
+            summary("chief", [person, mux], last: message("asked", by: person.id, in: "chief")),
+            summary("chief-replied", [person, mux], last: message("reply", by: mux.id, in: "chief-replied")),
+            summary("dm", [person, friend], last: message("hi", by: person.id, in: "dm")),
+        ])
+        #expect(ids == ["asked"])
+    }
 }
+

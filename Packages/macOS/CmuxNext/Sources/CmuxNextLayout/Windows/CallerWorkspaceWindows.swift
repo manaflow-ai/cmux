@@ -4,18 +4,40 @@ public import Observation
 /// transcript sent the message. A Chief turn's caller is the Home chat (`caller.home_chat`),
 /// and the app does not know a turn's session, so this is where that turn is: its
 /// `system.identify` names this window's Home, and the workspaces it creates without
-/// naming a window open here. Nil until a message is sent, or once its window closed;
-/// the turn then falls back to the most recent window, as before.
+/// naming a window open here. Nil until a message is sent, once its window closed, or once
+/// the person's next message to the Chief came from elsewhere (a phone, another Mac, the New
+/// Message sheet, an action): no window prompted that turn, and its workspaces go to the most
+/// recent window, as before. One value for the app: the latest prompt from this Mac wins.
 @Observable
 public final class ChiefPromptWindow {
     /// The prompting window's id (`WindowState.id`).
     public private(set) var id: String?
+    /// The person's newest messages to the Chief that the store showed (their ids; nil until the
+    /// first read), and whether a send from a window's Home transcript is still to show there.
+    @ObservationIgnored private var seenPersonMessages: Set<String>?
+    @ObservationIgnored private var awaitsWindowSend = false
 
     public init() {}
 
-    /// Window `id` sent a message to the Chief.
+    /// Window `id`'s Home transcript sent a message to the Chief.
     public func note(_ id: String) {
         if self.id != id { self.id = id }
+        awaitsWindowSend = true
+    }
+
+    /// The newest message from the person in each Chief conversation (their ids). A new one that a
+    /// window's send made keeps that window; any other new one came from elsewhere and clears it.
+    /// The first read (at launch) only sets the baseline.
+    public func personMessages(_ ids: Set<String>) {
+        guard ids != seenPersonMessages else { return }
+        let previous = seenPersonMessages
+        seenPersonMessages = ids
+        guard previous != nil || awaitsWindowSend, !ids.subtracting(previous ?? []).isEmpty else { return }
+        if awaitsWindowSend {
+            awaitsWindowSend = false
+        } else if id != nil {
+            id = nil
+        }
     }
 
     /// The prompting window while it is still open.

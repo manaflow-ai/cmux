@@ -38,6 +38,7 @@ final class HomeService {
     /// Chief's brain not running (ChiefReplyWatchdog).
     var replyNotice: String?
     @ObservationIgnored private var replyWatch: Task<Void, Never>?
+    @ObservationIgnored private var promptWatch: Task<Void, Never>?
     @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
     /// Chief's first-launch welcome (ChiefWelcome), played once for the app's life.
     @ObservationIgnored let chiefWelcome = ChiefWelcomePlayer()
@@ -236,6 +237,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
+        watchPromptSources()
         chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
@@ -461,6 +463,33 @@ final class HomeService {
                 self?.logger.info("conversation-op deferred to the next connection: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+}
+
+// MARK: Where the Chief was prompted
+
+extension HomeService {
+    /// Feeds ``ChiefPromptWindow`` the person's newest message in each local Chief conversation, so
+    /// a message that no window's Home transcript sent (a phone, another Mac, New Message, an action)
+    /// stops naming a window as where the Chief was prompted (#32989).
+    fileprivate func watchPromptSources() {
+        // task-owner: lives as long as the service; event-driven (Observation)
+        promptWatch = Task { [weak self] in
+            for await ids in ObservationStream({ [weak self] in self.map { Self.personMessagesToChief(in: $0.conversations) } ?? [] }) {
+                guard let self else { return }
+                services.windows.chiefPrompt.personMessages(ids)
+            }
+        }
+    }
+
+    /// The id of each Chief conversation's last message when the person wrote it.
+    nonisolated static func personMessagesToChief(in conversations: [CmuxNextDaemon.ConversationSummary]) -> Set<String> {
+        Set(conversations.compactMap { summary in
+            guard summary.participants.contains(where: { $0.id == HomeChiefAvatars.defaultChief }),
+                  let last = summary.lastMessage,
+                  summary.participants.first(where: { $0.id == last.author })?.kind == .human else { return nil }
+            return last.id
+        })
     }
 }
 
