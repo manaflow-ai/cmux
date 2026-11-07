@@ -42,14 +42,14 @@ mod capability_cache;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_automation_relay;
+#[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
 mod cloud_environment;
-mod cloud_help;
-#[cfg(unix)]
-mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_hands;
+mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_io;
 #[cfg(unix)]
