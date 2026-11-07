@@ -25,8 +25,9 @@
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
  *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> turn 2 (same
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect (connect_info
- *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> turn after
- *   resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   + link_token + link dial) -> carrier dial (an identify answered over the machine's relay slot) -> handoff record
+ *   -> sync push/pull (a folder round trip) -> pause -> resume -> carrier dial after resume -> turn after resume
+ *   -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -319,6 +320,60 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
     }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
   };
+}
+
+/**
+ * `cmux carrier dial` (design/cloud-carrier.md): this device reaches the machine's session daemon over its relay slot,
+ * with the person's credential, as the app will. It passes when the dial reports the carrier route and one identify
+ * line gets the daemon's answer. connectMs is the dial's own `cloud.connect ... ms=` (ticket, relay, Noise handshake);
+ * replyMs runs from the spawn to the answer.
+ */
+export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; reply: string }> {
+  const started = performance.now();
+  const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+  const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
+  const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  const lines = (stream: NodeJS.ReadableStream) => {
+    let buffered = "";
+    const waiting: Array<(line: string | null) => void> = [];
+    const queued: Array<string | null> = [];
+    const push = (line: string | null) => (waiting.length ? waiting.shift()!(line) : queued.push(line));
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk: string) => {
+      buffered += chunk;
+      for (let at = buffered.indexOf("\n"); at >= 0; at = buffered.indexOf("\n")) {
+        push(buffered.slice(0, at));
+        buffered = buffered.slice(at + 1);
+      }
+    });
+    stream.on("end", () => push(null));
+    return () => new Promise<string | null>((resolve) => (queued.length ? resolve(queued.shift()!) : waiting.push(resolve)));
+  };
+  const err = lines(child.stderr!);
+  const out = lines(child.stdout!);
+  const within = <T,>(what: string, p: Promise<T>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`carrier dial: no ${what} within ${deadlineMs + 15_000} ms`)), deadlineMs + 15_000);
+    });
+    return Promise.race([p, late]).finally(() => clearTimeout(timer));
+  };
+  try {
+    const first = await within("status line", err());
+    const status = JSON.parse(first ?? "null");
+    if (status?.ok !== true) throw new Error(`carrier dial: ${short(status ?? "ended with no status line")}`);
+    if (status.route !== "carrier") throw new Error(`carrier dial: route ${status.route}, not carrier`);
+    const route = (await within("route line", err())) ?? "";
+    const connectMs = Number(/ ms=(\d+)/.exec(route)?.[1] ?? NaN);
+    if (!/^cloud\.connect route=carrier .*outcome=ok/.test(route) || !Number.isFinite(connectMs)) throw new Error(`carrier dial: route line ${short(route)}`);
+    child.stdin!.write('{"cmd":"identify","id":1}\n');
+    const reply = await within("answer to identify", out());
+    if (reply === null) throw new Error("carrier dial: the stream ended before the daemon answered");
+    return { connectMs, replyMs: Math.round(performance.now() - started), reply };
+  } finally {
+    child.stdin!.end();
+    child.kill("SIGTERM");
+  }
 }
 
 type HeadlessLink = { stateDir: string; linkSocket: string; bridgeSocket: string; close: () => Promise<void> };
@@ -1319,6 +1374,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.skip("connect (link dial)", "--cmux is required for a headless link dial");
     }
 
+    if (cmux) {
+      await J.step("connect (carrier dial)", async () => {
+        const d = await carrierDial(cmux, api, created.id);
+        return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms: ${d.reply.slice(0, 160)}` };
+      });
+    } else {
+      J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+    }
+
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
     // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
     // A transport error is recorded as this step's failure; the journey goes on to its next steps.
@@ -1368,6 +1432,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("resumed")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
         return { value: null, detail: "ok" };
       });
+      if (cmux) {
+        await J.step("carrier dial after resume", async () => {
+          const d = await carrierDial(cmux, api, created.id);
+          return { value: null, detail: `connect ${d.connectMs} ms, reply ${d.replyMs} ms: ${d.reply.slice(0, 160)}` };
+        });
+      } else {
+        J.skip("carrier dial after resume", "--cmux is required for a carrier dial");
+      }
       if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
