@@ -4172,11 +4172,17 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.fallback = from ? { from, generation } : undefined;
-    // The tab's chat that left the list while drawn, and not by this pane's own delete, keeps its
-    // frame for a switch's hold: a row its machine lists again at once (a peer's list read anew) opens
-    // it on that frame, rows kept (`shownRowsToKeep`), instead of an empty pane for a moment; one that
-    // stays gone says so when the hold ends.
-    const brief = this.host.sessionMustExist && !purging && !!this.drawn?.rows.length && from !== undefined;
+    // The tab's chat on another machine that left the list while drawn, and not by this pane's own
+    // delete, keeps its frame for a switch's hold: a row its machine lists again at once (a peer's
+    // list read anew) opens it on that frame, rows kept (`shownRowsToKeep`), instead of an empty pane
+    // for a moment; one that stays gone says so when the hold ends. A chat on this Mac that leaves
+    // the list is gone (closed on another device): the pane says so at once.
+    const brief =
+      this.host.sessionMustExist &&
+      !purging &&
+      !!this.drawn?.rows.length &&
+      from !== undefined &&
+      this.drawn.peer !== undefined;
     const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     this.resetSessionState(reason);
     this.emit(reason);
