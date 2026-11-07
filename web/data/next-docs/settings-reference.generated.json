@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 597,
+  "count": 598,
   "sections": [
     {
       "id": "general",
@@ -1138,6 +1138,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeWhenLocked",
+          "title": "Keep Agents Running While Locked",
+          "help": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
