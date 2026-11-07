@@ -1,0 +1,114 @@
+name: Inference gateway E2E (development)
+
+# One manual trip through a team's inference gateway on the DEVELOPMENT backend
+# (https://cmux-api-development.debussy.workers.dev): scripts/cmux-next/cloud-journey.ts --gateway makes a
+# chat machine and a second, tiny machine, runs `cmux inference setup --gateway-machine` with the cmux-tui
+# built from the dispatched commit (it names the second machine the team's gateway and starts
+# `cmux inference gateway` there in front of a model stub standing in for the person's own proxy), then
+# chats with Codex on the first machine. The step passes only when the reply carries the stub's nonce,
+# the gateway's log shows the call, and the chat machine holds no login. Both machines are deleted at the
+# end. Nothing gates on this run; the step table is the run summary.
+#
+# Leo, 2026-11-07: "what we are willing to do for now is a tiny vm per subscription (user)/per team. that's it."
+#
+# Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, as in
+# machine-join-e2e.yml) reaches the one journey step through env only; cloud-journey.ts keeps the session
+# and tokens in memory and hands `cmux inference setup` the install token in a 0600 temporary file.
+# Manual dispatch on feat-cmux-next only.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-e2e-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    # The environment machine-join-e2e.yml uses: limited to feat-cmux-next by GitHub's branch policy.
+    environment: cmux-next-vm-image-dev
+    # An ephemeral Blacksmith VM, never LINUX_RUNNER (which may name a persistent host): this job holds the
+    # stack pair.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60
+    steps:
+      - name: Refuse any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/feat-cmux-next ]; then
+            echo "::error::gateway-e2e runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Build cmux-tui
+        id: build
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          binary="$target_dir/debug/cmux-tui"
+          [[ "$binary" = /* ]] || binary="$PWD/$binary"
+          test -x "$binary"
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Chat through the team's gateway machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_BIN: ${{ steps.build.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/gateway-e2e"
+          mkdir -p "$out"
+          status=0
+          bun scripts/cmux-next/cloud-journey.ts --backend dev --agent codex \
+            --gateway "$CMUX_BIN" --gateway-upstream stub --skip sync --out "$out" || status=$?
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
