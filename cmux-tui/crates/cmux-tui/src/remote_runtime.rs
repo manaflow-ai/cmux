@@ -2266,7 +2266,7 @@ async fn run_daemon(
                         control_timeout: Duration::from_secs(15),
                     },
                     relay.credentials,
-                    &BIN.to_string(),
+                    &crate::cli::BIN.to_string(),
                 )?);
             }
 
