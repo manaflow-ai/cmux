@@ -11160,9 +11160,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           : {
                               available: {
                                 sideChat: sideChat !== undefined,
-                                // chat.newHere needs a started chat and its folder; another machine's only when absolute.
+                                // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
+                                // New Chat) and its folder; another machine's only when absolute.
                                 newTab:
-                                  snapshot.sessionId !== undefined &&
+                                  canMove &&
                                   chatCwd !== undefined &&
                                   (!remoteChat || chatCwd.startsWith("/")),
                               },

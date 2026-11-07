@@ -92,7 +92,9 @@ export function HeaderNewButton({
               key={kind}
               data-value={kind}
               className="acpmux-chat-menu-item"
+              // The arrow keys move focus to the highlighted row, so the preview follows them as well as the pointer.
               onPointerEnter={() => setPreviewed(kind)}
+              onFocus={() => setPreviewed(kind)}
               onSelect={() => run(kind)}
             >
               <Icon name={KIND_ICONS[kind]} size={14} />
