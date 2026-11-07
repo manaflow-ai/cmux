@@ -93,14 +93,13 @@ public final class AgentPaneChatSnapshots {
         method == "chat.snapshot.put" || method == "chat.snapshot.get"
     }
 
-    /// Answers one op. `allowed` is false for an incognito chat, which keeps nothing, and a page from
-    /// before a sign-out (`pageGeneration`) writes nothing. A get answers what is kept, which only a
-    /// chat outside incognito wrote.
+    /// Answers one op. `allowed` is false for an incognito chat (nothing kept, nothing read), and a
+    /// page from before a sign-out (`pageGeneration`) writes nothing.
     func reply(_ method: String, params: JSONValue, op: String, allowed: Bool, pageGeneration: UInt64) async throws -> JSONValue {
         guard case .object(var body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
         if method == "chat.snapshot.get" {
-            guard let kept = await snapshot(for: session), Self.draws(kept) else { return .null }
+            guard allowed, let kept = await snapshot(for: session), Self.draws(kept) else { return .null }
             return kept
         }
         // A put answers `{kept}`: whether this keeps it (the page's own record of its writes).
@@ -121,14 +120,18 @@ public final class AgentPaneChatSnapshots {
     }
 
     /// The script the document loads (async) beside its bundle: sets the page's global to chat
-    /// `sessionId`'s copy, or to null when there is none (or no chat), then
+    /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept), then
     /// calls the page's boot, which draws it (chatSnapshot/boot.ts). `read` is that chat's copy
     /// already being read (``AgentPageResources``), so the answer waits on no second read.
-    func script(for sessionId: String?, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
         var text = "self.\(Self.global)="
         // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
         var why = "kept"
-        if sessionId?.isEmpty ?? true { why = "no-chat" }
+        if !allowed {
+            why = "not-kept-here"
+        } else if sessionId?.isEmpty ?? true {
+            why = "no-chat"
+        }
         var kept: JSONValue?
         if why == "kept", let sessionId {
             if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }

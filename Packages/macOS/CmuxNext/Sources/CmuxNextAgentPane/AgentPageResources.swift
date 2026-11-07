@@ -10,17 +10,17 @@ import Foundation
 @MainActor
 final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSource {
     private let session: @MainActor () -> String?
+    private let allowed: @MainActor () -> Bool
     /// The theme key the page would get now (``AgentPageEvent/theme(_:surface:)``'s `key`), nil
     /// until the pane sets it: the page draws its copy only under the theme it was drawn in.
     var themeKey: @MainActor () -> String? = { nil }
 
-    /// Serves whatever copy the chat has: one is kept only from outside incognito (the put's rule,
-    /// ``AgentPaneChatSnapshots/reply(_:params:op:allowed:pageGeneration:)``), and serving keeps
-    /// nothing. Whether a new page is incognito is not known yet when its document asks (its tab is
-    /// listed after), which read as incognito and served none on 3 of 5 relaunched opens.
-    /// - Parameter session: The chat the page shows now, nil for none.
-    init(session: @escaping @MainActor () -> String?) {
+    /// - Parameters:
+    ///   - session: The chat the page shows now, nil for none.
+    ///   - allowed: Whether that chat may keep its copy (false in an incognito window).
+    init(session: @escaping @MainActor () -> String?, allowed: @escaping @MainActor () -> Bool) {
         self.session = session
+        self.allowed = allowed
         // The chat's copy is read from when the page is made, while its document loads: at launch
         // the main thread is busy, and the request then waits on no disk read of its own.
         if let chat = session(), !chat.isEmpty {
@@ -37,7 +37,7 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
         let chat = session()
         let read = ahead.flatMap { $0.session == chat ? $0.read : nil }
         ahead = nil
-        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, themeKey: themeKey(), read: read),
+        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), read: read),
                             mimeType: "text/javascript")
     }
 
