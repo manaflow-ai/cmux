@@ -78,7 +78,7 @@ import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
-import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
@@ -94,6 +94,7 @@ import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentit
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
+import { useAgentProgress } from "./agentProgressStore";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
@@ -434,7 +435,7 @@ export const SubagentTray = memo(function SubagentTray({
   // Claude Code's running-tasks list does (trayFoldHead.experiment.ts; Leo, 2026-11-03: "the
   // "running" bar above the composer is currently no longer usable bc it doesn't display much").
   // A narrow pane names only the newest; the rest are a count. Open, the lines name them.
-  const loneHead = lone && !open ? loneHeadOf(t, lone, waiting, now, showLatest) : undefined;
+  const loneHead = lone && !open ? loneHeadOf(t, language, lone, waiting, now, showLatest) : undefined;
   const named = !open && !loneHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
@@ -581,6 +582,7 @@ export const SubagentTray = memo(function SubagentTray({
               slide
             />
           )}
+          {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
           {!named && !loneHead && counts.failed > 0 && (
@@ -938,9 +940,20 @@ type LoneHead = {
   time?: string;
   /// A retry is in progress: its words ("Retrying (2/4) ...") stay on the row, as its line says them.
   retry?: boolean;
+  /// A subagent's workflow progress ("1/3 agents"), live from the progress store (AgentLine.tsx).
+  agent?: Subagent;
+  progress?: string;
 };
+
+/// A folded lone subagent's progress after what it does now, as its line says it: folded, the
+/// header is all that shows it.
+function LoneProgress({ agent, fallback }: { agent: Subagent; fallback?: string }) {
+  const progress = useAgentProgress(agent) ?? fallback;
+  return progress ? <span className="acpmux-summary-meta acpmux-running-tray__stats">{progress}</span> : null;
+}
 function loneHeadOf(
   t: Translate,
+  language: PaneLanguage,
   item: TrayItem,
   waiting: ReadonlySet<string>,
   now: number,
@@ -957,6 +970,8 @@ function loneHeadOf(
       state: subagentStateText(t, item.agent, waiting),
       time: formatDuration(elapsed(item.agent, now)),
       retry,
+      agent: item.agent,
+      progress: subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined,
     };
   }
   if (item.kind === "command")

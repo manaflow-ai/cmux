@@ -57,6 +57,11 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       (value) => (window as unknown as { __showTray: (c: boolean) => void }).__showTray(value),
       clickable,
     );
+    // One line heads the hat folded (Leo, 2026-11-07): its header opens it; the pointer then leaves
+    // the header, so what the tests read is the line at rest.
+    await page.waitForSelector(".acpmux-running-tray");
+    await openRunningTray(page);
+    await page.mouse.move(0, 0);
     await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
     // The tray rises in as it joins the stack (bottomStack.css ui-enter): measure where it lands.
     return page;

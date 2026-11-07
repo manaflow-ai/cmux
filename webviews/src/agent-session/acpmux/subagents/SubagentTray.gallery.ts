@@ -946,6 +946,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
+        // Opening hands the header's words over (trayMotion.tsx Tick `slide`): read them once the
+        // leaving words are gone.
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },

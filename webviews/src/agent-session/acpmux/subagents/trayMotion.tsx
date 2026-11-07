@@ -329,7 +329,7 @@ export function Tick({
     const to = text ? Math.ceil(text) : incoming.scrollWidth;
     if (Math.abs(to - from) < 1) return undefined;
     const style = node.ownerDocument.defaultView?.getComputedStyle(node);
-    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 200;
+    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 180;
     if (duration <= 0) return undefined;
     const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });

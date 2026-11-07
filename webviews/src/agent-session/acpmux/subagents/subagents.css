@@ -1505,7 +1505,7 @@ button.cv-subagent > :last-child {
    as the new slide up from below, on one baseline, while the cell's width eases between them on the
    same clock. The cell clips both, so neither draws outside the row. */
 .acpmux-tick[data-slide] {
-  --acpmux-tick-slide: var(--agent-motion-move, 200ms);
+  --acpmux-tick-slide: var(--agent-motion-move, 180ms);
 }
 .acpmux-tick[data-slide] > .acpmux-tick__in {
   animation: acpmux-tick-slide-in var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
@@ -1536,10 +1536,10 @@ button.cv-subagent > :last-child {
   grid-area: 1 / 1;
 }
 .acpmux-tick__roll-in {
-  animation: acpmux-tick-slide-in var(--agent-motion-move, 200ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-slide-in var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
 }
 .acpmux-tick__roll-out {
-  animation: acpmux-tick-slide-out var(--agent-motion-move, 200ms) var(--agent-ease-out, ease-out) both;
+  animation: acpmux-tick-slide-out var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
@@ -1996,6 +1996,12 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A folded lone subagent's workflow progress ("1/3 agents"), quiet after its step; it never truncates. */
+.acpmux-running-tray__head > .acpmux-running-tray__stats {
+  flex: none;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__head > .acpmux-running-tray__latest.is-code {
   font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
