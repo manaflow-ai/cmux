@@ -244,7 +244,13 @@ export function useInlineAttachments(options: Options) {
       if (attachment) keep(attachment);
       live.current.expand(id);
     },
-    keepFile: (id: string) => live.current.keepFile?.(id),
+    /// A pasted chip sent as a .txt file: kept first, as an open is, so an undo that brings its node
+    /// back brings its text too.
+    keepFile: (id: string) => {
+      const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
+      if (attachment) keep(attachment);
+      live.current.keepFile?.(id);
+    },
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder

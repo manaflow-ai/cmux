@@ -400,6 +400,33 @@ test("Keep as .txt places the file where its chip was, not at the caret", async 
   expect(text.slice(at)).toContain("after");
 });
 
+// Review of #37516 (F1, F2), in both views: Keep as .txt with the whole draft selected deletes no
+// text, and undo brings the chip back with its text.
+test.each(["inline", "strip"] as const)(
+  "Keep as .txt with text selected keeps the text; undo brings the chip back whole (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    await act(async () => markdownField().selectAll());
+    await act(async () => keepButton(view)!.click());
+    await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+    expect(words()).toContain("before");
+    expect(words()).toContain("after");
+    for (let undo = 0; undo < 4 && !chips(composer).some((chip) => chip.kind === "pasted"); undo += 1) {
+      await act(async () => markdownField().undo());
+      await settle();
+    }
+    expect(
+      chips(composer)
+        .filter((chip) => chip.kind === "pasted")
+        .map((chip) => chip.text),
+    ).toEqual([LOG]);
+  },
+);
+
 // ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's
 // text: no chip, no pasted block, sent as typed text is.
 const DICTATED =

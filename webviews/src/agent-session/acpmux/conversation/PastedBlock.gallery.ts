@@ -37,7 +37,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 560,
   widths: { narrow: 400, normal: 760, wide: 760 },
-  covers: ["agent-session/acpmux/conversation/PromptText.tsx", "agent-session/acpmux/pastedText.ts"],
+  covers: ["agent-session/acpmux/conversation/PromptText.tsx#PromptText"],
   keywords: ["paste", "pasted", "fold", "pasted text", "dictation"],
   variants: {
     "ordinary-paste": {
