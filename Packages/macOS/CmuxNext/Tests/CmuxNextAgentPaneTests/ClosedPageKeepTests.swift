@@ -42,4 +42,15 @@ import Testing
         #expect(second.count == 1 && second[0] === b)
         #expect(keep.isEmpty && keep.soonest == nil)
     }
+
+    @Test func removeAllEmptiesTheKeep() {
+        var keep = ClosedPageKeep<Page>(limit: 2)
+        let (a, b) = (Page(), Page())
+        let now = ContinuousClock.now
+        _ = keep.keep(a, for: "ses-a", until: now + .seconds(30))
+        _ = keep.keep(b, for: "ses-b", until: now + .seconds(30))
+        let removed = keep.removeAll()
+        #expect(removed.count == 2 && removed[0] === a && removed[1] === b)
+        #expect(keep.isEmpty && keep.take("ses-a") == nil)
+    }
 }

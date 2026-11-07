@@ -29,7 +29,11 @@ public final class AgentPageRetirer {
         // until the teardown below, long enough to send the discard.
         view.topBar.discardUnsentChat()
         measure("agentPane.detach") { view.removeFromSuperview() }
-        if let session, kept.keep(view, for: session) { return }
+        if let session {
+            // Kept or not, a closed chat stops what a closed tab must not keep doing.
+            view.quietForKeep()
+            if kept.keep(view, for: session) { return }
+        }
         teardown(view)
     }
 
@@ -42,5 +46,15 @@ public final class AgentPageRetirer {
         let views = retiring
         retiring.removeAll()
         for view in views { view.releaseHeldPrompts { [measure] retired in measure("agentPane.close") { retired.close() } } }
+    }
+}
+
+extension AgentPaneView {
+    /// What ``close()`` ends that a kept closed page must not keep doing: its shell runs (commands
+    /// that change files), read aloud and dictation. The page stays loaded and drawn.
+    func quietForKeep() {
+        model.shell.terminateAll()
+        model.readAloud?.stop(owner: model)
+        dictation.close()
     }
 }

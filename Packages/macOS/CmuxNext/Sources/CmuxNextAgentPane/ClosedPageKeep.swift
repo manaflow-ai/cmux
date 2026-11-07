@@ -32,6 +32,12 @@ public final class ClosedPageKeeper<Page: AnyObject> {
 
     /// The kept page of closed chat `session`, taken back (nil when none is kept).
     public func take(_ session: String) -> Page? {
+        // Low Power Mode since the close: nothing is used from the keep, and it empties now.
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            for page in kept.removeAll() { teardown(page) }
+            timer.cancel()
+            return nil
+        }
         let page = kept.take(session)
         if kept.isEmpty { timer.cancel() }
         return page
@@ -75,6 +81,12 @@ public struct ClosedPageKeep<Page: AnyObject> {
     public mutating func take(_ session: String) -> Page? {
         guard let index = entries.firstIndex(where: { $0.session == session }) else { return nil }
         return entries.remove(at: index).page
+    }
+
+    /// Every kept page, no longer kept.
+    public mutating func removeAll() -> [Page] {
+        defer { entries.removeAll() }
+        return entries.map(\.page)
     }
 
     /// The pages whose time ended at `now`, no longer kept.

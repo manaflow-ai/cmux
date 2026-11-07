@@ -450,11 +450,12 @@ final class AgentTabStore {
             onPageBuilt?(key)
             return spare
         }
-        // Reopen Closed of a chat of this Mac closed a moment ago: its own page, kept whole
-        // (``AgentPageRetirer``), comes back loaded and drawn, so its first frame is its transcript.
+        // Reopen Closed of a chat of this Mac closed a moment ago: its kept page (``AgentPageRetirer``), drawn, with today's settings.
         if kind == .local, seed == nil, newTabPages[key] == nil, wakeStates[key] == nil, !relaunchWake.mayHold(key),
            let session = sessions[key] ?? record.session, let kept = retirer.takeKept(session) {
             views[key] = kept
+            (kept.customization, kept.shortcuts) = (customization.current, shortcuts)
+            pageSettings.apply(to: kept)
             wire(kept.model, key: key)
             track(key, in: store)
             onPageBuilt?(key)
