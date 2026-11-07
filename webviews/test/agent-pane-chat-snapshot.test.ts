@@ -4,8 +4,10 @@
 // no split-half reveal). The page writes its visible window (chatSnapshot/capture.ts), the host
 // serves it back as `__snapshot/chat.js`, and the first classic script draws it (boot.ts) in a
 // shadow root under the page's own rules. These hold, in real Chromium:
-// - the copy is on screen when the bundle's first line runs, at the same boxes as the page it was
-//   written from (header, rows, a scrolled transcript, the composer and its text);
+// - the copy is on screen before the live page draws the chat, at the same boxes as the page it was
+//   written from (header, rows, a scrolled transcript, the composer and its text), also when the
+//   host's answer (loaded async, never waited on) comes after the bundle started;
+// - a copy that comes after the live page drew the chat draws nothing;
 // - the live page takes over in one frame: no frame shows both or neither, and nothing moves;
 // - a copy written for another viewport draws nothing.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -79,8 +81,18 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
     const liveEntry = path.join(work, "live-entry.ts");
     writeFileSync(
       liveEntry,
-      `import { swapChatSnapshot } from ${JSON.stringify(path.join(source, "live.ts"))};
+      `import { reportChatSnapshot, swapChatSnapshot } from ${JSON.stringify(path.join(source, "live.ts"))};
 const w = window as any;
+w.reports = [];
+reportChatSnapshot(async (method, params) => {
+  w.reports.push({ method, params, shown: !!document.querySelector("cmux-chat-snapshot") });
+});
+// The page draws the chat itself once the host's answer came (the handshake and the rows' read take
+// longer than it, as at launch), or at once (\`drawFirst\`: the answer comes after the page drew).
+const booted = () => w.__cmuxChatSnapshotShown !== undefined || w.__cmuxChatSnapshotMiss !== undefined;
+const wait = () => (w.drawFirst || booted() ? draw() : requestAnimationFrame(wait));
+requestAnimationFrame(wait);
+function draw() {
 const host = document.querySelector("cmux-chat-snapshot");
 const box = (el: Element | null | undefined) => { const r = el!.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
 const copy = host?.shadowRoot;
@@ -116,6 +128,7 @@ requestAnimationFrame(() => {
     w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")) };
   }));
 });
+}
 `,
     );
     live = await bundle(liveEntry, "esm");
@@ -157,28 +170,53 @@ requestAnimationFrame(() => {
   }
 
   /// The next launch's document, served the snapshot as the host serves it.
-  async function relaunched(page: Page, snapshot: unknown, theme = "theme-1"): Promise<void> {
+  /// `holdUntil` holds the host's answer back (a busy main thread at launch) until the bundle ran or
+  /// the page drew the chat; `drawFirst` has the page draw it before the answer comes.
+  async function relaunched(
+    page: Page,
+    snapshot: unknown,
+    theme = "theme-1",
+    { holdUntil, drawFirst = false }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean } = {},
+  ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
       if (url.pathname === "/b.html")
         return route.fulfill({
           contentType: "text/html",
           body: htmlDocument(
-            `<main id="root"></main><script src="/__snapshot/chat.js"></script><script src="/chat-snapshot.js"></script><script type="module" src="/pane.js"></script>`,
+            `<main id="root"></main><script src="/fixture.js"></script><script async src="/__snapshot/chat.js"></script><script src="/chat-snapshot.js"></script><script type="module" src="/pane.js"></script>`,
           ),
         });
-      if (url.pathname === "/__snapshot/chat.js")
+      if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.__cmuxChatSnapshot=${JSON.stringify(snapshot)};self.__cmuxChatSnapshotTheme=${JSON.stringify(theme)};self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};`,
+          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};`,
         });
+      if (url.pathname === "/__snapshot/chat.js")
+        return (
+          holdUntil === undefined
+            ? Promise.resolve()
+            : page
+                .waitForFunction(
+                  (until) => (window as any)[until === "bundle" ? "reports" : "afterSwap"] !== undefined,
+                  holdUntil,
+                )
+                .then(() => undefined)
+        ).then(() =>
+          route.fulfill({
+            contentType: "text/javascript",
+            body: `self.__cmuxChatSnapshot=${JSON.stringify(snapshot)};self.__cmuxChatSnapshotTheme=${JSON.stringify(theme)};self.__cmuxChatSnapshotBoot?.();`,
+          }),
+        );
       if (url.pathname === "/chat-snapshot.js") return route.fulfill({ contentType: "text/javascript", body: boot });
       if (url.pathname === "/pane.js") return route.fulfill({ contentType: "text/javascript", body: live });
       return route.fulfill({ status: 404, body: "" });
     });
     await page.goto("http://chat.test/b.html");
     await page.waitForFunction(
-      () => (window as any).afterSwap !== undefined || (window as any).atBundle?.shown === false,
+      () =>
+        ((window as any).afterSwap !== undefined || (window as any).atBundle?.shown === false) &&
+        ((window as any).__cmuxChatSnapshotShown !== undefined || (window as any).__cmuxChatSnapshotMiss !== undefined),
     );
   }
 
@@ -234,5 +272,33 @@ requestAnimationFrame(() => {
     expect(await page.evaluate(() => document.getElementById("root")!.style.opacity)).toBe("");
     await context.close();
     await other.close();
+  });
+
+  test("a copy the host answers after the bundle started still draws before the page, and shows the page", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdUntil: "bundle" });
+    const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, unknown>;
+    expect(atBundle.shown).toBe(true);
+    expect(atBundle.row).toEqual(before.row);
+    // The host hears it when the copy draws, not when the bundle starts.
+    const reports = (await page.evaluate(() => (window as any).reports)) as unknown[];
+    expect(reports).toEqual([{ method: "pane.painted", params: { drewKeptTail: true }, shown: true }]);
+    await context.close();
+  });
+
+  test("a copy the host answers after the page drew the chat draws nothing", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdUntil: "drawn", drawFirst: true });
+    expect(await page.evaluate(() => (window as any).__cmuxChatSnapshotMiss)).toBe(
+      "late: the page drew the chat first",
+    );
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(false);
+    expect(await page.evaluate(() => document.getElementById("root")!.style.opacity)).toBe("");
+    expect(await page.evaluate(() => (window as any).reports)).toEqual([]);
+    await context.close();
   });
 });

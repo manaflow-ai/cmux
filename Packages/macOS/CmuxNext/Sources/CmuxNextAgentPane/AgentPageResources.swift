@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 /// One agent page's generated resources: its granted media (``AgentPageMediaResource``, the app's
@@ -20,11 +21,23 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     init(session: @escaping @MainActor () -> String?, allowed: @escaping @MainActor () -> Bool) {
         self.session = session
         self.allowed = allowed
+        // The chat's copy is read from when the page is made, while its document loads: at launch
+        // the main thread is busy, and the request then waits on no disk read of its own.
+        if let chat = session(), !chat.isEmpty {
+            // task-owner: one bounded disk read per page made; kept until the document asks for it
+            ahead = (chat, Task { await AgentPaneTailCache.shared.snapshots.snapshot(for: chat) })
+        }
     }
+
+    /// The copy read ahead for the chat the page showed when made; the first request takes it.
+    private var ahead: (session: String, read: Task<JSONValue?, Never>)?
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.prefix == AgentPaneChatSnapshots.prefix, request.path == ["chat.js"] else { return nil }
-        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: session(), allowed: allowed(), themeKey: themeKey()),
+        let chat = session()
+        let read = ahead.flatMap { $0.session == chat ? $0.read : nil }
+        ahead = nil
+        return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), read: read),
                             mimeType: "text/javascript")
     }
 

@@ -102,9 +102,11 @@ public final class AgentPaneChatSnapshots {
         return ["kept": .bool(kept != nil && disk != nil)]
     }
 
-    /// The script the document runs before its bundle: sets the page's global to chat
-    /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept).
-    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil) async -> Data {
+    /// The script the document loads (async) beside its bundle: sets the page's global to chat
+    /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept), then
+    /// calls the page's boot, which draws it (chatSnapshot/boot.ts). `read` is that chat's copy
+    /// already being read (``AgentPageResources``), so the answer waits on no second read.
+    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
         var text = "self.\(Self.global)="
         // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
         var why = "kept"
@@ -113,7 +115,11 @@ public final class AgentPaneChatSnapshots {
         } else if sessionId?.isEmpty ?? true {
             why = "no-chat"
         }
-        if why == "kept", let sessionId, let kept = await snapshot(for: sessionId) {
+        var kept: JSONValue?
+        if why == "kept", let sessionId {
+            if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }
+        }
+        if let kept {
             kept.appendCompactText(to: &text)
         } else {
             if why == "kept" { why = disk == nil ? "no-store" : "none" }
@@ -123,7 +129,9 @@ public final class AgentPaneChatSnapshots {
         // The theme the page gets now: a copy drawn under another one is not drawn.
         text += ";self.\(Self.themeGlobal)="
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)
-        text += ";"
+        // The page's boot (chatSnapshot/shared.ts `SNAPSHOT_BOOT_GLOBAL`), absent until it ran: it
+        // then reads the globals itself.
+        text += ";self.\(Self.global)Boot?.();"
         return Data(text.utf8)
     }
 }

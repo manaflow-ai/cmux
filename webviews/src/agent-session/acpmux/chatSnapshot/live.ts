@@ -2,7 +2,14 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureSnapshot } from "./capture";
-import { SNAPSHOT_GLOBAL, SNAPSHOT_HOST_TAG, SNAPSHOT_MISS_GLOBAL, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
+import {
+  SNAPSHOT_GLOBAL,
+  SNAPSHOT_HOST_TAG,
+  SNAPSHOT_LIVE_GLOBAL,
+  SNAPSHOT_MISS_GLOBAL,
+  SNAPSHOT_SHOWN_GLOBAL,
+  type SnapshotLive,
+} from "./shared";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -10,6 +17,16 @@ function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
   const value = (window as unknown as Record<string, unknown>)[SNAPSHOT_SHOWN_GLOBAL] as Shown | undefined;
   return value && typeof value.at === "number" ? value : undefined;
+}
+
+/// The page's side the boot script reads (shared.ts `SNAPSHOT_LIVE_GLOBAL`), made on first use.
+function liveSide(): SnapshotLive {
+  const globals = window as unknown as Record<string, unknown>;
+  const existing = globals[SNAPSHOT_LIVE_GLOBAL] as SnapshotLive | undefined;
+  if (existing) return existing;
+  const made: SnapshotLive = {};
+  globals[SNAPSHOT_LIVE_GLOBAL] = made;
+  return made;
 }
 
 /// Whether the boot script drew a snapshot this document still shows.
@@ -60,6 +77,8 @@ export function removeChatSnapshot(doc: Document = document): boolean {
 /// Takes over from the copy at the next frame: the live page's frame is in by then (it rendered
 /// under the copy), and removing the copy before that frame paints shows it in one step.
 export function swapChatSnapshot(): void {
+  // A copy the host answers after this draws nothing (boot.ts): the page shows the chat itself.
+  if (typeof window !== "undefined") liveSide().drawn = true;
   if (!showsChatSnapshot()) return;
   requestAnimationFrame(() => removeChatSnapshot());
 }
@@ -70,25 +89,31 @@ export function swapChatSnapshot(): void {
 const SNAPSHOT_HOLD_MS = 10_000;
 
 /// Called as the bundle starts: when the copy shows, the host shows the page now, in one frame and
-/// with no fade, as for a kept tail (AgentPaneView+Loading `endLoadingState`).
+/// with no fade, as for a kept tail (AgentPaneView+Loading `endLoadingState`). The host's answer
+/// loads `async` (boot.ts), so a copy may draw after this: then it reports when it draws, unless the
+/// page drew the chat first.
 export function reportChatSnapshot(
   report: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): void {
-  if (!showsChatSnapshot()) return;
-  void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
-  // Input before the swap reaches the live page under the copy; a click or key also ends the copy,
-  // so what it does shows. Stops with the copy.
-  const end = () => {
-    removeChatSnapshot();
-    stop();
+  if (typeof window === "undefined") return;
+  const shows = () => {
+    void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
+    // Input before the swap reaches the live page under the copy; a click or key also ends the
+    // copy, so what it does shows. Stops with the copy.
+    const end = () => {
+      removeChatSnapshot();
+      stop();
+    };
+    const timer = window.setTimeout(end, SNAPSHOT_HOLD_MS);
+    const events = ["pointerdown", "keydown", "wheel"] as const;
+    const stop = () => {
+      window.clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, end, true);
+    };
+    for (const name of events) window.addEventListener(name, end, { capture: true, passive: true });
   };
-  const timer = window.setTimeout(end, SNAPSHOT_HOLD_MS);
-  const events = ["pointerdown", "keydown", "wheel"] as const;
-  const stop = () => {
-    window.clearTimeout(timer);
-    for (const name of events) window.removeEventListener(name, end, true);
-  };
-  for (const name of events) window.addEventListener(name, end, { capture: true, passive: true });
+  if (showsChatSnapshot()) shows();
+  else liveSide().painted = shows;
 }
 
 /// The key of the theme the page draws in now (the host's `theme` event, pageHost.ts): a copy is

@@ -76,11 +76,12 @@ struct ChatSnapshotStoreTests {
             #expect(script.contains(";self.__cmuxChatSnapshotWhy=\"kept\";"))
             #expect(script.contains("<main>chat</main>"))
             // With the theme the page gets now: a copy drawn under another one is not drawn.
-            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";"))
+            // Then the page's boot, as the script loads async and may come after it (chatSnapshot/boot.ts).
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();"))
             session = nil
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();")
             session = "other"
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();")
         }
     }
 
@@ -94,7 +95,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxChatSnapshotBoot?.();")
         }
     }
 

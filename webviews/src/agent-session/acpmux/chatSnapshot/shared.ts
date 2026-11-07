@@ -21,6 +21,15 @@ export const SNAPSHOT_THEME_GLOBAL = "__cmuxChatSnapshotTheme";
 export const SNAPSHOT_MISS_GLOBAL = "__cmuxChatSnapshotMiss";
 /// The global the boot script sets once it drew one: when, in `performance.now()` time.
 export const SNAPSHOT_SHOWN_GLOBAL = "__cmuxChatSnapshotShown";
+/// The function the boot script defines and the host's `__snapshot/chat.js` calls once it set the
+/// globals: that script loads `async`, so the document and the bundle never wait for the host's
+/// answer, and the copy draws whenever it comes, before or after the bundle starts (boot.ts).
+export const SNAPSHOT_BOOT_GLOBAL = "__cmuxChatSnapshotBoot";
+/// The live page's side, which the boot script reads (live.ts): `drawn` once the page drew the chat
+/// itself (a copy that comes later draws nothing), and `painted`, called when a copy draws after the
+/// bundle started.
+export const SNAPSHOT_LIVE_GLOBAL = "__cmuxChatSnapshotLive";
+export type SnapshotLive = { drawn?: boolean; painted?: () => void };
 /// The element the copy is drawn in (its shadow root holds the copy).
 export const SNAPSHOT_HOST_TAG = "cmux-chat-snapshot";
 /// The copy's stand-ins for `<html>` and `<body>`, which a shadow tree cannot hold: the page's own
