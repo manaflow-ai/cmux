@@ -351,7 +351,12 @@ test.each(["inline", "strip"] as const)(
     await act(async () => {
       composer.current!.send();
     });
-    expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
+    // It was pasted, so it goes as pasted (composer/pasteMarks.ts, ask-fa4c523fa8): the same text,
+    // its blank line too, in one block of its own, never as the person's typed words.
+    expect(sent).toHaveLength(1);
+    expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
+      { type: "text", text: SPACED, _meta: { cmux: { pasted: true } } },
+    ]);
   },
 );
 
