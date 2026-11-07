@@ -16,14 +16,15 @@ import UIKit
 public final class ChiefSession {
     /// The Mac Chief: the Mac's Chief owner over the link (``ChiefDaemonBackend``),
     /// which `LiveCoordinator` swaps in and out as the Mac link changes.
-    public static let shared = ChiefSession(backend: defaultBackend())
+    public static let shared = ChiefSession(backend: defaultBackend(), transcripts: ChiefSession.transcripts)
 
     /// The Cloud Chief: the main conversation of the user's Cloud Chief
     /// (``ChiefCloudBackend``), set by ``ChiefSources`` after sign-in. Home
     /// shows it first when it answers; offline until then.
     public static let cloud = ChiefSession(
         backend: ChiefOfflineBackend(reason: ChiefSources.signedOutReason),
-        outbox: .cloud
+        outbox: .cloud,
+        transcripts: ChiefSession.transcripts
     )
 
     /// Chief before a Mac link: offline (``ChiefOfflineBackend``). DEBUG
@@ -100,6 +101,7 @@ public final class ChiefSession {
             // then what is written (and what flushes) is still the current Chief's.
             if backend is ChiefOfflineBackend {
                 outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+                store.useTranscriptCache(transcripts, key: outboxTarget)
                 refreshOutbox()
             }
             guard !engineReportIsCurrent else { return }
@@ -134,7 +136,9 @@ public final class ChiefSession {
 
     public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
                 preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil,
+                transcripts: ConversationTranscriptCache? = nil,
                 clock: any Clock<Duration> = ContinuousClock()) {
+        self.transcripts = transcripts
         self.identity = identity
         self.clock = clock
         avatar = identity.avatar
@@ -145,6 +149,7 @@ public final class ChiefSession {
         outboxTarget = Self.target(of: backend, macID: nil, previous: nil)
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
+        store.useTranscriptCache(transcripts, key: outboxTarget)
         refreshOutbox()
         ChiefAlerts.shared.install()
         attach()
@@ -160,6 +165,16 @@ public final class ChiefSession {
     }
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
+
+    /// Every Chief conversation's newest messages, kept on this phone (Messages-style): a
+    /// store built again after the app comes back, or on a relaunch, shows them at once.
+    public static let transcripts = ConversationTranscriptCache.inApplicationSupport("cmux-mobile-chief-transcripts")
+    private let transcripts: ConversationTranscriptCache?
+
+    /// Sign-out: every kept Chief conversation leaves this phone.
+    public func discardTranscripts() {
+        transcripts?.removeAll()
+    }
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
@@ -183,6 +198,8 @@ public final class ChiefSession {
             waiting += carried
             outboxStore.save(waiting)
         }
+        // What the old store shows now is what a later store shows first.
+        store.saveTranscript()
         store.stop()
         if let identity, identity != self.identity {
             self.identity = identity
@@ -203,6 +220,9 @@ public final class ChiefSession {
         questions = []
         answers = [:]
         outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+        // The Chief's newest messages as this phone last saw them show at once (an offline
+        // backend keeps the Chief that was open), until this backend reads the newest page.
+        store.useTranscriptCache(transcripts, key: outboxTarget)
         refreshOutbox()
         attach()
     }

@@ -47,6 +47,8 @@ public struct AccountSignOut {
                 discardChiefOutbox: @escaping @MainActor () -> Void = {
                     ChiefSession.shared.discardOutbox()
                     ChiefSession.cloud.discardOutbox()
+                    // Both sessions share one cache: every kept Chief conversation goes.
+                    ChiefSession.shared.discardTranscripts()
                 }) {
         self.snapshots = snapshots
         self.feedStore = feedStore
