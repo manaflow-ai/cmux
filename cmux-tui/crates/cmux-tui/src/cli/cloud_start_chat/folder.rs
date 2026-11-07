@@ -355,17 +355,19 @@ fn past_cap(runner: &mut dyn Runner, deadline: Deadline, began: Instant) -> bool
 }
 
 /// A `--name` whose create is still on its way (`list-machines`' `creating`): `list-machines` again until
-/// the machine is listed, within the deadline (or, with none, [`MAX_WAIT`] from `began`). `Ok(Some)`: its
-/// id and the listing that has it, for its folder check. `Ok(None)`: no create of that name is on its
-/// way (none, or one that failed): nothing to wait for. A list that can't be read is asked again.
+/// the machine is listed, within the deadline (or, with none, [`MAX_WAIT`] from `began`). Every list it
+/// reads replaces `listed`, so what follows judges the newest one (a create that failed is
+/// `cloud.start_failed` there, not still pending). `Ok(Some)`: its id, for its folder check. `Ok(None)`:
+/// no create of that name is on its way (none, one that failed, or one that is gone): nothing to wait
+/// for. A list that can't be read is asked again. No list starts once the deadline (or the cap) is over.
 pub(super) fn created(
     runner: &mut dyn Runner,
     request: &Request,
     name: &str,
     deadline: Deadline,
-    listed: &Value,
+    listed: &mut Value,
     began: Instant,
-) -> Result<Option<(String, Value)>, Outcome> {
+) -> Result<Option<String>, Outcome> {
     let in_flight = |listed: &Value| {
         at(listed, "creating").as_array().into_iter().flatten().any(|row| {
             at(row, "name").as_str() == Some(name) && at(row, "status").as_str() != Some("failed")
@@ -379,7 +381,7 @@ pub(super) fn created(
             .find(|row| at(row, "title").as_str() == Some(name))
             .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
     };
-    if !in_flight(listed) {
+    if !in_flight(&*listed) {
         return Ok(None);
     }
     let pending = |runner: &mut dyn Runner| {
@@ -403,15 +405,20 @@ pub(super) fn created(
             return Err(pending(runner));
         }
         runner.pause(pause);
+        // The pause may have reached the deadline (or the cap): then no list starts.
+        if deadline.passed(runner) || past_cap(runner, deadline, began) {
+            return Err(pending(runner));
+        }
         let fresh = step_result(&runner.cmux(&super::words(&["cloud", "list-machines", "--json"])));
         if deadline.passed(runner) || past_cap(runner, deadline, began) {
             return Err(pending(runner));
         }
         let Ok(fresh) = fresh else { continue };
-        if let Some(id) = made(&fresh) {
-            return Ok(Some((id, fresh)));
+        *listed = fresh;
+        if let Some(id) = made(&*listed) {
+            return Ok(Some(id));
         }
-        if !in_flight(&fresh) {
+        if !in_flight(&*listed) {
             // The create ended with no machine of that name (failed, or dismissed): nothing to wait for.
             return Ok(None);
         }

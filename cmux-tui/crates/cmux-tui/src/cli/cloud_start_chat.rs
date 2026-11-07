@@ -958,12 +958,8 @@ fn steps(
         let machine = match (existing, &request.machine) {
             (Some(id), _) => Some(id),
             (None, Machine::Named(name)) => {
-                match folder::created(runner, request, name, deadline, &listed, began) {
-                    Ok(Some((id, fresh))) => {
-                        listed = fresh;
-                        Some(id)
-                    }
-                    Ok(None) => None,
+                match folder::created(runner, request, name, deadline, &mut listed, began) {
+                    Ok(id) => id,
                     Err(outcome) => return outcome,
                 }
             }

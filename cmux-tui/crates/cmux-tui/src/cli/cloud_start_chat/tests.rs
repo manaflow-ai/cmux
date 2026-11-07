@@ -3049,6 +3049,80 @@ fn a_named_machine_still_being_made_is_waited_on_before_its_folder_check() {
     assert!(no_start(&fake.ran), "{:?}", fake.ran);
 }
 
+fn named_start(timeout: &str) -> Request {
+    request(&[
+        "--prompt",
+        "ok?",
+        "--name",
+        "box",
+        "--cwd",
+        "/home/cmux/work/r",
+        "--wait",
+        "--timeout",
+        timeout,
+    ])
+}
+
+/// Review of #37248 at 7289f988: a create that the wait sees fail is judged on that newest list, so the
+/// answer is the create's failure (`cloud.start_failed`, with its reason), never "still being made".
+#[test]
+fn a_named_create_that_fails_during_the_wait_is_its_failure_not_pending() {
+    let failed_box = ok(json!({"account": {"signed_in": true}, "machines": [],
+                               "creating": [{"name": "box", "status": "failed", "reason": "quota"}]}));
+    let mut fake = Fake::new(vec![creating_box(), failed_box]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &named_start("900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_failed"), 1), "{error}");
+    assert!(error["message"].as_str().unwrap().contains("quota"), "{error}");
+    let list = strings(&["cloud", "list-machines", "--json"]);
+    assert_eq!(fake.ran, [list.clone(), list], "{:?}", fake.ran);
+}
+
+/// Review of #37248 at 7289f988: a create that is gone from the newest list (dismissed) is nothing to
+/// wait for and nothing pending: the start goes on, and `start-session --name` makes the machine.
+#[test]
+fn a_named_create_gone_from_the_newest_list_goes_on_to_the_start() {
+    let gone = ok(json!({"account": {"signed_in": true}, "machines": [], "creating": []}));
+    let mut fake = Fake::new(vec![creating_box(), gone, refused("boom", "no machine for you")]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &named_start("900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_ne!(error["code"], "cloud.start_pending", "{error}");
+    let list = strings(&["cloud", "list-machines", "--json"]);
+    assert_eq!(fake.ran[..2], [list.clone(), list], "{:?}", fake.ran);
+    assert_eq!(fake.ran[2][..4], strings(&["cloud", "start-session", "--name", "box"]));
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+}
+
+/// Review of #37248 at 7289f988: the one deadline (#37159) holds through the wait for a create. A pause
+/// that reaches it starts no further list: out of time, with nothing more asked of the app.
+#[test]
+fn a_pause_that_reaches_the_deadline_starts_no_further_list() {
+    // The list ends at 5 s, with 1 s left; the pause takes that second.
+    let mut fake = Fake::new((0..5).map(|_| creating_box()).collect::<Vec<_>>());
+    let Outcome::Failed { error, exit } = run(&mut fake, &named_start("6")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
+    assert_eq!(fake.paused, Duration::from_secs(1));
+    assert_eq!(fake.ran.len(), 1, "no call after the pause reached the deadline: {:?}", fake.ran);
+}
+
+/// The same for the folder check's own pause: one that reaches the deadline starts no further check.
+#[test]
+fn a_folder_check_pause_that_reaches_the_deadline_starts_no_further_check() {
+    // The list ends at 5 s and the check at 10 s, with 2 s left; the pause takes them.
+    let mut fake = Fake::new(vec![signed_in(), exec_out("unknown\n"), exec_out("ready\n")]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &repo_start("/home/cmux/work/r", "12"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{error}");
+    assert_eq!(fake.paused, Duration::from_secs(2));
+    assert_eq!(fake.ran.len(), 2, "no call after the pause reached the deadline: {:?}", fake.ran);
+}
+
 /// The merge of #37159 into #37248: `run` answers a step that ran past the deadline as that phase's timeout
 /// (`Progress::late`). A folder wait on a `--name`d machine that runs out still names the machine it waited
 /// on, by its id, as the folder wait itself does.
