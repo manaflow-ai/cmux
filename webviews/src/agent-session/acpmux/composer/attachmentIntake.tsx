@@ -70,7 +70,7 @@ const ATTACHMENT_LABELS = {
   moved: "composer.attachmentMoved",
 } as const satisfies Record<string, StringKey>;
 
-export function attachmentErrorText(error: AttachmentError, t: Translate): string {
+function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(ATTACHMENT_LABELS[error.reason], { name: error.name });
 }
 
@@ -233,7 +233,13 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
-type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
+type Intake = (
+  given: (File | MadeFile)[],
+  uploads?: boolean,
+  kind?: SourceKind,
+  again?: string,
+  needsOriginal?: boolean,
+) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
@@ -306,9 +312,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// too large for one acpmux message waits for them, so their previews go as links to the
   /// originals instead (promptBudget.ts `awaitsOriginals`).
   const [originalUploads, setOriginalUploads] = useState<ReadonlySet<string>>(() => new Set());
+  /// The staged images a send waits for whatever its size while their original uploads (a capture
+  /// over the image cap: its preview is a reduced copy, the original is what the agent needs).
+  const needsOriginal = useRef(new Set<string>());
   const [originalUpload] = useState(
     () => (id: string, on: boolean) =>
       setOriginalUploads((now) => {
+        if (!on) needsOriginal.current.delete(id);
         if (now.has(id) === on) return now;
         const next = new Set(now);
         if (on) next.add(id);
@@ -354,7 +364,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
-  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
@@ -399,6 +409,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Paste order: a chip read again keeps the place its paste gave it.
     shown.forEach((chip, index) => {
       if (!places.current.has(chip.id)) places.current.set(chip.id, gesture * 100_000 + index);
+      if (needs) needsOriginal.current.add(chip.id);
     });
     batches.current.add(batch);
     // A chip read again is the same chip loading again, in one render: never gone for a frame, so
@@ -635,8 +646,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) =>
-        intake(given, uploads, kind),
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
+        intake(given, uploads, kind, undefined, needs),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -856,6 +867,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Every chat shows these: saving an original again is a real retry wherever the agent runs.
     originalFailures,
     originalUploads,
+    needsOriginal: (id: string) => needsOriginal.current.has(id),
     loading,
     unsettled,
     videoReading,

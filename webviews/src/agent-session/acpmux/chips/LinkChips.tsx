@@ -18,15 +18,16 @@ import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { foreignFileIds, isDeniedPath, pathName, textLinks } from "./paths";
-import { bareFileNames, useReplyFolders } from "./replyFolders";
+import { isDeniedPath, pathName } from "./paths";
+import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./PullRequestCard";
+import { pullRequestRef } from "./pullRequestCardModel";
 import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/SessionRef";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
+import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
@@ -244,34 +245,6 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   );
 }
 
-/// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
-export function linkedText(text: string, key: string): ReactNode[] {
-  const links = textLinks(text);
-  if (!links.length) return namedText(text, key);
-  const out: ReactNode[] = [];
-  let at = 0;
-  links.forEach((link, index) => {
-    if (link.start > at) out.push(...namedText(text.slice(at, link.start), `${key}-${index}-names`));
-    out.push(
-      link.kind === "path" ? (
-        <PathChip
-          key={`${key}-${index}`}
-          path={link.path!}
-          written={link.value}
-          label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
-        />
-      ) : (
-        <UrlChip key={`${key}-${index}`} href={link.value}>
-          {githubRefLabel(link.value) ?? link.value}
-        </UrlChip>
-      ),
-    );
-    at = link.end;
-  });
-  if (at < text.length) out.push(...namedText(text.slice(at), `${key}-names`));
-  return out;
-}
-
 /// A file id only its provider opens (`foreignFileIds`): its id, shortened, and a note that it
 /// cannot be opened here. Never a link, a file chip or an image (Leo, 2026-11-06: "do we not have
 /// a good path for them sending images to you?"); an agent hands over an image with
@@ -286,63 +259,4 @@ export function ForeignFileRef({ id }: { id: string }) {
       <span className="cv-foreign-file__note">{t("message.foreignFile")}</span>
     </span>
   );
-}
-
-/// `text` with each foreign file id (`foreignFileIds`) as its `ForeignFileRef`, the rest drawn by
-/// `rest`. `ids`: the text's ids when the caller found them already.
-export function withForeignFiles(
-  text: string,
-  key: string,
-  rest: (piece: string, key: string) => ReactNode[],
-  ids = foreignFileIds(text),
-): ReactNode[] {
-  if (!ids.length) return rest(text, key);
-  const out: ReactNode[] = [];
-  let at = 0;
-  ids.forEach((id, index) => {
-    if (id.start > at) out.push(...rest(text.slice(at, id.start), `${key}-${index}-text`));
-    out.push(<ForeignFileRef key={`${key}-${index}-foreign`} id={id.value} />);
-    at = id.end;
-  });
-  if (at < text.length) out.push(...rest(text.slice(at), `${key}-foreign-tail`));
-  return out;
-}
-
-/// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
-function namedText(text: string, key: string): ReactNode[] {
-  return withForeignFiles(text, key, siblingText);
-}
-
-function siblingText(text: string, key: string): ReactNode[] {
-  const names = bareFileNames(text);
-  if (!names.length) return [text];
-  const out: ReactNode[] = [];
-  let at = 0;
-  names.forEach((name, index) => {
-    if (name.start > at) out.push(text.slice(at, name.start));
-    out.push(<SiblingFileChip key={`${key}-${index}`} name={name.name} />);
-    at = name.end;
-  });
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
-const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
-
-/// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
-export function githubRefLabel(href: string): string | undefined {
-  const match = GITHUB_REF.exec(href);
-  return match ? `${match[1]}#${match[2]}` : undefined;
-}
-
-/// A pull request's or issue's own title from GitHub's page title ("Fix the thing by leo ·
-/// Pull Request #12 · owner/repo · GitHub") for its hover card, or undefined when cmux has no
-/// title for it.
-export function githubRefTitle(page: string | undefined): string | undefined {
-  if (!page) return undefined;
-  const title = page
-    .split(" · ")[0]!
-    .replace(/ by [\w-]+$/, "")
-    .trim();
-  return title && !/^(GitHub|Pull Request|Issue)\b/.test(title) ? title : undefined;
 }
