@@ -359,7 +359,7 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
     let result = match request.op {
         Op::Stat => fs(client, grant, "stat", path, &[], None).await,
         Op::Dir => {
-            return match directory::read(client, grant, path).await {
+            return match directory::read(client, grant, path, request.max_bytes).await {
                 Ok(answer) => Direct::Done(answer),
                 Err(direct) => direct,
             };
@@ -367,7 +367,7 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
         Op::Mkdir => fs(client, grant, "mkdir", path, &[], None).await,
         Op::Remove => fs(client, grant, "remove", path, &[], None).await,
         Op::Read => {
-            return match read(client, grant, path).await {
+            return match read(client, grant, path, request.max_bytes).await {
                 Ok(answer) => Direct::Done(answer),
                 Err(direct) => direct,
             };
@@ -387,7 +387,12 @@ pub(super) async fn run(client: &reqwest::Client, grant: &Grant, request: &Reque
 /// The file in ranged chunks, every chunk from the same version of it (device, inode, size and
 /// change times, read from the open file). A file that changes between chunks is read again from
 /// the start; one that keeps changing goes to the proxy, which reads it in one go.
-async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Answer, Direct> {
+async fn read(
+    client: &reqwest::Client,
+    grant: &Grant,
+    path: &str,
+    max_bytes: Option<u64>,
+) -> Result<Answer, Direct> {
     let mut file = private_spool().map_err(storage_error)?;
     'tries: for _ in 0..READ_TRIES {
         file.set_len(0).map_err(storage_error)?;
@@ -402,6 +407,10 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Ans
                 .and_then(|b| BASE64.decode(b).ok())
                 .ok_or(Direct::Fallback)?;
             let total = value.get("total").and_then(Value::as_u64).ok_or(Direct::Fallback)?;
+            if let Some(limit) = max_bytes.filter(|limit| total > *limit) {
+                // Refused at the first chunk: nothing more is fetched or spooled.
+                return Err(Direct::Done(Answer::too_large(limit)));
+            }
             let seen = value.get("version").and_then(Value::as_str).ok_or(Direct::Fallback)?;
             if version.as_deref().is_some_and(|v| v != seen) {
                 continue 'tries;

@@ -247,6 +247,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
 }
 
 /// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+/// Every word from `--` on is text (`cmux chat send S -- --json` sends "--json").
 pub(super) fn lift_output_of(
     rest: &[String],
     output: &mut OutputMode,
@@ -254,8 +255,9 @@ pub(super) fn lift_output_of(
 ) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
+    let mut text = false;
     for word in rest {
-        if value_next {
+        if text || value_next {
             value_next = false;
             words.push(word.clone());
             continue;
@@ -265,6 +267,7 @@ pub(super) fn lift_output_of(
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
+                text = word == "--";
                 value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
@@ -287,6 +290,8 @@ pub(super) fn parse(
     let mut target = None;
     let mut wait = false;
     let mut timeout = DEFAULT_TIMEOUT;
+    // The prompt came after `--`: text, so `-- -` is "-", not stdin.
+    let mut literal = false;
     let mut index = 0;
     while index < words.len() {
         let Some(word) = words.get(index).map(String::as_str) else { break };
@@ -323,12 +328,21 @@ pub(super) fn parse(
             }
             "--wait" => wait = true,
             "--no-wait" => wait = false,
+            // `-- TEXT`: the prompt, read as text even when it starts with `-`.
+            "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
+                Some([text]) if prompt.is_none() => {
+                    prompt = Some(text.clone());
+                    literal = true;
+                    break;
+                }
+                _ => return Err(UsageError::new("-- takes one prompt, in place of --prompt")),
+            },
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
     }
     let prompt = match prompt.as_deref() {
-        Some("-") => {
+        Some("-") if !literal => {
             Some(stdin().map_err(|error| UsageError::new(format!("--prompt -: {error}")))?)
         }
         Some(text) => Some(text.to_owned()),
@@ -801,6 +815,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         && at(answer, "machine_id").as_str() == Some(id)
     {
         answer.set("new_machine", json!(true));
+    }
+    // Where it ran, in `--on`'s words: `cmux chat --on cloud` lets cmux Cloud choose, and a script
+    // reads the choice here rather than assuming a kind of place (chat_start.rs).
+    if let Outcome::Done(answer) = &mut outcome
+        && let Some(id) = at(answer, "machine_id").as_str().map(str::to_owned)
+    {
+        answer.set("placement", json!(format!("vm:{id}")));
     }
     // The stage trace (cmuxterm-hq#7415): each step's start and length, on a reply and on a failure alike.
     let stages = timed.stages();

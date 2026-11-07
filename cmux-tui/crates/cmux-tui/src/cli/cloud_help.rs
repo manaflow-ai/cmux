@@ -528,6 +528,8 @@ older name; both run the same start.
   --prompt TEXT      What to send (`-` reads it from stdin). Without it the
                      chat starts and nothing is sent; the answer has ready_ms
                      and follow_up.send for the first message
+  -- TEXT            The same as --prompt, read as text even when it starts
+                     with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --login pass|machine|none

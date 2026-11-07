@@ -41014,7 +41014,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Open Chief Dock",
+      "title" : "Show\/Hide Chief",
       "title_key" : "action.home.openChiefDock",
       "title_table" : "LayoutActions"
     },
