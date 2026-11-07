@@ -1,11 +1,13 @@
-import Observation
+public import Observation
 
 /// The closed-tab list's change signal (`ClosedTabsFeed.changes`). An
 /// Observation of `revision` fires after the feed saw a change, never
 /// before, so a reader sees the closed tab and the tab's absence together.
 @Observable @MainActor
-final class ClosedTabChanges {
-    private(set) var revision: UInt64 = 0
+public final class ClosedTabChanges {
+    public private(set) var revision: UInt64 = 0
 
-    func bump() { revision &+= 1 }
+    public init() {}
+
+    public func bump() { revision &+= 1 }
 }

@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import WebKit
 
 /// A resize gap in the page's own color, the WebKit half of `CEFTab+ResizeBackdrop` (#36520). When a WebKit page's pane
@@ -62,10 +62,16 @@ extension WebKitTab {
     private func applyPageBackdrop(_ argb: UInt32?) {
         guard argb != pageBackdropARGB, webView.responds(to: Self.setBackgroundColor) else { return }
         pageBackdropARGB = argb
-        let color = argb.map { argb in
-            NSColor(srgbRed: CGFloat((argb >> 16) & 0xFF) / 255, green: CGFloat((argb >> 8) & 0xFF) / 255,
-                    blue: CGFloat(argb & 0xFF) / 255, alpha: 1)
-        }
-        webView.perform(Self.setBackgroundColor, with: color)
+        webView.perform(Self.setBackgroundColor, with: argb.map(Self.pageColor))
+    }
+
+    /// The document's background as read (nil: none read, the chrome's ground): the ground the page's pane shows when it
+    /// closes (CLOSE MOTION 2 case 3), so the page's color stays where the page was instead of the window's.
+    public var pageGround: CGColor? { pageBackdropARGB.map { Self.pageColor($0).cgColor } }
+
+    /// Opaque 0xAARRGGBB as an sRGB color.
+    nonisolated static func pageColor(_ argb: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((argb >> 16) & 0xFF) / 255, green: CGFloat((argb >> 8) & 0xFF) / 255,
+                blue: CGFloat(argb & 0xFF) / 255, alpha: 1)
     }
 }
