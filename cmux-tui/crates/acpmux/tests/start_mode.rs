@@ -851,7 +851,8 @@ async fn deny_all_in_config_holds_on_every_chat_from_startup() {
 /// no Codex mode. The Codex bridge's `ask` asks before every change and its `read-only` only
 /// reads (`hub/start_mode.rs` `NARROW_MODES`), so a start in either needs no person. A bridge
 /// mode that does not ask still does, and so does the codex-acp adapter's `read-only`, which
-/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`). The bridge's
+/// full-access mode, which a start with no mode gets here, needs none (cmux#37392).
 #[tokio::test]
 async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let dir = home("narrow-start", json!({"defaultPermissionMode": "fullAccess"}));
@@ -870,10 +871,14 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
         let id = id.to_owned();
         assert_eq!(agent.mode(&id).await, mode);
     }
-    for mode in ["agent", "agent-full-access"] {
-        let r = agent.call("session/new", start("codex", mode)).await;
-        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{mode}: {r}");
-    }
+    let r = agent.call("session/new", start("codex", "agent")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "agent: {r}");
+    // The bridge's full-access mode is what a start with no mode gets under the person's
+    // full-access start level, so naming it needs no person either (cmux#37392).
+    let r = agent.call("session/new", start("codex", "agent-full-access")).await;
+    let id = r["result"]["sessionId"].as_str();
+    let id = id.unwrap_or_else(|| panic!("agent-full-access: {r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "agent-full-access");
     let r = agent.call("session/new", start("adapter", "read-only")).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
     let _ = std::fs::remove_dir_all(&dir);

@@ -562,7 +562,11 @@ impl Hub {
     /// `plain_start_is` for a chat that started: the mode is the full-access one it offers and
     /// its profile's chats start in (`is_start_full_access`), and the argv it started with does
     /// not pin its mode.
-    pub(super) async fn plain_session_is(&self, meta: &crate::store::SessionMeta, mode: &str) -> bool {
+    pub(super) async fn plain_session_is(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
         !argv_sets_mode(&meta.harness_argv) && self.is_start_full_access(meta, mode).await
     }
 
