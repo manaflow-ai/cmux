@@ -38,7 +38,7 @@ enum TunableCatalog {
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionInfo.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
@@ -185,11 +185,10 @@ final class DebugSettingsService: InternalPageProvider {
         return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
-    /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
-    /// default), else nil (the SwiftUI view). Its own window has a standard title bar
-    /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
+    /// The React page over `model`, or nil when the page cannot be made (the SwiftUI view then).
+    /// Its own window has a standard title bar (`DebugSettingsWindowController`), so the page needs
+    /// no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
-        guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
