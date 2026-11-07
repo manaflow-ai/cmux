@@ -357,7 +357,10 @@ mod tests {
         // A fake signed-in claude in ~/.local/bin is found off PATH.
         let bin = home.path().join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("claude"), "#!/bin/sh\n[ \"$1 $2\" = 'auth status' ]\n").unwrap();
+        let fake = |logged_in: bool| {
+            format!("#!/bin/sh\n[ \"$1 $2\" = 'auth status' ] && printf '{{\"loggedIn\":{logged_in}}}\\n'\n")
+        };
+        std::fs::write(bin.join("claude"), fake(true)).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -373,5 +376,16 @@ mod tests {
             .unwrap();
         let found = parse(&String::from_utf8_lossy(&out.stdout));
         assert_eq!(found.agents[0].signed_in, Some(true), "{found:?}");
+        // `claude auth status` can exit 0 signed out: its JSON's loggedIn decides.
+        std::fs::write(bin.join("claude"), fake(false)).unwrap();
+        let out = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(probe_script())
+            .env("HOME", home.path())
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .unwrap();
+        let found = parse(&String::from_utf8_lossy(&out.stdout));
+        assert_eq!(found.agents[0].signed_in, Some(false), "{found:?}");
     }
 }
