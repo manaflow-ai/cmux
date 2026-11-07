@@ -162,8 +162,9 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
-    /// The permission mode a Claude turn under approve-all runs in
-    /// (`engine::permission_mode`, cmux#37392); None: its harness's own.
+    /// The permission mode an owner's Claude turn runs in
+    /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
+    /// None (a turn that carries another person's text): the session's own.
     pub permission_mode: Option<String>,
 }
 
@@ -602,7 +603,7 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
         log(&format!(
-            "turn {}: {e}; it runs in its harness's own mode",
+            "turn {}: {e}; it runs in the session's current mode",
             start.key
         ));
     }

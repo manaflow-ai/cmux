@@ -73,7 +73,8 @@ pub struct EngineChoice {
 /// The permission modes a Chief turn takes, widest first: Claude Code's
 /// `bypassPermissions` (no permission check, the default: the Chief never
 /// asks, Lawrence 2026-10-20), its own `auto` (a safety classifier judges
-/// each call) and `default` (Manual: asks before each change).
+/// each call) and `default` (Manual: Claude Code asks before each change,
+/// and the turn runs under acpmux's `ask`, so each ask is refused).
 pub const PERMISSION_MODES: &[&str] = &["bypassPermissions", "auto", "default"];
 
 /// The mode a Chief turn runs in when nothing chooses one (cmux#37392: "it
@@ -133,6 +134,16 @@ pub fn permission_mode(choice: &EngineChoice, user: Option<&str>) -> (&'static s
 pub fn user_permission_mode(doc: Option<&serde_json::Value>) -> Option<String> {
     doc.and_then(|d| crate::agent_memory::settings::value(d, PERMISSION_MODE_SETTING))
         .and_then(|v| v.as_str().map(str::to_owned))
+}
+
+/// The user's `chief.permissionMode` from a settings read that may have
+/// failed: a file that is there but does not read or parse gives `default`
+/// (Manual), the narrowest mode, never the bypass default (cmux#37392).
+pub fn user_permission_mode_checked<E>(doc: Result<Option<&serde_json::Value>, E>) -> Option<String> {
+    match doc {
+        Ok(doc) => user_permission_mode(doc),
+        Err(_) => Some("default".to_owned()),
+    }
 }
 
 /// The values `subagent_routing` takes.

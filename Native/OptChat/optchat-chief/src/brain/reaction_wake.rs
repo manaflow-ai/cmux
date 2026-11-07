@@ -258,11 +258,22 @@ impl super::Brain {
     /// The permission mode the Chief's Claude turns run in and what chose it
     /// (`engine::permission_mode`): `choice` (engine.json) under the user's
     /// `chief.permissionMode`, read at each turn start (cmux#37392).
+    /// A settings file that is there but does not read or parse caps it at
+    /// Manual: the person's choice is not known, so it fails closed.
     pub(super) fn chief_permission_mode(
         &self,
         choice: &EngineChoice,
     ) -> (&'static str, &'static str) {
-        let user = crate::engine::user_permission_mode(self.user_settings_doc().as_ref());
+        let doc = match &self.reaction_wake.user_settings {
+            Some(doc) => Ok(doc.clone()),
+            None => match std::env::var_os("HOME") {
+                Some(home) => {
+                    crate::agent_memory::settings::document_checked(std::path::Path::new(&home))
+                }
+                None => Ok(None),
+            },
+        };
+        let user = crate::engine::user_permission_mode_checked(doc.as_ref().map(Option::as_ref));
         crate::engine::permission_mode(choice, user.as_deref())
     }
 

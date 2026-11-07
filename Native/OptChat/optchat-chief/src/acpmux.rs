@@ -117,15 +117,18 @@ pub fn chief_session_mode(family: Family, policy: &str) -> Option<&'static str> 
 /// [`chief_session_mode`]; a Claude one under approve-all, the Chief's
 /// permission mode (`claude`, `engine::permission_mode`, cmux#37392:
 /// `bypassPermissions` unless the person or `chief engine set --mode`
-/// chose `auto` or `default`). Under any other policy (a turn that carries
-/// another person's text runs `ask`) its own: never wider than that policy.
+/// chose `auto` or `default`). Under `ask`, only Manual (`default`), which a
+/// Manual owner turn runs under (brain/turns.rs); else its own (a turn that
+/// carries another person's text): never wider than that policy.
 pub fn chief_turn_mode<'a>(
     family: Family,
     policy: &str,
     claude: Option<&'a str>,
 ) -> Option<&'a str> {
     match family {
-        Family::Claude if policy == "approve-all" => claude,
+        // Under approve-all, the Chief's mode; under `ask` (a Manual owner
+        // turn), only Manual, which never widens what `ask` allows.
+        Family::Claude if policy == "approve-all" || claude == Some("default") => claude,
         _ => chief_session_mode(family, policy),
     }
 }
