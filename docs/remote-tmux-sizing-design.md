@@ -12,6 +12,8 @@ window content area  →  claim to tmux  →  tmux assigns cell rects  →  pane
 - **Claim (app → tmux):** `available = windowContentArea − chrome`,
   `(cols,rows) = floor(available / cell)`. Input is window geometry and fixed
   chrome constants only — never a measured pane container.
+  With `terminal.sessionContentMaxWidth` set, the slot is the capped, aligned
+  column local terminals use, so the claim matches the width the panes draw in.
 - **Authority:** tmux owns the grid. We render exactly the cell rects it assigns.
 - **Render (tmux → app):** bonsplit draws the panes, dividers, per-pane tab
   bars, and drag — we do not draw or reimplement any chrome. We compute each

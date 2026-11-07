@@ -39,6 +39,12 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                 containerSize = newSize
                 pushClientSize(pointSize: newSize)
             }
+            // terminal.sessionContentMaxWidth caps the mirror the way it caps
+            // a local terminal. The cap sits outside the geometry callback, so
+            // the slot measured above, and the claim tmux hears, is the
+            // capped column the panes draw in, not the full pane (#36699).
+            .sessionContentWidth()
+            .background(Color(nsColor: appearance.backgroundColor))
             .onAppear {
                 mirror.isVisibleForSizing = isVisibleInUI
                 if !isVisibleInUI {
