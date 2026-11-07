@@ -617,7 +617,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     // and the wait each get what is left of it, never a `--timeout` of their own.
     let deadline = Deadline::of(request, began);
     // 1. Signed in, and the machine names in use.
-    let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
+    let mut listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+    {
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
@@ -644,10 +645,32 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
             .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned)),
         Machine::New => None,
     };
-    if let (Some(machine), Some(cwd)) = (existing, &request.cwd)
-        && let Some(outcome) = folder::wait(runner, request, &machine, cwd, deadline, &listed)
+    // `--environment` always makes a new machine (in_environment refuses an existing name first), so it has
+    // no folder of an earlier bootstrap to wait for. A `--name` still being made is waited on until it is
+    // listed, then checked like any machine.
+    if request.environment.is_none()
+        && let Some(cwd) = &request.cwd
     {
-        return outcome;
+        let machine = match (existing, &request.machine) {
+            (Some(id), _) => Some(id),
+            (None, Machine::Named(name)) => {
+                match folder::created(runner, request, name, deadline, &listed, began) {
+                    Ok(Some((id, fresh))) => {
+                        listed = fresh;
+                        Some(id)
+                    }
+                    Ok(None) => None,
+                    Err(outcome) => return outcome,
+                }
+            }
+            (None, _) => None,
+        };
+        if let Some(machine) = machine
+            && let Some(outcome) =
+                folder::wait(runner, request, &machine, cwd, deadline, &listed, began)
+        {
+            return outcome;
+        }
     }
     let mut wanted = request.machine.clone();
     if request.environment.is_some() && deadline.passed(runner) {

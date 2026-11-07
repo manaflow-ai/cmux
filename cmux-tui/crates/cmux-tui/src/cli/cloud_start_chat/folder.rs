@@ -28,7 +28,7 @@
 //! the way it did before this check: the relay is its only way. Any other refusal is
 //! `cloud.folder_unknown`, retryable, and never a start.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -125,7 +125,7 @@ pub(super) fn cannot_exec(error: &Value) -> bool {
 pub(super) fn may_pass_later(error: &Value) -> bool {
     let code = at(error, "code").as_str().unwrap_or_default().to_lowercase();
     let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
-    matches!(code.as_str(), "vm_busy" | "vm_not_running" | "app.unreachable")
+    matches!(code.as_str(), "vm_busy" | "vm_not_running" | "vm_state_conflict" | "app.unreachable")
         || ["timeout", "timed_out", "unreachable", "rate_limited", "not_connected"]
             .iter()
             .any(|word| code.contains(word))
@@ -143,12 +143,14 @@ pub(super) fn wait(
     cwd: &str,
     deadline: Deadline,
     listed: &Value,
+    began: Instant,
 ) -> Option<Outcome> {
-    let started = runner.now();
-    // The machine's age when the wait began; unknown (an unreadable `created_at`, or not listed) is young.
-    let age = machine_age(listed, machine, SystemTime::now());
+    // MAX_WAIT counts from `began`, the folder phase's start (a wait for a create included).
+    let started = began;
+    // The machine's age when this wait began; unknown (an unreadable `created_at`, or not listed) is young.
+    let (age, aged_from) = (machine_age(listed, machine, SystemTime::now()), runner.now());
     let young = |runner: &mut dyn Runner| {
-        age.is_none_or(|age| age + runner.now().saturating_duration_since(started) < YOUNG)
+        age.is_none_or(|age| age + runner.now().saturating_duration_since(aged_from) < YOUNG)
     };
     let late = |runner: &mut dyn Runner| {
         let waited = runner.now().saturating_duration_since(started);
@@ -218,9 +220,12 @@ pub(super) fn wait(
             "--json".to_owned(),
         ];
         let checked = step_result(&runner.cmux(&args));
-        // An answer that came back past the deadline is out of time, whatever it says.
+        // An answer that came back past the deadline (or, with none, the cap) is late, whatever it says.
         if deadline.passed(runner) {
             return out(request);
+        }
+        if past_cap(runner, deadline, started) {
+            return Some(late(runner));
         }
         let answer = match checked {
             Ok(ran) => {
@@ -230,7 +235,13 @@ pub(super) fn wait(
             // `cloud exec` doesn't wake a paused machine; start-session would (its connect resumes it), but
             // only after this check. So the check resumes it once, the way the server's resume does, and
             // asks again.
-            Err(error) if !resumed && at(&error, "code").as_str() == Some("vm_not_running") => {
+            Err(error)
+                if !resumed
+                    && matches!(
+                        at(&error, "code").as_str(),
+                        Some("vm_not_running" | "vm_state_conflict")
+                    ) =>
+            {
                 resumed = true;
                 let resume = vec![
                     "cloud".to_owned(),
@@ -242,6 +253,9 @@ pub(super) fn wait(
                 let resumed = step_result(&runner.cmux(&resume));
                 if deadline.passed(runner) {
                     return out(request);
+                }
+                if past_cap(runner, deadline, started) {
+                    return Some(late(runner));
                 }
                 match resumed {
                     Ok(_) => continue,
@@ -333,4 +347,73 @@ fn unix_seconds(text: &str) -> Option<i64> {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
     Some(days * 86_400 + hour * 3600 + minute * 60 + second)
+}
+
+/// With no deadline (no `--wait`), whether [`MAX_WAIT`] from `began` is over.
+fn past_cap(runner: &mut dyn Runner, deadline: Deadline, began: Instant) -> bool {
+    deadline.left(runner).is_none() && runner.now().saturating_duration_since(began) >= MAX_WAIT
+}
+
+/// A `--name` whose create is still on its way (`list-machines`' `creating`): `list-machines` again until
+/// the machine is listed, within the deadline (or, with none, [`MAX_WAIT`] from `began`). `Ok(Some)`: its
+/// id and the listing that has it, for its folder check. `Ok(None)`: no create of that name is on its
+/// way (none, or one that failed): nothing to wait for. A list that can't be read is asked again.
+pub(super) fn created(
+    runner: &mut dyn Runner,
+    request: &Request,
+    name: &str,
+    deadline: Deadline,
+    listed: &Value,
+    began: Instant,
+) -> Result<Option<(String, Value)>, Outcome> {
+    let in_flight = |listed: &Value| {
+        at(listed, "creating").as_array().into_iter().flatten().any(|row| {
+            at(row, "name").as_str() == Some(name) && at(row, "status").as_str() != Some("failed")
+        })
+    };
+    let made = |listed: &Value| {
+        at(listed, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| at(row, "title").as_str() == Some(name))
+            .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned))
+    };
+    if !in_flight(listed) {
+        return Ok(None);
+    }
+    let pending = |runner: &mut dyn Runner| {
+        if deadline.left(runner).is_some() {
+            out_of_time(request, &Machine::Named(name.to_owned()), Value::Null)
+        } else {
+            failed(
+                "cloud.folder_pending",
+                format!(
+                    "the machine {name} is still being made, so whether its folder is ready is not known yet. \
+                     Run the same command again to keep waiting"
+                ),
+                json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
+                75,
+            )
+        }
+    };
+    loop {
+        let pause = deadline.bound(runner, RETRY_PAUSE);
+        if pause < Duration::from_secs(1) || past_cap(runner, deadline, began) {
+            return Err(pending(runner));
+        }
+        runner.pause(pause);
+        let fresh = step_result(&runner.cmux(&super::words(&["cloud", "list-machines", "--json"])));
+        if deadline.passed(runner) || past_cap(runner, deadline, began) {
+            return Err(pending(runner));
+        }
+        let Ok(fresh) = fresh else { continue };
+        if let Some(id) = made(&fresh) {
+            return Ok(Some((id, fresh)));
+        }
+        if !in_flight(&fresh) {
+            // The create ended with no machine of that name (failed, or dismissed): nothing to wait for.
+            return Ok(None);
+        }
+    }
 }
