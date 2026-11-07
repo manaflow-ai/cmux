@@ -353,6 +353,9 @@ class RePinPublication(unittest.TestCase):
             executable(bin_dir / "sleep", "#!/bin/sh\nexit 0\n")
             for command in ("repin-app-ffi.sh", "check-app-ffi-pin.sh"):
                 executable(scripts / command, "#!/bin/sh\nexit 0\n")
+            # The newest published release (NewestPublishedRelease tests the real one).
+            executable(scripts / "newest_app_ffi_release.py",
+                       f"print('{'d' * 40} {'e' * 64}')\n")
             helper = ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"
             if helper.exists(): executable(scripts / helper.name, helper.read_text())
             state_path = work / "state.json"
@@ -413,6 +416,110 @@ class RePinPublication(unittest.TestCase):
                 result, _ = self.run_repin(**options)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("verified open", result.stdout)
+
+
+class NewestPublishedRelease(unittest.TestCase):
+    """The re-pin pins the newest published release on feat-cmux-next (latest wins, 2026-11-07).
+
+    cmux#37353 sat four FFI commits behind: each step-A push cancelled the
+    previous build, and the re-pin of a published release refused because the
+    base's sources had moved past it. Now it pins the newest commit newer than
+    the current pin whose release is published, skipping one whose SHA256SUMS
+    or SOURCE_SHA is a 404, and never waits for an unpublished head.
+    """
+
+    PICKER = ROOT / "scripts/cmux-next/newest_app_ffi_release.py"
+
+    def setUp(self):
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.temp)])
+        self.origin, self.work, self.releases = self.temp / "origin.git", self.temp / "work", self.temp / "releases"
+        self.releases.mkdir()
+        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        subprocess.run(["git", "init", "-q", str(self.work)], check=True)
+        self.git("remote", "add", "origin", str(self.origin))
+        self.commits = [self.commit(f"c{i}") for i in range(6)]
+        self.manifest = self.temp / "Package.swift"
+        self.pin(self.commits[1], "1" * 64)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.work), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, name):
+        self.git("commit", "-q", "--allow-empty", "-m", name)
+        return self.git("rev-parse", "HEAD")
+
+    def pin(self, sha, checksum):
+        self.manifest.write_text(textwrap.dedent(f"""\
+            .binaryTarget(
+                name: "CCmuxAppFFI",
+                url: "https://github.com/{REPO}/releases/download/cmux-app-ffi-{sha}/CCmuxAppFFI.xcframework.zip",
+                checksum: "{checksum}"
+            ),
+            """))
+
+    def publish(self, sha, checksum, *, sums=True, source=None):
+        """A release: its tag on origin, and the files its downloads serve (a missing one is a 404)."""
+        self.git("push", "-q", "origin", f"{sha}:refs/tags/cmux-app-ffi-{sha}")
+        where = self.releases / f"cmux-app-ffi-{sha}"
+        where.mkdir()
+        (where / "SOURCE_SHA").write_text((source or sha) + "\n")
+        if sums:
+            (where / "SHA256SUMS").write_text(f"{checksum}  CCmuxAppFFI.xcframework.zip\n"
+                                              f"{'9' * 64}  CCmuxAppFFI.xcframework.zip.sha256\n")
+
+    def pick(self):
+        env = dict(os.environ, CMUX_APP_FFI_RELEASE_DOWNLOAD=self.releases.as_uri())
+        return subprocess.run([sys.executable, str(self.PICKER), "--manifest", str(self.manifest)], cwd=self.work,
+                              env=env, capture_output=True, text=True, timeout=30)
+
+    def test_the_newest_published_release_wins(self):
+        self.publish(self.commits[2], "2" * 64)
+        self.publish(self.commits[3], "3" * 64)
+        result = self.pick()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), [self.commits[3], "3" * 64])
+
+    def test_a_release_whose_sha256sums_is_a_404_is_skipped(self):
+        self.publish(self.commits[2], "2" * 64)
+        self.publish(self.commits[4], "4" * 64, sums=False)  # its tag exists, its upload is not finished
+        result = self.pick()
+        self.assertEqual(result.stdout.split(), [self.commits[2], "2" * 64])
+        self.assertIn(f"skipped cmux-app-ffi-{self.commits[4]}: not published", result.stderr)
+
+    def test_a_release_whose_source_sha_names_another_commit_is_skipped(self):
+        self.publish(self.commits[2], "2" * 64)
+        self.publish(self.commits[3], "3" * 64, source=self.commits[0])
+        self.assertEqual(self.pick().stdout.split(), [self.commits[2], "2" * 64])
+
+    def test_an_unpublished_head_is_never_waited_for(self):
+        # The tip (commits[5]) has no release at all: the newest published one is pinned now.
+        self.publish(self.commits[3], "3" * 64)
+        result = self.pick()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split()[0], self.commits[3])
+
+    def test_never_an_older_release_than_the_current_pin(self):
+        self.publish(self.commits[0], "0" * 64)
+        self.pin(self.commits[3], "3" * 64)
+        self.assertEqual(self.pick().stdout.split(), [self.commits[3], "3" * 64])
+
+    def test_nothing_newer_published_keeps_the_current_pin(self):
+        result = self.pick()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), [self.commits[1], "1" * 64])
+        self.assertIn("nothing newer", result.stderr)
+
+    def test_a_manifest_with_no_pin_fails(self):
+        self.manifest.write_text("let x = 1\n")
+        self.assertNotEqual(self.pick().returncode, 0)
+
+    def test_repin_checkout_has_the_history_to_walk(self):
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]["steps"]
+        checkout = next(step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
+        self.assertEqual(checkout["with"]["filter"], "tree:0")
 
 
 class BuildSpeedAndSupersede(unittest.TestCase):

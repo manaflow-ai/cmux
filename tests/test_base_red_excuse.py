@@ -3762,12 +3762,54 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             log(self.JOB, self.ROLLUP, f"##[error]red check: {self.PIN}", *extra,
                 "##[error]Process completed with exit code 1.")])
 
+    class GitHub(FakeGitHub):
+        """Also answers the published base pin rule's reads: Package.swift at the head (blob), where the pinned source
+        sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
+
+        def __init__(self, case):
+            super().__init__()
+            self.case = case
+
+        def blob(self, repo, ref, path):
+            self.case.assertEqual((repo, ref, path), (REPO, HEAD, excuse.FFI_PIN_MANIFEST))
+            return self.case.manifest
+
+        def json(self, route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
+                return {"status": self.case.compare}
+            if route.endswith(f"/commits/{HEAD}/status"):
+                return {"statuses": copy.deepcopy(self.case.statuses)}
+            return super().json(route, paginate=paginate)
+
+    STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
+
     def setUp(self):
-        self.gh = FakeGitHub()
+        self.gh = self.GitHub(self)
         self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
                         2: dict(failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.ROLLUP), conclusion="success")}
         self.gh.logs = {1: self.pin_log(), 2: ""}
         self.graphql: list[list[str]] = []
+        # The published base pin rule's inputs, by default all of it but the compile pass.
+        self.pin_at_head(self.STEP_B_PIN)
+        self.compare, self.statuses = "behind", []
+        self.releases: list[str] = []
+        published = unittest.mock.patch.object(excuse, "ffi_release_source", self.release_source)
+        published.start()
+        self.addCleanup(published.stop)
+
+    def pin_at_head(self, sha, repo=REPO):
+        self.pinned, self.source = sha, sha
+        self.manifest = ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                         f"    url: \"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                         "CCmuxAppFFI.xcframework.zip\",\n"
+                         f"    checksum: \"{'2' * 64}\"\n)\n")
+
+    def release_source(self, repo, tag):
+        self.releases.append(tag)
+        return self.source
+
+    def compiled(self):
+        self.statuses = [{"context": "cmux-next/compile", "state": "success"}]
 
     def pr_files(self, *paths, changed=None, page=100, base_oids=()):
         self.gh.run = pr_graphql(self, self.graphql, paths, number=37292, changed=changed, page=page,
@@ -3829,6 +3871,111 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files("docs/ci/app-ffi-release.md")
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
             self.judge()
+
+    # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
+    # app compile passed at its head against that pin.
+    STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
+              "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def test_a_step_b_pin_on_the_base_that_compiled_is_excused(self):
+        # cmux#37428 at 872fe1e7: Swift and a pin of cmux-app-ffi-1f63d516, which other PRs' Rust has since passed.
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
+            f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
+        self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"])
+
+    def test_a_re_pin_alone_on_the_base_that_compiled_is_excused(self):
+        # cmux#37353: the re-pin bot's Package.swift-only PR, a few FFI commits behind the base tip.
+        self.pr_files("Packages/macOS/CmuxNext/Package.swift")
+        self.compiled()
+        self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_swift_alone_against_the_base_pin_that_compiled_is_excused(self):
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
+
+    def test_a_step_b_pin_with_no_compile_pass_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift: a PR that moves "
+                                    "the pin must pin a release built from its own sources; nor is its pin a "
+                                    f"published base release it compiled against: no app compile check passed at "
+                                    f"{HEAD}"):
+            self.judge()
+        self.statuses = [{"context": "cmux-next/compile", "state": "failure"}]
+        with self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+            self.judge()
+
+    def test_a_pin_not_on_the_base_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        for status in ("ahead", "diverged"):
+            with self.subTest(status=status):
+                self.compare = status
+                with self.assertRaisesRegex(excuse.Refused, f"the pinned release's source 1f63d516ecfc is not an "
+                                            f"ancestor of feat-cmux-next \\(it is {status}\\)"):
+                    self.judge()
+
+    def test_an_unpublished_pin_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, f"cmux-app-ffi-{self.STEP_B_PIN} is not published"):
+            self.judge()
+        self.source = "0" * 40
+        with self.assertRaisesRegex(excuse.Refused, "records SOURCE_SHA '0000000000"):
+            self.judge()
+
+    def test_a_pin_of_another_repository_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
+        with self.assertRaisesRegex(excuse.Refused, "pins no cmux-app-ffi release of manaflow-ai/cmux"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
+    def test_a_step_b_pin_beside_another_red_is_judged_as_before(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
+    def test_a_step_a_change_reads_nothing_for_the_published_base_pin(self):
+        # Step A merges are never held by the published base pin rule: they never ask it.
+        self.pr_files(*self.RUST)
+        self.source = None
+        self.assertIn("a step-A Rust change", self.judge()[0])
+        self.assertEqual(self.releases, [])
+
+    def test_the_release_source_is_read_anonymously_and_a_404_is_unpublished(self):
+        import io
+        import urllib.error
+        # setUp replaced the reader in `excuse`; a fresh copy of the module has the real one.
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        urls = []
+
+        def answer(code):
+            def urlopen(url, timeout):
+                urls.append((url, timeout))
+                if code == 200:
+                    return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                raise urllib.error.HTTPError(url, code, "x", {}, None)
+            return urlopen
+
+        tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
+        with unittest.mock.patch("urllib.request.urlopen", answer(200)):
+            self.assertEqual(module.ffi_release_source(REPO, tag), self.STEP_B_PIN)
+        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30)])
+        with unittest.mock.patch("urllib.request.urlopen", answer(404)):
+            self.assertIsNone(module.ffi_release_source(REPO, tag))
+        with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
+                self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
+            module.ffi_release_source(REPO, tag)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.

@@ -1036,40 +1036,104 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # its own pin: its merge is what publishes the release the re-pin then names. That error alone, in the cmux-next checks
 # job, is excused when the PR changes FFI inputs, leaves Package.swift (the pin) alone and changes no Swift, so no app
 # code calls a symbol or op the pinned library lacks. Any other red in the job is judged as before.
+#
+# A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
+# Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
+# when both hold: (a) the release its head pins (Package.swift's cmux-app-ffi-<sha> URL) is published, its SOURCE_SHA
+# names that sha, and that sha is on the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
+# PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
+# resolves the binary target from that URL and checksum, nothing else. Drift since the pinned source can then only be
+# other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
 FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 FFI_PIN_CHECK = "Check the app FFI pin"
 FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
+FFI_PIN_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/releases/download/cmux-app-ffi-([0-9a-f]{40})/"
+                         r"CCmuxAppFFI\.xcframework\.zip")
+FFI_RELEASE_SECONDS = 30
+
+
+def ffi_release_source(repo: str, tag: str) -> str | None:
+    """The SOURCE_SHA the published release TAG of REPO records, read anonymously from its release download (no API
+    quota), or None when it is not published (404). Any other failure raises: an unread release is no answer."""
+    import urllib.error
+    import urllib.request
+    url = f"https://github.com/{repo}/releases/download/{tag}/SOURCE_SHA"
+    try:
+        with urllib.request.urlopen(url, timeout=FFI_RELEASE_SECONDS) as answer:  # noqa: S310 (a fixed https URL)
+            return answer.read(200).decode("ascii", "replace").strip()
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise Refused(f"{url}: HTTP {error.code}; the pinned release could not be read") from error
+    except (OSError, ValueError) as error:
+        raise Refused(f"{url}: {type(error).__name__}: {error}; the pinned release could not be read") from error
+
+
+def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str | None, str]:
+    """(audit, "") when the head SHA's app FFI pin is a published release built from a commit on BASE and the app
+    compile check passed at SHA (the published base pin rule above); else (None, the part of that rule that does not
+    hold)."""
+    manifest = source_text(repo, sha, FFI_PIN_MANIFEST, github)
+    found = FFI_PIN_URL.search(manifest)
+    if not found or found[1] != repo:
+        return None, f"{FFI_PIN_MANIFEST} at {sha[:12]} pins no cmux-app-ffi release of {repo}"
+    pin = found[2]
+    tag = f"cmux-app-ffi-{pin}"
+    source = ffi_release_source(repo, tag)
+    if source is None:
+        return None, f"the pinned release {tag} is not published (its SOURCE_SHA is 404)"
+    if source != pin:
+        return None, f"the pinned release {tag} records SOURCE_SHA {source[:40]!r}, not {pin}"
+    status = github.json(f"repos/{repo}/compare/{base}...{pin}?per_page=1").get("status")
+    if status not in ("behind", "identical"):
+        return None, f"the pinned release's source {pin[:12]} is not an ancestor of {base} (it is {status or 'unread'})"
+    proof = compile_pass_at(repo, sha, github)
+    if proof is None:
+        return None, (f"no app compile check passed at {sha} (cmux-next/compile, or the Release compile), so nothing "
+                      f"proves the app builds against {tag}")
+    return (f"pins {tag}, a published release built from {pin[:12]}, which is on {base}, and {proof} compiled {sha} "
+            "against that pin and passed"), ""
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
                    log: str, github) -> str | None:
-    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR (the
-    rule above). Wherever the pin error shows, the PR must be one the rule covers, whatever else is red: Refused
-    when it changes Swift or Package.swift or no FFI input, since the base comparison may set the error aside beside
-    another red the base shares (review of d5c11dd8). None when there is no pin error, or when something else is red
-    too (another failed step, a failing test, a crash, another error): that red is judged as before. The caller asks
-    only after test_reds.read found no crash or cut-short run."""
+    """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
+    PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
+    shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
+    FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
+    error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
+    something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
+    before. The caller asks only after test_reds.read found no crash or cut-short run."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None
     number, paths = pr_paths(repo, base, sha, github)
     if FFI_PIN_MANIFEST in paths:
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes {FFI_PIN_MANIFEST}: a PR that moves "
-                      "the pin must pin a release built from its own sources")
-    if swift := [path for path in paths if path.endswith(".swift")]:
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes Swift ({'; '.join(swift[:5])}): "
-                      "app code may call what the pinned library lacks; land the Rust alone, then the Swift after "
-                      "the re-pin")
-    if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
-        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
+        why = (f"#{number} changes {FFI_PIN_MANIFEST}: a PR that moves the pin must pin a release built from its own "
+               "sources")
+    elif swift := [path for path in paths if path.endswith(".swift")]:
+        why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
+               "land the Rust alone, then the Swift after the re-pin")
+    elif not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+        why = f"#{number} changes no app FFI input"
+    else:
+        why = None
+    published = None
+    if why is not None:
+        published, missing = ffi_published_base_pin(repo, base, sha, github)
+        if published is None:
+            raise Refused(f"'{name}': its app FFI pin is red, and {why}; nor is its pin a published base release it "
+                          f"compiled against: {missing}")
     others = {error for error in errors if not error.startswith(pin)} - {rollup}
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
     if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
         return None
+    if published is not None:
+        return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} {published}"
     return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
             f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
             "publishes")
