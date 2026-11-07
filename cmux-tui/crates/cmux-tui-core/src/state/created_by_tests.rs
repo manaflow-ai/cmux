@@ -64,7 +64,9 @@ fn an_agent_workspace_goes_below_its_creator_not_the_selection() {
     let x = created(&mux, "x", json!({"kind": "agent", "workspace": a, "session": "s-1"}));
     let y = created(&mux, "y", json!({"kind": "agent", "workspace": a}));
     let x_key = workspace(&mux, &x)["extra"]["key"].as_str().unwrap().to_string();
-    let z = created(&mux, "z", json!({"kind": "script", "workspace": x_key}));
+    // As a terminal's `CMUX_WORKSPACE_ID` may hold it: undashed, uppercase.
+    let env_form = x_key.replace('-', "").to_uppercase();
+    let z = created(&mux, "z", json!({"kind": "script", "workspace": env_form}));
     let ids = [&a, &b, &c, &x, &y, &z].map(String::as_str);
     let [a, b, c, x, y, z] = ids;
     assert_eq!(listed(&mux, &ids), [a, x, z, y, b, c].map(str::to_string).to_vec());
@@ -73,7 +75,10 @@ fn an_agent_workspace_goes_below_its_creator_not_the_selection() {
         workspace(&mux, x)["extra"]["created_by"],
         json!({"kind": "agent", "workspace": a, "session": "s-1"})
     );
-    assert_eq!(workspace(&mux, z)["extra"]["created_by"], json!({"kind": "script", "workspace": x}));
+    assert_eq!(
+        workspace(&mux, z)["extra"]["created_by"],
+        json!({"kind": "script", "workspace": x})
+    );
     assert!(workspace(&mux, b)["extra"].get("created_by").is_none());
     // A person's create keeps the setting's place: below the selection.
     let p = created(&mux, "p", json!({"kind": "person"}));
@@ -81,7 +86,11 @@ fn an_agent_workspace_goes_below_its_creator_not_the_selection() {
     drop(mux);
     let mux = session.open();
     assert_eq!(listed(&mux, &ids), [a, x, z, y, b, c].map(str::to_string).to_vec());
-    assert_eq!(workspace(&mux, x)["extra"]["created_by"]["workspace"], a, "not kept across restart");
+    assert_eq!(
+        workspace(&mux, x)["extra"]["created_by"]["workspace"],
+        a,
+        "not kept across restart"
+    );
     mux.shutdown();
 }
 
@@ -134,7 +143,10 @@ fn an_agent_workspace_with_no_creator_goes_last() {
     let [a, b, x, y] = ids;
     assert_eq!(listed(&mux, &ids), [a, b, x, y].map(str::to_string).to_vec());
     assert_eq!(workspace(&mux, a)["focused"], true);
-    assert_eq!(workspace(&mux, x)["extra"]["created_by"], json!({"kind": "agent", "session": "s-2"}));
+    assert_eq!(
+        workspace(&mux, x)["extra"]["created_by"],
+        json!({"kind": "agent", "session": "s-2"})
+    );
     mux.shutdown();
 }
 
