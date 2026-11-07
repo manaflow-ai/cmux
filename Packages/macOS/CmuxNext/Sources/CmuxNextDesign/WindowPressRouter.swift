@@ -28,7 +28,7 @@ public protocol KeyNeutralPressTarget: NSView {}
 
 /// What a window does with a press before AppKit gets it, for a window's `sendEvent(_:)`.
 ///
-/// A left press on a ``KeyNeutralPressTarget`` while this window's own child window (a Chromium page, a popover) holds
+/// A left press on a ``KeyNeutralPressTarget`` while a page of this window (a Chromium page, its DevTools or popup) holds
 /// the key goes straight to that view, and so do its drags and its release: nothing changes key, and the page keeps
 /// the focus. ``FirstClickPolicy`` made the window key before such a press; for a divider that key change was the
 /// press's whole cost: `-[NSThemeFrame _windowChangedKeyState]` redrew every control of the window, 101 view layouts
@@ -55,8 +55,12 @@ public final class WindowPressRouter {
     /// Makes the window key before a press that acts at once; a seam for tests.
     public var makeKey: (NSWindow) -> Void = { $0.makeKey() }
 
-    /// The key-neutral view that took a press, until its release.
+    /// The key-neutral view that took a press, until its release; `nil` once the view is freed.
     private weak var pressed: NSView?
+    /// Whether a press this router took is down, until its release. Kept apart from ``pressed``: AppKit never got that
+    /// press, so its mouse-down view is an earlier press's view (a terminal). If the divider leaves the window mid-drag
+    /// (a socket or an agent closes its pane), the rest of the press must not fall through to that view.
+    private var claimed = false
 
     /// Makes the router.
     public init() {}
@@ -75,33 +79,59 @@ public final class WindowPressRouter {
     }
 
     /// Gives a key-neutral press, its drags, force-click stages and release to the pressed view; `false` for any other event.
+    /// Once the router took a press it keeps every left drag, force-click stage and the release until that release,
+    /// and gives them to the view only while it is still in `window`.
     private func routesKeyNeutral(_ event: NSEvent, in window: NSWindow, _ app: AppKeyState) -> Bool {
         switch event.type {
         case .leftMouseDown:
             pressed = nil
+            claimed = false
             guard app.isActive, !app.isModal, !window.isKeyWindow, window.attachedSheet == nil, let keyWindow = app.keyWindow,
-                  keyWindow !== window, keyWindow.sheetParent == nil, isChildWindow(keyWindow, of: window),
+                  keyWindow !== window, keyWindow.sheetParent == nil, isPage(keyWindow, of: window),
                   let hit = window.contentView?.hitTest(event.locationInWindow),
                   let view = sequence(first: hit, next: \.superview).first(where: { $0 is any KeyNeutralPressTarget }) else { return false }
             pressed = view
+            claimed = true
             view.mouseDown(with: event)
             return true
         case .leftMouseDragged:
-            guard let pressed, pressed.window === window else { return false }
-            pressed.mouseDragged(with: event)
+            guard claimed else { return false }
+            if let pressed = livePressed(in: window) { pressed.mouseDragged(with: event) }
             return true
         case .leftMouseUp:
-            guard let pressed else { return false }
+            guard claimed else { return false }
+            let pressed = livePressed(in: window)
             self.pressed = nil
-            guard pressed.window === window else { return false }
-            pressed.mouseUp(with: event)
+            claimed = false
+            pressed?.mouseUp(with: event)
             return true
         case .pressure: // a force click's stages belong to its press, not to the view AppKit pressed last
-            guard let pressed, pressed.window === window else { return false }
-            pressed.pressureChange(with: event)
+            guard claimed else { return false }
+            livePressed(in: window)?.pressureChange(with: event)
             return true
         default:
             return false
         }
     }
+
+    /// The pressed view while it is still in `window`.
+    private func livePressed(in window: NSWindow) -> NSView? {
+        guard let pressed, pressed.window === window else { return nil }
+        return pressed
+    }
+
+    /// Whether `keyWindow` is a page of `window`: a page window (``WindowOverlayHost/isPageWindow(_:)``: Chromium's page,
+    /// a remote browser popup) under it, or a window a page opens over itself (DevTools, a page popup), with every window
+    /// between it and `window` a page window. A key-capable panel of the window (the group-editor bubble, the screenshot
+    /// section overlay) is not: it dismisses when it loses the key, so a divider press closes it as before.
+    private func isPage(_ keyWindow: NSWindow, of window: NSWindow) -> Bool {
+        var current = keyWindow
+        while let parent = current.parent {
+            guard WindowOverlayHost.isPageWindow(current) else { return false }
+            if parent === window { return true }
+            current = parent
+        }
+        return false
+    }
+}
 }
