@@ -102,7 +102,6 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
             waiting={new Set()}
             onOpen={() => {}}
             onOpenCommand={() => {}}
-            canOpenTerminal
             canReadTail
             stopProcess={async () => {}}
           />
