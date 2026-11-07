@@ -92,7 +92,7 @@ try {
   await vite.listen();
   await warmViteServer(vite, "/?mock");
   const { port } = vite.httpServer!.address() as { port: number };
-  const table: Record<string, unknown>[] = [];
+  const table: ({ rows: number; stream: string } & ReturnType<typeof perDelta>)[] = [];
   for (const length of LENGTHS) {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
@@ -108,8 +108,7 @@ try {
       SECONDS,
     )) as Record<string, any>;
     const tool = (await page.evaluate(
-      (seconds) =>
-        (window as any).cmuxAcpmuxDebug.loadTick({ seconds, tick_ms: 50, sidebar_ms: 0, scroll_speed: 0 }),
+      (seconds) => (window as any).cmuxAcpmuxDebug.loadTick({ seconds, tick_ms: 50, sidebar_ms: 0, scroll_speed: 0 }),
       SECONDS,
     )) as Record<string, any>;
     await page.close();

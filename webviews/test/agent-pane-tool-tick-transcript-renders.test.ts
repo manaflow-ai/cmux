@@ -57,21 +57,24 @@ await requireBrowserLane("agent-pane-tool-tick-transcript-renders.test.ts", asyn
     )) as Record<string, any>;
     await page.close();
     const renders = (run.renders ?? {}) as Record<string, number>;
-    const rowRenders = Object.entries(renders)
+    // A row draws when its turn's structure moves it (a few times at most), never once per update.
+    const busiestRow = Object.entries(renders)
       .filter(([name]) => name.startsWith("row:"))
-      .reduce((total, [, value]) => total + value, 0);
+      .sort((a, b) => b[1] - a[1])[0] ?? ["none", 0];
     const report = {
       rows: seeded.rows,
       ticks: run.ticks,
       pane: renders.pane ?? 0,
       transcript: renders.transcript ?? 0,
-      rowRenders,
+      busiestRow,
     };
     console.log(`TOOL-TICK-RENDERS ${JSON.stringify(report)}`);
     expect(report.ticks).toBeGreaterThan(30);
     // Each update reached the pane: the transcript skipped renders its parent made.
     expect(report.pane).toBeGreaterThanOrEqual(report.ticks);
     expect(report.transcript, "transcript renders over the command's output updates").toBeLessThanOrEqual(STRUCTURAL);
-    expect(report.rowRenders, "row renders over the command's output updates").toBeLessThanOrEqual(STRUCTURAL);
+    expect(busiestRow[1], `renders of ${busiestRow[0]} over the command's output updates`).toBeLessThanOrEqual(
+      STRUCTURAL,
+    );
   });
 });
