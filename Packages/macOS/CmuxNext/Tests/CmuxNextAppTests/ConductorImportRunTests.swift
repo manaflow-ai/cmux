@@ -29,6 +29,7 @@ struct ConductorImportRunTests {
         private(set) var closed: [WorkspaceKey] = []
         private(set) var added: [String] = []
         private(set) var records: [(workspace: String, stage: ConductorImportStage)] = []
+        private(set) var completed: [Bool] = []
 
         init(_ reply: ConductorImportReply) { self.reply = reply }
 
@@ -54,6 +55,7 @@ struct ConductorImportRunTests {
                     idempotencyKey: String) async throws {
             if stage == refusedStage { throw recordError }
             records.append((workspace, stage))
+            completed.append(runCompleted)
         }
     }
 
@@ -221,5 +223,7 @@ struct ConductorImportRunTests {
         let host = Host()
         await #expect(throws: ConductorImportFailure.recipes(["r1"])) { _ = try await Self.run(daemon, host, Preview()) }
         #expect(host.opened == ["/w/w1"])
+        // A run with a recipe it could not save is not recorded as complete.
+        #expect(!daemon.completed.contains(true))
     }
 }

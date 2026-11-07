@@ -129,7 +129,8 @@ public struct ConductorImport {
             let made = try await host.openConductorWorkspace(folder: path, name: item.workspace.name, key: key)
             do {
                 try await daemon.record(workspace: id, stage: .done, cmuxWorkspace: made,
-                                        runCompleted: failedProjects.isEmpty && index == adopting.count - 1,
+                                        runCompleted: failedProjects.isEmpty && failedRecipes.isEmpty
+                                            && index == adopting.count - 1,
                                         idempotencyKey: "conductor-import-\(run)-\(id)-done")
             } catch let error as DaemonError where error.isConductorImportConflict {
                 // Another run took this workspace after this one's pending record: its workspace is
