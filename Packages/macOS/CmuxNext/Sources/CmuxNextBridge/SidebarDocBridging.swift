@@ -185,7 +185,7 @@ public final class SidebarDocSections {
         let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
         if !unplaced.isEmpty {
             let place = newRowsPlace()
-            if place != .first {
+            if place == .last {
                 loose += unplacedOrder(unplaced)
             } else {
                 // Newest first, as the daemon places them: the store lists a new workspace last, and its
