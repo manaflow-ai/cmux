@@ -220,6 +220,21 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
     // Not loaded yet: say to retry, never make a VM I may already have.
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
     assert_eq!(code(on_vm(unloaded)), "chat_target.unavailable");
+    // `vm:NAME` too: not loaded is a retry, never an unknown VM.
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let named = route(
+        Some("vm:dev"),
+        Reads {
+            catalog: || -> Result<Value, Value> { panic!("catalog") },
+            signed_in: || true,
+            cloud_machines: || Ok(unloaded),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        (named["code"].as_str(), named["retryable"].as_bool()),
+        (Some("chat_target.unavailable"), Some(true))
+    );
     // Signed out by the list, though the sign-in read said yes.
     let out = json!({"account": {"signed_in": false}, "machines": []});
     assert_eq!(code(on_vm(out)), "chat_target.signed_out");

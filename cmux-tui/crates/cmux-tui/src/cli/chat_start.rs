@@ -278,6 +278,10 @@ where
         if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
             return Err(refused(&ChatTargetRefusal::SignedOut));
         }
+        // Not loaded yet, the app lists no VMs: say to retry, not that the VM is unknown.
+        if let Some(error) = not_loaded(&listed) {
+            return Err(error);
+        }
         return existing_vm(vm, Some(vm), &listed).map(Route::Cloud).map_err(|found| {
             refusal(
                 "chat_target.unknown_vm",
@@ -321,6 +325,26 @@ where
     }
 }
 
+/// A retryable refusal when the app has not loaded its VM list yet (`loaded: false`).
+fn not_loaded(listed: &Value) -> Option<Value> {
+    (listed.get("loaded") == Some(&Value::Bool(false))).then(|| {
+        retryable(refusal(
+            "chat_target.unavailable",
+            "the cmux app has not loaded your Cloud VMs yet".to_owned(),
+            "run this command again in a moment",
+            json!({}),
+        ))
+    })
+}
+
+/// `error`, marked retryable.
+fn retryable(mut error: Value) -> Value {
+    if let Some(map) = error.as_object_mut() {
+        map.insert("retryable".to_owned(), json!(true));
+    }
+    error
+}
+
 /// The VM statuses `--on vm` does not reuse: a VM that is failing or going away.
 const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
 
@@ -332,14 +356,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return Err(refused(&ChatTargetRefusal::SignedOut));
     }
-    if listed.get("loaded") == Some(&Value::Bool(false)) {
-        let mut error = refusal(
-            "chat_target.unavailable",
-            "the cmux app has not loaded your Cloud VMs yet".to_owned(),
-            "run this command again in a moment",
-            json!({}),
-        );
-        error["retryable"] = json!(true);
+    if let Some(error) = not_loaded(listed) {
         return Err(error);
     }
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
@@ -356,14 +373,12 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
         .is_some_and(|rows| rows.iter().any(|row| text(row, "status") != Some("failed")));
     let id = match (usable.as_slice(), running.as_slice()) {
         ([], _) if making => {
-            let mut error = refusal(
+            return Err(retryable(refusal(
                 "chat_target.vm_starting",
                 "your Cloud VM is still being made".to_owned(),
                 "run this command again once `cmux vm list-machines` lists it",
                 json!({}),
-            );
-            error["retryable"] = json!(true);
-            return Err(error);
+            )));
         }
         ([], _) => return Ok(Machine::New),
         ([only], _) | (_, [only]) => text(only, "machine_id"),
