@@ -213,6 +213,13 @@ pub(super) fn parse(
             if !matches!(url.scheme(), "http" | "https") || url.query().is_some() {
                 return Err("--upstream must be an http(s) URL with no query".into());
             }
+            // The URL is logged; a key goes in --upstream-key-file, never in the URL.
+            if !url.username().is_empty() || url.password().is_some() {
+                return Err(
+                    "--upstream takes no user or password; put the key in --upstream-key-file"
+                        .into(),
+                );
+            }
             Upstream::Proxy { base: base.trim_end_matches('/').to_owned(), key_file }
         }
         (Some(auth), None) => {
@@ -1035,6 +1042,18 @@ mod tests {
             .is_err()
         );
         assert!(parse(&args(&["--codex-auth", "/a"]), &no_env).is_err());
+        // A credential in the URL would be logged with it.
+        assert!(
+            parse(
+                &args(&["--api", "https://a.dev", "--upstream", "https://u:secret@b.dev"]),
+                &no_env
+            )
+            .is_err()
+        );
+        assert!(
+            parse(&args(&["--api", "https://a.dev", "--upstream", "https://u@b.dev"]), &no_env)
+                .is_err()
+        );
         assert!(
             parse(
                 &args(&[
