@@ -60,6 +60,15 @@ import Testing
         }.min()
     }
 
+    /// The media time the newest strip move on `cells` begins (a move started over a running one).
+    static func latestMoveBegin(_ cells: [TabCell]) -> CFTimeInterval? {
+        cells.flatMap { cell in
+            (cell.layer.animationKeys() ?? []).filter { $0.hasPrefix(TabStripMove.keyPrefix) }.compactMap { key in
+                cell.layer.animation(forKey: key).map { cell.layer.convertTime($0.beginTime, to: nil) }
+            }
+        }.max()
+    }
+
     /// The pane's own geometry: its frame, its content host's and its strip's. A strip close changes none of them.
     static func paneGeometry(_ pane: PaneContentView) -> [CGRect] {
         [pane.frame, pane.contentHost.frame, pane.stripView.frame]
@@ -203,8 +212,10 @@ import Testing
             rig.model.selectedID = TabID("tab3")
             rig.model.tabs.removeAll { $0.id == TabID("tab2") }
             strip.sync(fromModel: true)
-            let now = CACurrentMediaTime()
             #expect(strip.dying.contains(TabID("tab2")), "the second close did not slide")
+            // The frame the second close's move begins in: every tab must show there what the first close left.
+            // (A later sample would see the second move's first easing step, not a jump.)
+            let now = try #require(Self.latestMoveBegin(before.compactMap { strip.cells[$0.0] }), "the second close started no move")
             for (id, position, size) in before {
                 let cell = try #require(strip.cells[id])
                 let was = position.value(at: now).x - cell.layer.anchorPoint.x * size.value(at: now).x
