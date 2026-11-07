@@ -15,6 +15,7 @@ import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
+import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
@@ -92,6 +93,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudProgressLook,
   agentStartLook,
   liveLineTokens,
+  oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
   trayRowLook,

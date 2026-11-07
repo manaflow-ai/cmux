@@ -4,7 +4,7 @@
 // and everything else as its own row.
 import { pathKey, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
-import { isBareShellName } from "../toolPaths";
+import { editedPaths, isBareShellName } from "../toolPaths";
 import { toolKind } from "../toolNames";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCallPart } from "./acpmuxSends";
@@ -387,11 +387,27 @@ export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
 }
 
 /// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
-/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+/// sight, never folded under a run's summary line, so the change it asks about can be seen. One
+/// with nothing to ask about yet is not waiting on anyone: Claude Code names a Write or an Edit as
+/// its block starts, pending with no input (acpmux claude_stdio/early_calls.rs), while the model
+/// still writes it. That call is in flight, on the live line like any other, never a row of its own
+/// as well (Leo, 2026-11-07, on "Writing a file" over "Write 12s": "sometimes you can just combine
+/// the, like, whatever command or action you're doing sooner than you do").
 export function awaitsPermission(tool: Tool | undefined): boolean {
   return (
     tool?.status === "pending" &&
-    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange") &&
+    namesChange(tool)
+  );
+}
+
+/// Whether a file call says what it changes yet: a file, a diff, or any input.
+function namesChange(tool: Tool): boolean {
+  return Boolean(
+    tool.diffs?.length ||
+    tool.locations?.length ||
+    editedPaths(tool).length ||
+    /[^\s{}[\]]/.test(tool.inputSummary ?? ""),
   );
 }
 
