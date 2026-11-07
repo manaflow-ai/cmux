@@ -85,7 +85,7 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(groupPinMarkPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.groupPinMark", "Pinned in Group Mark"),
                           help: SettingsText.keyed("settings.sidebar.groupPinMark.help",
-                                                   "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."),
+                                                   "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."),
                           kind: .choice(SidebarGroupPinMark.allCases.map { mark in
                               switch mark {
                               case .off: SettingChoice(mark.rawValue, SettingsText.keyed("settings.choice.off", "Off"))

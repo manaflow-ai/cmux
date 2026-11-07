@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// A workspace pinned inside its group shows it at rest (`sidebar.groupPinMark`; Aziz 2026-10-30: "a
 /// better indicator for pinned items under a workspace group"). Before, the pin showed only on an
 /// expanded row's hover (pinning-DESIGN.md), so a group's pinned members looked like the others.
-/// Three looks: a small pin among the trailing marks, a small pin before the name in the group's
+/// Three looks: a small pin among the trailing marks, a small pin before the name in the title's
 /// color, or a shelf (a faint wash of the group's color behind the pinned members at rest).
 extension WorkspaceRowView {
     /// The look this row draws now: its setting while the workspace is pinned inside its group, else off.
@@ -23,15 +23,12 @@ extension WorkspaceRowView {
         groupPin.themedToolTip = isPinnedInGroup && look != .off ? Strings.pinnedInGroup : nil
     }
 
-    /// The pin's ink: the group's color before the name (the tertiary ink for a group with no
-    /// color, or with `sidebar.showColors` off), the tertiary ink among the trailing marks.
+    /// The pin's ink: the title's before the name (quiet, archived and selected rows included; Aziz
+    /// 2026-11-06: "the pin color should just match the text color"), the tertiary ink among the trailing marks.
+    /// Called after the title's color is set (`updateLayer`).
     func tintGroupPin() {
         guard !groupPin.isHidden else { return }
-        guard shownGroupPin == .leading, let tint = groupPinTint, !tint.isNone else {
-            groupPin.setTint(Palette.textTertiary)
-            return
-        }
-        groupPin.setTint(tint.lineColor(themed: SidebarGroupPalette.tunable.value == .theme))
+        groupPin.setTint(shownGroupPin == .leading ? title.textColor : Palette.textTertiary)
     }
 
     /// The shelf's wash behind a pinned member at rest: the group's color, faint (the sidebar's
