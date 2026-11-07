@@ -307,8 +307,8 @@ describe("reports basket", () => {
     await store.sendReportReply();
     const replies = provider.calls.filter((call) => call.op === FeedOps.reportsReply).map((call) => call.params);
     expect(replies).toEqual([
-      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
-      { session: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
+      { to: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
+      { to: "mini-3:codex-infra", text: "Go ahead", prompt_id: "k1", idempotency_key: "k1" },
     ]);
     const ok = setup();
     await ok.store.start();

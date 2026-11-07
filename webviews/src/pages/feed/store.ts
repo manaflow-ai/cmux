@@ -536,7 +536,7 @@ export class FeedStore {
     let sent = false;
     try {
       const result = await this.client.call<{ sent: boolean }>(FeedOps.reportsReply, {
-        session: reply.session,
+        to: reply.session,
         text: reply.text,
         prompt_id: reply.promptId,
         // The same reply sent again is the same mutation: acpmux delivers it once.

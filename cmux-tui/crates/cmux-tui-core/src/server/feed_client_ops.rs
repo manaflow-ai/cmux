@@ -179,7 +179,8 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
         "feed.reports.read" => now(Ok(feed.reports())),
         "feed.reports.reply" => {
             let fields = (|| {
-                let session = text(&params, "session")?.to_owned();
+                // `to`, not `session`: the page router takes `session` as the host selector.
+                let session = text(&params, "to")?.to_owned();
                 let body = text(&params, "text")?.to_owned();
                 if body.trim().is_empty() || body.len() > MAX_REPLY_BYTES {
                     return Err(invalid("text", "takes 1 to 65536 bytes"));
@@ -398,6 +399,45 @@ mod tests {
         set_role_for_test(&mux, socket, "main");
         set_verified_app_for_test(&mux, socket, true);
         assert!(!app_process(&mux, socket), "not the local socket");
+    }
+
+    /// A reply names its sending session in `to`, which the page router passes through (it takes
+    /// `session` as the host's selector), next to the page's own `session: "current"`.
+    #[test]
+    fn a_report_reply_reaches_the_feed_through_the_page_router() {
+        let mux = Mux::new_for_test("feed-reply-route", SurfaceOptions::default());
+        let app = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, app, "main");
+        set_verified_app_for_test(&mux, app, true);
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let request = serde_json::json!({"protocol": "cmux.protocol/2", "type": "request",
+            "id": "r1", "operation": "feed.reports.reply", "idempotency_key": "p1",
+            "params": {"session": "current", "to": "mbp:claude-api-server", "text": "Go ahead"}});
+        let (done, wait) = std::sync::mpsc::channel();
+        let routed = mux.clone();
+        std::thread::spawn(move || {
+            let handled =
+                crate::server::page_router::try_handle(&routed, app, &request.to_string(), &writer);
+            let _ = done.send(handled);
+        });
+        assert_eq!(
+            wait.recv_timeout(std::time::Duration::from_secs(10)).expect("answered in time"),
+            Some(true)
+        );
+        let reply = || outbound.try_pop();
+        let mut text = reply();
+        for _ in 0..200 {
+            if text.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            text = reply();
+        }
+        let reply: serde_json::Value = serde_json::from_str(&text.expect("a reply")).unwrap();
+        // No reply sender is installed in a test daemon: routed, validated, not sent.
+        assert!(reply["error"].is_null(), "{reply}");
+        assert_eq!(reply["result"]["sent"], false, "{reply}");
     }
 
     /// The relay path end to end (page_router::try_handle): the app's own Feed page relay reads

@@ -44,7 +44,7 @@ callers use the same ops. Times are Unix ms. Every mutation takes an idempotency
 | `feed.github.find_work` | read | `{}` -> `{reviews: [GitHubWork], assigned: [GitHubWork]}`, `GitHubWork = {id, number, title, url, repo, author?, body?, state?, branch?, updated_at}` (the Find Work palette; read now with `gh`) |
 | `feed.reports.read` | read | `{}` -> `{revision, available, reports: [{id, sender, body, created_at}]}` (newest first, at most 200) |
 | `feed.reports.changed` | stream | daemon event `feed-reports-changed {revision}` |
-| `feed.reports.reply` | mutation | `{session, text (<= 64 KiB), prompt_id?}` (the prompt id defaults to the idempotency key, so a retry delivers once) -> `{sent: bool}` |
+| `feed.reports.reply` | mutation | `{to (the sending session), text (<= 64 KiB), prompt_id?}` (the prompt id defaults to the idempotency key, so a retry delivers once) -> `{sent: bool}` |
 | `feed.presence.set` | mutation, app connection only | `{active}` -> `{active}` (the owner's push rule; an activation also wakes a Reports reader that gave up) |
 
 Wire names: the ops are a routed namespace (`feed`, owner `feed`) and a page entry (`feed`) in
