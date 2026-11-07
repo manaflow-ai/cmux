@@ -55,7 +55,7 @@ public final class SettingsApplier {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
         }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
-        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
+        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyle.theme.rawValue
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
         if design.homeBubbleColors != snapshot.homeBubbleColors { design.homeBubbleColors = snapshot.homeBubbleColors }
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }

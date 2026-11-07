@@ -143,7 +143,7 @@ import Testing
         let relaunched = h.picks()
         #expect(relaunched.mascot(of: Self.scout, in: h.settings.snapshot) == "moon")
         #expect(relaunched.mascot(of: Self.main, in: h.settings.snapshot) == "machine")
-        #expect(relaunched.mascot(of: "agent_new02", in: h.settings.snapshot) == HomeChiefPetSetting.defaultMascot)
+        #expect(relaunched.mascot(of: "agent_new02", in: h.settings.snapshot) == HomeChiefPetSetting.mascotDefault)
         let reopened = await h.popover(chief: Self.scout, picks: relaunched)
         await h.until { reopened.checked() == [moon] }
         #expect(reopened.checked() == [moon])
