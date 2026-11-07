@@ -22,5 +22,9 @@ tokio = { workspace = true, features = ["time", "rt"] }
 uuid.workspace = true
 zeroize.workspace = true
 
+[dev-dependencies]
+# Paused time: the preview deadline tests run in no wall time.
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true
