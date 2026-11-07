@@ -124,6 +124,16 @@ public final class AgentPaneChatSnapshots {
     /// calls the page's boot, which draws it (chatSnapshot/boot.ts). `read` is that chat's copy
     /// already being read (``AgentPageResources``), so the answer waits on no second read.
     func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
+        var kept: JSONValue?
+        if allowed, let sessionId, !sessionId.isEmpty {
+            if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }
+        }
+        return script(for: sessionId, allowed: allowed, themeKey: themeKey, kept: kept)
+    }
+
+    /// ``script(for:allowed:themeKey:read:)`` once the chat's copy is read: `kept` is what the store
+    /// holds for it, nil for none.
+    func script(for sessionId: String?, allowed: Bool, themeKey: String?, kept: JSONValue?) -> Data {
         var text = "self.\(Self.global)="
         // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
         var why = "kept"
@@ -132,11 +142,7 @@ public final class AgentPaneChatSnapshots {
         } else if sessionId?.isEmpty ?? true {
             why = "no-chat"
         }
-        var kept: JSONValue?
-        if why == "kept", let sessionId {
-            if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }
-        }
-        if let kept, Self.draws(kept) {
+        if why == "kept", let kept, Self.draws(kept) {
             kept.appendCompactText(to: &text)
         } else {
             if why == "kept" { why = disk == nil ? "no-store" : kept?["miss"]?.stringValue.map { "none: \($0)" } ?? "none" }

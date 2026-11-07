@@ -85,6 +85,32 @@ struct ChatSnapshotStoreTests {
         }
     }
 
+    /// Once the copy read ahead is in, the document's request is answered in the turn it arrives,
+    /// with what the usual answer gives; before, and for an incognito page, as the usual answer says.
+    @Test func theCopyReadAheadAnswersAtOnce() async throws {
+        try await Self.withDisk { disk in
+            try await Self.put("s-7", html: "<main>ready</main>")
+            await disk.settled()
+            let url = URL(string: "cmux-page://cmux.agent/__snapshot/chat.js")!
+            let request = PageResourceRequest(prefix: "__snapshot", path: ["chat.js"], url: url)
+            let resources = AgentPageResources(session: { "s-7" }, allowed: { true })
+            resources.themeKey = { "theme-1" }
+            #expect(resources.readyResource(for: request) == nil, "answered before the read was in")
+            await resources.readAhead()
+            let ready = try #require(resources.readyResource(for: request))
+            #expect(ready.mimeType == "text/javascript")
+            let script = try #require(String(data: ready.data, encoding: .utf8))
+            #expect(script.contains("<main>ready</main>"))
+            #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";self.__cmuxChatSnapshotBoot?.();"))
+            // Taken once: a reload asks the usual way and reads the copy as it is then.
+            #expect(resources.readyResource(for: request) == nil)
+            // A page in an incognito window gets its null at once, with no copy.
+            let incognito = AgentPageResources(session: { "s-7" }, allowed: { false })
+            let refused = try #require(incognito.readyResource(for: request))
+            #expect(String(data: refused.data, encoding: .utf8)?.hasPrefix("self.__cmuxChatSnapshot=null;") == true)
+        }
+    }
+
     /// An incognito chat's page is never kept and never served, also when a page outside incognito
     /// kept a copy of the same chat, and also with that copy read ahead when the page was made.
     /// The pane takes a page whose window it does not know yet as incognito (AgentPaneView).
