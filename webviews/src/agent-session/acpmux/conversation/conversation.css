@@ -2004,9 +2004,10 @@ pre.cv-math-source {
   display: flex;
   flex: none;
 }
+/* The verb reads in its row's tone, as a tool row's verb does: never brighter than what it asks to
+   run (Leo, 2026-11-07, on the live line's verb: "don't make it white"). */
 .acpmux-ask-verb {
   flex: none;
-  color: var(--cv-text);
 }
 .acpmux-ask-subject {
   min-inline-size: 0;
@@ -2414,10 +2415,12 @@ pre.cv-math-source {
 .cv-status-verb__size::before {
   content: attr(data-text);
 }
-/* The live line's action in full ink, the rest of its words at the line's muted tone, as Claude Code
-   desktop draws "Using repo: repo grep" (Thinking.tsx `liveLead`). */
+/* The live line's action (Thinking.tsx `liveLead`: "Writing", "Using repo", "Running") reads in the
+   line's own muted tone, as the words after it do; the shimmer is its only lift (Leo, 2026-11-07:
+   "The, like, white text, the verb ... why is it white? ... don't make it white"). Takes back
+   #33241's full-ink lead. The span stays: the roll-out copy and the gallery's looks name it. */
 .cv-worked__lead {
-  color: var(--cv-text);
+  color: inherit;
 }
 .cv-shimmer__band {
   display: none;
@@ -2472,12 +2475,12 @@ pre.cv-math-source {
 
 /* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
-   calls at the bottom"): the old words (`cv-roll-out`, their action in full ink as the line drew
-   them) rise, soften and fade out above while the new rise in from below. Transform, opacity and a
-   small blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it.
-   Reduce Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
-   static status look change the words at once; the old words never show. Two keyframes of one
-   roll, swapped each change, restart it on the same element, so the line's live region is never
+   calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them)
+   rise, soften and fade out above while the new rise in from below. Transform, opacity and a small
+   blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it. Reduce
+   Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
+   static status look change the words at once; the old words never show. Two keyframes of one roll,
+   swapped each change, restart it on the same element, so the line's live region is never
    remounted. The new words fill backwards only, so no filter stays on the shimmer once they land. */
 .cv-roll-out {
   display: none;
@@ -2498,7 +2501,6 @@ pre.cv-math-source {
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
-    color: var(--cv-text);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
     content: attr(data-text);
@@ -3417,6 +3419,35 @@ button.cv-video-frames__frame:focus-visible {
    gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
+/* The compact grouped sheet (Leo, 2026-11-04: "the iOS app renders these things better than the
+   desktop app") is the gallery's `ios-sheet` look: a card surface, each step's kind icon, its words
+   in the text tone and its chevron at rest. ShellBlock, EditDiff and ToolImages keep the useful
+   command, output tail, diff or capture they already present. */
+:root[data-tool-steps-look="ios-sheet"] .cv-steps {
+  margin: 0;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
+  padding: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step + .cv-step {
+  border-top: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
+  visibility: visible;
+  color: var(--cv-text-muted);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool,
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  color: var(--cv-text);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  color: var(--cv-text-muted);
+  opacity: 1;
+}
 :root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }

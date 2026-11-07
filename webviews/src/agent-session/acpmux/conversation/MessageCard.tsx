@@ -14,7 +14,8 @@ import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, useSyncE
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
-import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
@@ -22,7 +23,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
 import { ExpandRow } from "./ExpandRow";
-import { targetChat } from "./SentMessageLine";
+import { targetChat } from "./sentMessageLineModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 
 export function MessageCard({
