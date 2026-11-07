@@ -130,6 +130,13 @@ const STANDARD_ICONS: IconSizes = { toolbar: 20, chip: 16, trailing: 18, star: 2
 
 /** A press that must not move DOM focus out of the field. */
 const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
+/**
+ * `keepFocus` for a draggable control (a pinned extension): only while the field has the keys, so
+ * at rest the press can still start a drag to reorder.
+ */
+const keepFocusWhileEditing = (event: ReactMouseEvent) => {
+  if (event.currentTarget.ownerDocument.activeElement?.tagName === "INPUT") event.preventDefault();
+};
 
 // MARK: Button states (BrowserToolbarPolicy)
 
@@ -381,7 +388,7 @@ function ExtensionButton({
       disabled={action.enabled === false}
       data-active={pressed || undefined}
       tabIndex={holdsFocus ? -1 : undefined}
-      onMouseDown={holdsFocus ? keepFocus : undefined}
+      onMouseDown={holdsFocus ? keepFocusWhileEditing : undefined}
       draggable
       onDragStart={(event) => {
         event.dataTransfer.setData(EXTENSION_DRAG, action.id);
@@ -724,6 +731,7 @@ export function BrowserToolbar({
         <div className="bc-group bc-navigation">
           <ToolbarIconButton
             id="back"
+            domId="browser.toolbar.back"
             icon="browser.toolbar.back"
             label={t("browser.toolbar.back")}
             enabled={navigation.canGoBack}
@@ -736,6 +744,7 @@ export function BrowserToolbar({
           {layout.showsForward && (
             <ToolbarIconButton
               id="forward"
+              domId="browser.toolbar.forward"
               icon="browser.toolbar.forward"
               label={t("browser.toolbar.forward")}
               enabled={navigation.canGoForward}
@@ -748,6 +757,7 @@ export function BrowserToolbar({
           )}
           <ToolbarIconButton
             id="reload"
+            domId="browser.toolbar.reload"
             icon={loading ? "browser.toolbar.stop" : "browser.toolbar.reload"}
             label={t(loading ? "browser.toolbar.stop" : "browser.toolbar.reload")}
             holdsFocus={hold}
