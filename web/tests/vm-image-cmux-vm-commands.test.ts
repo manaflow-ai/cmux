@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
@@ -10,6 +10,7 @@ import { imageLeftoversCommand, programChecksCommand, programProblems, secretSca
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
+import { CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const lock = readInputsLock();
 
@@ -188,5 +189,77 @@ describe("cmux VM image apt index", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("cmux VM image snapshot-ready check", () => {
+  const homes = [CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME];
+  async function ready(root: string, acpmuxRunning = true) {
+    const bin = path.join(root, "stub-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, "systemctl"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(path.join(bin, "pgrep"), `#!/bin/sh\nexit ${acpmuxRunning ? 0 : 1}\n`, { mode: 0o755 });
+    return runChild("bash", ["-c", bake.snapshotReadyCommand(root)], {
+      env: { PATH: `${bin}:/usr/bin:/bin`, HOME: root },
+      timeout: 20_000,
+    });
+  }
+
+  test("passes with cmux-host and acpmux running and no per-machine file", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "snapshot-ready-"));
+    try {
+      const result = await ready(root);
+      expect(result.stdout).toContain("snapshot-ready");
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a snapshot without acpmux running", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "snapshot-ready-"));
+    try {
+      expect((await ready(root, false)).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  async function refuses(files: string[], message: string) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "snapshot-ready-"));
+    try {
+      for (const file of files) {
+        mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+        writeFileSync(path.join(root, file), "{}");
+      }
+      const result = await ready(root);
+      expect(result.status, files.join(" ")).not.toBe(0);
+      expect(result.stderr, files.join(" ")).toContain(message);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test("refuses each per-machine file a clone writes at bind", async () => {
+    for (const file of bake.PER_MACHINE_FILES) await refuses([file], `per-machine file in the snapshot: `);
+  });
+
+  test("refuses the session host's remote identity and machine secrets", async () => {
+    // Under both layouts' homes, so the check refuses whichever one this host's layout selector picks.
+    for (const rel of [
+      ".local/state/cmux/remote/sessions/c2Vzc2lvbg/auth/identity.json",
+      ".local/state/cmux-tui/sessions/machine-id",
+      ".local/state/cmux-tui/sessions/resource-effect-pepper",
+    ])
+      await refuses(
+        homes.map((h) => `${h}/${rel}`),
+        "per-machine identity in the snapshot",
+      );
+  });
+
+  test("runs last, right before the snapshot", () => {
+    const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
+    const at = source.indexOf('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
+    expect(at).toBeGreaterThan(source.indexOf('L.step(vm, "machine-health-arm"'));
   });
 });
