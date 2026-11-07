@@ -111,6 +111,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
+                    # The window handlers' rules (cmux-window-rules).
+                    "cmux-window-rules",
                 ]
             ),
         )

@@ -1,7 +1,8 @@
 //! `cmux cloud codex-holder`: the NEXT app's Codex access holder for its Cloud machines
 //! (cmux-cloud-codex-holder, its protocol in that crate's `serve.rs`). The app starts it once
 //! and talks JSON lines on its stdin and stdout; this file only wires the holder to the
-//! machines' exec and file routes, the same direct-or-proxy path as `cmux cloud machine-io`,
+//! machines' exec and file routes, the same direct-or-proxy path as `cmux cloud machine-io`
+//! (`cmux_cloud_api::machine_io`),
 //! with the app's Cloud credential asked per call.
 
 use std::io::Read as _;
@@ -11,11 +12,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_cloud_api::machine_io::{
+    Answer, Op, Request, RouteChoice, Spool, http_client, now_ms, perform,
+};
+use cmux_cloud_api::session::secure_origin;
 use cmux_cloud_codex_holder::{App, Config, ExecResult, Machines, VmError};
 use serde_json::Value;
-
-use super::cloud_client_session::secure_origin;
-use super::cloud_machine_io::{Answer, Op, Request, RouteChoice, Spool, http_client, perform};
 
 /// `Some(exit code)` when `args` is `cloud codex-holder`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -99,6 +101,7 @@ impl MachineIo {
             cache_dir: self.cache_dir.clone(),
             route: RouteChoice::Auto,
             app_version: self.app_version.clone(),
+            local_only: false,
         };
         fill(&mut request);
         let (_route, answer) = perform(client, &request, now_ms).await;
@@ -115,12 +118,6 @@ impl MachineIo {
             .map_or_else(|| format!("the machine route answered {}", answer.status), str::to_owned);
         Err(VmError { status: answer.status, code, message })
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn undecodable(what: &str) -> VmError {

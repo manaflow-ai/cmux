@@ -28,6 +28,8 @@
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
+//! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
+//! and whether it earns an undo toast),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -71,6 +73,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
 pub mod typed;
+mod window_rules;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -425,6 +428,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if window_rules::handles(operation) => {
+                window_rules::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };
