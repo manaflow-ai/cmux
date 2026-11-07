@@ -56,7 +56,8 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         }
     }
 
-    /// What draws the dialogs (the overlay page); nil draws none (a host made before launch wired it).
+    /// What draws the dialogs (the overlay page); nil draws none (a host made before launch wired it), and
+    /// its dialogs wait for the center's next host (``CmuxDialogCenter/host``).
     private let drawing: (any CmuxDialogDrawing)?
     /// The least size of an app-scope dialog's region (no window to fill); it grows to hold the card.
     static let appRegion = NSSize(width: 520, height: 420)

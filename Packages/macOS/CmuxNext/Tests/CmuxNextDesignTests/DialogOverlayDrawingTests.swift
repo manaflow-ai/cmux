@@ -135,6 +135,20 @@ import Testing
         #expect(excluded.holdsSecret)
     }
 
+    /// Review 20 of #37296 (F1): a center made with the default host (no drawing) kept a dialog registered
+    /// but never shown, and giving the center a drawing host later left it there. The dialog moves to the
+    /// new host and shows.
+    @Test func aDialogShownBeforeTheDrawingIsWiredShowsOnceItIs() {
+        let center = CmuxDialogCenter()
+        let (window, _) = Self.window()
+        defer { window.close() }
+        let id = center.present(CmuxDialogSpec(title: "Close?", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
+        defer { center.dismiss(id) }
+        #expect(center.dialog(id)?.view == nil)
+        center.host = CmuxDialogOverlayHost(drawing: LateDrawing(), activate: {}, isAppActive: { true })
+        #expect(center.dialog(id)?.view?.window != nil)
+    }
+
     /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was
     /// clipped. The region grows about the tab to hold the card, inside the window; a card that fits keeps
     /// the tab.
