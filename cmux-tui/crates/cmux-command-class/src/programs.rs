@@ -31,7 +31,7 @@ pub(crate) fn sed(tail: &[&str]) -> Classification {
             match name {
                 "in-place" => verdict.add(FileWrite, "sed -i"),
                 "expression" => {
-                    scripts.push(value.or_else(|| tail.get(j).copied()).unwrap_or_default())
+                    scripts.push(value.or_else(|| tail.get(j).copied()).unwrap_or_default());
                 }
                 "file" => verdict.add(Machine, "sed -f"),
                 "sandbox" => sandbox = true,
