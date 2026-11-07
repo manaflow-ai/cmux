@@ -15,8 +15,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     private var joinedRead: Task<Void, Never>?
 
     init(services: AppServices) {
-        let machines = services.machines, health = services.machineHealth, joined = services.joinedMachines
-        let registry = services.registry
+        let machines = services.machines, health = services.machineHealth, joined = services.joinedMachines, registry = services.registry
         self.joined = joined
         let provider = MachineSectionPageProvider(dependencies: .init(
             rows: { MachineSectionRow.rows(machines, health: health, joined: joined) },
