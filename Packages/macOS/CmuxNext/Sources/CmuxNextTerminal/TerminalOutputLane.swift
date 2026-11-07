@@ -60,6 +60,14 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     let debugQueuedNanos = Atomic<UInt64>(0)
     let debugParsedNanos = Atomic<UInt64>(0)
     let debugParsedBytes = Atomic<UInt64>(0)
+    /// The COLS of the last pixel fixture frame parsed (its centre label `pN  COLSxROWS`), 0 before one.
+    let debugLabelCols = Atomic<UInt64>(0)
+
+    private func debugNoteLabel(_ data: Data) {
+        let text = String(decoding: data, as: UTF8.self)
+        guard let match = text.matches(of: /(\d+)x(\d+)/).last, let cols = UInt64(match.output.1) else { return }
+        debugLabelCols.store(cols, ordering: .relaxed)
+    }
     #endif
 
     func processOutput(_ data: Data) {
@@ -78,6 +86,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
             #if DEBUG || CMUX_BENCH_HOOKS
             _ = debugParsedBytes.add(UInt64(data.count), ordering: .relaxed)
+            debugNoteLabel(data)
             debugParsedNanos.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), ordering: .relaxed)
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif

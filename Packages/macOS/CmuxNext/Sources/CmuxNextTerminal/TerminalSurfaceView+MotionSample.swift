@@ -40,7 +40,8 @@ extension TerminalSurfaceView {
                           // RESIZE P0 9 diag (nomerge): output queued / parsed uptime ns and bytes parsed (TerminalOutputLane)
                           surfaceView.lane?.debugQueuedNanos.load(ordering: .relaxed) ?? 0,
                           surfaceView.lane?.debugParsedNanos.load(ordering: .relaxed) ?? 0,
-                          surfaceView.lane?.debugParsedBytes.load(ordering: .relaxed) ?? 0]
+                          surfaceView.lane?.debugParsedBytes.load(ordering: .relaxed) ?? 0,
+                          surfaceView.lane?.debugLabelCols.load(ordering: .relaxed) ?? 0]
         return ["terminal": [row]]
     }
 
