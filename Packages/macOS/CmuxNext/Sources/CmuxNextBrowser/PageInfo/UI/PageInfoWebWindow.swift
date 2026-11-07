@@ -72,8 +72,9 @@ final class PageInfoWebWindow: NSWindow {
         onReady?()
     }
 
-    override func makeKeyAndOrderFront(_ sender: Any?) {
-        super.makeKeyAndOrderFront(sender)
+    /// Each time the window becomes key, the page takes the keys.
+    override func becomeKey() {
+        super.becomeKey()
         content.focus()
     }
 

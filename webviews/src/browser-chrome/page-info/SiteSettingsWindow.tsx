@@ -49,7 +49,7 @@ function PermissionControl({
   const pick = (setting: SitePermissionSetting) => send({ type: "setPermission", kind: row.kind, setting });
   if (look === "segmented") {
     return (
-      <span className="piw-segments" role="group" aria-label={name}>
+      <fieldset className="piw-segments" aria-label={name}>
         {row.choices.map((choice) => (
           <Button
             key={choice}
@@ -61,7 +61,7 @@ function PermissionControl({
             {choiceTitle(strings, choice, row.kind)}
           </Button>
         ))}
-      </span>
+      </fieldset>
     );
   }
   return (
