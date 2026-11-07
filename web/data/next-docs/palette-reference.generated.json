@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1327,
+    "entries": 1328,
     "shortcuts": 189
   },
   "sections": [
@@ -6398,6 +6398,12 @@
           "title": "Show Background Tasks in Session Info",
           "shortcut": null,
           "command": "cmux agent show-background-tasks"
+        },
+        {
+          "id": "agentPane.showInMini",
+          "title": "Show in Mini",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentPane.showSubagents",
