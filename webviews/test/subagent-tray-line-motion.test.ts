@@ -72,12 +72,11 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     expect(body.split(" ")[0]).toBe("none");
   });
 
-  test("the gallery's row arms: fade fades as a transcript row does; slide rises on the fold's clock", async () => {
-    const fade = await page(`<div class="acpmux-row--enter">row</div>${tray("fade")}`, "no-preference");
-    const row = await motionOf(fade, ".acpmux-row--enter");
+  test("the gallery's row arms: fade is the opacity-only arrival; slide rises on the fold's clock", async () => {
+    const fade = await page(tray("fade"), "no-preference");
     const faded = await motionOf(fade, ".acpmux-running-tray__list > li");
     await fade.close();
-    expect(faded).toBe(row);
+    expect(faded).toBe("cv-enter-fade 0.12s cubic-bezier(0, 0, 0.58, 1)");
     const slide = await page(tray("slide"), "no-preference");
     const rise = await motionOf(slide, ".acpmux-running-tray__row");
     await slide.close();
