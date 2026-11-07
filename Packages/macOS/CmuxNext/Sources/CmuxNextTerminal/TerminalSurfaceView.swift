@@ -505,7 +505,7 @@ public final class TerminalSurfaceView: NSView {
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) and a drag (its release's spring too, cmux-ad m29) are live instead: their
-        // grids go coalesced (``TerminalGridReporter``), at most once per refresh and the newest, ending at the landing's.
+        // grids go coalesced (``TerminalGridReporter``), at most once per refresh (the first at once, RESIZE P0 7), ending at the landing's.
         let followsKeyHold = (superview as? TerminalHostView)?.surfaceFollowsArea ?? false
         let live = followsKeyHold || isFollowingResizeGesture
         // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
