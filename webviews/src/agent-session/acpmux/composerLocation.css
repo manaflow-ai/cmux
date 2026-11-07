@@ -179,6 +179,38 @@
   outline-offset: 2px;
   color: var(--agent-text);
 }
+/* The icon column (Leo 2026-11-07, of New Tab's project chip: "I think they should be sort of like
+   center aligned with the bypass permissions symbols"; leo-workspace design/composer.md rule 15): a
+   location chip's leading mark centers where a 14 px ghost icon's does, the small ghost button's
+   leading padding (its inset less its bearing) plus half the icon. The strip's padding puts that
+   center on the + glyph's, and the quiet row's shield sits on the same line. A project's badge
+   (ProjectBadge.tsx, 20 px) is wider than the icon and no .ui-ghost-icon, so the ghost button gave
+   it its full inset and its center stood 4.5 px right of + and the shield. Its leading padding is
+   the same center less half the badge, so the badge grows evenly around the icon's center and the
+   hover pill keeps its edge (test/newtab-icon-column.test.ts). */
+.acpmux-location-button {
+  --acpmux-location-icon-center: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing) + var(--ui-ghost-icon-size) / 2);
+}
+.acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  padding-inline-start: max(0px, calc(var(--acpmux-location-icon-center) - var(--acpmux-project-badge-size, 20px) / 2));
+}
+/* The gallery's other arms (newtab/iconColumn.experiment.ts), New Tab only. current: the ghost
+   button's full inset, as before. shift: the full inset, the chip moved out by the badge's extra
+   half width. shrink: the badge drawn at the ghost icon's size. */
+.nt-composer:is([data-icon-column="current"], [data-icon-column="shift"])
+  .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  padding-inline-start: var(--ui-ghost-inset);
+}
+.nt-composer[data-icon-column="shift"] .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  margin-inline-start: calc(var(--acpmux-location-icon-center) - var(--ui-ghost-inset) - var(--acpmux-project-badge-size, 20px) / 2);
+}
+.nt-composer[data-icon-column="shrink"] .acpmux-location-button > .acpmux-project-badge:first-child {
+  --acpmux-project-badge-size: var(--ui-ghost-icon-size);
+}
+.nt-composer[data-icon-column="shrink"] .acpmux-location-button > .acpmux-project-badge:first-child > :is(img, svg) {
+  width: 100%;
+  height: 100%;
+}
 .acpmux-location-button > .ui-ghost-icon:last-child {
   /* The chevron path is optically high inside its 14px viewBox. */
   transform: translateY(0.75px);

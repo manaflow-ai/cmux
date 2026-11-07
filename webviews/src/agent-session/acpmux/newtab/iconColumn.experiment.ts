@@ -11,25 +11,25 @@ export const newTabIconColumn = defineExperiment({
   title: "New Tab icon column",
   description: "Where the folder chip's icon, the + glyph and the permission shield line up.",
   arms: {
-    current: {
-      label: "Current",
-      description: "The strip and the quiet row as they were: each places its own icon from its own padding.",
-    },
-    "chip-to-shield": {
-      label: "Chip to shield",
-      description: "Only the folder chip moves: its icon takes the shield's inset; + and the shield stay.",
-    },
-    "plus-center": {
-      label: "+ center",
-      description: "The folder icon and the shield both move onto the + glyph's center.",
-    },
-    shared: {
-      label: "Shared column",
+    pad: {
+      label: "Derived padding",
       description:
-        "One --nt-icon-column token (the + button's center) that the strip, the box and the quiet row all place their first icon on.",
+        "The project badge's leading padding is the ghost icon's center less half the badge: the badge centers on the icon column, the hover pill keeps its edge.",
+    },
+    shift: {
+      label: "Shift the chip",
+      description: "The chip keeps its full inset and moves out by the badge's extra half width; its hover pill moves with it.",
+    },
+    shrink: {
+      label: "Shrink the badge",
+      description: "The project badge draws at the 14 px ghost icon's size, so the button's icon padding centers it.",
+    },
+    current: {
+      label: "Before",
+      description: "The ghost button's full inset before the badge: its center 4.5 px right of + and the shield.",
     },
   },
-  defaultArm: "current",
+  defaultArm: "pad",
 });
 
 export type NewTabIconColumnArm = keyof typeof newTabIconColumn.arms;

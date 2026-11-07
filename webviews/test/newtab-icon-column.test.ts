@@ -76,7 +76,7 @@ await requireBrowserLane("newtab-icon-column.test.ts", async () => {
                   element ? element.getBoundingClientRect().left : null;
                 const q = (selector: string) => document.querySelector(selector);
                 return {
-                  folder: cx(q(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child .ui-ghost-icon")),
+                  folder: cx(q(".nt-above .acpmux-location-leading > .acpmux-location-picker:first-child button > :first-child")),
                   plus: cx(q(".nt-box .acpmux-composer-plus svg")),
                   shield: cx(q(".nt-foot .acpmux-access-trigger svg")),
                   composerLeft: left(q(".nt-composer")),
