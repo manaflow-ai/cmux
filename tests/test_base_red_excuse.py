@@ -3798,6 +3798,13 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.judge()
         self.assertEqual(len(self.graphql), 1)
 
+    def test_a_rollup_that_never_named_the_pin_is_another_red(self):
+        # Review of 0e1e7204: the rollup failed before its "red check:" line, so something else broke it.
+        self.gh.logs[1] = self.pin_log().replace(f"##[error]red check: {self.PIN}", "Reading the step outcomes")
+        self.pr_files(*self.RUST)
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
     def test_the_pin_step_itself_may_report_its_failure(self):
         self.gh.jobs[1]["steps"].insert(1, {"name": self.PIN, "status": "completed", "conclusion": "failure"})
         self.pr_files(*self.RUST)

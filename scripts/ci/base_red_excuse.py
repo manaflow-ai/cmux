@@ -1023,7 +1023,9 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     if not any(touches(path, read) for path in paths for read in FFI_INPUTS):
         raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes no app FFI input")
     others = {error for error in errors if not error.startswith(pin)} - {rollup}
-    if tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others:
+    # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
+    if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
+            or rollup not in errors):
         return None
     return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
             f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
