@@ -592,3 +592,160 @@ async fn a_web_client_or_a_paired_device_cannot_restore_a_journal() {
         "B's journal took a paired device's records: {after:#?}"
     );
 }
+
+/// One chat on a machine of its own, restored straight through its unix socket (the owner's
+/// daemon would send the same request over its link).
+struct OneChat {
+    home: tempfile::TempDir,
+    hub: Arc<Hub>,
+    c: C,
+    id: String,
+    created: Value,
+    before: u64,
+}
+
+async fn one_chat() -> OneChat {
+    let _ = HERMETIC;
+    let home = tempfile::tempdir().unwrap();
+    let cfg = config(StoreMode::Local);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    hub.resume_queues();
+    let mut c = plain_client(hub.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "moved"}}});
+    let id = c.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+    let created = hub.session_summary(&hub.resolve(&id).unwrap())["createdAt"].clone();
+    let before = journal(&hub, &id).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap_or(0);
+    OneChat { home, hub, c, id, created, before }
+}
+
+impl OneChat {
+    /// Three records the owner kept past where this journal ends.
+    fn kept(&self) -> Vec<Value> {
+        (1..=3)
+            .map(|n| {
+                json!({"seq": self.before + n, "at": 1_000 + n, "dir": "mux", "kind": "status",
+                       "msg": {"status": "idle", "detail": format!("kept {n}")}})
+            })
+            .collect()
+    }
+
+    async fn restore(&mut self) -> Value {
+        let p = json!({"sessionId": self.id, "createdAt": self.created,
+                       "afterSeq": self.before, "records": self.kept()});
+        self.c.raw("_acpmux/journal_restore", p).await
+    }
+
+    fn prompt(&self, prompt_id: &str, meta: Value) -> JoinHandle<Value> {
+        let (hub, id, prompt_id) = (self.hub.clone(), self.id.clone(), prompt_id.to_owned());
+        tokio::spawn(async move {
+            let mut c = plain_client(hub).await;
+            let mut mux = json!({"promptId": prompt_id});
+            mux.as_object_mut().unwrap().extend(meta.as_object().cloned().unwrap_or_default());
+            let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}],
+                           "_meta": {"acpmux": mux}});
+            c.raw(method::SESSION_PROMPT, p).await
+        })
+    }
+}
+
+/// Review of #37284 at df095c5d, F1: a restore that stopped short holds the chat until the
+/// owner's next try, so a prompt sent in between waits, the retry is taken (not `diverged`), and
+/// the prompt runs once, after every kept record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_between_a_restores_tries_waits_for_the_retry() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let mut chat = one_chat().await;
+    acpmux::hub::journal_restore::fail_once_after_first_record(&chat.id);
+    let first = chat.restore().await;
+    assert_eq!(first["error"]["data"]["reason"], "append_failed", "{first}");
+    let between = chat.prompt("p-between", json!({}));
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let events = journal(&chat.hub, &chat.id);
+    assert!(
+        !events.iter().any(|e| ["queued", "user_message"].iter().any(|kind| names_prompt(
+            e,
+            kind,
+            "p-between"
+        ))),
+        "a prompt went in between the restore's tries: {events:#?}"
+    );
+    let retry = chat.restore().await;
+    assert!(retry.get("error").is_none(), "the retry was refused: {retry}");
+    let ran = tokio::time::timeout(Duration::from_secs(60), between).await.unwrap().unwrap();
+    assert!(ran.get("error").is_none(), "the prompt was refused: {ran}");
+    let events = journal(&chat.hub, &chat.id);
+    let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "seqs: {seqs:?}");
+    for record in chat.kept() {
+        let seq = record["seq"].as_u64().unwrap();
+        let held = events.iter().find(|e| e["seq"].as_u64() == Some(seq));
+        assert!(held.is_some_and(|e| e["msg"] == record["msg"]), "seq {seq} is not the kept one");
+    }
+    let prompt = events.iter().find(|e| names_prompt(e, "user_message", "p-between")).unwrap();
+    assert!(prompt["seq"].as_u64().unwrap() > chat.before + 3, "{prompt}");
+}
+
+/// F2: a purge that comes while a restore holds the chat waits for it, and then leaves nothing:
+/// no record of the restore brings the purged chat's folder back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_purge_during_a_restore_leaves_nothing_of_the_chat() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let mut chat = one_chat().await;
+    acpmux::hub::journal_restore::pause_once_holding(&chat.id, 1500);
+    let mut killer = client(chat.hub.clone()).await;
+    let id = chat.id.clone();
+    let purge = tokio::spawn(async move {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !acpmux::hub::journal_restore::test_paused() {
+            assert!(Instant::now() < deadline, "the restore never held the chat");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        killer.raw(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await
+    });
+    let restored = chat.restore().await;
+    let purged = tokio::time::timeout(Duration::from_secs(60), purge).await.unwrap().unwrap();
+    assert!(purged.get("error").is_none(), "the purge failed: {purged}");
+    assert!(chat.hub.resolve(&chat.id).is_err(), "the chat outlived its purge");
+    let folder = chat.home.path().join(&chat.id);
+    assert!(!folder.exists(), "the purged chat's folder came back ({restored}): {folder:?}");
+    let events = chat.hub.events(&chat.id, 0, 100).unwrap_or_default();
+    assert!(events.is_empty(), "the purged chat has records again: {events:#?}");
+}
+
+/// F3: a flush that fails fails the restore, even with every record read back, so the owner
+/// keeps its copy and tries again; the retry is taken, with each record once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_whose_flush_fails_is_not_taken_until_a_retry_flushes() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let mut chat = one_chat().await;
+    acpmux::hub::journal_restore::fail_flush_once(&chat.id);
+    let first = chat.restore().await;
+    assert_eq!(first["error"]["data"]["reason"], "append_failed", "{first}");
+    let retry = chat.restore().await;
+    assert!(retry.get("error").is_none(), "the retry was refused: {retry}");
+    assert_eq!(retry["result"]["lastSeq"], chat.before + 3, "{retry}");
+    let events = journal(&chat.hub, &chat.id);
+    let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
+    assert_eq!(seqs, (1..=chat.before + 3).collect::<Vec<_>>(), "each record once");
+}
+
+/// F4: a delivery again names the generation it first reached; a session of another generation
+/// under the same id refuses it as stale and runs nothing. The same generation runs it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delivery_again_to_another_generation_of_its_session_is_refused_as_stale() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    let chat = one_chat().await;
+    let generation = chat.created.as_u64().unwrap();
+    let stale = chat.prompt("p-stale", json!({"resend": true, "sessionCreatedAt": generation - 1}));
+    let stale = tokio::time::timeout(Duration::from_secs(60), stale).await.unwrap().unwrap();
+    assert_eq!(stale["error"]["data"]["reason"], "stale_generation", "{stale}");
+    let events = journal(&chat.hub, &chat.id);
+    assert!(
+        !events.iter().any(|e| e["msg"]["promptId"] == "p-stale"),
+        "a stale delivery ran: {events:#?}"
+    );
+    let same = chat.prompt("p-same", json!({"resend": true, "sessionCreatedAt": generation}));
+    let same = tokio::time::timeout(Duration::from_secs(60), same).await.unwrap().unwrap();
+    assert!(same.get("error").is_none(), "the same generation refused it: {same}");
+}

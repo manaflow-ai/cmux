@@ -1373,6 +1373,7 @@ impl Hub {
             admit: StdMutex::new(()),
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
+            restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),

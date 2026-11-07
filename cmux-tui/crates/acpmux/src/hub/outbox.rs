@@ -92,6 +92,11 @@ pub struct Delivery {
     /// its journal holds it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
+    /// The generation (`createdAt`) of the peer's session it was delivered to, while
+    /// `open_on_peer`: a delivery again names it (`sessionCreatedAt`), so a session purged and
+    /// made again under the same id refuses it as stale instead of running it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_generation: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -294,6 +299,7 @@ impl Outbox {
             never_sent: false,
             relay_post: None,
             open_on_peer: false,
+            peer_generation: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -536,6 +542,7 @@ mod tests {
             never_sent: false,
             relay_post: None,
             open_on_peer: false,
+            peer_generation: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -773,6 +780,7 @@ mod tests {
             never_sent: false,
             relay_post: None,
             open_on_peer: false,
+            peer_generation: None,
             error: None,
             accepted: None,
             created_at: 0,

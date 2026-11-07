@@ -129,6 +129,10 @@ pub struct Session {
     /// (its `queued` record, its turn) goes between the restore's check and its settle.
     pub(super) restoring: AtomicBool,
     pub(super) restore_done: tokio::sync::Notify,
+    /// A restore that stopped short holds this chat until the owner's next try (`journal_restore.rs`):
+    /// the number of the hold, so its lapse ends only the hold it was set for. `restoring` stays
+    /// set while it is held. Taken under `admit`; a leaf lock.
+    pub(super) restore_lease: StdMutex<Option<u64>>,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.

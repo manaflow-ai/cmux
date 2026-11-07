@@ -139,6 +139,7 @@ pub(super) async fn handle(
         never_sent: true,
         relay_post: None,
         open_on_peer: false,
+        peer_generation: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -235,6 +236,7 @@ pub(super) async fn remember_forward(
         never_sent: false,
         relay_post: None,
         open_on_peer: false,
+        peer_generation: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -608,12 +610,18 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             Ok(accepted) => {
                 // A peer's session may lose it with the machine's disk until its journal is
                 // seen holding it after a later link (`redeliver_open`).
-                let open = hub.resolve(&delivery.target).is_err()
-                    && hub.resolve_remote(&delivery.target).is_some()
-                    && !duplicate(&accepted);
+                // Kept with the generation of the session it reached: a delivery again goes to
+                // that one only.
+                let remote = (hub.resolve(&delivery.target).is_err() && !duplicate(&accepted))
+                    .then(|| hub.resolve_remote(&delivery.target))
+                    .flatten();
+                let open = remote.is_some();
+                let generation =
+                    remote.and_then(|(_, _, row)| row.get("createdAt").and_then(Value::as_u64));
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
                     d.open_on_peer = open;
+                    d.peer_generation = generation;
                     d.error = None;
                     d.accepted = Some(accepted);
                     // Settled: its record keeps no attachment bytes (`attach.rs`).
@@ -725,14 +733,23 @@ pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
             let mut request = d.request.clone();
             if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                 mux.insert("resend".into(), json!(true));
+                // Only to the generation it reached: one purged and made again under the same
+                // id refuses it as stale (`server/requests.rs`).
+                if let Some(generation) = d.peer_generation {
+                    mux.insert("sessionCreatedAt".into(), json!(generation));
+                }
             }
             match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await {
                 Ok(accepted) if duplicate(&accepted) => {
                     hub.outbox.update(&d.id, |d| d.open_on_peer = false);
                 }
+                // Taken again: settled, as a first delivery is, and not delivered a third time.
                 Ok(accepted) => {
                     tracing::info!(delivery = %d.id, "a peer that had lost a delivery took it again");
-                    hub.outbox.update(&d.id, |d| d.accepted = Some(accepted));
+                    hub.outbox.update(&d.id, |d| {
+                        d.open_on_peer = false;
+                        d.accepted = Some(accepted);
+                    });
                 }
                 // Refused for good (the session is gone there): nothing more to keep open.
                 Err((_, Next::Fail | Next::NoSession | Next::Held)) => {
@@ -976,6 +993,7 @@ mod retry_delay_tests {
             never_sent: true,
             relay_post: None,
             open_on_peer: false,
+            peer_generation: None,
             error: None,
             accepted: None,
             created_at,

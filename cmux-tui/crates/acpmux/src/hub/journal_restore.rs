@@ -14,18 +14,19 @@
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
 //! resend of that id joins it instead of running it twice.
 //!
-//! Design (third review of #37284): a restore is one exclusive operation on its chat.
-//! - Locks, in this order: `turn_lock` (async, as a turn takes it; at most [`TURN_LOCK_WITHIN`],
-//!   else `busy`), then `admit` (only to check and set `restoring`), then `log_load`, then
-//!   `append_lock` (the check, the writes and the read-back). Nothing takes them the other way.
-//! - States of the chat: idle; `restoring` (set under `admit` with no turn, claim or reservation;
-//!   every new prompt waits for `restore_done`, nothing it would log goes in); settled.
-//! - Writes: only past where the journal ends, each record with its own seq. After the writes
-//!   (or an error) the journal's end and the meta's counts are read back from the log on disk,
-//!   never counted in memory, so a line written before an error is kept once and a retry goes
-//!   on after it with no seq twice. Short of the last record it answers `append_failed`.
-//! - Released: `restoring` and `restore_done` when the restore returns (any outcome), the turn
-//!   lock after the settle; what the settle starts (the cut turn's continuation) waits for it.
+//! Design (fourth review of #37284): a restore is one exclusive operation on its chat, from
+//! the owner's first try until every record it holds is in and flushed, or the owner gave up.
+//! - Locks, in this order: `close_lock` (as a stop or purge takes it; refused `generation` when
+//!   the chat was purged, replaced under its id, or has another `createdAt`), `turn_lock` (at
+//!   most [`TURN_LOCK_WITHIN`], else `busy`), `admit` (check and set `restoring`; `restore_lease`
+//!   inside it), `log_load`, `append_lock`. Nothing takes them the other way.
+//! - States: idle; `restoring` (no turn, claim or reservation; every new prompt waits for
+//!   `restore_done`); held (a try stopped short: still `restoring`, for the owner's next try, at
+//!   most [`RESTORE_HOLD`], then the hold lapses, logged at warn); settled.
+//! - Writes: only past where the journal ends. Afterwards the journal's end and the meta's
+//!   counts are read back from disk, never counted in memory, so a retry writes no seq twice.
+//!   Short of the last record, or any flush error, answers `append_failed`: the owner keeps its
+//!   copy and tries again. The try that finishes settles the log as a restart's load does.
 
 use super::*;
 use std::time::Duration;
@@ -73,37 +74,56 @@ impl Hub {
             .ok()
             .filter(|s| s.id == id)
             .ok_or_else(|| RpcError::invalid_params(format!("no session {id}")))?;
-        if session.meta().created_at != created_at {
+        // (1) The close lock, as a stop or a purge takes it: none runs during the restore, and
+        // this is still the chat the owner names (not purged, not replaced under its id, the
+        // same generation), so no record goes into a purged chat's folder or a new one's.
+        let _closing = session.close_lock.lock().await;
+        if session.purged.load(Ordering::SeqCst)
+            || !self.is_current_session(&session)
+            || session.meta().created_at != created_at
+        {
             return Err(refused("generation", "another generation of this session", &session));
         }
-        // (1) The turn lock, as a turn takes it: no turn starts until the restore settled.
+        // (2) The turn lock, as a turn takes it: no turn starts until the restore settled.
         let Ok(_turn) = tokio::time::timeout(TURN_LOCK_WITHIN, session.turn_lock.lock()).await
         else {
             return Err(refused("busy", "a turn holds this chat", &session));
         };
-        // (2) Under `admit`, as a prompt is admitted: idle, nothing reserved, and from now on
-        // every prompt waits for `restore_done` (`queue.rs` `queue_slot`).
-        {
+        // (3) Under `admit`, as a prompt is admitted: idle, nothing reserved, and from now on
+        // every prompt waits for `restore_done` (`queue.rs` `queue_slot`). A hold an earlier
+        // try left (it stopped short) is this restore's own: the owner alone restores.
+        let resumed = {
             let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+            let held = session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()).take();
             if session.turn().is_some() || session.queued() > 0 || session.turn_claimed() {
+                if held.is_some() {
+                    // Never so while held (every prompt waits); kept as it was, to be safe.
+                    *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = held;
+                }
                 return Err(refused("busy", "a turn runs or waits here", &session));
             }
             session.restoring.store(true, Ordering::SeqCst);
-        }
-        struct Restoring<'a>(&'a Session);
-        impl Drop for Restoring<'_> {
-            fn drop(&mut self) {
-                self.0.restoring.store(false, Ordering::SeqCst);
-                self.0.restore_done.notify_waiters();
-            }
-        }
-        let _restoring = Restoring(&session);
+            held.is_some()
+        };
+        let mut restoring = Restoring { session: session.clone(), hold: false };
         #[cfg(debug_assertions)]
         test_pause(&session.id).await;
-        // (3) The write and the settle, off the executor, with both held.
+        // (4) The write and the settle, off the executor, with all three held.
         let hub = self.clone();
         let held = session.clone();
-        blocking(move || hub.restore_records(&held, after, records))
+        let result = blocking(move || hub.restore_records(&held, after, records, resumed));
+        // (5) Stopped short: the chat stays held for the owner's next try, at most
+        // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
+        if result.as_ref().is_err_and(|e| reason_of(e) == Some("append_failed")) {
+            restoring.hold = true;
+            hold_for_next_try(&session);
+        }
+        result
+    }
+
+    fn is_current_session(&self, session: &Arc<Session>) -> bool {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.get(&session.id).is_some_and(|current| Arc::ptr_eq(current, session))
     }
 
     fn restore_records(
@@ -111,11 +131,12 @@ impl Hub {
         session: &Arc<Session>,
         after: u64,
         records: Vec<EventRecord>,
+        resumed: bool,
     ) -> Result<Value, RpcError> {
         // Under the log's load lock: a first read of the log comes before (and is read again
         // below) or after (and reads the restored records itself).
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
-        let (at, failed) = {
+        let (at, failed, flush_failed) = {
             let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(session);
             let at = session.seq.load(Ordering::SeqCst);
@@ -160,7 +181,11 @@ impl Hub {
                     break;
                 }
             }
-            let flushed = self.store.flush_session(&session.id);
+            let flushed = if test_flush_fails(&session.id) {
+                Err(anyhow::anyhow!("test: the flush fails"))
+            } else {
+                self.store.flush_session(&session.id)
+            };
             // (4) Where the journal ends is read back from it, never counted here: an append can
             // fail after its line is written, and the next try must go on after that line.
             let durable = self.store.events(&session.id, at, usize::MAX);
@@ -176,22 +201,26 @@ impl Hub {
             meta.last_seq = last;
             drop(meta);
             session.seq.store(last, Ordering::SeqCst);
-            (at, failed.or(flushed.err()))
+            (at, failed, flushed.err())
         };
         self.save_meta(session);
         let last = session.seq.load(Ordering::SeqCst);
         let through = records.last().map_or(after, |r| r.seq);
-        // Only every record in, on disk, is a restore: until then nothing settles the log, and
-        // the owner keeps its copy and delivers nothing again (`peer_snapshot/restore.rs`).
-        if let Some(e) = failed.filter(|_| last < through).or_else(|| {
-            (last < through).then(|| anyhow::anyhow!("the journal ends at {last}, not {through}"))
-        }) {
+        // Only every record in and flushed to stable storage is a restore: until then nothing
+        // settles the log, and the owner keeps its copy and delivers nothing again
+        // (`peer_snapshot/restore.rs`). A flush that failed fails it however far the log reads.
+        let short = last < through;
+        if let Some(e) = flush_failed
+            .or_else(|| failed.filter(|_| short))
+            .or_else(|| short.then(|| anyhow::anyhow!("the journal ends at {last}, not {through}")))
+        {
             drop(loaded);
             return Err(stopped(session, &e));
         }
-        // (5) Settled as after a restart, still holding the turn lock: the cut turn is marked and
-        // continued, the queue rebuilt; what they start waits for the lock.
-        let restored = last > at;
+        // (6) Settled as after a restart, still holding the turn lock: the cut turn is marked and
+        // continued, the queue rebuilt; what they start waits for the lock. A try that goes on
+        // after one that stopped short settles what that one wrote too.
+        let restored = last > at || resumed;
         if *loaded && restored {
             self.settle_restored(session);
         }
@@ -204,6 +233,71 @@ impl Hub {
 
 /// How long a restore waits for a turn to give back the chat before it answers `busy`.
 const TURN_LOCK_WITHIN: Duration = Duration::from_secs(5);
+
+/// How long a restore that stopped short holds its chat for the owner's next try: well past the
+/// owner's own tries (`peer_snapshot/restore.rs` `RETRY_WAITS`, 7.5 s, each try at most
+/// [`TURN_LOCK_WITHIN`] more). Past it the hold lapses, logged; by then the owner has held the
+/// chat on its side (`restore_pending`) and keeps its copy.
+const RESTORE_HOLD: Duration = Duration::from_secs(60);
+
+/// The chat is restoring while this lives, unless it is held for the next try.
+struct Restoring {
+    session: Arc<Session>,
+    hold: bool,
+}
+
+impl Drop for Restoring {
+    fn drop(&mut self) {
+        if !self.hold {
+            release(&self.session);
+        }
+    }
+}
+
+fn release(session: &Session) {
+    {
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        session.restoring.store(false, Ordering::SeqCst);
+    }
+    session.restore_done.notify_waiters();
+}
+
+/// Holds `session` (still `restoring`) for the owner's next try; a one-shot timer ends the hold
+/// after [`RESTORE_HOLD`] unless a try took it first.
+fn hold_for_next_try(session: &Arc<Session>) {
+    static HOLDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = HOLDS.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = Some(n);
+    }
+    let session = session.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(RESTORE_HOLD).await;
+        let lapsed = {
+            let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+            let mut lease = session.restore_lease.lock().unwrap_or_else(|e| e.into_inner());
+            let lapsed = *lease == Some(n);
+            if lapsed {
+                *lease = None;
+                session.restoring.store(false, Ordering::SeqCst);
+            }
+            lapsed
+        };
+        if lapsed {
+            tracing::warn!(
+                session = %session.id,
+                "the owner did not finish restoring this chat's journal; its prompts go on"
+            );
+            session.restore_done.notify_waiters();
+        }
+    });
+}
+
+fn reason_of(e: &RpcError) -> Option<&str> {
+    e.data.as_ref()?.get("reason")?.as_str()
+}
 
 fn stopped(session: &Session, e: &anyhow::Error) -> RpcError {
     tracing::warn!(session = %session.id, "journal restore stopped: {e:#}");
@@ -227,6 +321,11 @@ fn count_restored(meta: &mut SessionMeta, record: &EventRecord) {
     meta.updated_at = meta.updated_at.max(record.at);
     if paging::is_transcript(record) {
         meta.transcript_seq = record.seq;
+    }
+    // A subagent entry may leave a retry open: the settle reads the log for it
+    // (`subagent_retry.rs` `settle_subagent_retries`), and saves what it finds.
+    if record.kind == "subagent_state_update" {
+        meta.subagent_retry_open = true;
     }
     if record.dir != "mux" {
         return;
@@ -313,4 +412,30 @@ async fn test_pause(id: &str) {
     };
     tokio::time::sleep(Duration::from_millis(ms)).await;
     *PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Debug builds only: the next flush of a restore of chat `id` fails (a disk whose fsync fails),
+/// after every record is written.
+#[cfg(debug_assertions)]
+static FLUSH_FAILS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn fail_flush_once(id: &str) {
+    *FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+}
+
+#[cfg(debug_assertions)]
+fn test_flush_fails(id: &str) -> bool {
+    let mut armed = FLUSH_FAILS.lock().unwrap_or_else(|e| e.into_inner());
+    let fails = armed.as_deref() == Some(id);
+    if fails {
+        *armed = None;
+    }
+    fails
+}
+
+#[cfg(not(debug_assertions))]
+fn test_flush_fails(_: &str) -> bool {
+    false
 }

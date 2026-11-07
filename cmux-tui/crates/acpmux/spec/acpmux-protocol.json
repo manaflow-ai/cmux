@@ -2044,6 +2044,7 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,

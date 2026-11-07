@@ -60,6 +60,7 @@ export interface AcpmuxRequestMeta {
   requireFullAccess?: unknown;
   resend?: unknown;
   route?: unknown;
+  sessionCreatedAt?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;

@@ -214,8 +214,16 @@ impl Hub {
     /// A loaded chat's log after records its owner kept were put back (`journal_restore.rs`):
     /// read again as after a restart, so a turn the old machine was running is settled as cut
     /// and continued, and what it had queued waits here again. The caller holds `log_load`.
+    /// Every projection a restart's load rebuilds from the log (`load_session_log`) is rebuilt
+    /// here, but for a host to adopt (none runs for it here) and a copy's first start.
     pub(super) fn settle_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            session.invalidate_ownership_epoch();
+            tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
+        }
+        self.restore_transfer_authority(session);
         let continued = self.mark_unknown_outcome(session);
+        self.settle_subagent_retries(session);
         self.restore_queue(session);
         self.drop_unsent_subagent_retries(session);
         super::message_events::recover_message_events(self, session);
@@ -224,6 +232,7 @@ impl Hub {
         }
         if self.queues_resumed.load(Ordering::SeqCst) {
             self.resume_restored(std::slice::from_ref(session));
+            self.resume_agent_pair_drains();
         }
     }
 
