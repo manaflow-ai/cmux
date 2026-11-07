@@ -486,6 +486,10 @@ pub fn move_to_split(facts: &MoveToSplitFacts) -> MoveToSplit {
     {
         return MoveToSplit::ColumnAfterDock;
     }
+    // Every other split of the dock, a lone docked chat's too (the dock would close).
+    if facts.chat_dock {
+        return MoveToSplit::Refuse;
+    }
     MoveToSplit::Split { edge }
 }
 

@@ -679,7 +679,7 @@ fn files_open_rules() {
 fn appearance_verb_ring_style_and_keymap_toast() {
     let (_, body) = call_json(
         c"window_appearance_verb",
-        &json!({"scope": "workspace", "property": "theme", "propertyLevels": ["workspace"], "set": true}),
+        &json!({"scope": "workspace", "property": "theme", "set": true}),
     );
     assert_eq!(
         body,

@@ -11,6 +11,23 @@ const LEVELS: [&str; 4] = ["window", "workspace", "pane", "tab"];
 const PROPERTIES: [&str; 7] =
     ["theme", "background", "tint", "opacity", "blur", "fontSize", "cursorStyle"];
 
+/// The levels a person (or agent) may set `property` at (`AppearanceProperty.levels`).
+pub fn property_levels(property: &str) -> &'static [&'static str] {
+    match property {
+        "theme" => &["app", "window", "workspace", "rule", "pane", "tab"],
+        "background" => &["app", "window", "workspace", "rule", "pane"],
+        "tint" => &["window", "workspace", "rule", "pane", "tab"],
+        "opacity" => &["app", "window", "workspace", "pane"],
+        "blur" => &["app", "window"],
+        "fontSize" | "cursorStyle" => &["app", "workspace", "rule", "pane", "tab"],
+        _ => &[],
+    }
+}
+
+fn set_at(property: &str, level: &str) -> bool {
+    property_levels(property).contains(&level)
+}
+
 /// What an `appearance.set|reset` run names.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -19,8 +36,6 @@ pub struct AppearanceAsk {
     pub scope: Option<String>,
     /// The `property` argument.
     pub property: Option<String>,
-    /// The levels the named property is set at (`AppearanceProperty.levels`).
-    pub property_levels: Vec<String>,
     /// `set`, else `reset`.
     pub set: bool,
 }
@@ -84,7 +99,7 @@ pub fn appearance(ask: AppearanceAsk) -> Appearance {
     let theme_action = theme_action(&level, ask.set);
     if ask.set {
         let Some(property) = property else { return refused(AppearanceRefusal::BadProperty) };
-        if !ask.property_levels.contains(&level) {
+        if !set_at(&property, &level) {
             return refused(AppearanceRefusal::NotAtLevel);
         }
         let forwarded = property == "theme" && theme_action.is_some();
@@ -100,8 +115,12 @@ pub fn appearance(ask: AppearanceAsk) -> Appearance {
         None => PROPERTIES.iter().map(|&property| property.to_owned()).collect(),
     };
     let forwarded = theme_action.filter(|_| named.iter().any(|property| property == "theme"));
-    let properties =
-        named.into_iter().filter(|property| property != "theme" || forwarded.is_none()).collect();
+    // A reset skips a property not set at the level, as a set refuses it.
+    let properties = named
+        .into_iter()
+        .filter(|property| property != "theme" || forwarded.is_none())
+        .filter(|property| set_at(property, &level))
+        .collect();
     Appearance::Apply { level, theme_action: forwarded, properties }
 }
 
