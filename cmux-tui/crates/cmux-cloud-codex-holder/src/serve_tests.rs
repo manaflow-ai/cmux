@@ -1,8 +1,6 @@
 //! The app's pipe to the holder process, end to end: a run asks the app its questions and shows
 //! the device code, the machine gets access, and the end of input leaves it there.
 
-use std::time::Duration;
-
 use super::*;
 use crate::target::{ACCESS_PATH, ExecResult, MODE_PATH, VmError};
 use crate::test_support::holder_script;
