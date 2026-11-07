@@ -721,6 +721,181 @@ struct FocusHistoryModelTests {
         #expect(host.selectedWorkspaceId == wsB)
     }
 
+    private func makeModel(scope: FocusHistoryNavigationScope) -> (FocusHistoryModel, FakeFocusHistoryHost) {
+        let host = FakeFocusHistoryHost()
+        let model = FocusHistoryModel(navigationScope: { scope })
+        model.attach(host: host)
+        return (model, host)
+    }
+
+    // Focus Last Surface and Focus Last Workspace keep their own targets, so
+    // each behaves the same whatever the history scope setting says.
+    nonisolated static let scopes: [FocusHistoryNavigationScope] = [.workspacesOnly, .panesAndTabs]
+
+    @Test(arguments: scopes)
+    func focusLastSurfaceTogglesBetweenTabsInOneWorkspace(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastSurfaceFollowsFocusIntoAnotherWorkspace(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.last?.panelId == panelB)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastWorkspaceSkipsTabChangesInsideTheCurrentWorkspace(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB1 = UUID()
+        let panelB2 = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB1: "b1", panelB2: "b2"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+        focus(model, host, workspaceId: wsB, panelId: panelB1)
+        focus(model, host, workspaceId: wsB, panelId: panelB2)
+
+        // Lands on the surface that last had focus in A, not on B1.
+        #expect(model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+
+        #expect(model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.last?.panelId == panelB2)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastWorkspaceAndSurfaceKeepSeparateTargets(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA = UUID()
+        let panelB1 = UUID()
+        let panelB2 = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA: "a"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB1: "b1", panelB2: "b2"])
+        focus(model, host, workspaceId: wsA, panelId: panelA)
+        focus(model, host, workspaceId: wsB, panelId: panelB1)
+        focus(model, host, workspaceId: wsB, panelId: panelB2)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.last?.panelId == panelB1)
+
+        // Toggling the surface inside B leaves the workspace target on A.
+        #expect(model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastWorkspaceReturnsToThePositionBackLeft(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA: "a"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+
+        #expect(model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastSurfaceKeepsTheTabAnImplicitFocusLeavesAfterBack(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+        #expect(model.navigateBack())
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+
+        // Mid-stack, an implicit focus in the same workspace rewrites the
+        // current record instead of adding one.
+        host.workspaces[wsA]?.rememberedFocusedPanelId = panelA2
+        model.recordImplicitFocusInHistory(workspaceId: wsA, panelId: panelA2)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+    }
+
+    @Test func focusLastSurfaceTogglesAfterBackBetweenTabsInOneWorkspace() {
+        let (model, host) = makeModel(scope: .panesAndTabs)
+        let panelA1 = UUID()
+        let panelA2 = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA1: "a1", panelA2: "a2"])
+        focus(model, host, workspaceId: wsA, panelId: panelA1)
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+        #expect(model.navigateBack())
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.focusedPanels.last?.panelId == panelA2)
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.focusedPanels.last?.panelId == panelA1)
+    }
+
+    @Test(arguments: scopes)
+    func focusLastSurfaceAndWorkspaceFailWithoutATargetOrAfterItCloses(scope: FocusHistoryNavigationScope) {
+        let (model, host) = makeModel(scope: scope)
+        let panelA = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [panelA: "a"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+
+        focus(model, host, workspaceId: wsA, panelId: panelA)
+        #expect(!model.navigateToLastFocusedSurface())
+        #expect(!model.navigateToLastFocusedWorkspace())
+        #expect(host.focusedPanels.isEmpty)
+
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+        host.workspaces.removeValue(forKey: wsA)
+        model.invalidateFocusHistoryTarget(workspaceId: wsA, panelId: nil)
+        #expect(!model.navigateToLastFocusedSurface())
+        #expect(!model.navigateToLastFocusedWorkspace())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.isEmpty)
+    }
+
     @Test func resetClearsAllState() {
         let (model, host) = makeModel()
         let panelA = UUID()
@@ -742,6 +917,8 @@ struct FocusHistoryModelTests {
         #expect(!model.canNavigateBack)
         #expect(!model.canNavigateForward)
         #expect(!model.consumeSuppressedSelectionSideEffectGeneration(1))
+        #expect(!model.navigateToLastFocusedSurface())
+        #expect(!model.navigateToLastFocusedWorkspace())
         #expect(model.currentFocusHistoryEntry?.workspaceId == wsB)
     }
 }
