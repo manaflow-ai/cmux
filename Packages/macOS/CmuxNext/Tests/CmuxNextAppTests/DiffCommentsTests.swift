@@ -122,6 +122,27 @@ struct DiffCommentsTests {
         await provider.close()
     }
 
+    @Test func aCommentEditedSinceTheSendStaysInTheStore() async throws {
+        let git = StoringGit(), chat = Chat()
+        let (provider, grant, root) = try provider(git: git, chat: chat)
+        defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
+        let page = PageCallContext(page: "cmux.diff")
+        for message in ["Use 5", "Name it"] {
+            _ = try await provider.call("cmux.diff.comments", params: comments("comments.save", [
+                "repoRoot": .string(Self.repository),
+                "comment": ["filePath": "a.ts", "message": .string(message), "updatedAt": "2026-11-07T00:00:00.000Z"],
+            ]), context: page)
+        }
+        // c2 was edited after the page sent it: the version the page sent is older than the store's.
+        let reply = try await provider.call("cmux.diff.comments", params: comments("comments.send", [
+            "repoRoot": .string(Self.repository), "ids": ["c1", "c2"], "text": "review",
+            "versions": ["c1": "2026-11-07T00:00:00.000Z", "c2": "2026-11-06T23:59:00.000Z"],
+        ]), context: PageCallContext(page: "cmux.diff", opid: "diff-comments-2", userGesture: true))
+        #expect(reply["cleared"]?.arrayValue?.compactMap(\.stringValue) == ["c1"])
+        #expect(git.comments[Self.repository]?.compactMap { $0["id"]?.stringValue } == ["c2"])
+        await provider.close()
+    }
+
     @Test func aTabNamesOnlyItsOwnRepositoryAndWithoutAChatOffersNoSend() async throws {
         let git = StoringGit()
         let (provider, grant, root) = try provider(git: git, chat: nil)

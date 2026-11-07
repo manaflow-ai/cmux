@@ -19,8 +19,9 @@ public protocol DiffCommentsStoring: AnyObject {
 /// page's comment methods (webviews/src/comments/bridge.ts):
 /// - `comments.list {repoRoot}` → `{comments}`, `comments.save {repoRoot, comment}` → `{comment}`,
 ///   `comments.delete {repoRoot, id}`: the session host's store, for the tab's own repository only;
-/// - `comments.send {repoRoot, ids, text}`: `text` (every comment as one prompt) to the chat that
-///   opened the tab, then those comments leave the store. It needs a real click or key, and the
+/// - `comments.send {repoRoot, ids, versions, text}`: `text` (every comment as one prompt) to the
+///   chat that opened the tab, then those comments leave the store unless edited since
+///   (`versions`: each id's `updatedAt` as sent); answers `{sent, cleared}`. It needs a real click or key, and the
 ///   page's opid is the prompt's id, so a resend is delivered once.
 /// Viewed files and prefs have their own ops (DiffPageProvider+Stores.swift); the page uses those.
 extension DiffPageProvider {
@@ -79,9 +80,19 @@ extension DiffPageProvider {
         guard await chat.send(text, promptID: promptID) else {
             throw PageError(code: "cmux.diff.send_failed", message: "The chat did not take the comments")
         }
-        // The chat has them: they leave the store. A failed delete leaves them listed, never lost.
-        _ = try await store.deleteComments(root: root, ids: ids, key: promptID + "-clear")
-        return ["sent": .number(Double(ids.count))]
+        // The chat has them: they leave the store, except one edited since the page sent it (its
+        // `updatedAt` moved on), which stays for the next send. A failed delete leaves them listed,
+        // never lost.
+        let sent = params["versions"]?.objectValue ?? [:]
+        let stored = try await store.listComments(root: root)["comments"]?.arrayValue ?? []
+        let unchanged = Set(stored.compactMap { comment -> String? in
+            guard let id = comment["id"]?.stringValue, ids.contains(id) else { return nil }
+            guard let version = sent[id]?.stringValue else { return id }
+            return comment["updatedAt"]?.stringValue == version ? id : nil
+        })
+        let cleared = ids.filter(unchanged.contains)
+        if !cleared.isEmpty { _ = try await store.deleteComments(root: root, ids: cleared, key: promptID + "-clear") }
+        return ["sent": .number(Double(ids.count)), "cleared": .array(cleared.map(JSONValue.string))]
     }
 
     /// The tab's repository root: a page names only its own.

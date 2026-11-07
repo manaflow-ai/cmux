@@ -22,6 +22,9 @@ import { useSyncedRef } from "./useSyncedRef";
  * chat (`canSend`) takes every saved comment as one prompt (`send`) and clears
  * them once the chat took it.
  */
+/** One Send as it went out: the comments, their versions, the prompt and its id. */
+type SendBatch = { ids: string[]; versions: Record<string, string>; text: string; opid: string };
+
 export function useDiffComments({
   bridgeAvailable,
   canSend,
@@ -37,16 +40,13 @@ export function useDiffComments({
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
-  // The last send that did not finish, as sent: the chat may have taken it before the host failed
-  // to clear its comments, so the next Send sends that same batch under the same prompt id (acpmux
-  // answers a repeated id with its first delivery) while all its comments are still listed; one
-  // added or edited since waits for the press after.
-  const pendingSend = useRef<{ repoRoot: string; ids: string[]; text: string; opid: string } | null>(null);
-  // Another repository: its Send starts idle, and the last one's unfinished batch is not its own.
-  useEffect(() => {
-    pendingSend.current = null;
-    setSendState("idle");
-  }, [repoRoot]);
+  // Each repository's last send that did not finish, as sent: the chat may have taken it before
+  // the host failed to clear its comments, so the next Send there sends that same batch under the
+  // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
+  // listed unchanged; one added or edited since waits for the press after.
+  const pendingSends = useRef(new Map<string, SendBatch>());
+  // Another repository: its Send starts idle.
+  useEffect(() => setSendState("idle"), [repoRoot]);
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
@@ -132,27 +132,30 @@ export function useDiffComments({
       return;
     }
     const targetRepoRoot = repoRoot;
-    const listed = new Set(comments.map((comment) => comment.id));
-    const pending = pendingSend.current;
-    const batch =
-      pending != null && pending.repoRoot === targetRepoRoot && pending.ids.every((id) => listed.has(id))
+    const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
+    const pending = pendingSends.current.get(targetRepoRoot);
+    const batch: SendBatch =
+      pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])
         ? pending
         : {
-            repoRoot: targetRepoRoot,
             ids: comments.map((comment) => comment.id),
+            versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
             text: commentsPromptText(comments),
             opid: `diff-comments-${crypto.randomUUID()}`,
           };
-    pendingSend.current = batch;
-    const { ids, text, opid } = batch;
+    pendingSends.current.set(targetRepoRoot, batch);
     setSendState("sending");
-    bridgeSendComments(targetRepoRoot, ids, text, opid)
-      .then(() => {
-        pendingSend.current = null;
-        // Another repository is shown now: its button is idle, and its comments were never sent.
+    bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid)
+      .then((cleared) => {
+        pendingSends.current.delete(targetRepoRoot);
+        // Another repository is shown now: its button is idle; the sent one lists what the host kept
+        // when it is shown again.
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
-        // Only the comments sent leave; one saved while it was on its way stays for the next send.
-        dispatch({ type: "remove-comments", ids });
+        // Only the comments sent and unchanged since leave, together; one saved or edited while the
+        // send was on its way stays for the next send.
+        const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
+        const ids = cleared.filter((id) => current.get(id) === batch.versions[id]);
+        if (ids.length > 0) dispatch({ type: "remove-comments", ids });
         setSendState("idle");
       })
       .catch((error) => {

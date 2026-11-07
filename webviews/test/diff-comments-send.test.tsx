@@ -181,3 +181,55 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
     (window as unknown as { webkit: unknown }).webkit = savedWebkit;
   }
 });
+
+test("a comment edited while its send is on the way stays, with its edit", async () => {
+  const { installPageDiffComments } = await import("../src/comments/bridge");
+  const { createRoot } = await import("react-dom/client");
+  const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
+  const { initialAppState } = await import("../src/diff-viewer/state");
+  let finish!: (value: unknown) => void;
+  let sent: Record<string, unknown> = {};
+  installPageDiffComments({
+    call: (_op: string, body: { params: Record<string, unknown> }) => {
+      sent = body.params;
+      return new Promise((resolve) => (finish = resolve));
+    },
+  } as never);
+  const savedWebkit = (window as unknown as { webkit: unknown }).webkit;
+  (window as unknown as { webkit: unknown }).webkit = undefined;
+  try {
+    type Hook = ReturnType<typeof useDiffComments>;
+    const state = {
+      current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] },
+    };
+    state.current.comments = [comment("c1", "a.ts", 1), comment("c2", "a.ts", 2)];
+    const dispatched: Array<{ type: string; ids?: readonly string[] }> = [];
+    let hook!: Hook;
+    function Probe() {
+      hook = useDiffComments({
+        bridgeAvailable: true,
+        canSend: true,
+        dispatch: ((action: { type: string; ids?: readonly string[] }) => dispatched.push(action)) as never,
+        latestState: state as never,
+        repoRoot: "/repo",
+      });
+      return null;
+    }
+    const probe = createRoot(document.createElement("div"));
+    act(() => probe.render(<Probe />));
+    act(() => hook.send());
+    expect(sent.versions).toEqual({ c1: "2026-11-07T00:00:00.000Z", c2: "2026-11-07T00:00:00.000Z" });
+    // c2 is edited while the send is on its way; the host kept it (its version moved on).
+    state.current.comments = [
+      comment("c1", "a.ts", 1),
+      { ...comment("c2", "a.ts", 2), updatedAt: "2026-11-07T00:01:00.000Z" },
+    ];
+    await act(async () => finish({ cleared: ["c1"] }));
+    expect(dispatched).toEqual([{ type: "remove-comments", ids: ["c1"] }]);
+    expect(hook.sendState).toBe("idle");
+    act(() => probe.unmount());
+  } finally {
+    installPageDiffComments(null);
+    (window as unknown as { webkit: unknown }).webkit = savedWebkit;
+  }
+});
