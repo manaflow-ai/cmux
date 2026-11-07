@@ -507,7 +507,7 @@ final class AppControl {
                 guard let services else { return .null }
                 return await DebugFilePages.run(call.params, services)
             },
-            // The quit sheet (Quit and the local terminals).
+            // The quit (Quit and the local terminals), and its failure alert.
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
