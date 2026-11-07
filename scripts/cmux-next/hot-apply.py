@@ -286,6 +286,19 @@ def app_pids(app: Path) -> list[str]:
             pid, _, rest = line.strip().partition(" ")
             if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
                 found.append(pid)
+    # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
+    # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
+    proc = Path("/proc")
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or entry.name in found:
+                continue
+            try:
+                exe = os.readlink(entry / "exe").removesuffix(" (deleted)")
+            except OSError:
+                continue
+            if any(exe.startswith(prefix) for prefix in prefixes):
+                found.append(entry.name)
     return found
 
 
