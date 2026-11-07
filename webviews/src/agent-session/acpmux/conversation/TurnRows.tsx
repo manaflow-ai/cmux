@@ -38,15 +38,14 @@ import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
-  forkWithFeedback,
   MessageCopy,
   MessageFooterRow,
   MessageMore,
   PinButton,
   ReadAloudButton,
   ReplyTime,
-  ROW_ICON,
 } from "./MessageActions";
+import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import type { CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
@@ -62,9 +61,10 @@ import {
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
+import { CodeRouterAction } from "./CodeRouterOffer";
+import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./TurnWaterfall";
 
