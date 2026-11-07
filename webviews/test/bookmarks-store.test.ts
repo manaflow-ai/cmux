@@ -5,7 +5,7 @@ import { expect, test } from "bun:test";
 import { MockBookmarksProvider, longBookmarks, sampleBookmarks } from "../src/pages/bookmarks/mockProvider";
 import { BookmarksStore, MAX_APPLY_OPS } from "../src/pages/bookmarks/store";
 import { BookmarkOps, HostOps, type Bookmark } from "../src/pages/bookmarks/types";
-import type { PageClient } from "../src/pages/shared/pageClient";
+import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 
 const tick = () => new Promise<void>((done) => setTimeout(done, 0));
 
@@ -151,6 +151,39 @@ test("a Save whose reply was lost is retried with the same key; a second Save in
     "k1",
     "k1",
   ]);
+});
+
+test("a Save that timed out (a retryable error) keeps its key; a final refusal does not", async () => {
+  let fail: "timeout" | "refuse" | null = "timeout";
+  class Timing extends MockBookmarksProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === BookmarkOps.apply && fail) {
+        const kind = fail;
+        fail = null;
+        if (kind === "timeout") {
+          await super.call(op, params);
+          throw pageError("cmux.protocol.timeout", "timed out", true);
+        }
+        throw pageError("operation.failed", "no", false);
+      }
+      return super.call<R>(op, params);
+    }
+  }
+  const provider = new Timing();
+  let keys = 0;
+  const store = new BookmarksStore(provider, { newKey: () => `k${++keys}` });
+  await store.start();
+  store.startAddBookmark();
+  store.setEditor({ title: "x", url: "example.com" });
+  expect(await store.commitEditor()).toBe(false);
+  expect(await store.commitEditor()).toBe(true);
+  store.startAddBookmark();
+  store.setEditor({ title: "y", url: "example.org" });
+  fail = "refuse";
+  expect(await store.commitEditor()).toBe(false);
+  expect(await store.commitEditor()).toBe(true);
+  const sent = applies(provider).map((call) => (call.params as { idempotency_key: string }).idempotency_key);
+  expect(sent).toEqual(["k1", "k1", "k3"]);
 });
 
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
