@@ -72,8 +72,8 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
-  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
@@ -410,11 +410,11 @@ export function createAcpmuxDebug(
       const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },
-    async loadSeed(turns = 5000) {
+    async loadSeed(turns = 5000, options = {}) {
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");

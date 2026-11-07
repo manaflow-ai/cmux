@@ -56,7 +56,7 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { openSourceFile } from "../src/agent-session/acpmux/session-info/SourcesSection";
+import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
