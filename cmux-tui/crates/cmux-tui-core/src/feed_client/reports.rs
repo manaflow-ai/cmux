@@ -1,5 +1,7 @@
 //! The reports reader (Swift `AcpmuxMailboxReader`): one thread that reads
-//! the acpmux mailbox `reports:<user>` for the signed-in account. Each pass
+//! the acpmux mailbox `reports:<person>` for the signed-in account, where
+//! `<person>` is the lease's Stack user id (the JWT `sub`, the address the
+//! app read before), else the feed owner's user id (a self-hosted lease). Each pass
 //! is one `_acpmux/mail/wait` long wait (acpmux answers on a new message or
 //! its timeout); failures back off 250 ms doubling for ten tries, then the
 //! reader waits for a wakeup (the app turns active, the account changes).
@@ -64,6 +66,17 @@ fn wait_change(inner: &Inner, generation: u64, timeout: Duration) {
     }
 }
 
+/// The mailbox owner of a signed-in account: the lease's Stack user id,
+/// else the account itself.
+pub(super) fn person(inner: &Inner, account: &str) -> String {
+    inner
+        .deps
+        .cloud
+        .as_ref()
+        .and_then(|cloud| cloud.lease_person())
+        .map_or_else(|| account.to_owned(), |(stack_user, _)| stack_user)
+}
+
 fn backoff(failures: u32) -> Duration {
     FIRST_BACKOFF.saturating_mul(1 << failures.saturating_sub(1).min(16)).min(MAX_BACKOFF)
 }
@@ -73,10 +86,11 @@ fn run(inner: &Inner) {
     let mut reading: Option<String> = None;
     let mut failures = 0_u32;
     while !inner.stopped() {
-        let (user, generation) = {
+        let (account, generation) = {
             let state = inner.lock();
             (state.account.clone(), state.reports_generation)
         };
+        let user = account.as_deref().map(|account| person(inner, account));
         if user != reading {
             // Another account reads its own mailbox from the start.
             cursor = 0;
@@ -97,7 +111,7 @@ fn run(inner: &Inner) {
                 let page = MailPage::from_value(&result);
                 let event = {
                     let mut state = inner.lock();
-                    if state.account.as_deref() != Some(user.as_str()) {
+                    if state.account != account {
                         continue;
                     }
                     cursor = page.cursor_after(cursor);

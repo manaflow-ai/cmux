@@ -249,6 +249,10 @@ package nonisolated struct FeedDaemonView: Decodable, Sendable, Equatable {
     /// Loaded and connected to its owner: an empty view then means nothing waits.
     package var isLive: Bool { loaded == true && connection?.state == "connected" }
 
+    /// Live, or disconnected: then it shows what the mirror kept, and after a sign-out none of the
+    /// account's items. Only a view still connecting says nothing yet.
+    package var isSettled: Bool { isLive || connection?.state == "disconnected" }
+
     /// Every entry's head item, in the view's order.
     package var items: [FeedDaemonItem] { (groups ?? []).flatMap { $0.entries.map(\.item) } }
 

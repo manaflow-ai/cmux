@@ -420,6 +420,27 @@ fn reports_read_the_users_mailbox_and_page_by_cursor() {
 }
 
 #[test]
+fn the_reports_mailbox_is_the_lease_s_stack_user() {
+    let backend = Arc::new(FakeBackend::default());
+    let cloud = CloudConversations::new(backend);
+    // {"sub":"stack_user_1","aud":"proj_1"}: the address the app's reader used before.
+    cloud
+        .set_session(
+            serde_json::from_value(json!({
+                "api_base_url": "https://api.cmux.test",
+                "access_token": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFja191c2VyXzEiLCJhdWQiOiJwcm9qXzEifQ.sig",
+                "expires_at": 4_102_444_800_000_u64
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let h = harness(Some(cloud));
+    assert_eq!(super::reports::person(&h.feed.inner, "user_0123abcd"), "stack_user_1");
+    // With no lease person (no cloud link, a self-hosted lease) the account itself.
+    assert_eq!(super::reports::person(&harness(None).feed.inner, "u1"), "u1");
+}
+
+#[test]
 fn a_reply_goes_through_the_installed_sender() {
     let h = harness(None);
     assert!(!h.feed.reply("host:s1", "thanks", "p1"));

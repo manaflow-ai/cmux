@@ -125,7 +125,7 @@ extension HomeService {
                     for await _ in daemon.changes() {
                         // Requests (approvals, questions) stay in the Feed, where they can be answered.
                         guard let view = try? await daemon.view(.list, filter: ["category": .string("notices")], limit: HomeFeedRow.limit),
-                              !Task.isCancelled, view.isLive else { continue }
+                              !Task.isCancelled, view.isSettled else { continue }
                         let notices = view.items.lazy.filter { $0.isNotice && !$0.isArchived }.prefix(HomeFeedRow.limit)
                         self?.homeStore.setFeedRows(Array(notices).map {
                             HomeFeedRow(id: $0.id, source: $0.poster?.label ?? "", title: $0.title ?? "",
