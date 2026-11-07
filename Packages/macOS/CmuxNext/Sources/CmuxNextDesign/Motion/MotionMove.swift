@@ -11,7 +11,7 @@ public import CmuxNextDesignTokens
 /// value written with no move (a scroll, a drag) shifts at once while a move
 /// in flight keeps running on top of it. Every animation a caller adds in one
 /// transaction starts on the same frame (Core Animation's begin time is the
-/// commit), so moves of neighbouring layers stay in lockstep.
+/// commit, or the begin time the caller sets), so moves of neighbouring layers stay in lockstep.
 public struct MotionMove: Sendable {
     enum Curve: Sendable {
         case tween(MotionTween)
@@ -51,6 +51,9 @@ public struct MotionMove: Sendable {
         animation.fromValue = offset
         animation.toValue = zero
         animation.isAdditive = true
+        // A move may begin a little ahead of the commit (the frame clock's origin, `FrameScheduler.motionOrigin`):
+        // until it begins it shows its start, never the model value (the end) for a frame.
+        animation.fillMode = animation.fillMode == .forwards || animation.fillMode == .both ? .both : .backwards
         return animation
     }
 }

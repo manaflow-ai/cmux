@@ -30,8 +30,9 @@ struct TabStripMove {
     /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
-    /// moves in flight exactly; Core Animation would otherwise start them at the commit).
-    let begin = CACurrentMediaTime()
+    /// moves in flight exactly; Core Animation would otherwise start them at the commit): the strip's
+    /// `moveBegin()`, the frame clock's origin while the window's frames tick (FRAME OWNER S1B).
+    var begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
     static let keyPrefix = "tab.move."
