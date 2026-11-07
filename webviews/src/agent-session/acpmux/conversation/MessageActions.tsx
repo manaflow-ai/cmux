@@ -5,7 +5,7 @@
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -23,10 +23,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
-
-/// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
-export const ROW_ICON = 16;
-
+import { ROW_ICON } from "./messageActionsModel";
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useLabelClock(at, nextRelativeTime);
@@ -97,21 +94,6 @@ export function MessageCopy({ text }: { text: string }) {
       copy={copyMarkdownResult}
     />
   );
-}
-
-/// Use the live host action when the page has one: unlike the turn context's legacy callback, it
-/// returns the fork promise so the button can stay pending until the new agent is ready. Gallery
-/// and unit-test callers keep their injected fallback.
-export function forkWithFeedback(throughSeq: number, fallback: () => unknown): unknown {
-  const action = globalThis.window?.cmuxAcpmuxActions?.["chat.fork"];
-  if (!action) return fallback();
-  return action({ throughSeq }).then((sessionId) => {
-    // direct.fork reports refusal by returning no session id after it has written the localized
-    // transcript notice; turn that sentinel into the button's terminal error state too.
-    // l10n-allow: the button's error state only; the transcript notice already says why.
-    if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
-    return sessionId;
-  });
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host

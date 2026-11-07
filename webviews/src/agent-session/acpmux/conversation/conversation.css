@@ -134,12 +134,13 @@
   --cv-chevron-gap: 5px;
   /* The turned ChevronRight's ink starts 4.25/16 into its box (icons.tsx). */
   --cv-chevron-ink: calc(var(--cv-chevron-glyph) * 0.265625);
-  /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
-     100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
-     Claude's snap curve. */
-  --cv-actions-in: var(--cmux-motion-micro, 120ms);
-  --cv-actions-in-delay: 100ms;
-  --cv-actions-out: var(--cmux-motion-quick, 80ms);
+  /* A message's hover row follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*):
+     in on a gentle ramp that reaches full only if the pointer stays, out a little faster, each
+     reversing from wherever the other left it. --cv-actions-ease stays for colour and fill changes. */
+  --cv-actions-in: var(--cmux-hover-reveal-in);
+  --cv-actions-in-ease: var(--cmux-hover-reveal-in-ease);
+  --cv-actions-out: var(--cmux-hover-reveal-out);
+  --cv-actions-out-ease: var(--cmux-hover-reveal-out-ease);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --cv-action-gap: 4px;
 }
@@ -201,9 +202,11 @@
    sides (both apps); the cards' 12 radius (claude.ai 12). Was 8 by 12 with a 10 radius (38.75 tall).
    model.ts measures it. Its look is the glass rule below. */
 .cv-user__bubble {
+  --cv-bubble-pad-block: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);
+  --cv-bubble-pad-inline: calc(4 * var(--grid-base));
   box-sizing: border-box;
   max-width: 70%;
-  padding: max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2) calc(4 * var(--grid-base));
+  padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
   border-radius: var(--grid-cards-radius);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -561,28 +564,21 @@
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
-.cv-user__more {
-  display: block;
-  height: 20px;
-  margin: 4px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
+/* Show more / Show less under a long prompt or agent message (ExpandRow.tsx): 4px above a 20px
+   line (promptCollapse.ts PROMPT_MORE_HEIGHT), the 4px inside the row so all of it is the target. */
+.cv-expand-row.cv-user__more {
+  min-height: 24px;
+  margin: 0;
+  padding-top: 4px;
   line-height: 20px;
-  color: var(--cv-text-muted);
-  white-space: nowrap;
-  user-select: none;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-user__more:hover {
-  color: var(--cv-text);
-}
-.cv-user__more:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
+/* In a prompt's bubble the row is the bubble's whole bottom: its full width, and down through the
+   bubble's bottom padding, which it takes in as its own, so the bubble is exactly as tall as with a
+   bare label and the words sit where they did. */
+.cv-user__bubble > .cv-expand-row.cv-user__more {
+  width: calc(100% + 2 * var(--cv-bubble-pad-inline));
+  margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
+  padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
 /* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
    Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
@@ -670,6 +666,30 @@
 }
 .cv-user__paste-card[data-open] .cv-user__paste-chevron {
   transform: rotate(180deg);
+}
+/* A paste that reads as another agent's output (PromptText.tsx PasteChip, pastedAgentLook): its
+   label names the agent. The rule arm adds an accent rule down the card's left edge, inside its
+   padding, so the card keeps its height and width. */
+.cv-user__paste-card[data-agent="rule"] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--agent-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--agent-accent) 7%, transparent);
+}
+.cv-user__paste-card[data-agent="rule"]:not([data-open]):hover {
+  background: color-mix(in srgb, var(--agent-accent) 11%, transparent);
+}
+.cv-user__paste-glyph {
+  flex: none;
+}
+.cv-user__paste-agent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 var(--ds-space-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  color: var(--cv-text);
 }
 
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
@@ -938,7 +958,7 @@
   width: var(--cv-glyph-slot);
   height: var(--cv-glyph-slot);
 }
-/* Hover fades need a fine pointer; keyboard focus keeps its immediate response. */
+/* Hover ramps need a fine pointer; keyboard focus shows them at full at once. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .cv-user__actions,
   .cv-received-actions,
@@ -946,7 +966,7 @@
   .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions,
   .cv-turn-actions .cv-turn-time {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-user:hover .cv-user__actions,
   .cv-user:has([data-popup-open]) .cv-user__actions,
@@ -961,7 +981,7 @@
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
   .acpmux-turnSummary:hover .cv-turn-time,
   .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -971,7 +991,7 @@
   .cv-reply-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-user:hover .cv-user__actions,
@@ -1414,13 +1434,13 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-table-tools {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-table-block:hover .cv-table-tools {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-table-tools:focus-within {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-table-block:hover .cv-table-tools,
@@ -1557,17 +1577,17 @@
   opacity: 0;
 }
 /* The corner actions take the transcript's shared hover fade (transcript-hover-fade.test.ts):
-   out quickly at rest, in after a beat under the pointer, at once for keyboard focus. */
+   out quickly at rest, in for as long as the pointer stays, at once for keyboard focus. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-codeblock--corner .cv-codeblock__header {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-codeblock--corner:hover .cv-codeblock__header,
   .cv-codeblock--corner:has([data-popup-open]) .cv-codeblock__header {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-codeblock--corner:focus-within .cv-codeblock__header {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-codeblock--corner:hover .cv-codeblock__header,
@@ -1679,9 +1699,13 @@
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
 }
-.cv-edit-diff > .cv-output-more {
+/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
+   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
+   ends on the same surface the row continues, with no strip of another colour under the lines. */
+.cv-edit-diff > .cv-expand-row {
+  min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
-  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
+  padding-inline: var(--ds-space-3);
 }
 .cv-edit-diff__empty {
   padding: var(--ds-space-2) var(--ds-space-3);
@@ -1841,7 +1865,10 @@ pre.cv-math-source {
 .acpmux-scroll[data-cmux-shown-scroller] {
   overflow-x: hidden;
 }
-.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
+/* `data-asks` (App.tsx), not `.acpmux-main:has(.acpmux-asks-stack)`: a `:has()` on a transcript ancestor that
+   looks at its whole subtree is checked again for every node a streamed chunk inserts, and each check restyles
+   the composer (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-asks] .acpmux-scroll {
   margin-bottom: 0;
 }
 /* The spacer is the scroller's extent, which a followed view's offset is set against in the same
@@ -2149,9 +2176,12 @@ pre.cv-math-source {
    from what comes before it, as from what follows it: the margin takes back the line's own gap,
    which had left a wide hole before every "·" (Leo, 2026-11-04, on "2s · 15s total": "same here
    it's annoying to look at"). */
+/* A time or a token count keeps its width: squeezed, its words spilled over the next count's
+   ("2m5 1.4K toke"; Leo, 2026-11-06). The label gives way first, behind its ellipsis; only a count
+   that opens something (`.cv-worked__open`, which clips) may shrink. */
 .cv-worked__count {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: none;
   min-width: 0;
   gap: 4px;
   margin-left: calc(4px - var(--grid-gap));
@@ -2180,6 +2210,9 @@ pre.cv-math-source {
 .cv-worked__own {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
+}
+.cv-worked__count:has(> .cv-worked__open) {
+  flex: 0 1 auto;
 }
 .cv-worked__open {
   all: unset;
@@ -2268,52 +2301,61 @@ pre.cv-math-source {
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
   height: var(--cv-tool-row-height);
 }
-.acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below .cv-command__bg {
-  top: 0;
-}
-/* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line.
-   Hidden, it takes no room, so a long command runs to the line's end; on hover it takes its room
-   back and the command's tail goes under it, behind the ellipsis (Leo, 2026-10-24: "if the
-   command is too long, hide it under the run in background? ... hide it when hovering in that
-   area"). Hidden, it waits at the same spot, so the fade out does not move it. */
+/* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
+   only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
+   on hover alone: the times and tokens were squeezed over each other ("8s · 2m5 1.4K toke") and moved
+   under the pointer, which left and came back, and the line flickered (Leo, 2026-11-06: "this
+   flickers", hovering the chat's right edge). A long command's words give way to it, behind their
+   ellipsis, as they did on hover (Leo, 2026-10-24: "if the command is too long, hide it under the run
+   in background"). */
 .cv-activity {
   position: relative;
 }
 :is(.cv-worked, .cv-activity) .cv-command__bg {
-  position: absolute;
-  inset-block: 0;
-  right: 0;
   display: flex;
+  flex: none;
   align-items: center;
   animation: none;
   opacity: 0;
   pointer-events: none;
 }
-/* The bottom line's words sit under its top padding (.cv-worked.is-below). */
-.cv-worked.is-below .cv-command__bg {
-  top: calc(var(--cv-live-gap) + 2px);
+/* `end`, the default: at the line's right end. */
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="end"] {
+  margin-inline-start: auto;
+}
+/* `inline`: right after the tokens, a dot before it as before each count. */
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"] {
+  margin-inline-start: calc(4px - var(--grid-gap));
+}
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="inline"]::before {
+  content: "·";
+  padding-inline-end: 4px;
+  color: var(--cv-text-dim);
+}
+:is(.cv-worked, .cv-activity) .cv-command__bg[data-room="always"] {
+  margin-inline-start: auto;
+  opacity: 1;
+  pointer-events: auto;
 }
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
-  position: static;
   opacity: 1;
   pointer-events: auto;
 }
-/* A button now (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
+/* A button (BackgroundHint.tsx): reached by Tab, it shows as on hover. */
 :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
-  position: static;
   opacity: 1;
   pointer-events: auto;
 }
-/* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
+/* It fades as a message's hover row does (#23769): in for as long as the pointer stays, out a little faster. */
 @media (prefers-reduced-motion: no-preference) {
   :is(.cv-worked, .cv-activity) .cv-command__bg {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   :is(.cv-worked, .cv-activity):hover .cv-command__bg {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   :is(.cv-worked, .cv-activity) .cv-command__bg:focus-visible {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: none;
   }
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
@@ -3037,17 +3079,17 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
 .cv-shell:focus-within .cv-shell__wrap {
   opacity: 1;
 }
-/* It fades as a message's hover row does (#23769): in after a beat, out quickly; keyboard focus
+/* It fades as a message's hover row does (#23769): in for as long as the pointer stays, out a little faster; keyboard focus
    shows it at once. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-shell__actions .cv-shell__wrap {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-shell:hover .cv-shell__wrap {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-shell:focus-within .cv-shell__wrap {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-shell__title {
@@ -3250,7 +3292,6 @@ button.cv-video-frames__name:focus-visible {
   gap: 4px;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 .cv-video-frames__grid {
   display: grid;
@@ -3376,6 +3417,35 @@ button.cv-video-frames__frame:focus-visible {
    gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
+/* The compact grouped sheet (Leo, 2026-11-04: "the iOS app renders these things better than the
+   desktop app") is the gallery's `ios-sheet` look: a card surface, each step's kind icon, its words
+   in the text tone and its chevron at rest. ShellBlock, EditDiff and ToolImages keep the useful
+   command, output tail, diff or capture they already present. */
+:root[data-tool-steps-look="ios-sheet"] .cv-steps {
+  margin: 0;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
+  padding: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step + .cv-step {
+  border-top: 0;
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
+  visibility: visible;
+  color: var(--cv-text-muted);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool,
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  color: var(--cv-text);
+}
+:root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  color: var(--cv-text-muted);
+  opacity: 1;
+}
 :root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
   position: relative;
 }
@@ -3394,14 +3464,14 @@ button.cv-video-frames__frame:focus-visible {
    lifted tone: its words light on hover only, its glyph never (Lucas, 2026-11-06, above). */
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
   opacity: 0;
-  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
 :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
   > .cv-tool__chevron {
   opacity: 1;
-  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
 }
 /* A thought step's brain glyph puts its words on the rows' text column; its opened text sits there too. */
 .cv-step-thought__body,
@@ -3628,24 +3698,6 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: clip;
   white-space: pre-wrap;
 }
-/* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
-   a quiet line after the steps, its words on their text column and their pitch; not a step or a
-   control, so it adds no row to the steps. */
-.cv-bgstatus {
-  display: flex;
-  align-items: center;
-  min-height: var(--cv-tool-row-height);
-  padding-inline-start: var(--cv-tool-text-inset);
-  overflow: hidden;
-  color: var(--cv-activity-text);
-  line-height: 20px;
-  white-space: nowrap;
-}
-.cv-bgstatus__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
@@ -3753,17 +3805,17 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
 }
-/* They fade as a message's hover row does (#23769, Claude's): in after a beat under the pointer, at
+/* They fade as a message's hover row does (#23769, Claude's): in for as long as the pointer stays, at
    once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-tool :is(.cv-command__ok, .cv-command__time) {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-tool:hover :is(.cv-command__ok, .cv-command__time) {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-tool:focus-visible :is(.cv-command__ok, .cv-command__time) {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
@@ -3875,14 +3927,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-sent-actions {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-message:hover .cv-sent-actions,
   .cv-sent:hover .cv-sent-actions {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-sent-actions:focus-within {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-message:hover .cv-sent-actions,
@@ -3965,16 +4017,20 @@ button.cv-video-frames__frame:focus-visible {
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
 }
+/* At the line's end, its room kept: the preview stops before it behind its ellipsis, so pointing at
+   the line shows the actions and moves nothing. It used to lie over the preview's tail on a fill of
+   the pane's own ground, which a translucent window shows as a dark plate behind "just now" (Leo,
+   2026-11-06: "this just now has this weird background"; a received line has no hover plate,
+   design/chat-transcript.md). */
 .cv-received__hover {
-  position: absolute;
-  inset-block: 0;
-  /* At the line's end: the chevron follows the words, so nothing else sits there. */
-  inset-inline-end: 0;
   display: inline-flex;
+  flex: none;
   align-items: center;
-  padding-inline-start: var(--ds-space-2);
-  /* The pane's own ground, with no plate under the line, so the actions cover the preview's tail. */
-  background: linear-gradient(to right, transparent, var(--acpmux-base, var(--cv-bg)) var(--ds-space-2));
+  /* The line's height, as the overlay's inset was: its 24px footer row centers in it, never standing
+     out of the 22px line (transcript-row-pitch-browser.test.ts). */
+  align-self: stretch;
+  max-height: 100%;
+  margin-inline-start: auto;
   opacity: 0;
   pointer-events: none;
 }
@@ -4363,10 +4419,11 @@ a.cv-sha:focus-visible {
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
-  padding-right: 32px;
+  --cv-actions-room: 32px;
+  padding-right: var(--cv-actions-room);
 }
 .cv-tool-output__box:has(> .cv-tool-output__actions > :nth-child(2)) {
-  padding-right: calc(2 * 32px);
+  --cv-actions-room: calc(2 * 32px);
 }
 .cv-tool-output__box > .cv-tool-output {
   grid-column: 1;
@@ -4432,17 +4489,17 @@ a.cv-sha:focus-visible {
 .cv-tool-output__actions:focus-within {
   opacity: 1;
 }
-/* They fade as a message's hover row does (#23769): in after a beat under the pointer, at once from
+/* They fade as a message's hover row does (#23769): in for as long as the pointer stays, at once from
    the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-tool-output__actions {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-tool-output__box:hover .cv-tool-output__actions {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-tool-output__actions:focus-within {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
@@ -4516,24 +4573,83 @@ a.cv-sha:focus-visible {
 .cv-output-cut {
   color: var(--cv-text-muted);
 }
-.cv-output-more {
+/* Show more / Show less under every cut block (ExpandRow.tsx): one button, its block's full width
+   and its whole bottom row, so a click anywhere along that edge toggles it (Leo, 2026-11-07: "what
+   if the whole bottom row area were clickable ... my mouse is in the general vicinity, it's in the
+   general height area"). On its block's own surface; under the pointer only its fill and ink change,
+   never its size, padding, border or weight, so pointing at it moves nothing. Its bottom corners
+   follow its block's; the focus ring is drawn inside it, so a card's clip never cuts it. Alone (a
+   search's files, an agent message) it is the text column's width, 4px under the text. No
+   transition: the tint comes and goes at once, and a prompt's row is already moving with its fold. */
+.cv-expand-row {
   all: unset;
-  display: block;
-  margin: 4px 0 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height));
+  margin: 0;
+  padding-top: 4px;
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  background-color: transparent;
+  color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  color: var(--cv-text-muted);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
 }
-.cv-output-more:hover {
+.cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
   color: var(--cv-text);
 }
-.cv-output-more:focus-visible {
+.cv-expand-row:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
-  outline-offset: 1px;
-  border-radius: 4px;
+  outline-offset: -2px;
+}
+/* In a card the row is a row: the card's header height, the words at the card's text inset. */
+:is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  padding-top: 0;
+}
+/* A Shell block's row runs out through the card's padding to its edges and takes in its bottom
+   padding, so the card is as tall as with the bare label under the output (12px padding, 4px and a
+   16px line: 32px). */
+.cv-shell > .cv-expand-row {
+  width: calc(100% + 2 * var(--grid-cards-padding));
+  min-height: calc(var(--grid-base) + var(--text-detail--line-height) + var(--grid-cards-padding));
+  margin: 0 calc(-1 * var(--grid-cards-padding)) calc(-1 * var(--grid-cards-padding));
+  padding-inline: var(--grid-cards-padding);
+}
+.cv-shell > .cv-expand-row:not(:last-child) {
+  margin-bottom: 0;
+}
+/* A call output's row is the box's second grid row, out under the corner buttons' room too. */
+.cv-tool-output__box > .cv-expand-row {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: auto;
+  min-height: calc(var(--cv-font-size) * 32 / 14);
+  margin-right: calc(-1 * var(--cv-actions-room, 0px));
+  padding-inline: 12px;
+}
+/* Arms of `expand-row-look` (expandRow.experiment.ts), set on the root by ExpandRow.tsx; the shipped
+   arm, the row continuing its block's surface, sets nothing. */
+:root[data-expand-row="fade"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row[aria-expanded="false"] {
+  position: relative;
+  margin-top: -24px;
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
+  background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  box-shadow: inset 0 1px 0 var(--cv-card-ring);
+}
+:root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
+  background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
+}
+:root[data-expand-row="centred"] .cv-expand-row {
+  justify-content: center;
 }
 .cv-tool-output__raw {
   all: unset;
@@ -4738,10 +4854,13 @@ a.cv-sha:focus-visible {
 /* Continue on a stopped last turn (TurnRows.tsx): a quiet text button with the footer's icon-button
    hover pill, its label then an arrow. */
 .cv-turn-actions .cv-iconbtn.cv-turn-continue {
+  height: var(--cv-footer-button);
   width: auto;
-  gap: 4px;
-  padding-inline: 6px;
+  gap: var(--grid-half-step);
+  padding-inline: var(--grid-half-step);
   margin-inline-start: -2px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
 /* Try another approach (a Cloud chat's latest turn) is a labelled button too: its own width, never
@@ -5266,10 +5385,10 @@ a.cv-sha:focus-visible {
   flex-direction: column;
   /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
      the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
-     too much opacity"). */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 72%, transparent);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+     too much opacity"). The popover glass level. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
   color: var(--agent-text);
   outline: none;
   /* Image viewing is a direct response to a click: show the already decoded image in its final
@@ -5530,53 +5649,6 @@ a.cv-sha:focus-visible {
   white-space: nowrap;
 }
 
-/* The preview card before the reader loads its frame (PreviewCard.tsx): one compact row
-   (previewUrl.ts PREVIEW_COMPACT_HEIGHT), the page's icon unboxed, no thumbnail box. "Load preview"
-   is a quiet text button among the row's actions; the frame appears only after the click. */
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head {
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 8px 6px 12px;
-  box-shadow: none;
-}
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-icon {
-  width: 16px;
-  height: 16px;
-  background: none;
-}
-.acpmux-turn-preview-load {
-  flex: none;
-  height: 22px;
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: transparent;
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-turn-preview-load:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-.acpmux-turn-preview-load:focus-visible {
-  outline: 1.5px solid var(--agent-muted);
-  outline-offset: 1px;
-}
-/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
-   card's actions: no outline, muted text, a background only under the pointer. */
-.acpmux-turn-preview-head .acpmux-review-changes {
-  padding: 0 var(--ds-space-2);
-  box-shadow: none;
-  color: var(--agent-muted);
-}
-.acpmux-turn-preview-head .acpmux-review-changes:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
 .acpmux-render-card {
   position: relative;
@@ -5774,10 +5846,17 @@ a.cv-sha:focus-visible {
    in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
    2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
    The 6px rise it once faded in with moved its box on each of the fade's frames, read as a jump the
-   moment the reader scrolled up. */
+   moment the reader scrolled up.
+   It stands on the composer's center line, not the stage's middle (Leo, 2026-11-07: "the jump to
+   bottom button is still not centered with the composer yet"). The composer card spans the column
+   from --cv-inset to --cv-inset-end (styles.css .acpmux-composer, computerUsePreview.css,
+   sessionInfo.css), and the stage and the dock are both .acpmux-main's width, so the same insets
+   give the button the card's center: while Session Info pushes the column left, or the computer use
+   preview takes its end, the button goes with the card, in the same frames of the push's slide
+   (--acpmux-session-info-shift). With no column (the gallery's bare stage) it is the middle. */
 .acpmux-jump-latest {
   position: absolute;
-  left: 50%;
+  left: calc((100% + var(--cv-inset, 0px) - var(--cv-inset-end, var(--cv-inset, 0px))) / 2);
   /* Over the bottom stack, which lies over the stage's foot (App.tsx passes its height). */
   bottom: calc(12px + var(--acpmux-dock-space, 0px));
   z-index: var(--layer-sticky);
@@ -5941,7 +6020,7 @@ a.cv-sha:focus-visible {
     100% 0,
     0 0;
 }
-.acpmux-scroll:has(> .acpmux-minimap [data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
+.acpmux-scroll:has(> .acpmux-minimap[data-side="right"]):is([data-fade-top], [data-fade-bottom], [data-docked]) {
   -webkit-mask-position:
     0 0,
     100% 0,
@@ -6469,11 +6548,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .cv-user__queued-hover {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-user:hover .cv-user__queued-hover,
   .cv-user:has([data-popup-open]) .cv-user__queued-hover {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
@@ -6544,19 +6623,19 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   opacity: 1;
 }
 /* Reply and the queue tag (below) fade with the line's hover row (.cv-received-actions, #23769): in
-   after a beat under the pointer, at once from the keyboard, out quickly. */
+   for as long as the pointer stays, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-received__reply,
   .cv-received .cv-received__queued {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-received:hover .cv-received__reply,
   .cv-received:hover .cv-received__queued {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-received:focus-within .cv-received__reply,
   .cv-received:focus-within .cv-received__queued {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 .cv-received__reply:hover,
@@ -6574,9 +6653,74 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
-   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
+   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock.
+   The activity and Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) keep this look. */
 .cv-waiting {
   color: var(--cv-text);
+}
+/* The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
+   2026-11-05): a ringed dot in the attention mark's colour, then the words in it on a pill tinted
+   with it. The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
+.cv-thinking.cv-waiting {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--acpmux-needs-you-mark);
+}
+.cv-waiting__pill {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
+  box-sizing: border-box;
+  /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  line-height: var(--ds-control-icon);
+}
+/* The ringed dot on the 12px glyph step: an 8px dot in the mark's colour inside a 2px ring of it. */
+.cv-needs-input-glyph {
+  flex: none;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    var(--acpmux-needs-you-mark) 66%,
+    color-mix(in srgb, var(--acpmux-needs-you-mark) 30%, transparent) 67%
+  );
+}
+/* Once answered the dot stays a moment before the Thinking words and shrinks into them, its room
+   closing with it, so the words slide back to the line's start (Leo, 2026-11-05: "it, like, shrinks
+   the thing, the circle into the Thinking... portion afterwards which is cute"). The motion's
+   standard step; with motion off or reduced it is not drawn at all. */
+.cv-needs-input-glyph.is-answered {
+  align-self: center;
+  margin-inline-end: var(--ds-space-2);
+  animation: cv-needs-input-answered var(--cmux-motion-standard, 180ms) var(--cmux-ease-out) both;
+}
+@keyframes cv-needs-input-answered {
+  from {
+    transform: scale(1);
+  }
+  to {
+    width: 0;
+    margin-inline: 0;
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-needs-input-glyph.is-answered {
+    display: none;
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
+  display: none;
 }
 
 /* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
@@ -6715,8 +6859,16 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
    Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
-   selection does. `icon` draws the glyph alone. */
+   selection does. `icon` draws the glyph alone.
+   Its label reads over anything under it (Leo 2026-11-07: "this reply, it has too little opacity
+   here"): the chip is glass with a veil of the theme's solid surface (--glass-surface) at
+   --cv-selection-reply-veil, so a bubble, code or the wallpaper under it shows only as a blurred hint, and its
+   label is the full text color. Over a see-through window --agent-page-bg is clear, so the card fill
+   over it that the chip had drew 4% of the text color on nothing and its 60% label sank into the
+   transcript. test/selection-reply-contrast.test.ts holds the label at 4.5:1 or more over a black,
+   a white and a bubble backdrop in both themes. Reduce Transparency makes it solid. */
 .cv-selection-reply {
+  --cv-selection-reply-veil: 90%;
   position: fixed;
   z-index: var(--layer-dropdown);
   display: inline-flex;
@@ -6724,12 +6876,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   gap: 4px;
   height: 28px;
   padding-inline: 8px 12px;
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
-  /* Opaque over the text it floats above: the page's colour under the cards' fill. */
-  background: linear-gradient(var(--cv-card-fill), var(--cv-card-fill)), var(--agent-page-bg, Canvas);
+  background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
+  backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
   box-shadow: var(--elevation-2);
-  color: var(--cv-tool-strong);
+  color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 20px;
@@ -6743,9 +6896,18 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   justify-content: center;
 }
 .cv-selection-reply:hover {
-  color: var(--cv-text, currentColor);
-  background: linear-gradient(var(--cv-bubble), var(--cv-bubble)), linear-gradient(var(--cv-card-fill), var(--cv-card-fill)),
-    var(--agent-page-bg, Canvas);
+  background: linear-gradient(
+      color-mix(in srgb, var(--agent-text) 8%, transparent),
+      color-mix(in srgb, var(--agent-text) 8%, transparent)
+    ),
+    color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cv-selection-reply {
+    background: var(--glass-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */
@@ -6796,11 +6958,15 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 }
 
 /* "Worked for 22s ›" (Lucas, 2026-11-06, Codex parity): the whole line lights under the
-   pointer, its time too, and the fold's rows start a grid gap under its rule.
-   model.ts `WORKED_GAP_PT` estimates the gap. Its chevron is every row's (`.cv-rotor`). */
+   pointer, its time too. Its rule sits midway between its words and the next row, the reply or
+   the fold's rows: 4 under the line, 12 over the next row, and no stack gap after it
+   (transcriptGrid.ts MARK_WORKED; Lucas, 2026-11-07). model.ts `WORKED_GAP_PT` estimates the room.
+   Its chevron is every row's (`.cv-rotor`). */
 button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked.has-divider.is-toggle {
-  margin-bottom: var(--grid-gap);
+  height: calc(var(--cv-tool-row-height) + var(--grid-gap-foot));
+  padding-bottom: var(--grid-gap-foot);
+  margin-bottom: var(--grid-gap-inner);
 }

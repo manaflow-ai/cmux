@@ -11,7 +11,7 @@ use cmux_host::cloud::private_bootstrap::NativeBootstrap;
 use cmux_host::cloud::receiver::{REQUEST_BUDGET, ReceiverSnapshot, is_refusal};
 use cmux_host::cloud::receiver_agent::AgentReceiver;
 use cmux_link::elapsed::{Deadline, Elapsed};
-use cmux_link::native_token::NativePolicy;
+use cmux_link::native_token::{MAX_POLICY_LEASE_MS, NativePolicy};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UdpSocket, UnixStream};
 use tokio::sync::{mpsc, oneshot};
@@ -181,10 +181,11 @@ async fn first_policy(
         }
     };
     snapshot.time(Instant::now()).ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
-    let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
+    let mut log = RenewalLog { last_slow: None, last_admits: None, peerless: None };
+    let peerless = log.peers(snapshot.native_policy().peers.is_empty());
+    let next = renewal_at(&snapshot, snapshot.started().elapsed(), peerless)?;
     let expires = Some(snapshot.admitted_until());
     let admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
-    let mut log = RenewalLog { last_slow: None, last_admits: None };
     log.admission(first_took, admitted.map(|end| end.saturating_duration_since(Instant::now())));
     send.send(Some(snapshot.native_policy()))
         .await
@@ -199,15 +200,28 @@ async fn first_policy(
 /// of the lease used to land after the lease ended every time, so the receiver
 /// dropped every stream and peer once per renewal (cmux link dials then saw
 /// `unreachable`, and open connections ended about every 27 s).
-fn renewal_at(snapshot: &ReceiverSnapshot, took: Duration) -> anyhow::Result<(Instant, Deadline)> {
+/// `peerless` ([`peerless_wait`]) starts it sooner while the policy names no
+/// peers.
+fn renewal_at(
+    snapshot: &ReceiverSnapshot,
+    took: Duration,
+    peerless: Option<Duration>,
+) -> anyhow::Result<(Instant, Deadline)> {
     let expiry =
         snapshot.elapsed_deadline().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
     let left = expiry.remaining().ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
-    let delay = renewal_delay(left, took);
+    let delay = next_read_delay(left, took, peerless);
     let wake = expiry
         .shortened_by(left - delay)
         .ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
     Ok((Instant::now() + delay, wake))
+}
+
+/// The wait before the next read: [`renewal_delay`], or `peerless` when that
+/// is sooner.
+fn next_read_delay(left: Duration, took: Duration, peerless: Option<Duration>) -> Duration {
+    let delay = renewal_delay(left, took);
+    peerless.map_or(delay, |wait| delay.min(wait))
 }
 
 /// The wait before the next read, with `left` of the lease remaining and the
@@ -225,6 +239,8 @@ struct RenewalLog {
     last_slow: Option<Instant>,
     /// Whether the last answered read carried local admission (`admit_until`); None before the first.
     last_admits: Option<bool>,
+    /// The wait before reading again while the last answered read's policy named no peers ([`peerless_wait`]).
+    peerless: Option<Duration>,
 }
 
 /// The journal line for an answered policy read whose local admission (`admit_until`) is new:
@@ -244,6 +260,17 @@ fn admission_line(took: Duration, admission: Option<Duration>) -> String {
 }
 
 impl RenewalLog {
+    /// After an answered read whose policy names no peers (`empty`), the wait before the next read
+    /// ([`peerless_wait`]), else None; logs when that starts or stops ([`peerless_line`]).
+    fn peers(&mut self, empty: bool) -> Option<Duration> {
+        let was = self.peerless;
+        self.peerless = empty.then(|| peerless_wait(was));
+        if let Some(line) = peerless_line(was, self.peerless) {
+            eprintln!("{line}");
+        }
+        self.peerless
+    }
+
     /// Logs the read's admission when it is new (``admission_line``), so the journal shows whether the
     /// control plane granted local admission without a line per read.
     fn admission(&mut self, took: Duration, admission: Option<Duration>) {
@@ -321,6 +348,35 @@ fn keeps_policy(failure: ReadFailure, admitted: Option<Instant>, now: Instant) -
     }
 }
 
+/// The first wait before reading again a policy that names no peers.
+const PEERLESS_FIRST: Duration = Duration::from_secs(2);
+
+/// The wait before reading again a policy that names no peers, `last` the
+/// wait used after the previous such read (None for the first): 2 s, doubled
+/// each time, and never past a lease (the normal renewal is the longest wait).
+/// A new machine's first read can come before the team's mesh ACL names it
+/// (the platform applies it beside the create: 10 to over 30 s on a large
+/// mesh), and a receiver with no peers drops every dial before its hello, so
+/// no token can start an early read: it waited out the renewal, about 60 s,
+/// and a first chat's start gave up first (prod 2026-11-06: "Machine didn't
+/// connect, so no agent started there" in 40.7 s, a start-matrix row at 75 s).
+fn peerless_wait(last: Option<Duration>) -> Duration {
+    last.map_or(PEERLESS_FIRST, |wait| wait.saturating_mul(2))
+        .min(Duration::from_millis(MAX_POLICY_LEASE_MS))
+}
+
+/// The journal line when a read's policy starts or stops naming no peers.
+fn peerless_line(was: Option<Duration>, now: Option<Duration>) -> Option<String> {
+    match (was, now) {
+        (None, Some(wait)) => Some(format!(
+            "cmux link: receiver policy names no peers; reading again in {} ms",
+            wait.as_millis()
+        )),
+        (Some(_), None) => Some("cmux link: receiver policy names its peers".to_string()),
+        _ => None,
+    }
+}
+
 /// The least time between two policy reads that a token naming newer peer
 /// authority starts early, so a burst of such tokens costs one read.
 const EARLY_READ_GAP: Duration = Duration::from_secs(2);
@@ -367,7 +423,8 @@ async fn renew(
                 expires = Some(snapshot.admitted_until());
                 admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
                 log.admission(took, admitted.map(|end| end.saturating_duration_since(arrived)));
-                next = renewal_at(&snapshot, took)?;
+                let peerless = log.peers(snapshot.native_policy().peers.is_empty());
+                next = renewal_at(&snapshot, took, peerless)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
                     .await

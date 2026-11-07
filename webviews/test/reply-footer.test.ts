@@ -256,17 +256,46 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await button.waitFor({ timeout: 10_000 });
         const fit = await button.evaluate((el) => ({
           width: el.getBoundingClientRect().width,
+          height: el.getBoundingClientRect().height,
           scroll: el.scrollWidth,
           client: el.clientWidth,
           glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          fontSize: getComputedStyle(el).fontSize,
+          captionSize: (() => {
+            const probe = document.createElement("span");
+            probe.style.fontSize = "var(--text-caption)";
+            document.body.append(probe);
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
+          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
+          title: el.getAttribute("title"),
         }));
         console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
         expect(fit.width).toBeGreaterThan(40);
+        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
         expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
         expect(fit.glyph).toBeLessThan(20);
+        expect(fit.fontSize).toBe(fit.captionSize);
+        expect(fit.paddingInline).toBe("2px 2px");
+        expect(fit.title).toBeNull();
+        await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
       }
     });
+
+    for (const variant of ["footer-before", "footer-chosen", "footer-roomy"]) {
+      test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
+        const page = await open(variant, theme.name, "agent-pane.stopped-turn");
+        try {
+          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await still(page, `${theme.file}-${variant}`);
+        } finally {
+          await page.close();
+        }
+      });
+    }
   }
 });

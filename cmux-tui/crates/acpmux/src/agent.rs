@@ -16,6 +16,7 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+pub(crate) mod foreign_login;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -709,6 +710,8 @@ impl Spawned {
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         crate::cpu_class::start_at_normal(&mut cmd);
+        // Never the daemon's OOM protection (`oom_rank.rs`).
+        crate::oom_rank::agent_at_exec(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
         // the child is held and not reaped, so its pid is its own.

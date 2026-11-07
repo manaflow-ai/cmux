@@ -30,6 +30,8 @@ fn config(root: &Path) -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}},
         "defaultHarness": "fake",
+        // A failed turn's held prompts wait for Resume (`queue.rs` `waits_for_resume`).
+        "autoResumeDelaysMs": [],
         "webRoots": [root],
         "webAskingModes": {"fake": ["normal"]},
     }))

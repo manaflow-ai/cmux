@@ -144,7 +144,7 @@ test("a late folder browse cannot create a chat after a newer folder pick", asyn
   });
   await openFolder();
   const choose = everywhere().find(
-    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Choose folder…",
+    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Add folder…",
   );
   expect(choose, "no Choose folder action").toBeTruthy();
   await act(async () => choose!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 })));
@@ -171,7 +171,7 @@ test("New Chat Here also invalidates a pending folder browse", async () => {
   });
   await openFolder();
   const choose = everywhere().find(
-    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Choose folder…",
+    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Add folder…",
   );
   expect(choose, "no Choose folder action").toBeTruthy();
   await act(async () => choose!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 })));

@@ -57,6 +57,12 @@ says "before-flood", reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000)
 text deltas and writes <fifo>.done: output the agent's host buffers while no
 daemon reads it; once <fifo>.done exists it floods no more. "flood" is that
 backlog alone, then the turn ends.
+"fg-work KIND MS" (KIND bash or agent) is one foreground Bash or Agent call (toolu_work, task
+w1) that runs MS ms, as Claude Code 2.1.310 runs one: user lines written meanwhile wait for the
+step. A background_tasks for it (or for every task) moves it: its task_updated, then its tool
+result says it runs in the background, and each waiting line, and every later one, is echoed and
+answered ("read: TEXT") at once. At MS the call ends: a foreground one's result comes and then the
+waiting lines are read; a moved one's task_notification says it completed. Then the turn ends.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -476,6 +482,77 @@ def flood():
         f.write("done")
 
 
+def fg_work(kind, ms):
+    """The "fg-work" turn (module doc)."""
+    import time
+    agent = kind == "agent"
+    call = ({"description": "Long review", "prompt": "review it", "subagent_type": "general-purpose"}
+            if agent else {"command": "make long", "description": "Long build"})
+    send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_work",
+          "name": "Agent" if agent else "Bash", "input": call}]}})
+    send({"type": "system", "subtype": "task_started", "task_id": "w1", "tool_use_id": "toolu_work",
+          "description": call["description"], "task_type": "local_agent" if agent else "local_bash",
+          "is_backgrounded": False})
+
+    def read(msg):
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
+                       if isinstance(b, dict))
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
+
+    ends = time.monotonic() + ms / 1000
+    waiting = []
+    moved = False
+    while True:
+        left = ends - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            got = LINES.get(timeout=left)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "user":
+            if moved:
+                read(msg)
+            else:
+                waiting.append(msg)
+            continue
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request") or {}
+        rid = msg.get("request_id")
+        if request.get("subtype") != "background_tasks":
+            send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+                  "response": {}}})
+            continue
+        move = not moved and request.get("tool_use_id") in (None, "toolu_work")
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+              "response": {"backgrounded": move}}})
+        if move:
+            moved = True
+            send({"type": "system", "subtype": "task_updated", "task_id": "w1",
+                  "patch": {"is_backgrounded": True}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+                  "content": "Running in the background with ID: w1"}]}})
+            for line in waiting:
+                read(line)
+            waiting = []
+    if moved:
+        send({"type": "system", "subtype": "task_notification", "task_id": "w1", "tool_use_id": "toolu_work",
+              "status": "completed", "summary": "work done"})
+    else:
+        send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+              "content": "work done"}]}})
+        for line in waiting:
+            read(line)
+    send({"type": "result", "subtype": "success", "result": "work done", "num_turns": 1,
+          "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
 def fg_shell():
     """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
     answers `backgrounded`: false when its tool_use_id names no foreground task."""
@@ -866,6 +943,10 @@ while True:
         if said.strip() == "fg-shell":
             fg_shell()
             continue
+        if said.startswith("fg-work "):
+            _, kind, ms = said.split()
+            fg_work(kind, int(ms))
+            continue
         if said.strip() == "flood":
             flood()
             send({"type": "result", "subtype": "success", "result": "flooded", "num_turns": 1,
@@ -1239,6 +1320,21 @@ while True:
                 for word in ("one ", "two ", "three "):
                     send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                           "delta": {"type": "text_delta", "text": req + " " + word}}})
+        # "auth-retry-probe": the model API refuses the sign-in (401). Claude Code retries it on
+        # its own backoff (0.5 s doubling to 32 s, 10 retries), then fails the turn with the 401.
+        # FAKE_CLAUDE_RETRY_SCALE scales the waits (default 0.01: the whole backoff in 1.6 s).
+        if said.strip() == "auth-retry-probe":
+            import time
+            scale = float(os.environ.get("FAKE_CLAUDE_RETRY_SCALE") or "0.01")
+            for attempt in range(1, 11):
+                delay = min(500 * 2 ** (attempt - 1), 32000)
+                send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                      "retry_delay_ms": delay, "error_status": 401, "error": "authentication_failed"})
+                time.sleep(delay * scale / 1000)
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1, "duration_api_ms": 5,
+                  "result": 'Failed to authenticate. API Error: 401 {"type":"error","error":'
+                            '{"type":"authentication_error","message":"invalid x-api-key"}}'})
+            continue
         # "api-retry-probe": the model gateway fails twice (Claude Code's system/api_retry
         # lines) before the request goes through and the reply streams.
         if said.strip() == "api-retry-probe":

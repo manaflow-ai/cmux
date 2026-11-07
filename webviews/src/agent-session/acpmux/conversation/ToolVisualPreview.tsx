@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
-import { mediaKind } from "../chips/ReplyMedia";
+import { mediaKind } from "../chips/replyMediaModel";
 import { useHoverCard } from "../chips/useHoverCard";
 import "./toolVisualPreview.css";
 

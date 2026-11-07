@@ -101,6 +101,20 @@ pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
     origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
 }
 
+/// Who a connection is from its own proof alone: `control_of` with no request marker
+/// (`_meta.acpmux.via`), which a client sets itself. `hub/created_by.rs` reads this.
+pub(super) fn proven_control(origin: super::Origin, auth: super::ConnAuth) -> crate::hub::Control {
+    use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
+    match origin {
+        super::Origin::Local | super::Origin::LocalApp => Control::Local,
+        super::Origin::Web => Control::Web,
+        super::Origin::Peer => Control::Peer,
+    }
+}
+
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
 /// `auth` is the proof the connection presented: an unauthenticated one is
@@ -179,11 +193,28 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
     // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(crate::prompt_provenance::PERSON_VERIFIED);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::prompt_provenance::PERSON_VERIFIED: true}),
+        );
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {

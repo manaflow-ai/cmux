@@ -1558,14 +1558,48 @@ where
         if let Ok(value) = connect().await {
             return Ok(Some(value));
         }
-        // If systemd has already marked the unit inactive, its socket peer is
-        // gone; let the ordinary detached launch path recover it. A live unit
-        // keeps this wait open regardless of how long its request takes.
-        match run_systemctl(systemctl.clone(), &["--user", "is-active", "acpmux.service"]).await {
-            Ok(Some(status)) if status.success() => {}
+        // If systemd has already marked the unit inactive or failed, its socket
+        // peer is gone; let the ordinary detached launch path recover it. A unit
+        // that is starting, stopping or reloading keeps this wait open, however
+        // long its request takes: during a restart the unit is `deactivating`
+        // for as long as the old daemon takes to stop, and a detached daemon
+        // started then runs in this command's cgroup, under its limits, and
+        // takes the lock from the unit's next daemon (on a fleet lane host a
+        // review box's 256-task, 4-CPU scope ran the daemon for 53 minutes and
+        // every harness start in it failed with EAGAIN).
+        match unit_active_state(systemctl.clone()).await {
+            Some(state) if unit_still_live(&state) => {}
             _ => return Ok(None),
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
+    }
+}
+
+/// Whether a unit in systemd's `ActiveState` `state` still has, or is about to
+/// have, a daemon of its own: active, or on its way in or out of it.
+#[cfg(target_os = "linux")]
+fn unit_still_live(state: &str) -> bool {
+    matches!(state, "active" | "activating" | "deactivating" | "reloading" | "refreshing")
+}
+
+/// `acpmux.service`'s `ActiveState`, or `None` when systemd did not answer in
+/// [`PROBE_BUDGET`] or could not say.
+// timeout: cleanup for a wedged systemctl probe; the caller then takes the detached path.
+#[cfg(target_os = "linux")]
+async fn unit_active_state<S>(systemctl: S) -> Option<String>
+where
+    S: AsRef<std::ffi::OsStr>,
+{
+    let show = tokio::process::Command::new(systemctl)
+        .args(["--user", "show", "acpmux.service", "-p", "ActiveState", "--value"])
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(PROBE_BUDGET, show).await {
+        Ok(Ok(output)) if output.status.success() => {
+            Some(String::from_utf8_lossy(output.stdout.trim_ascii()).into_owned())
+        }
+        _ => None,
     }
 }
 

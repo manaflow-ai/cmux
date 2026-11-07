@@ -7,6 +7,9 @@ public final class MockAgentSignInSource: AgentSignInSource {
     public var agents: [OnboardingAgent]
     /// What Sign In answers: whether a terminal tab opened.
     public var signInOpens = true
+    /// What Install answers: nil when it installed (the agent then reads as installed), else the error.
+    public var installFails: String?
+    public private(set) var installsRun: [String] = []
     public private(set) var reads: [Bool] = []
     public private(set) var signIns: [String] = []
 
@@ -22,6 +25,15 @@ public final class MockAgentSignInSource: AgentSignInSource {
     public func signInAgent(_ id: String) async -> Bool {
         signIns.append(id)
         return signInOpens
+    }
+
+    public func installAgent(_ id: String) async -> String? {
+        installsRun.append(id)
+        if let installFails { return installFails }
+        agents = agents.map {
+            $0.id == id ? OnboardingAgent(id: $0.id, name: $0.name, brand: $0.brand, auth: .signedOut) : $0
+        }
+        return nil
     }
 
     public func agentIcon(_ agent: OnboardingAgent, side: CGFloat) -> NSImage? { nil }
