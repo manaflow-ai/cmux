@@ -172,42 +172,45 @@ fn list(
             break;
         }
         scanned += 1;
-        let Ok(entry) = entry else { continue };
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = entry.name.to_string_lossy().into_owned();
         if !ask.hidden && name.starts_with('.') {
             continue;
         }
-        let Ok(kind) = entry.file_type() else { continue };
         let path = dir.join(&name);
         let mut row = json!({"name": name, "path": path});
-        let opens = if kind.is_symlink() {
-            // Reported as a link; only what it names is read, and only to say its kind.
-            let target = match std::fs::metadata(&path) {
-                Ok(m) if m.is_dir() => "dir",
-                Ok(_) => "file",
-                Err(_) => "missing",
-            };
-            row["kind"] = json!("symlink");
-            row["target"] = json!(target);
-            if target == "dir"
-                && roots.is_some()
-                && !std::fs::canonicalize(&path).is_ok_and(|p| inside(&p))
-            {
-                row["outside"] = json!(true);
+        let opens = match entry.kind {
+            opened::Kind::Symlink => {
+                // Reported as a link; only what it names is read, and only to say its kind.
+                let target = match std::fs::metadata(&path) {
+                    Ok(m) if m.is_dir() => "dir",
+                    Ok(_) => "file",
+                    Err(_) => "missing",
+                };
+                row["kind"] = json!("symlink");
+                row["target"] = json!(target);
+                if target == "dir"
+                    && roots.is_some()
+                    && !std::fs::canonicalize(&path).is_ok_and(|p| inside(&p))
+                {
+                    row["outside"] = json!(true);
+                }
+                target == "dir"
             }
-            target == "dir"
-        } else if kind.is_dir() {
-            row["kind"] = json!("dir");
-            true
-        } else {
-            row["kind"] = json!(if kind.is_file() { "file" } else { "other" });
-            if kind.is_file()
-                && !ask.dirs_only
-                && let Ok(m) = entry.metadata()
-            {
-                row["size"] = json!(m.len());
+            opened::Kind::Dir => {
+                row["kind"] = json!("dir");
+                true
             }
-            false
+            kind => {
+                let file = kind == opened::Kind::File;
+                row["kind"] = json!(if file { "file" } else { "other" });
+                if file
+                    && !ask.dirs_only
+                    && let Some(size) = opened.size_of(&entry.name)
+                {
+                    row["size"] = json!(size);
+                }
+                false
+            }
         };
         if ask.dirs_only && !opens {
             continue;
@@ -236,92 +239,224 @@ fn list(
     Ok(reply)
 }
 
-/// A folder opened once (no link followed at its last name) and read through that open
-/// descriptor, and the path the descriptor names now, from the kernel.
+/// A folder opened once (no link followed at its last name), its entries read from that open
+/// descriptor (`fdopendir`), and the path the descriptor names now, from the kernel.
 mod opened {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    use std::fs::File;
-    use std::fs::ReadDir;
-    use std::io;
-    use std::path::{Path, PathBuf};
+    use std::ffi::OsString;
 
-    pub(super) struct Opened {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        file: File,
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        dir: PathBuf,
+    /// An entry's own kind, never what a link names.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub(super) enum Kind {
+        Dir,
+        File,
+        Symlink,
+        Other,
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub(super) fn open(dir: &Path) -> io::Result<Opened> {
-        use std::os::unix::fs::OpenOptionsExt;
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(dir)?;
-        Ok(Opened { file })
+    pub(super) struct Entry {
+        pub(super) name: OsString,
+        pub(super) kind: Kind,
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    pub(super) fn open(dir: &Path) -> io::Result<Opened> {
-        if !dir.is_dir() {
-            return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
-        }
-        Ok(Opened { dir: dir.to_path_buf() })
-    }
+    #[cfg(not(unix))]
+    pub(super) use other::{Entries, Opened, open};
+    #[cfg(unix)]
+    pub(super) use unix::{Entries, Opened, open};
 
-    impl Opened {
-        /// The descriptor's own folder, as `/proc/self/fd` (Linux) or `/dev/fd` (macOS) opens it.
-        #[cfg(target_os = "linux")]
-        fn fd_path(&self) -> PathBuf {
-            use std::os::fd::AsRawFd;
-            PathBuf::from(format!("/proc/self/fd/{}", self.file.as_raw_fd()))
-        }
+    #[cfg(unix)]
+    mod unix {
+        use super::{Entry, Kind};
+        use std::ffi::{CStr, CString, OsString};
+        use std::fs::File;
+        use std::io;
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::path::{Path, PathBuf};
 
-        #[cfg(target_os = "macos")]
-        fn fd_path(&self) -> PathBuf {
-            use std::os::fd::AsRawFd;
-            PathBuf::from(format!("/dev/fd/{}", self.file.as_raw_fd()))
+        pub(in super::super) struct Opened {
+            file: File,
         }
 
-        /// What the open folder is now, or None once it is gone.
-        #[cfg(target_os = "linux")]
-        pub(super) fn path(&self) -> Option<PathBuf> {
-            let path = std::fs::read_link(self.fd_path()).ok()?;
-            // A removed folder reads "<path> (deleted)", which names nothing.
-            path.is_absolute().then_some(path).filter(|p| p.is_dir())
+        pub(in super::super) fn open(dir: &Path) -> io::Result<Opened> {
+            use std::os::unix::fs::OpenOptionsExt;
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(dir)?;
+            Ok(Opened { file })
         }
 
-        #[cfg(target_os = "macos")]
-        pub(super) fn path(&self) -> Option<PathBuf> {
-            use std::os::fd::AsRawFd;
-            use std::os::unix::ffi::OsStringExt;
-            let mut buf = vec![0u8; libc::PATH_MAX as usize];
-            // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds PATH_MAX
-            // bytes, for a descriptor this value owns.
-            let r =
-                unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) };
-            if r == -1 {
-                return None;
+        impl Opened {
+            /// What the open folder is now, or None once it is gone.
+            #[cfg(target_os = "linux")]
+            pub(in super::super) fn path(&self) -> Option<PathBuf> {
+                let fd = PathBuf::from(format!("/proc/self/fd/{}", self.file.as_raw_fd()));
+                let path = std::fs::read_link(fd).ok()?;
+                // A removed folder reads "<path> (deleted)", which names nothing.
+                path.is_absolute().then_some(path).filter(|p| p.is_dir())
             }
-            buf.truncate(buf.iter().position(|&b| b == 0)?);
-            Some(PathBuf::from(std::ffi::OsString::from_vec(buf)))
+
+            #[cfg(target_os = "macos")]
+            pub(in super::super) fn path(&self) -> Option<PathBuf> {
+                let mut buf = vec![0u8; libc::PATH_MAX as usize];
+                // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds
+                // PATH_MAX bytes, for a descriptor this value owns.
+                let r = unsafe {
+                    libc::fcntl(self.file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr())
+                };
+                if r == -1 {
+                    return None;
+                }
+                buf.truncate(buf.iter().position(|&b| b == 0)?);
+                Some(PathBuf::from(OsString::from_vec(buf)))
+            }
+
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+            pub(in super::super) fn path(&self) -> Option<PathBuf> {
+                None
+            }
+
+            /// The open folder's entries, read from a copy of its descriptor, one at a time.
+            pub(in super::super) fn read(&self) -> io::Result<Entries<'_>> {
+                // SAFETY: dup of a descriptor this value owns; the copy is owned below.
+                let copy = unsafe { libc::dup(self.file.as_raw_fd()) };
+                if copy < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: `copy` is a fresh descriptor nothing else owns.
+                let copy = unsafe { OwnedFd::from_raw_fd(copy) };
+                // SAFETY: fdopendir takes the descriptor over when it succeeds (closedir closes it).
+                let dir = unsafe { libc::fdopendir(copy.as_raw_fd()) };
+                if dir.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+                std::mem::forget(copy);
+                Ok(Entries { dir, opened: self })
+            }
+
+            /// A regular file's size, read beside its folder's descriptor without following a link.
+            pub(in super::super) fn size_of(&self, name: &std::ffi::OsStr) -> Option<u64> {
+                let stat = self.stat(name)?;
+                ((stat.st_mode & libc::S_IFMT) == libc::S_IFREG).then_some(stat.st_size as u64)
+            }
+
+            fn stat(&self, name: &std::ffi::OsStr) -> Option<libc::stat> {
+                let name = CString::new(name.as_bytes()).ok()?;
+                let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+                // SAFETY: `name` is NUL-terminated and `stat` has room for one stat.
+                let r = unsafe {
+                    libc::fstatat(
+                        self.file.as_raw_fd(),
+                        name.as_ptr(),
+                        stat.as_mut_ptr(),
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                };
+                // SAFETY: fstatat filled it when it returned 0.
+                (r == 0).then(|| unsafe { stat.assume_init() })
+            }
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        pub(super) fn path(&self) -> Option<PathBuf> {
-            std::fs::canonicalize(&self.dir).ok()
+        pub(in super::super) struct Entries<'a> {
+            dir: *mut libc::DIR,
+            opened: &'a Opened,
         }
 
-        /// The open folder's entries, read through its descriptor.
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        pub(super) fn read(&self) -> io::Result<ReadDir> {
-            std::fs::read_dir(self.fd_path())
+        impl Drop for Entries<'_> {
+            fn drop(&mut self) {
+                // SAFETY: `dir` came from fdopendir and is closed once, here.
+                unsafe { libc::closedir(self.dir) };
+            }
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-        pub(super) fn read(&self) -> io::Result<ReadDir> {
-            std::fs::read_dir(&self.dir)
+        impl Iterator for Entries<'_> {
+            type Item = Entry;
+
+            fn next(&mut self) -> Option<Entry> {
+                loop {
+                    // SAFETY: `dir` is open until drop; only this iterator reads it.
+                    let entry = unsafe { libc::readdir(self.dir) };
+                    if entry.is_null() {
+                        return None;
+                    }
+                    // SAFETY: readdir's entry stays valid until the next readdir on `dir`.
+                    let (name, d_type) = unsafe {
+                        (
+                            CStr::from_ptr((*entry).d_name.as_ptr()).to_bytes().to_vec(),
+                            (*entry).d_type,
+                        )
+                    };
+                    if name == b"." || name == b".." {
+                        continue;
+                    }
+                    let name = OsString::from_vec(name);
+                    let kind = match d_type {
+                        libc::DT_DIR => Kind::Dir,
+                        libc::DT_REG => Kind::File,
+                        libc::DT_LNK => Kind::Symlink,
+                        libc::DT_UNKNOWN => {
+                            match self.opened.stat(&name).map(|s| s.st_mode & libc::S_IFMT) {
+                                Some(libc::S_IFDIR) => Kind::Dir,
+                                Some(libc::S_IFREG) => Kind::File,
+                                Some(libc::S_IFLNK) => Kind::Symlink,
+                                Some(_) => Kind::Other,
+                                None => continue,
+                            }
+                        }
+                        _ => Kind::Other,
+                    };
+                    return Some(Entry { name, kind });
+                }
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    mod other {
+        use super::{Entry, Kind};
+        use std::io;
+        use std::path::{Path, PathBuf};
+
+        pub(in super::super) struct Opened {
+            dir: PathBuf,
+        }
+
+        pub(in super::super) fn open(dir: &Path) -> io::Result<Opened> {
+            if !dir.is_dir() {
+                return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+            }
+            Ok(Opened { dir: dir.to_path_buf() })
+        }
+
+        pub(in super::super) type Entries<'a> = Box<dyn Iterator<Item = Entry> + 'a>;
+
+        impl Opened {
+            pub(in super::super) fn path(&self) -> Option<PathBuf> {
+                std::fs::canonicalize(&self.dir).ok()
+            }
+
+            pub(in super::super) fn read(&self) -> io::Result<Entries<'_>> {
+                Ok(Box::new(std::fs::read_dir(&self.dir)?.filter_map(Result::ok).filter_map(|e| {
+                    let t = e.file_type().ok()?;
+                    let kind = if t.is_symlink() {
+                        Kind::Symlink
+                    } else if t.is_dir() {
+                        Kind::Dir
+                    } else if t.is_file() {
+                        Kind::File
+                    } else {
+                        Kind::Other
+                    };
+                    Some(Entry { name: e.file_name(), kind })
+                })))
+            }
+
+            pub(in super::super) fn size_of(&self, name: &std::ffi::OsStr) -> Option<u64> {
+                std::fs::symlink_metadata(self.dir.join(name))
+                    .ok()
+                    .filter(|m| m.is_file())
+                    .map(|m| m.len())
+            }
         }
     }
 }
@@ -493,11 +628,8 @@ mod tests {
         // The path is swapped for a link out of the root after the open: the read is still `a`'s.
         std::fs::rename(base.join("root/a"), base.join("root/moved")).unwrap();
         std::os::unix::fs::symlink(base.join("away"), base.join("root/a")).unwrap();
-        let names: Vec<String> = opened
-            .read()
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
+        let names: Vec<String> =
+            opened.read().unwrap().map(|e| e.name.to_string_lossy().into_owned()).collect();
         assert_eq!(names, ["mine"]);
         assert_eq!(opened.path(), Some(base.join("root/moved")));
         // Moved out of the root: what it names now is outside, which the listing refuses.
