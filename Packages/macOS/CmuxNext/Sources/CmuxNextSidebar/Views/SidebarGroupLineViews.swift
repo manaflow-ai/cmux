@@ -274,11 +274,12 @@ final class GroupLineView: NSView {
         railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)
     }
 
-    /// Reads `sidebar.groupHeader`, `sidebar.groupPalette`, `sidebar.noColorGroup` and `sidebar.groupGlass` and repaints once when either changes; one
+    /// Reads `sidebar.groupHeader`, `sidebar.groupPalette` (and the Wallpaper palette's color), `sidebar.noColorGroup` and
+    /// `sidebar.groupGlass` and repaints once when either changes; one
     /// observation at a time.
     private func observedLook() -> (style: SidebarGroupHeaderStyle, palette: GroupPalette, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass) {
         let read = {
-            _ = SidebarTunables.groupChromeShapeOn
+            _ = (SidebarTunables.groupChromeShapeOn, DesignSettings.shared.groupWallpaperTint)
             return (SidebarGroupHeaderStyle.tunable.value, DesignSettings.shared.sidebarSections.groupPalette, SidebarNoColorGroupLook.tunable.value,
                     SidebarGroupGlass.tunable.value)
         }
