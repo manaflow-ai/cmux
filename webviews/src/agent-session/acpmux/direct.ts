@@ -5139,10 +5139,21 @@ export class AcpmuxDirectClient {
       // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
       // The frame drawn stays until the retry's page is in, as for a switch: no empty pane between.
+      // A retry that fails keeps it until its caller draws what comes instead (the Mac's copy, the
+      // failure), not the emptied state in between.
       const hold = this.holdSnapshots(SWITCH_HOLD_MS);
       this.resetSessionState("attach retried");
       this.copyLive = new Map();
-      return this.attach(sessionId, generation, 0, tries + 1).finally(() => this.releaseSnapshots(hold));
+      return this.attach(sessionId, generation, 0, tries + 1).then(
+        (page) => {
+          this.releaseSnapshots(hold);
+          return page;
+        },
+        (error: unknown) => {
+          this.releaseSnapshotsOnEmit(hold);
+          throw error;
+        },
+      );
     };
     if (strayed()) return again();
     // An attach asked before the list was read, whose reply is of another session than the list
@@ -7796,6 +7807,7 @@ export class AcpmuxDirectClient {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
       this.frameSnapshot = undefined;
+      if (this.snapshotHold.untilEmit) this.releaseSnapshots(this.snapshotHold.key);
       return;
     }
     this.shownSessionId = this.selectedSessionId;
@@ -9532,6 +9544,8 @@ export class AcpmuxDirectClient {
     connection?: string;
     released: Promise<void>;
     release: () => void;
+    /// Ends with the next snapshot, which it draws (`releaseSnapshotsOnEmit`).
+    untilEmit?: boolean;
   };
   private holdKeys = 0;
   /// The chat the last snapshot drawn showed.
@@ -9560,6 +9574,13 @@ export class AcpmuxDirectClient {
       timer: setTimeout(() => this.releaseSnapshots(key), limitMs),
     };
     return key;
+  }
+
+  /// Hold `key` ends with the next snapshot, drawing it: the state a failure's handling commits,
+  /// never what was held back before it. Its limit still ends it if nothing is drawn.
+  private releaseSnapshotsOnEmit(key: number): void {
+    if (this.snapshotHold?.key !== key) return;
+    this.snapshotHold.untilEmit = true;
   }
 
   /// Ends hold `key` and draws the snapshot it held back, if any.

@@ -78,6 +78,8 @@ class Daemon {
   down = false;
   /// The machine answers an attach but not the read of the records after it.
   readsDown = false;
+  /// Attaches wait here until let go, while the row changes under them.
+  heldAttaches?: (() => void)[];
   createdAt = 100;
   listed = true;
   log = LOG.slice();
@@ -146,6 +148,7 @@ class Daemon {
       return result({ protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } });
     if (message.method === "_acpmux/watch") return result({ sessions: this.listed ? [this.summary()] : [] });
     if (message.method === "_acpmux/attach") {
+      if (this.heldAttaches) return void this.heldAttaches.push(() => this.answer(message));
       if (this.down)
         return this.onmessage?.({
           data: JSON.stringify({
@@ -214,7 +217,7 @@ afterEach(() => {
 async function openChat() {
   resetKeptTailsForTests();
   const daemons: Daemon[] = [];
-  let state: Pick<Daemon, "down" | "createdAt" | "listed"> | undefined;
+  let state: Pick<Daemon, "down" | "createdAt" | "listed" | "heldAttaches"> | undefined;
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
     {
@@ -232,7 +235,13 @@ async function openChat() {
     () => {
       const daemon = new Daemon();
       // A reconnect reaches the same machine, as it is now.
-      if (state) Object.assign(daemon, { down: state.down, createdAt: state.createdAt, listed: state.listed });
+      if (state)
+        Object.assign(daemon, {
+          down: state.down,
+          createdAt: state.createdAt,
+          listed: state.listed,
+          heldAttaches: state.heldAttaches,
+        });
       daemons.push(daemon);
       state = daemon;
       return daemon as unknown as WebSocket;
@@ -456,4 +465,30 @@ test("a gap read that fails keeps the hole to read: the machine's next answer fi
     .filter((message) => message.method === "_acpmux/events");
   expect(reads.map((message) => message.params?.afterSeq)).toContain(16);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 24.");
+});
+
+test("an attach retry that fails keeps the frame until the copy is drawn: no empty frame", async () => {
+  const chat = await openChat();
+  // The next socket's attach waits while the row names another session and then this one again.
+  chat.daemon().heldAttaches = [];
+  const sockets = chat.daemon();
+  sockets.drop();
+  await until(() => (chat.daemon().heldAttaches?.length ?? 0) > 0 && chat.daemon() !== sockets, "the held attach");
+  const from = chat.drawn.length;
+  const daemon = chat.daemon();
+  daemon.createdAt = 200;
+  daemon.announce();
+  await flush();
+  daemon.createdAt = 100;
+  daemon.announce();
+  await flush();
+  // The reply strayed from the row, so the attach is retried; the machine is down for the retry.
+  const held = daemon.heldAttaches ?? [];
+  daemon.heldAttaches = undefined;
+  for (const answer of held) answer();
+  daemon.down = true;
+  await until(() => daemon.asked.some((message) => message.method === "_acpmux/peer_snapshot"), "the Mac's copy read");
+  await flush();
+  expect(chat.drawn.slice(from).filter((snapshot) => snapshot.rows.length === 0)).toEqual([]);
+  expect(chat.drawn.at(-1)!.rows.length).toBeGreaterThan(0);
 });
