@@ -340,6 +340,7 @@
 }
 
 .mt-bubble.out {
+  /* glass-opaque-allow: a sent message bubble is message content in the transcript, not an overlay; the native transcript fills it solid with the chat's colour */
   background: var(--mt-sent, var(--mt-look-sent));
   color: var(--mt-sent-text, var(--mt-look-sent-text));
   --agent-accent: currentColor;
