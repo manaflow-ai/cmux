@@ -5,7 +5,7 @@ extension ActionRegistry {
     /// opens the app's screen or page as the manifest says) once it is
     /// registered. INTERIM until then: Home and the App Store keep their
     /// show actions, every other app opens its page (`app.open`).
-    public func sidebarAppActivation(_ app: String) -> (ActionID, [String: ActionValue]) {
+    @MainActor public func sidebarAppActivation(_ app: String) -> (ActionID, [String: ActionValue]) {
         let registered = { (id: ActionID) in self.action(for: id) != nil }
         if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
         if let action = Self.interimSidebarAppActions[app], registered(action) { return (action, [:]) }
