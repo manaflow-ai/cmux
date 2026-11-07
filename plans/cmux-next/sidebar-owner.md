@@ -203,6 +203,21 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: group colors come from a palette (`sidebar.groupPalette`): Glass (default), Theme, Wallpaper,
+  Grayscale, Vibrant. Leo, verbatim (2026-11-06): "if it's a choice between frumpy colors or no colors at all slash
+  black and white, you just pick black and white", "you pick this circle, right? And it's like this ball of colors
+  ... a smudged marble picker", "you're always able to pick the pure glass option. But then, like, in the other part
+  of the row, you're able to pick, say, a selection of colors" and "of course, like the automatic group colors". The
+  nine tokens stay what the daemon stores; each palette draws them its own way (`GroupColor.paletteRGB`), so a stored
+  color is never rewritten. Vibrant replaces the low-saturation set (which went brown and olive under a dark veil) as
+  the tokens' own colors and is what Glass draws a colored group in. The group editor keeps its dot row (no color is
+  now pure glass: a clear dot, an edge and a slash) and adds a row of marbles, one per palette, that sets the key. A
+  new group takes the palette's next color in `GroupColor.paletteOrder` (purple, cyan, red, green, pink, yellow,
+  orange: neighbors far apart, never blue, the unread dot's), the one the fewest groups have; under Glass none, so
+  "no colour the user didn't choose" stands for everyone who never picks a palette. Replaces Debug
+  `sidebar.groupColors` (fixed/theme). Gallery: lane group-colors' SVG sheets (palettes on dark and light glass, the
+  orange-header-over-blue-dots clash, three picker layouts; the two-row layout won). Regression: `GroupPaletteTests`,
+  `GroupAutomaticColorTests`, `SidebarGroupPaletteSettingTests`.
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
   and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,

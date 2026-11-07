@@ -73,6 +73,7 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderBackgroundDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupPaletteDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),
         ] + SidebarPriorityViewSetting.descriptors(group: sidebar) + [

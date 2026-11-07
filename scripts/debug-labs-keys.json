@@ -111,7 +111,6 @@
   "sidebar.doneFold": {"case": "delete", "why": "On by default (Leo's sidebar organization); deleting the off switch keeps the Done (N) row and drops the unfolded list."},
   "sidebar.evenRowText": {"case": "delete", "why": "On by default (Leo 10-20); deleting the off switch keeps even row spacing and drops the fixed 12 pt step."},
   "sidebar.groupByStatus": {"case": "keep", "why": "Off because it is an opt-in sidebar grouping (Leo 10-14); the normal grouping stays the default."},
-  "sidebar.groupColors": {"case": "keep", "why": "A look comparison between the fixed palette and the theme's colors; the fixed default is the chosen one."},
   "sidebar.groupHeader": {"case": "keep", "why": "A look comparison for group headers; the solid band default is the shipped look."},
   "sidebar.groupLineLayout": {"case": "keep", "why": "A look comparison for the group line shape; the edge default is the shipped look."},
   "sidebar.hoverCardEscapeSlot": {"case": "delete", "why": "Off by default, and the shipped fix lines the hover card's top up with its row; delete the switch and keep that."},

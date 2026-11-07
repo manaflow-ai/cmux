@@ -43,6 +43,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
     /// `sidebar.groupHeader.background` (``SidebarGroupBackgroundStyle``): glass, solid, or cmux's own group look (glass).
     public static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
+    /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from; a palette other than glass colors new groups.
+    public static let groupPalettePath = ["sidebar", "groupPalette"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -134,6 +136,26 @@ public nonisolated enum SidebarSectionsSetting {
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.groupHeaderBackground.rawValue),
                           keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"])
+    }
+
+    /// Leo, 2026-11-06: "you pick this circle, right? And it's like this ball of colors". The group editor's palette
+    /// row sets the same key.
+    static func groupPaletteDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupPalettePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                          help: SettingsText.keyed("settings.sidebar.groupPalette.help",
+                                                   "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."),
+                          kind: .choice(GroupPalette.allCases.map { palette in
+                              switch palette {
+                              case .glass: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass"))
+                              case .theme: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme"))
+                              case .wallpaper: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper"))
+                              case .grayscale: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale"))
+                              case .vibrant: SettingChoice(palette.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.groupPalette.rawValue),
+                          keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -367,6 +389,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarGroupBackgroundStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupHeader.background", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: groupPalettePath) {
+            if let text = value.stringValue, let palette = GroupPalette(rawValue: text) {
+                result.groupPalette = palette
+            } else {
+                let choices = GroupPalette.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupPalette", message: "expected one of " + choices))
             }
         }
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)

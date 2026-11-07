@@ -21,11 +21,10 @@ struct SidebarGroupFlow {
         guard let state = bridge.state else { return }
         // Before personal state loads (or on a daemon without it) the intent waits or is refused like any group intent.
         guard bridge.usesPersonalOrganization else {
-            return bridge.handle(.createGroup(CmuxNextSidebar.GroupID.make(), name: name, color: .none, workspaces: []))
+            return bridge.handle(.createGroup(CmuxNextSidebar.GroupID.make(), name: name, color: SidebarGroup.newTint(in: bridge.model.sections), workspaces: []))
         }
-        let room = state.profileID, v2 = bridge.statePersonal, home = bridge.services.machines.local, id = WorkspaceGroupID(rawValue: CmuxNextSidebar.GroupID.make().rawValue)
-        // No color until a person picks one.
-        let color = GroupTint.none
+        let room = state.profileID, v2 = bridge.statePersonal, home = bridge.services.machines.local, id = WorkspaceGroupID(rawValue: CmuxNextSidebar.GroupID.make().rawValue),
+            color = SidebarGroup.newTint(in: bridge.model.sections)
         let flow = self
         Task {
             let created = await home.request("create-personal-group") { connection -> WorkspaceGroupID in
@@ -45,13 +44,13 @@ struct SidebarGroupFlow {
     /// asks without a name: that group's name editor opens (repeated New
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
-    /// A new group has no color until a person picks one (Leo 2026-10-31: "WHY DOES THIS HAVE A
-    /// LINE AND COLOR"); a person's also opens its editor (the Chrome flow). `index` places the group
-    /// (`SidebarIntent.createGroup`), else it forms at its first member.
+    /// A new group takes its color from the palette the person chose (`SidebarGroup.newTint`): none under glass, the
+    /// default (Leo 2026-10-31: "WHY DOES THIS HAVE A LINE AND COLOR"). A person's also opens its editor (the Chrome
+    /// flow). `index` places the group (`SidebarIntent.createGroup`), else it forms at its first member.
     func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool, index: Int? = nil) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
         let id = CmuxNextSidebar.GroupID.make()
-        bridge.handle(.createGroup(id, name: name, color: .none, workspaces: ids,
+        bridge.handle(.createGroup(id, name: name, color: SidebarGroup.newTint(in: bridge.model.sections), workspaces: ids,
                                    index: index))
         if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
@@ -204,6 +203,7 @@ struct SidebarGroupFlow {
     }
 
     private func performEditorItem(_ group: CmuxNextSidebar.GroupID, _ item: String) {
+        if let palette = SidebarContainerView.groupPalette(item: item) { bridge.services.settings?.setGroupPalette(palette); return }
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
