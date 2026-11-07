@@ -29,13 +29,10 @@ public struct LiveCallScreen: View {
         self.openKeySettings = openKeySettings
     }
 
-    private var chiefName: String {
-        let chief = ChiefSources.shared.primary
-        let name = chief.title ?? chief.identity.title
-        return name.isEmpty ? "Chief" : name
-    }
+    /// The Chief this call is to (never the default Chief when another was called).
+    private var chiefName: String { call.chiefName }
 
-    private var avatarText: String { ChiefSources.shared.primary.avatar }
+    private var avatarText: String { call.chiefAvatar }
 
     private var failure: VoiceCallFailure? {
         if case let .ended(failure) = session.phase { return failure }

@@ -1584,6 +1584,12 @@ test("strip arms: the machine chip always shown, and ChatGPT's cloud toggle", as
     t("composer.whereRun"),
   );
   expect(popoverLabels("run")).toEqual([t("composer.thisMac"), t("composer.cloud")]);
+  // Cloud picked: the machine chip says Cloud, never New machine (Leo, 2026-11-04: "after you pick Cloud,
+  // like, you shouldn't be seeing the new machine situation").
+  act(() => root?.unmount());
+  await mount(true, { stripLayout: "cloud-toggle", runMode: { mode: "cloud", onMode: () => undefined } });
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.cloud")}`);
+  expect(host.querySelector(".acpmux-location-leading")?.textContent ?? "").not.toContain(t("composer.newMachine"));
 });
 
 test("a started chat keeps the one control, whatever the strip's layout", async () => {

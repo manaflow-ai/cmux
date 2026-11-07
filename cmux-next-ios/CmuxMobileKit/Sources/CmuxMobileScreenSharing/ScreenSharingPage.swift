@@ -31,6 +31,10 @@ public struct ScreenSharingPage: View {
         }
         .navigationTitle("Screen Sharing")
         .navigationBarTitleDisplayMode(.inline)
+        // Its own tint: shown as a workspace's sheet or tab it sat under the app's neutral `label`
+        // tint, and a switch takes its on track from the tint (white under a white knob in Dark
+        // Mode, user 2026-11-05). Pickers follow `label`, switches stay green.
+        .cmuxMobileNeutralControlTint()
         .refreshable { await service.refresh() }
         .onAppear {
             service.start()

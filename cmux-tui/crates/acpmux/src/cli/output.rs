@@ -64,11 +64,25 @@ async fn reconnect_prompt(
     })
 }
 
+/// A daemon going away: its connection closed, or it answered that it is shutting down
+/// ([`daemon_restarting_error`]). Every prompt path (queue, stream, wait, send) reconnects to
+/// the next daemon on it, or tells the caller to send again with the same prompt id.
 pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<crate::cli::errors::AppError>()
         .is_some_and(|app| app.detail == "daemon_closed")
         || error.is::<crate::client::TransportClosed>()
+        || daemon_restarting_error(error)
+}
+
+/// The daemon's refusal as it shuts down (`hub::SHUTTING_DOWN`, typed `daemon.restarting`): a
+/// prompt it answered with it is the next daemon's, never the agent's failure.
+fn daemon_restarting_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+        d.0.message == crate::hub::SHUTTING_DOWN
+            || d.0.data.as_ref().and_then(|v| v["errorKind"].as_str())
+                == Some(crate::recovery::kind::DAEMON_RESTARTING)
+    })
 }
 
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
@@ -708,6 +722,14 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
             _ => print_item(item),
         }
     }
+    // A chat read through the mesh hub (`server/mesh_read.rs`) is its newest page, with no stream
+    // to follow: the attach ends after it rather than waiting on events that never come.
+    if v.get("via").and_then(Value::as_str) == Some("hub") {
+        if assistant_len > 0 {
+            println!();
+        }
+        return Ok(());
+    }
     while let Some(m) = notes.recv().await {
         let Message::Notification { method: m, params } = m else { continue };
         if m == method::MUX_DISCONNECTED {
@@ -1002,6 +1024,8 @@ async fn collect_once(
     }
     let result = match result {
         Ok(v) => v,
+        // A daemon that answered it is restarting handed the turn to the next one, as one that
+        // closed mid-turn did (chaos fault `daemon-restart-session-new`).
         Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
@@ -1482,4 +1506,22 @@ fn daemon_error_text_is_not_a_transport_restart() {
     assert!(!daemon_closed_error(&agent));
     assert!(!daemon_closed_error(&anyhow!("daemon connection closed")));
     assert!(daemon_closed_error(&crate::client::closed_error("test EOF", None)));
+}
+
+/// Chaos fault `daemon-restart-session-new`: a prompt the daemon answered with its shutdown
+/// refusal is a daemon restart (`daemon_closed`, retryable), never a final `agent_error`.
+#[test]
+fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
+    let mut e = crate::rpc::RpcError::internal(crate::hub::SHUTTING_DOWN);
+    crate::recovery::annotate(&mut e, None);
+    let restarting: anyhow::Error = crate::client::DaemonError(e).into();
+    assert!(daemon_restarting_error(&restarting));
+    let agent: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::internal("no agent session")).into();
+    assert!(!daemon_restarting_error(&agent));
+    assert!(!daemon_restarting_error(&anyhow!(crate::hub::SHUTTING_DOWN)));
+    // Every prompt path (queue, stream, wait, send) and every reconnect asks
+    // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
+    assert!(daemon_closed_error(&restarting));
+    assert!(!daemon_closed_error(&agent));
 }

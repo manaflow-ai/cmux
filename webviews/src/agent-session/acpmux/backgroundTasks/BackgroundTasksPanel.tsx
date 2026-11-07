@@ -30,6 +30,7 @@
 import { Button } from "../../../ui/Button";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useLayoutEffect,
@@ -539,13 +540,33 @@ function TaskList({
   const t = useT();
   const [finishedOpen, setFinishedOpen] = useState(!nested);
   const [shown, setShown] = useState(FINISHED_PAGE);
-  const row = (task: BackgroundTask) => (
+  // A command a workflow's agent started sits under that agent while the agent runs.
+  const live = new Set(group.running.map((task) => task.id));
+  const nestedUnder = (task: BackgroundTask) =>
+    task.parent !== undefined && live.has(task.parent) ? task.parent : undefined;
+  const kids = new Map<string, BackgroundTask[]>();
+  for (const task of [...group.running, ...group.finished]) {
+    const parent = nestedUnder(task);
+    if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
+  }
+  const taskRow = (task: BackgroundTask) => (
     <TaskRow key={task.id} task={task} now={now} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
   );
-  const finished = group.finished;
+  const row = (task: BackgroundTask) => {
+    const under = kids.get(task.id);
+    if (!under) return taskRow(task);
+    return (
+      <Fragment key={task.id}>
+        {taskRow(task)}
+        <div className="acpmux-bg__nested">{under.map(taskRow)}</div>
+      </Fragment>
+    );
+  };
+  const running = group.running.filter((task) => nestedUnder(task) === undefined);
+  const finished = group.finished.filter((task) => nestedUnder(task) === undefined);
   return (
     <div className="acpmux-bg__tasks">
-      {group.running.map(row)}
+      {running.map(row)}
       {finished.length > 0 && nested && (
         <Button
           variant="ghost"

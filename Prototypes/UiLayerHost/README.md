@@ -16,6 +16,27 @@ Run from the repository root with:
 
     Prototypes/UiLayerHost/launch.sh --attach "$HOME/.local/state/cmux/cmux-debug.sock" --watch
 
+It is a small desktop app, not a page in a browser: each window is a real,
+draggable AppKit window installed through the app's window kit, so it wears
+the installed cmux NEXT's look (nightly, DEV or release: they share
+~/.config/cmux/cmux-next.json). The host reads `appearance.theme`, the accent,
+the window Opacity and Material and `appearance.background` with the app's own
+settings parser, the Ghostty config's theme and colors, and the theme file
+from ~/.config/ghostty/themes, an installed cmux or Ghostty app, or this
+checkout. A save to any of those files, or a light/dark switch, repaints every
+window. No Ghostty, daemon, Chromium or app composition root is loaded.
+
+    Prototypes/UiLayerHost/launch.sh --sizes all --animate --watch
+
+`--sizes WxH,WxH...` (or `all`) opens one window per size; `--animate` plays
+the windows on their own (workspaces, tabs, the unread dot, a typed message);
+`--cycle-sizes` steps every window through the sizes so the layout reflows
+live; `--no-app-look` keeps Ghostty's default colors. The Window menu has the
+same commands: New Window (Cmd-N), Open All Sizes (Cmd-Shift-N), New Window
+at Size, Animate (Cmd-Shift-A), Cycle Sizes (Cmd-Shift-S) and Reload App Look
+(Cmd-R). Motion goes through the app's motion gates, so it follows the
+animation settings and Reduce Motion.
+
 The checked-in Resources/cmux-ui-layer.example.json is a safe fixture. The
 optional --watch flag uses the checked-in Swift DispatchSource vnode watcher to
 restart the host after source saves and emits event timing without an external

@@ -260,6 +260,18 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
+    {
+        let mut fields = crate::xhost_audit::prompt_fields(params);
+        let peer = session_key(params)
+            .ok()
+            .and_then(|key| hub.resolve_remote(key))
+            .map(|r| r.0.name.clone());
+        fields.set("via", json!("peer"));
+        fields.set("toHost", json!(peer));
+        crate::xhost_audit::record("sent", fields);
+    }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
     // message for a session there, from any connection (a peer daemon's forward and this
@@ -515,7 +527,7 @@ async fn forward_inner(
         if resume_link == Some(None) {
             let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
             return Err(RpcError::method_not_found(&format!(
-                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux host update {}`)",
+                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux machine update {}`)",
                 peer.name, peer.name
             ))
             .with_data(json!({"reason": "sessionResume.unsupported", "peer": peer.name})));
@@ -547,7 +559,13 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::mark_forwarded_with_person(
+            conn.origin,
+            conn.auth,
+            params,
+            &mut p,
+            conn.is_person(),
+        );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
@@ -829,10 +847,10 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux machine update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
                                 .with_data(json!({
                                     "reason": "peer_version_skew",
-                                    "try": format!("acpmux host update {}", peer.name),
+                                    "try": format!("acpmux machine update {}", peer.name),
                                     "peer": peer.name,
                                     "method": m,
                                 }))

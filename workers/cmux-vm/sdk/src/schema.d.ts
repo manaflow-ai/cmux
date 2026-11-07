@@ -1581,6 +1581,11 @@ export interface components {
             _tag: "PaymentRequired";
         };
         VmImageList: {
+            /**
+             * @description "configured": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.
+             * @enum {string}
+             */
+            order?: "configured";
             items: components["schemas"]["VmImage"][];
         };
         /** @description Public image identity; provider snapshot references are never returned. */
@@ -2328,6 +2333,8 @@ export interface components {
              * @description a non-negative number
              */
             expiresAt: components["schemas"]["Int"];
+            /** @description The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it. */
+            ownerExpiresAt: components["schemas"]["Int"] | null;
             /** @description a string matching the pattern ^[0-9a-f]{64}$ */
             policyDigest: string;
             /**

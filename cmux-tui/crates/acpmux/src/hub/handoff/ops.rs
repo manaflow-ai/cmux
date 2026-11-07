@@ -613,6 +613,7 @@ impl Hub {
             steer_now: false,
             interrupt_turn: None,
             provenance: None,
+            human_authenticated: false,
             agent: None,
             class: None,
             after_turn: None,

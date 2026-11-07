@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -156,6 +157,12 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
           deviceScaleFactor: 2,
         });
         const page = await context.newPage();
+        // The claude variant measures Claude's in-place runs (claudeTurnFold.experiment.ts arm
+        // "runs"); by default a Claude turn folds under Worked for, as Codex's does.
+        if (variant === "claude")
+          await page.addInitScript(() => {
+            globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+          });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(String(error)));
         try {
@@ -215,10 +222,12 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
               expect(measured.headerHeight).toBeCloseTo(22, 1);
+              // Worked for keeps a grid gap (8) under its line, open or closed (Codex parity;
+              // conversation.css `.cv-worked.has-divider.is-toggle`, model.ts WORKED_GAP_PT).
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(16, 1);
-                expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
-              } else expect(measured.nextGap).toBeCloseTo(0, 1);
+                expect(measured.replyGap).toBeCloseTo(16 + 8, 1);
+                expect(Math.abs(measured.replyCenterGap - (38.375 + 8))).toBeLessThan(1);
+              } else expect(measured.nextGap).toBeCloseTo(8, 1);
             }
           }
           if (process.env.FAST_CHECKS_OUT) {

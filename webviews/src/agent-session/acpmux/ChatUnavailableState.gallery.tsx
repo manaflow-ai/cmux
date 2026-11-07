@@ -64,5 +64,9 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
       note: "Deletion is explicit; saved transcript recovery remains available.",
       props: { ...base, unavailable: { reason: "machineDeleted", machine: "Demo machine" } },
     },
+    "session-gone": {
+      note: "A tab whose id is no chat's here and names more than one chat: it says the session no longer exists, with Resume from Transcript and Close Tab, never Reconnecting forever.",
+      props: { ...base, session: "demo-lane", unavailable: { reason: "gone" } },
+    },
   },
 });

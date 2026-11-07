@@ -238,6 +238,7 @@ export class VmReceiverPolicy extends Schema.Class<VmReceiverPolicy>("VmReceiver
   schemaVersion: Schema.Literal(1), tenantId: TenantId, vmId: VmId, meshId: MeshId,
   ipv4: Schema.NullOr(Schema.String), aclVersion: Schema.Int.pipe(Schema.nonNegative()),
   checkedAt: Schema.Int.pipe(Schema.nonNegative()), expiresAt: Schema.Int.pipe(Schema.nonNegative()),
+  ownerExpiresAt: Schema.NullOr(Schema.Int.pipe(Schema.nonNegative())).annotations({ description: "The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it." }),
   policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
   peers: Schema.Array(Schema.Struct({ deviceId: DeviceId, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey, allow: Schema.Array(PeerAllow).pipe(Schema.maxItems(4096)) })).pipe(Schema.maxItems(128)),
 }) {}

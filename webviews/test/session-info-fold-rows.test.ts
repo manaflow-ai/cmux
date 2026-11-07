@@ -156,13 +156,16 @@ await requireBrowserLane("session-info-fold-rows.test.ts", async () => {
   test("keyboard focus on a fold takes the agent pane's soft pill, not an outline", async () => {
     await page!.mouse.move(0, 0);
     await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr-fold")!;
+      // A fold in view: Changes' own sits under the panel's Show more line now (sectionOrder.ts).
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-fold")].find(
+        (candidate) => /Show \d+ more/.test(candidate.textContent ?? ""),
+      )!;
       (button.focus as (options: { focusVisible: boolean }) => void)({
         focusVisible: true,
       });
     });
     const focused = await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr-fold")!;
+      const button = document.activeElement as HTMLButtonElement;
       const style = getComputedStyle(button);
       return {
         visible: button.matches(":focus-visible"),

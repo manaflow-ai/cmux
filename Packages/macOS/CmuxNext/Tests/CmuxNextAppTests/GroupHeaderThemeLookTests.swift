@@ -79,20 +79,26 @@ import Testing
         }
     }
 
+    /// Every look keeps a visible background (Lawrence 2026-11-05: "groups must always have a visible bg color"): the
+    /// quiet looks draw the faint wash behind the name, with the color dot where the line starts.
     @Test(arguments: [SidebarGroupHeaderStyle.line, .tinted])
-    func aQuietHeaderDrawsNoBandOnlyTheNameAndTheColorLine(_ style: SidebarGroupHeaderStyle) throws {
+    func aQuietHeaderDrawsAVisibleWashTheNameAndTheColorLine(_ style: SidebarGroupHeaderStyle) throws {
         try Self.withLook(style, .theme) {
             let scope = try Self.latte()
             let (_, headers) = try Self.headers(in: scope)
+            let sidebar = scope.tokens.sidebarBackground.withAlpha(1)
             for (header, color) in headers {
-                let alpha = header.pill.isHidden ? 0 : (header.pill.backgroundColor?.alpha ?? 0)
-                #expect(alpha == 0, "\(style) \(color): the header still draws a band")
+                #expect(!header.pill.isHidden, "\(style) \(color): the header draws no background")
                 #expect(!header.dot.isHidden, "\(style) \(color): no color dot where the line starts")
+                let background = GroupBackground(tint: .palette(color), strength: .wash, glass: scope.tokens.backgroundOpacity < 1,
+                                                  themed: true, tokens: scope.tokens)
+                #expect(background.shown.contrast(with: sidebar) >= GroupBackground.minimumVisibleContrast - 0.01,
+                        "\(style) \(color): the background is not visible against the sidebar")
                 let group = try #require(color.themeRGB(scope.tokens))
                 let name = try Self.ink(header.name.textColor)
-                // A tinted name keeps text contrast: the group's color, darkened as far as 4.5:1 needs.
-                let tinted = ThemeTokens.readable(group, over: scope.tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast)
-                let want = style == .tinted ? tinted : scope.tokens.textPrimary
+                // A tinted name keeps text contrast on the wash: the group's color, darkened as far as 4.5:1 needs.
+                let tinted = ThemeTokens.readable(group, over: background.shown, minimum: ThemeTokens.minimumTextContrast)
+                let want = style == .tinted ? tinted : background.ink
                 #expect(Fixture.same(name, want), "\(style) \(color) name: \(name), want \(want)")
             }
         }
@@ -107,7 +113,9 @@ import Testing
                 #expect(!header.pill.isHidden && !header.dot.isHidden, "\(color): no wash or no color dot")
                 let fill = try Fixture.rgb(header.pill.backgroundColor)
                 #expect(!Fixture.same(fill, background), "\(color): the wash is not tinted")
-                #expect(fill.contrast(with: background) < 1.25, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
+                #expect(fill.contrast(with: background) < 1.3, "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not faint")
+                #expect(fill.contrast(with: background) >= GroupBackground.minimumVisibleContrast - 0.01,
+                        "\(color): the wash is \(fill.contrast(with: background)):1 against the sidebar, not visible")
                 #expect(Fixture.same(try Self.ink(header.name.textColor), scope.tokens.textPrimary), "\(color): the name is not primary ink")
             }
         }

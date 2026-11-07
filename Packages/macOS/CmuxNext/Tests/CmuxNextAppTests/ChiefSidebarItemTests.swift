@@ -109,4 +109,23 @@ struct ChiefSidebarItemTests {
         #expect(Self.placed([home, Self.chiefItem], transient: rows) == ["itm_home", "itm_chief"] + ids)
         #expect(Self.placed([home], transient: rows) == ["itm_home"])
     }
+    /// Home learns which of the Chief's agents started from these lanes (a1019, 2026-11-06: a queued agent that
+    /// started with no word in the chat still said Queued). The list names each subagent by its Chief id, and
+    /// changes when a subagent's session comes or goes, never on a step of its output.
+    @Test func theChiefsLanesNameItsStartedAgentsAndChangeOnlyWhenOneComesOrGoes() {
+        let store = AgentLaneStore()
+        #expect(store.chiefSubagentPeers.isEmpty)
+        store.lanes = ["s1": Self.lane("optchat-sub-6b68ac4a-a1017", .working),
+                       "s2": Self.lane("optchat-6b68ac4a-190", .working),
+                       "s3": Self.lane("optchat-sub-6b68ac4a-a3-2", .idle),
+                       "s4": Self.lane("optchat-compact-6b68ac4a-1", .working)]
+        #expect(store.chiefSubagentPeers == ["a1017", "a3"])
+        let names = store.names
+        store.set("s1", Self.lane("optchat-sub-6b68ac4a-a1017", .input))
+        #expect(store.names == names)
+        store.set("s5", Self.lane("optchat-sub-6b68ac4a-a1020", .working))
+        #expect(store.chiefSubagentPeers == ["a1017", "a3", "a1020"])
+        store.set("s1", nil)
+        #expect(store.chiefSubagentPeers == ["a3", "a1020"])
+    }
 }

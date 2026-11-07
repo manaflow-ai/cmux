@@ -23,6 +23,13 @@ export function isMuseTodoCall(update: any): boolean {
   return update?.name === "write_todos";
 }
 
+/// Whether an ACP tool call or result is a harness's own todo tool that acpmux turned into the
+/// turn's `plan` (`_meta.acpmux.planTool`, its acp_todo_plan.rs): DeepSeek Harness's `todo_write`,
+/// whose adapter sends the call but not the list. The checklist stands for it, as for Muse's.
+export function isPlanToolCall(update: any): boolean {
+  return update?._meta?.acpmux?.planTool === true;
+}
+
 /// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
 /// plumbing call marks its id; any other call that starts under that id clears the mark, since an
 /// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result

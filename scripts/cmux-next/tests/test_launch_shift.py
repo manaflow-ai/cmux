@@ -76,6 +76,8 @@ class LaunchShiftTests(unittest.TestCase):
                     json.dump(rec, f)
             os.makedirs(os.path.join(root, "window-3"))
             self.assertFalse(ls.recorded(root))
+            unfinished = ls.summarize(root)["total"]
+            self.assertEqual((unfinished["windows"], unfinished["errors"]), (3, 1))
             os.rmdir(os.path.join(root, "window-3"))
             self.assertTrue(ls.recorded(root))
             summary = ls.summarize(root)
@@ -83,6 +85,14 @@ class LaunchShiftTests(unittest.TestCase):
             self.assertEqual((total["windows"], total["blank_first"], total["closed_while_recorded"]), (2, 1, 1))
             self.assertEqual((total["geometry_frames"], total["pixel_frames"]), (1, 1))
             self.assertIn("| total |", ls.table(summary))
+
+    def test_process_wide_layouts_are_not_summed_across_windows(self):
+        with tempfile.TemporaryDirectory() as root:
+            for n in (1, 2):
+                os.makedirs(os.path.join(root, f"window-{n}"))
+                with open(os.path.join(root, f"window-{n}", "frames.json"), "w") as f:
+                    json.dump(recording([PAGE] * 3, layouts=[0, 2, 3]), f)
+            self.assertEqual(ls.summarize(root)["total"]["layout_passes"], 5)
 
     def test_frames_without_cells_still_count_geometry(self):
         rec = recording([PAGE] * 3, moved=[0, 2, 0])

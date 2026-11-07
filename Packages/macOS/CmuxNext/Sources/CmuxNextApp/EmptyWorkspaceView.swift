@@ -53,7 +53,7 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
         detail.isHidden = true
         detail.preferredMaxLayoutWidth = 520
 
-        let stack = NSStackView(views: [title, detail])
+        let stack = NSStackView(views: [CmuxWordmarkLabel(), title, detail])
         stack.orientation = .vertical
         stack.spacing = Metrics.space3
         stack.alignment = .centerX

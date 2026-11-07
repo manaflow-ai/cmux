@@ -11,7 +11,7 @@ final class ComputerUseGrantRow: NSView {
     enum Control: Equatable { case done, allow(primary: Bool), hidden }
 
     static let height: CGFloat = 84
-    static let radius: CGFloat = 22
+    static var radius: CGFloat { Metrics.surfaceCornerRadius }
     private static let padding: CGFloat = 14
     private let allow: OnboardingCapsuleButton
     private let done = NSStackView()

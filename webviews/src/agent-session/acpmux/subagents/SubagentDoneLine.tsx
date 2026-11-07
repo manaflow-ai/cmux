@@ -26,19 +26,25 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { formatDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
+import {
+  subagentDisplayName,
+  subagentTaskLabel,
+  subsessionName,
+  useSubsessionInfo,
+  type SubsessionInfo,
+} from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
 import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
@@ -91,14 +97,20 @@ function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
   return <DoneLine row={row} child={useSubsessionInfo(child)} />;
 }
 
-/// `child`: a sub-session's own session row, where acpmux keeps its retry.
-function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }) {
+/// `child`: a sub-session's own session row, where acpmux keeps its retry and its chat's title.
+function DoneLine({
+  row,
+  child,
+}: {
+  row: AcpmuxRow;
+  child?: SessionRetryFields & Partial<Pick<SubsessionInfo, "name" | "sessionId" | "title">>;
+}) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  // The chat's harness when the subagent names none, as its open group's avatar and the tray draw
-  // it (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  // The chat's harness: a subagent of another family draws its mark, one of the chat's own draws the
+  // subagent mark in its tone, as the tray does (AgentIdentity.tsx `foreignHarness`).
   const chatHarness = useContext(SubagentHarnessContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
@@ -123,11 +135,21 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
   // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
   // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  // A sub-session's own chat names it (its title, else its name) before the bare "Subagent": its
+  // fold record often names nothing once it ends (Leo, 2026-11-03, on a finished line that read
+  // "Subagent").
+  const childName =
+    child?.sessionId !== undefined && child.name !== undefined
+      ? subsessionName({ sessionId: child.sessionId, name: child.name, title: child.title })
+      : child?.title?.trim() || undefined;
   const name =
-    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "")
+      ? subagentDisplayName(t, agent, childName)
+      : subagentTaskLabel(t, agent, childName);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
-  const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
+  // Its own time once ended; none when its start and end were stamped at one moment.
+  const time = spanDuration(t, elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
   const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
@@ -147,7 +169,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
-  const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
+  const whole = (waiting ? parts : [...head, ...(time ? [time] : []), ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
   // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
@@ -199,7 +221,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         >
           <span className="cv-tool__icon">
             <AgentIdentity
-              harness={agent.harness ?? chatHarness}
+              harness={foreignHarness(agent.harness, chatHarness)}
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}
@@ -263,7 +285,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
           <ReactionMark reaction={agent.reaction} />
-          {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
+          {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {disclose ? (
           // A line with a report: the chevron after its words is its own control, the report's
@@ -277,7 +299,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
             onClick={() => setReportOpen((value) => !value)}
           >
-            <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
           </button>
         ) : (
           /* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -286,7 +308,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
           >
-            <ChevronRight size={14} strokeWidth={1.2} />
+            <ChevronRight size={14} />
           </span>
         )}
       </TranscriptActivityRowShell>

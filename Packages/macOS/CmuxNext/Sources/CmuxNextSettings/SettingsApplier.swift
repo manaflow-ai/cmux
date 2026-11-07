@@ -29,8 +29,9 @@ public final class SettingsApplier {
     @discardableResult
     public func apply(_ snapshot: CmuxConfigSnapshot) -> [SettingsDiagnostic] {
         var diagnostics = snapshot.diagnostics
-        if diagnostics.contains(where: { $0.kind == .unreadableFile }) {
-            // Keep the last good state rather than resetting everything.
+        if diagnostics.contains(where: { $0.kind == .unreadableFile && $0.file == nil }) {
+            // Keep the last good state rather than resetting everything. A theme file that does not
+            // parse holds nothing back: its last good text (or none) is already in the snapshot.
             return diagnostics
         }
 
@@ -53,7 +54,6 @@ public final class SettingsApplier {
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
         }
-        if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
         let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }

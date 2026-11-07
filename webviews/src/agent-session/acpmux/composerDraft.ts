@@ -136,7 +136,7 @@ const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
  * a web swap still waits in case it lands late (tests change them). */
-export const draftWriteLimits = { timeoutMs: 5_000, lateHoldMs: 30_000 };
+export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000 };
 
 // A write that timed out may still land later. Nothing newer goes through the same connection
 // until it answers, so it can never land over a newer draft or a clear, and nothing is replayed.
@@ -168,8 +168,9 @@ function writeTimedOut(action: DraftAction, sessionId: string, sequence: number,
   if (sentDraftWrites.get(sessionId) === sequence) sentDraftWrites.delete(sessionId);
 }
 
-/** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
+/** A draft write waits while its host action is alive; the late hold only protects web swaps. */
 function answeredInTime(write: Promise<unknown>): Promise<unknown> {
+  if (!Number.isFinite(draftWriteLimits.timeoutMs)) return write;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(WRITE_TIMED_OUT), draftWriteLimits.timeoutMs);

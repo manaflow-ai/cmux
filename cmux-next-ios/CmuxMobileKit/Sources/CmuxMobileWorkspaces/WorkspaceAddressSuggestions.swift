@@ -53,8 +53,10 @@ public struct WorkspaceAddressSuggestions: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(hit.title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                                 .foregroundStyle(theme.colors.label)
-                            Text(hit.subtitle ?? "").font(.system(size: 13)).lineLimit(1)
-                                .foregroundStyle(theme.colors.secondaryLabel)
+                            if let subtitle = hit.subtitle, !subtitle.isEmpty {
+                                Text(subtitle).font(.system(size: 13)).lineLimit(1)
+                                    .foregroundStyle(theme.colors.secondaryLabel)
+                            }
                         }
                         Spacer(minLength: 0)
                     }

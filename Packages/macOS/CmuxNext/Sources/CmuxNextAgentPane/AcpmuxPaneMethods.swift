@@ -150,6 +150,11 @@ nonisolated enum AcpmuxPaneMethods {
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
         "_acpmux/forum/rules",
+        // An agent session link or a HOST/NAME reference in the transcript opens that session
+        // (direct.ts resolveSession, conversation/sessionRefs.ts, #33027): acpmux answers the session
+        // it names (hub/locate.rs). Read only, one `query`; the pane already lists every session
+        // (`_acpmux/sessions`), so it learns nothing new.
+        "_acpmux/resolve",
         // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).

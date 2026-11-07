@@ -35,15 +35,39 @@ extension ActionRegistry {
         return menu
     }
 
+    /// `makeContextMenu`'s rows without Customize Menu…, detached for another menu to take (a pane's own).
+    public func contextMenuItems(for context: ActionMenuContext, target: ActionTargetRef? = nil,
+                                 entries: [ContextMenuEntry]? = nil) -> [NSMenuItem] {
+        let menu = makeContextMenu(for: context, target: target, entries: entries, customize: false)
+        let items = menu.items
+        menu.removeAllItems()
+        return items
+    }
+
+    /// Chat `chat`'s sidebar Priority row rows (Mark as Read, Pin, Snooze, Archive: the catalog's
+    /// `priorityRow` placements on its `agent-chat:` target), for a pane's menu on a link, name or
+    /// sender that names it. None while the row's actions cannot run: the sidebar then has no such row.
+    public func priorityRowItems(chat: String) -> [NSMenuItem] {
+        guard unavailableReason(for: "sidebar.priority.markRead") == nil else { return [] }
+        return contextMenuItems(for: .priorityRow, target: ActionTargetRef(kind: .agentChat, id: chat))
+    }
+
     /// One row of `context`'s menu whose arguments are known only when the menu opens (Open
     /// With's apps, one row per app): it runs `id` with `arguments` and the menu's facts, like
     /// a catalog row. Nil when `id` is not in the catalog or an administrator turned it off.
     public func makeContextMenuItem(for id: ActionID, in context: ActionMenuContext, target: ActionTargetRef? = nil,
                                     arguments: [String: ActionValue] = [:], title: String? = nil) -> NSMenuItem? {
+        makeArgumentMenuItem(for: id, target: target, arguments: arguments, implied: Self.impliedContext(for: context), title: title)
+    }
+
+    /// A row of a menu that is not a right-click context menu (the titlebar Back / Forward list) whose
+    /// arguments are known only when it opens: it runs `id` with `arguments`, like a catalog row. Nil when
+    /// `id` is not in the catalog or an administrator turned it off.
+    public func makeArgumentMenuItem(for id: ActionID, target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:],
+                                     implied: ActionContext = [], title: String? = nil) -> NSMenuItem? {
         guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil,
               let item = makeMenuItem(for: id) else { return nil }
-        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments,
-                                                   implied: Self.impliedContext(for: context))
+        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         if let title { item.title = title }

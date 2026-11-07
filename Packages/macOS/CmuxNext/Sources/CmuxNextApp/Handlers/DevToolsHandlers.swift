@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemonService
+import CmuxNextPages
 import WebKit
 
 /// The palette's Developer Tools set (`devtools.*`, plans/cmux-next/web-devtools.md)
@@ -19,6 +20,8 @@ enum DevToolsHandlers {
                 ActionTargetTitles.setPaletteState(id, in: registry) { isOn(command, context) }
             }
         }
+        registry.bindEffect("debug.viewWindow", effect: { [viewWindow = ViewWindow()] in
+            viewWindow.open(arguments: $0.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) ?? $0.boolValue.map(String.init) }); return .done })
     }
 
     // MARK: Target

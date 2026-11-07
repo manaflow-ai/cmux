@@ -1,13 +1,16 @@
 // The Artifacts page: what agents saved and synced (artifacts, memories, notes) as a keyboard-first
-// tree (ui/Tree) and the chosen file's text. Every file previews as plain text for now: rendered
-// previews (sandboxed HTML, images) and the file's history come with later slices of #27823.
+// tree (ui/Tree), the chosen file's preview and its history. HTML previews draw in a scriptless,
+// sandboxed srcdoc, as the agent pane's passive artifacts do, so a saved document can never reach
+// the page, its bridge or the network. Choosing a revision shows its change against its parent.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
 import { FileIcon } from "../../file-icons";
 import { SignInButton } from "../../ui/SignInButton";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
+import { lineHunks } from "./lineDiff";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
-import { SIGNED_OUT, type ArtifactFile } from "./types";
+import { SIGNED_OUT, type ArtifactCommit, type ArtifactFile } from "./types";
 
 export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -43,6 +46,7 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
           <span className="artifacts-path">{snapshot.selected ?? t("artifacts.file.choose")}</span>
         </header>
         <Preview snapshot={snapshot} strings={strings} />
+        <History snapshot={snapshot} store={store} strings={strings} />
       </section>
     </div>
   );
@@ -192,7 +196,109 @@ function FileBody({ file, strings }: { file: ArtifactFile; strings: Strings }) {
   const text = textOf(file);
   if (text === undefined)
     return <p className="artifacts-message artifacts-muted">{strings.t("artifacts.file.binary")}</p>;
+  if (isHtml(file))
+    return (
+      <iframe
+        // A new frame per document: a passive srcdoc frame refuses to be replaced (CEF and WebKit).
+        key={`${file.path}@${file.commit}`}
+        className="artifacts-preview artifacts-frame"
+        title={file.path}
+        srcDoc={galleryArtifactDocument(text, "")}
+        sandbox=""
+        referrerPolicy="no-referrer"
+      />
+    );
   return <pre className="artifacts-preview artifacts-text">{text}</pre>;
+}
+
+function isHtml(file: ArtifactFile): boolean {
+  return /^text\/html\b/i.test(file.contentType) || /\.html?$/i.test(file.path);
+}
+
+function History({
+  snapshot,
+  store,
+  strings,
+}: {
+  snapshot: ArtifactsSnapshot;
+  store: ArtifactsStore;
+  strings: Strings;
+}) {
+  const { history, historyFailure, selectedCommit, diff } = snapshot;
+  if (!snapshot.selected || snapshot.fileLoading) return null;
+  return (
+    <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
+      <h2 className="artifacts-history-title">{strings.t("artifacts.history.title")}</h2>
+      {historyFailure ? (
+        <p className="artifacts-muted">{failureText(historyFailure, strings)}</p>
+      ) : history.length === 0 ? (
+        <p className="artifacts-muted">{strings.t("artifacts.history.none")}</p>
+      ) : null}
+      <ol className="artifacts-commits">
+        {history.map((commit) => {
+          const active = commit.sha === selectedCommit;
+          return (
+            <li key={commit.sha} className={`artifacts-commit${active ? " is-active" : ""}`}>
+              <button
+                type="button"
+                className="artifacts-commit-button"
+                aria-pressed={active}
+                onClick={() => void store.selectCommit(commit)}
+              >
+                <span className="artifacts-commit-message">{commit.message}</span>
+                <time className="artifacts-muted" dateTime={new Date(commit.time).toISOString()}>
+                  {formatTime(commit.time, strings.language)}
+                </time>
+                <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
+              </button>
+              {active && diff?.sha === commit.sha ? (
+                diff.unavailable ? (
+                  <p className="artifacts-note">{strings.t("artifacts.file.binary")}</p>
+                ) : (
+                  <Change before={diff.before} after={diff.after} strings={strings} />
+                )
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** The revision's change to the file, as unified lines with a little context. */
+function Change({ before, after, strings }: { before?: string; after: string; strings: Strings }) {
+  const hunks = useMemo(() => lineHunks(before ?? "", after), [before, after]);
+  if (hunks.length === 0) return <p className="artifacts-note">{strings.t("artifacts.history.unchanged")}</p>;
+  return (
+    <div className="artifacts-diff">
+      {hunks.map((hunk, index) => (
+        <div key={index} className="artifacts-hunk">
+          {hunk.map((line, row) => (
+            <div key={row} className={`artifacts-line is-${line.type}`}>
+              <span className="artifacts-sign" aria-hidden="true">
+                {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
+              </span>
+              {line.text}
+              {line.noNewline ? (
+                <span className="artifacts-no-newline">{strings.t("artifacts.history.noNewline")}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Who saved a revision: its harness, machine and session, as the saver gave them. */
+function trailers(commit: ArtifactCommit): string {
+  const { harness, machine, session } = commit.trailers;
+  return [harness, machine, session].filter(Boolean).join(" · ") || commit.authorName;
+}
+
+function formatTime(time: number, language: string): string {
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(time));
 }
 
 /** The app's own words for a failure (it words them in the person's language), else the page's. */

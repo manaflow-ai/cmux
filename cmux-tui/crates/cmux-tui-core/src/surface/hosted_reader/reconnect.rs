@@ -299,7 +299,7 @@ impl HostedReader {
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-                    pty.stream_progress.notify();
+                    pty.reader_gave_up();
                     return None;
                 }
                 // A resync's reconnect that failed is a loss clients have not heard of.
@@ -326,8 +326,7 @@ impl HostedReader {
             }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            surface.queue_pending_publications();
             reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
             reconnect_mux.emit_terminal_resized(
                 pty.event_surface_id,

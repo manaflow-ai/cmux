@@ -2,8 +2,9 @@
 // literally all the same icon, that's terrible. You can, like surely you can just at least say, you
 // know, one of these is Codex, one of these is Claude, or something ... If you don't have anything
 // else, you can just randomize the colors or something." Each line draws its harness's mark (the
-// picker's own AgentMark): another family's agent its harness, the chat's own subagents the chat's,
-// a started chat its own. A line with no mark keeps the icon in a stable tone of its own id
+// picker's own AgentMark): another family's agent its harness, a started chat its own. The chat's own
+// subagents keep the toned subagent icon, never the chat's mark on every line (Leo, 2026-11-04: "these
+// all being claude"). A line with no mark keeps the icon in a stable tone of its own id
 // (agentTones.ts), so the same agent is the same color on every render. The icon is AgentMark's
 // fallback, so a harness acpmux has no drawable icon for (a glyph) still shows it.
 import { expect, test } from "bun:test";
@@ -43,13 +44,14 @@ const icons = (html: string) =>
 
 const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} />);
 
-test("a subagent line draws its harness's mark: another family's its own, the chat's own the chat's", () => {
+test("a subagent line draws another family's mark; the chat's own keeps its toned icon", () => {
   const html = renderToStaticMarkup(
     <SubagentsSection agents={[agent("reviewer", "codex"), agent("explorer")]} waiting={new Set()} harness="claude" />,
   );
   const [codex, claude] = icons(html);
   expect(codex?.inner).toBe(mark("codex"));
-  expect(claude?.inner).toBe(mark("claude"));
+  expect(claude?.inner).not.toBe(mark("claude"));
+  expect(claude?.tone).toBe(String(agentTone("explorer")));
   expect(codex?.tone).toBeUndefined();
   expect(mark("codex")).not.toBe(mark("claude"));
 });

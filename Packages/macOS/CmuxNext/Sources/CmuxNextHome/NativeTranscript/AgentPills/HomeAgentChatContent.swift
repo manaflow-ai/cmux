@@ -14,6 +14,15 @@ struct HomeAgentChatContent: Equatable, Sendable {
         /// The person, through the pane's composer.
         case you
 
+        /// The pane's sender for a thread's ``HomeAgentSender``.
+        init(_ sender: HomeAgentSender) {
+            switch sender {
+            case .agent: self = .agent
+            case .chief: self = .chief
+            case .you: self = .you
+            }
+        }
+
         /// The label over the message; nil for the agent's own.
         var label: String? {
             switch self {
@@ -34,7 +43,7 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var peer: String
     /// The task's title.
     var title: String
-    /// Working, Reported or Stopped without a report.
+    /// Queued, Working, Reported or Stopped without a report.
     var status: String
     /// The Chief's task (empty: no "Sent via Chief" bubble).
     var task: String
@@ -44,8 +53,11 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var details: [String]
     /// Every message after the task, oldest first.
     var messages: [Message]
-    /// Where Go to workspace goes: the Chief's link to the agent's session; nil hides the button.
+    /// Where Go to workspace goes: the Chief's link to the agent's session, or the session's own link once
+    /// it moved; nil hides the button.
     var workspaceLink: URL?
+    /// The machine it moved to (a Chief move or `acpmux session move`); nil while it runs where it started.
+    var place: String?
 }
 
 extension HomeAgentChatContent {
@@ -54,7 +66,8 @@ extension HomeAgentChatContent {
     /// - Parameters:
     ///   - thread: The agent's chat with the Chief (``HomeStore/agentThread(_:in:)``).
     ///   - now: The current time, for a working agent's "Working for".
-    init(_ thread: HomeAgentThread, now: Date) {
+    ///   - session: Where its session runs, as followed (``HomeAgentSessionRef``); nil: not placed yet.
+    init(_ thread: HomeAgentThread, now: Date, session: HomeAgentSessionRef? = nil) {
         let duration = Self.duration(thread.workedFor(now: now))
         let started = thread.startedAt.formatted(date: .omitted, time: .shortened)
         var details = [String(format: String(localized: "home.agentPane.started", defaultValue: "Started %@", bundle: .module), started)]
@@ -63,17 +76,33 @@ extension HomeAgentChatContent {
         }
         self.init(
             peer: thread.peer, title: thread.title, status: Self.status(thread.state), task: thread.task ?? "",
-            workedFor: thread.state == .told
-                ? String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
-                : String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration),
+            workedFor: Self.timeLine(thread.state, duration: duration),
             details: details,
-            messages: thread.entries.map { Message(sender: $0.outgoing ? .chief : .agent, text: $0.text) },
+            messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
+        // Only this chat's session (a restarted agent has another); once it moved, its own link opens it
+        // where acpmux has it now, not the Chief's link to where it started.
+        if let session, session.session == thread.session, session.hasMoved {
+            place = session.place
+            workspaceLink = session.sessionLink ?? thread.workspaceLink
+        }
+    }
+
+    /// The line over the steps: "Queued for 6m 50s" while it waits for a slot, "Working for …" while it works,
+    /// else "Worked for …".
+    static func timeLine(_ state: HomeAgentMessageRow.PeerState, duration: String) -> String {
+        switch state {
+        case .queued: String(format: String(localized: "home.agentPane.queuedFor", defaultValue: "Queued for %@", bundle: .module), duration)
+        case .told: String(format: String(localized: "home.agentPane.workingFor", defaultValue: "Working for %@", bundle: .module), duration)
+        case .reported, .stopped:
+            String(format: String(localized: "home.agentPane.workedFor", defaultValue: "Worked for %@", bundle: .module), duration)
+        }
     }
 
     /// The status words for `state`.
     static func status(_ state: HomeAgentMessageRow.PeerState) -> String {
         switch state {
+        case .queued: String(localized: "home.agentPane.status.queued", defaultValue: "Queued", bundle: .module)
         case .told: String(localized: "home.agentPane.status.working", defaultValue: "Working", bundle: .module)
         case .reported: String(localized: "home.agentPane.status.reported", defaultValue: "Reported", bundle: .module)
         case .stopped: String(localized: "home.agentPane.status.stopped", defaultValue: "Stopped without a report", bundle: .module)

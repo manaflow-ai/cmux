@@ -1,6 +1,7 @@
 // cmux-web-test-timeout: 240
-// A finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip,
-// that opens to its text; thoughts side by side are one row; a quiet one draws none (Leo 2026-10-20).
+// A finished thought is one quiet row, its brain glyph and its words on one line with no tooltip
+// (Codex parity), that opens to "Thought for 12s" over its text; thoughts side by side are one row;
+// a quiet one draws none (Leo 2026-10-20).
 // The transcript gallery's plays check it in Chromium; this checks they passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -70,7 +71,7 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     return result;
   };
 
-  test("a finished thought is one quiet row with none of its text inline, and no tooltip", async () => {
+  test("a finished thought is one quiet row, its glyph and its words on one line, and no tooltip", async () => {
     const result = await play("thought-row");
     expect(playFailures(result.report)).toEqual([]);
   });

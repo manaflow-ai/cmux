@@ -19,6 +19,7 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
         #expect(Self.request("cloudMachine.attach", ["id": "vm-1"]) == .cloudMachine(.attach(id: "vm-1")))
         #expect(Self.request("cloudMachine.pause", ["id": "vm_0123"]) == .cloudMachine(.pause(id: "vm_0123")))
+        #expect(Self.request("cloudMachine.prewarm", ["id": "vm_0123"]) == .cloudMachine(.prewarm(id: "vm_0123")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -33,6 +34,7 @@ struct AgentPaneCloudMachineRequestTests {
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
             #expect(Self.request("cloudMachine.attach", params) == .unsupported("cloudMachine.attach"))
             #expect(Self.request("cloudMachine.pause", params) == .unsupported("cloudMachine.pause"))
+            #expect(Self.request("cloudMachine.prewarm", params) == .unsupported("cloudMachine.prewarm"))
         }
     }
 
@@ -62,6 +64,10 @@ struct AgentPaneCloudMachineRequestTests {
         _ = await model.respond(to: .cloudMachine(.list))
         #expect(!model.userTouched)
         _ = await model.respond(to: .cloudMachine(.recoveryList))
+        #expect(!model.userTouched)
+        machines.prewarm = { _ in true }
+        model.cloudMachines = machines
+        _ = await model.respond(to: .cloudMachine(.prewarm(id: "vm-1")))
         #expect(!model.userTouched)
     }
 
@@ -104,6 +110,18 @@ struct AgentPaneCloudMachineRequestTests {
         let reply = await AgentPaneCloudMachineRequest.resume(id: "vm-running").reply(machines, gestures: gestures)
         #expect(reply["ok"] as? Bool != true)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
+
+    @Test func typingPrewarmIsPassiveAndDoesNotConsumeAGesture() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var hinted: [String] = []
+        machines.prewarm = { id in hinted.append(id); return true }
+        gestures.record(click: true)
+        let reply = await AgentPaneCloudMachineRequest.prewarm(id: "vm-paused").reply(machines, gestures: gestures)
+        #expect(reply["ok"] as? Bool == true)
+        #expect(hinted == ["vm-paused"])
+        #expect(gestures.isAvailable)
     }
 
     @Test func withoutTheAppTheGestureIsKept() async {

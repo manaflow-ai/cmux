@@ -28,7 +28,7 @@ TARGETS = {
     "gallery-health.yml": {"health"},
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
-    "pr-cloud-backend-check.yml": {"cloud-backend"},
+    "pr-body-checks.yml": {"body"},
 }
 
 
@@ -91,6 +91,45 @@ class RunnerSetTests(unittest.TestCase):
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+
+    def test_cmux_next_pr_quiet_period_comes_before_every_check(self) -> None:
+        # A PR run sleeps until about 5 minutes after the PR's last push, so a newer push cancels a
+        # run that has spent only the sleep. Leo, 2026-11-05: "i meant can you do all of htem".
+        import json
+
+        jobs = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())["jobs"]
+        gate = jobs["pr-quiet-period"]
+        self.assertIn("cmux-next.yml#pr-quiet-period",
+                      json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"])
+        self.assertNotIn("needs", gate)
+        self.assertIn("github.event_name == 'pull_request'", gate["if"])
+        self.assertIn("github.run_attempt == 1", gate["if"])
+        # landing.md: a leo-named-fix PR lands with no wait.
+        self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
+        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", gate["runs-on"])
+        # A fork's sleep takes hosted Ubuntu too; no Blacksmith label is written down (review F1 of #36353).
+        self.assertNotIn("'blacksmith-", gate["runs-on"])
+        self.assertTrue(gate["runs-on"].rstrip().endswith(
+            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+        self.assertEqual(gate["permissions"], {})
+        self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
+        # The two root jobs wait for it, and run when it is skipped (pushes, dispatches, re-runs).
+        for name in ("portable-placement", "push-head-preflight"):
+            with self.subTest(job=name):
+                self.assertEqual(jobs[name]["needs"], ["pr-quiet-period"])
+                self.assertTrue(jobs[name]["if"].startswith("${{ !cancelled() && "), jobs[name]["if"])
+        # Every other job starts after one of them: nothing heavy skips the wait.
+        roots = {"pr-quiet-period", "portable-placement", "push-head-preflight", "dev-landing-place"}
+        for name, job in jobs.items():
+            if name in roots:
+                continue
+            with self.subTest(job=name):
+                self.assertTrue(job.get("needs"), f"{name} starts before the quiet period ends")
+                # The implicit success() reads every ancestor, the skipped gate included (a push, a re-run),
+                # so each job after it says how it treats a skipped or failed need (#35871).
+                self.assertRegex(str(job.get("if", "")), r"always\(\)|cancelled\(\)|failure\(\)",
+                                 f"{name} would skip whenever pr-quiet-period skips")
+        self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
 
     def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
         runs_on = str((yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text()) or {})["jobs"]["checks"]["runs-on"])

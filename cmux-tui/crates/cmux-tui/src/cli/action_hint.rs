@@ -32,6 +32,31 @@ fn non_verbs() -> &'static HashMap<String, String> {
     })
 }
 
+/// Whether the app action named `action` (its id or its CLI name) takes an argument called `argument`
+/// (plans/cmux-next/action-surfaces.json `args`).
+pub(super) fn action_takes_argument(action: &str, argument: &str) -> bool {
+    static ARGS: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+    ARGS.get_or_init(|| {
+        let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+        let mut map = HashMap::new();
+        for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
+            let names: Vec<String> = action
+                .get("args")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|arg| arg.get("name").and_then(Value::as_str).map(str::to_owned))
+                .collect();
+            for key in ["id", "cli_name"].into_iter().filter_map(|key| action.get(key)?.as_str()) {
+                map.insert(key.to_owned(), names.clone());
+            }
+        }
+        map
+    })
+    .get(action)
+    .is_some_and(|names| names.iter().any(|name| name == argument))
+}
+
 /// Whether the catalog has an app action that the CLI offers as `cmux <name>`.
 pub(super) fn offered_app_action(name: &str) -> bool {
     static OFFERED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();

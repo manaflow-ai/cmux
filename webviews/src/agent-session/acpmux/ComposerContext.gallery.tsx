@@ -133,6 +133,18 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
+/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
+const openFolderMenuWithExtraWords =
+  (words: string): Play =>
+  async (ctx) => {
+    await openFolderMenu(ctx);
+    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
+      (node) => node.textContent === "Add another folder…",
+    );
+    const label = row?.querySelector(".acpmux-menu-label");
+    if (label) label.textContent = words;
+  };
+
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -464,7 +476,9 @@ function stripVariants(arm: StripArm) {
       note: note(
         arm === "where-machine" || arm === "where-machine-always"
           ? "Cloud picked: two chips, Project and Where, with no machine chip and no New machine step. Send reuses the person's Cloud machine or makes one, its progress in the chat (Leo, 2026-11-04: \"after you pick Cloud, like, you shouldn't be seeing the new machine situation\")."
-          : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
+          : arm === "cloud-toggle"
+            ? "Cloud picked: the machine chip says Cloud, never New machine; Send reuses the person's Cloud machine or makes one, its progress in the chat."
+            : "Cloud picked: Cloud gives the workspace its own new machine; its project is picked in the same Project chip.",
       ),
       props: { ...props, runMode: { mode: "cloud" as const, onMode: () => undefined } },
     },
@@ -623,7 +637,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
+      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -702,7 +716,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-long-list": {
-      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -1314,15 +1328,40 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolderMenu,
     },
     "extra-folders-adding": {
-      note: "Add folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Choose folder… opens this Mac's panel.",
+      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
       props: extraProps("local", ["/Users/you/src/relay"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add folder…" });
+        await ctx.click({ role: "option", name: "Add another folder…" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
       },
+    },
+    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
+    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
+    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
+    // in how the one row that is not about the chat's own folder reads.
+    "folder-one-concept": {
+      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "folder-one-concept-also-show": {
+      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Also show a folder…"),
+    },
+    "folder-one-concept-let-see": {
+      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
+      props: extraProps("local", ["/Users/you/notes"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenuWithExtraWords("Let it see another folder…"),
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",

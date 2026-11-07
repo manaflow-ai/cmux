@@ -95,7 +95,9 @@ struct CloudAutomationRow: View {
             Circle().fill(automationColor(row.last)).frame(width: 8, height: 8).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                Text(subtitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                }
             }
             Spacer(minLength: 8)
             if busy { ProgressView() }
@@ -110,7 +112,7 @@ struct CloudAutomationRow: View {
         if row.enabled, let next = row.nextRun {
             parts.append(String(localized: "next \(next.formatted(.relative(presentation: .named)))"))
         }
-        return parts.joined(separator: " · ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

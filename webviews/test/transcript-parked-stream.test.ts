@@ -42,9 +42,9 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 .replace("<VirtualTranscript", '<VirtualTranscript jumpButton={location.search.includes("painted")}')
                 .replace(
                   "turnView(shown, expanded)",
-                  'turnView(shown, expanded, location.search.includes("painted") ? {working, liveRuns: true, lineBelow: true} : {})',
+                  'turnView(shown, expanded, location.search.includes("painted") ? {working} : {})',
                 );
-            if (!id.endsWith("/src/agent-session/acpmux/App.tsx")) return;
+            if (!id.endsWith("/src/agent-session/acpmux/VirtualTranscript.tsx")) return;
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [

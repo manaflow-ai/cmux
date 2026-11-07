@@ -115,6 +115,8 @@ public final class FrameScheduler: NSObject {
     private var closeObserver: MainActorObservation?
     /// The app's one window-occlusion observer (only ``app`` holds it; FrameScheduler+Sight).
     var sightObserver: MainActorObservation?
+    /// Who follows each window's occlusion reports through that observer (only ``app``'s; FrameScheduler+Sight).
+    var sightFollowers: [ObjectIdentifier: [ObjectIdentifier: SightFollower]] = [:]
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links made since creation (debug: a link that stays up through a backlog makes one per burst).
@@ -202,9 +204,11 @@ public final class FrameScheduler: NSObject {
         stalls = 0
     }
 
-    /// Drops the link and every client (the window closed).
+    /// Drops the link and every client (the window closed); each client's `dropped` runs once the scheduler is idle
+    /// and must not activate a client on this window (its link would outlive the close).
     public func invalidate() {
-        for client in clients.values { client.detach() }
+        let dropped = Array(clients.values)
+        for client in dropped { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
         stall.cancel()
@@ -213,6 +217,7 @@ public final class FrameScheduler: NSObject {
         // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
         (lastTimestamp, lastTarget) = (nil, nil)
         closeObserver = nil
+        for client in dropped { client.droppedNow?() }
     }
 
     // MARK: Frames

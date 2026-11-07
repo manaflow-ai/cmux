@@ -134,6 +134,15 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// `environment::socket_path`, tests/cases/environment.json): `configured`
     /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
     /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
+    /// The socket of the acpmux daemon whose `ACPMUX_HOME` is `home`, for this user (no `ACPMUX_SOCKET`):
+    /// how Home reaches a Chief's own acpmux (``defaultSocketPath(home:uid:)``).
+    public static func socketPath(home: URL) -> String {
+        defaultSocketPath(home: home, uid: getuid())
+    }
+
+    /// The app's own acpmux home of `userHome` (`~/.acpmux`), the daemon a Chief on the app's acpmux uses.
+    public static func appHome(userHome: URL) -> URL { sharedRoot(userHome: userHome) }
+
     static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
         guard let configured else { return defaultSocketPath(home: home, uid: uid) }
         if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {

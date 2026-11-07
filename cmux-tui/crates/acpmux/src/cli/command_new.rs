@@ -68,8 +68,8 @@ pub struct NewArgs {
     /// Retry the turn on an agent-internal error, only when it produced nothing yet.
     #[arg(long, default_value_t = 0)]
     pub retries: u32,
-    /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables.
-    #[arg(long, default_value_t = 30)]
+    /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables. The default waits for the live peer.
+    #[arg(long, default_value_t = 0)]
     pub stall: u64,
     /// Send the first prompt with this id again (from a `daemon_closed` error); it runs once.
     #[arg(long)]

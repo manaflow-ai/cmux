@@ -1,0 +1,10 @@
+{
+  "rules": [
+    {"prefix": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/", "python": ["tests/test_short_timeout_guard.py"]},
+    {"prefix": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/", "python": ["tests/test_short_timeout_guard.py"]},
+    {"prefix": "Packages/macOS/CmuxNext/Sources/CmuxNextApps/", "python": ["tests/test_short_timeout_guard.py"]},
+    {"prefix": "cmux-tui/crates/acpmux/src/", "python": ["tests/test_short_timeout_guard.py"]},
+    {"prefix": "cmux-tui/crates/cmux-tui/src/cli/", "python": ["tests/test_short_timeout_guard.py"]},
+    {"prefix": "webviews/src/agent-session/", "python": ["tests/test_short_timeout_guard.py"]}
+  ]
+}

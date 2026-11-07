@@ -88,11 +88,12 @@ export function trayHead(
         )),
   ];
   if (arm === "running") return { text: joined(parts, separator) || t("summary.subagents"), failed: 0, marks: [] };
-  // What ended and stays in the list: done (a session whose turn ended is done) and failed. A stopped
-  // one (cancelled, disconnected) is neither: the person or the link ended it, and its line says so.
+  // What ended and stays in the list: done (a session whose turn ended is done), failed, and stopped
+  // (cancelled or disconnected: the person or the link ended it), each counted apart.
   let done = 0;
   let doneSessions = 0;
   let failed = 0;
+  let stopped = 0;
   for (const item of finished) {
     const status =
       item.kind === "agent"
@@ -105,6 +106,7 @@ export function trayHead(
               : undefined
           : undefined;
     if (status === "failed") failed += 1;
+    else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
       if (item.kind === "session") doneSessions += 1;
@@ -116,6 +118,8 @@ export function trayHead(
       (doneSessions === 0 || !sessionsApart
         ? t("subagents.allDone", { n: done })
         : t("summary.subagents.done", { n: done })),
+    // What the person or the link stopped, so a list of only those never heads as a bare "Subagents".
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
   );
   return {
     text: joined(parts, separator) || (failed > 0 ? "" : t("summary.subagents")),

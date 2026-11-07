@@ -5,9 +5,17 @@ import Observation
 /// The agent pane on the chat's right (user 2026-11-03, msg 19960): a click on an agent's pill opens its chat
 /// in a tab there; closing the last tab gives the chat its whole width back.
 extension HomeNativeTranscriptView {
-    /// Opens agent `peer`'s chat in the agent pane (a click on its pill), making the pane at the first open.
+    /// Opens agent `peer`'s chat (a click on its pill) as its `aN` link opens (user 2026-11-04, msg 21663: "just
+    /// open it as pane to right side"): the Chief's link to its session goes to the host (``onAppLink``), which
+    /// opens a real chat tab right of Home. With no link or no host, the agent pane here shows it.
     func openAgent(_ peer: String) {
         guard !stopped else { return }
+        if let onAppLink {
+            // Opened right of Home: this chat's own pane stays as it was.
+            if agentPane.open(peer, outside: { onAppLink($0); return true }) { return }
+        } else {
+            agentPane.open(peer)
+        }
         if agentPaneView == nil {
             let view = HomeAgentPaneView(pane: agentPane)
             view.onGoToWorkspace = { [weak self] url in self?.onAppLink?(url) }
@@ -15,8 +23,9 @@ extension HomeNativeTranscriptView {
             agentPaneView = view
             followAgentPane()
         }
-        agentPane.open(peer)
         agentPaneView?.apply()
+        // task-owner: one place read for the open tabs (a moved agent re-attaches); ends when the owner answers
+        Task { [agentPane] in await agentPane.followSessions() }
         needsLayout = true
     }
 
@@ -47,5 +56,12 @@ extension HomeNativeTranscriptView {
 
     /// Opens agent `peer`'s chat as a click on its pill does (`debug.home.drive` `agent_pill`).
     public func debugOpenAgent(_ peer: String) { openAgent(peer) }
+
+    /// Sends `text` from the selected agent's composer, as the person does (`debug.home.drive` `agent_messages` `say`).
+    public func debugSendToAgent(_ text: String) -> Bool {
+        guard let chat = agentPaneView?.selectedChat, chat.hasComposer else { return false }
+        chat.sendFromComposer(text)
+        return true
+    }
     #endif
 }

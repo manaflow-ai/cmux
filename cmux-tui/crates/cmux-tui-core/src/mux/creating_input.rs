@@ -292,7 +292,8 @@ impl Mux {
                 };
                 if let Err(error) = written {
                     // The terminal took the earlier bytes; the rest, and all queued since, go
-                    // back to their senders.
+                    // back to their senders. Bytes whose write may still reach the program (its
+                    // wait ended during the write) are not given back: that would type them twice.
                     eprintln!(
                         "cmux-tui: queued input for terminal {terminal_id} not written: {error}"
                     );
@@ -303,7 +304,12 @@ impl Mux {
                         inputs.ended.notify_all();
                         creating.map(|creating| creating.queued).unwrap_or_default()
                     };
-                    let mut rest: Vec<_> = batch.into_iter().skip(index).collect();
+                    let first_given_back = if crate::surface::input_may_be_written(&error) {
+                        index.saturating_add(1)
+                    } else {
+                        index
+                    };
+                    let mut rest: Vec<_> = batch.into_iter().skip(first_given_back).collect();
                     rest.extend(later);
                     return give_back(terminal_id, rest, "write-failed");
                 }

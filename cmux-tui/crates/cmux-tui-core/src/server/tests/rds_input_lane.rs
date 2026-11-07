@@ -426,6 +426,222 @@ fn a_settled_size_state_read_takes_the_session_lock_once_with_the_switch_off() {
     }
 }
 
+/// R-DAEMON-STATE S1.6b: on the lane the person's key (a connection attached to the terminal it types into) answers
+/// when the input port took it; any other client's write (a script's `cmux send`, MCP) answers when the port wrote it,
+/// with its error, as the old path answered.
+#[test]
+fn the_persons_keys_answer_when_taken_and_other_writes_when_written() {
+    let connection = TypingConnection::open();
+    let (_, reply) = cmd_terminal_io::input_surface(
+        &connection.mux,
+        connection.client,
+        &connection.writer,
+        connection.surface,
+    )
+    .unwrap();
+    assert_eq!(reply, crate::surface::InputReply::Accepted, "the person's key waits for its write");
+    let (script_writer, _script_outbound) = captured_writer();
+    let script =
+        connection.mux.control_clients.register(ClientTransport::Unix, script_writer.clone());
+    let (_, reply) =
+        cmd_terminal_io::input_surface(&connection.mux, script, &script_writer, connection.surface)
+            .unwrap();
+    assert_eq!(
+        reply,
+        crate::surface::InputReply::Written,
+        "a script's write answers before it is written"
+    );
+    connection.close();
+}
+
+/// The next `activity-changed` event on `outbound` within `wait`.
+fn next_activity_event(outbound: &BoundedOutbound, wait: Duration) -> Option<Value> {
+    let deadline = Instant::now() + wait;
+    while Instant::now() < deadline {
+        match outbound.try_pop() {
+            Some(line) => {
+                let value: Value = serde_json::from_str(&line).unwrap_or_default();
+                if value["event"] == "activity-changed" {
+                    return Some(value);
+                }
+            }
+            None => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    None
+}
+
+/// #34261 review: a `subscribe-activity` subscriber hears the person's keys on both arms (the lock-free arm notes a
+/// key's time in an atomic and wakes the worker only while a subscriber exists): a key typed before the subscription
+/// is in its snapshot, a key after it comes as an event at once (the leading edge), and a key inside the one-second
+/// spacing comes in the trailing event, with a time never older than the one before.
+#[test]
+fn an_activity_subscriber_hears_the_persons_keys_on_both_arms() {
+    for lane in [false, true] {
+        let connection = TypingConnection::open_with(lane);
+        connection.submit("before", b'b');
+        connection.settle(&["before"]);
+        let (subscriber_writer, subscriber_outbound) = captured_writer();
+        let subscriber = connection
+            .mux
+            .control_clients
+            .register(ClientTransport::Unix, subscriber_writer.clone());
+        let snapshot = handle_command(
+            &connection.mux,
+            subscriber,
+            Command::SubscribeActivity,
+            &subscriber_writer,
+        )
+        .unwrap();
+        let before = snapshot["activity"]["last_user_input_at_ms"].as_u64().unwrap_or_else(|| {
+            panic!("lane {lane}: the snapshot has no time for the key before it: {snapshot}")
+        });
+        // Events the subscription itself caused (an attach count) are not the key's.
+        while subscriber_outbound.try_pop().is_some() {}
+
+        connection.submit("first", b'1');
+        connection.settle(&["first"]);
+        let first = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
+            .unwrap_or_else(|| panic!("lane {lane}: no activity event after the first key"));
+        let first_ms = first["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
+        assert!(
+            first_ms >= before,
+            "lane {lane}: the first key's time went back: {first_ms} < {before}"
+        );
+
+        std::thread::sleep(Duration::from_millis(20));
+        connection.submit("second", b'2');
+        connection.settle(&["second"]);
+        let second = next_activity_event(&subscriber_outbound, Duration::from_secs(3))
+            .unwrap_or_else(|| {
+                panic!("lane {lane}: no trailing activity event after the second key")
+            });
+        let second_ms = second["activity"]["last_user_input_at_ms"].as_u64().unwrap_or(0);
+        assert!(
+            second_ms > first_ms,
+            "lane {lane}: the trailing event does not carry the second key's time: {second_ms} <= {first_ms}"
+        );
+        connection.close();
+    }
+}
+
+/// One step of a sizing scenario for [`grid_trace`].
+#[derive(Clone, Copy, Debug)]
+enum SizingStep {
+    /// The typing view (100x30) types a key.
+    TypingKey,
+    /// The other view (60x20) types a key.
+    OtherKey,
+    /// The other view's connection closes (a phone that leaves starts the departed-grid hold).
+    OtherLeaves,
+    /// The other client, a relay, forwards activity of its phone sub-view `mobile:p1` (54x26).
+    RelayPhoneActivity,
+}
+
+/// The grid after each step, for a terminal with the typing view and one other view of `other` identity
+/// (`set-client-info` fields) under the size policy `policy`, on the lane or the old path.
+fn grid_trace(lane: bool, policy: &Value, other: &Value, steps: &[SizingStep]) -> Vec<(u16, u16)> {
+    let connection = TypingConnection::open_with(lane);
+    let mux = connection.mux.clone();
+    let surface = connection.surface;
+    let (other_writer, _other_outbound) = captured_writer();
+    let other_client = mux.control_clients.register(ClientTransport::Unix, other_writer.clone());
+    let mut info = other.clone();
+    info["cmd"] = json!("set-client-info");
+    handle_command(&mux, other_client, json_command(info), &other_writer).unwrap();
+    attach_test_view(&mux, other_client, surface, &other_writer);
+    mux.resize_surface_for_client(surface, other_client, 60, 20).unwrap();
+    handle_command(
+        &mux,
+        connection.client,
+        json_command(json!({"cmd": "set-size-policy", "surface": surface, "policy": policy})),
+        &connection.writer,
+    )
+    .unwrap();
+    let key = |client: u64, writer: &MessageWriter| {
+        let send = json!({"cmd": "send", "surface": surface, "bytes": "eA=="});
+        handle_command(&mux, client, json_command(send), writer).unwrap();
+    };
+    let grid = || mux.surface(surface).expect("the terminal").size();
+    let mut trace = Vec::new();
+    for step in steps {
+        match step {
+            SizingStep::TypingKey => key(connection.client, &connection.writer),
+            SizingStep::OtherKey => key(other_client, &other_writer),
+            SizingStep::OtherLeaves => {
+                disconnect_client(&mux, other_client, false);
+            }
+            SizingStep::RelayPhoneActivity => {
+                handle_command(
+                    &mux,
+                    other_client,
+                    json_command(json!({
+                        "cmd": "resize-attached-view", "surface": surface, "view": "mobile:p1",
+                        "identity": {"user_id": "u1", "device_kind": "iphone"}, "cols": 54, "rows": 26,
+                    })),
+                    &other_writer,
+                )
+                .unwrap();
+                handle_command(
+                    &mux,
+                    other_client,
+                    json_command(json!({"cmd": "note-size-activity", "surface": surface, "view": "mobile:p1"})),
+                    &other_writer,
+                )
+                .unwrap();
+            }
+        }
+        trace.push(grid());
+    }
+    connection.close();
+    trace
+}
+
+/// #34261 review: the key's sizing-note skip (stage S1.5) never changes a grid the old path would have set, for every
+/// policy, with a desktop or a phone as the other view, while a departed phone holds the grid, and with a relay's
+/// phone sub-view: the lane's grid after every step equals the old path's.
+#[test]
+fn the_sizing_note_skip_sets_the_grids_the_old_path_sets() {
+    let mac = json!({"kind": "frontend", "device_kind": "mac"});
+    let phone = json!({"kind": "ios", "device_kind": "iphone"});
+    let relay = json!({
+        "kind": "frontend", "device_kind": "mac", "user_id": "u1",
+        "capabilities": [SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY],
+    });
+    use SizingStep::{OtherKey, OtherLeaves, RelayPhoneActivity, TypingKey};
+    let policies = [
+        json!({"mode": "latest"}),
+        json!({"mode": "smallest"}),
+        json!({"mode": "largest"}),
+        json!({"mode": "fixed", "fixed": {"cols": 90, "rows": 20}}),
+    ];
+    let mut cases: Vec<(String, Value, Value, Vec<SizingStep>)> = Vec::new();
+    for policy in &policies {
+        for (name, other) in [("mac", &mac), ("phone", &phone)] {
+            cases.push((
+                format!("{policy} with a {name}"),
+                policy.clone(),
+                other.clone(),
+                vec![TypingKey, OtherKey, TypingKey, OtherKey, OtherLeaves, TypingKey, TypingKey],
+            ));
+        }
+    }
+    cases.push((
+        "latest with a relay's phone sub-view".into(),
+        json!({"mode": "latest"}),
+        relay,
+        vec![TypingKey, RelayPhoneActivity, TypingKey, RelayPhoneActivity, TypingKey],
+    ));
+    for (name, policy, other, steps) in cases {
+        let old_path = grid_trace(false, &policy, &other, &steps);
+        let lane = grid_trace(true, &policy, &other, &steps);
+        assert_eq!(
+            lane, old_path,
+            "{name}: the lane's grids differ from the old path's after {steps:?}"
+        );
+    }
+}
+
 /// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
 /// another view's focus click takes the grid, and the next key from the first view takes it back, on both arms.
 #[test]

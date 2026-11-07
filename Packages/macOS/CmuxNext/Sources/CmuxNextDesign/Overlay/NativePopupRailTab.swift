@@ -193,7 +193,7 @@ final class NativePopupRailTab: NSView {
             guard placement == .symbols, isSelected else { return }
             let bar = NSRect(x: bounds.width / 4, y: bounds.maxY - Metrics.space1 / 2, width: bounds.width / 2, height: Metrics.space1 / 2)
             Palette.accentFill.setFill()
-            NSBezierPath(roundedRect: bar, xRadius: 1, yRadius: 1).fill()
+            NSBezierPath(roundedRect: bar, xRadius: Metrics.capsuleRadius(bar.size), yRadius: Metrics.capsuleRadius(bar.size)).fill()
         }
     }
 
@@ -257,7 +257,7 @@ final class NativePopupMonogram: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let width = Metrics.lineWidth(0.5)
         guard width > 0 else { return }
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: 4, yRadius: 4)
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: width / 2, dy: width / 2), xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius)
         path.lineWidth = width
         performWithTheme {
             (ink == .primary ? Palette.textPrimary : ink == .secondary ? Palette.textSecondary : Palette.textTertiary).setStroke()

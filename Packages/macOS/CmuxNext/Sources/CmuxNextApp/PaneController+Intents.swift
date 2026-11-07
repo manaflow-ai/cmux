@@ -206,9 +206,9 @@ extension PaneController {
             await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
-                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
+                // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it (its `successor`'s).
                 if selectHere {
-                    if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                    if (successor ?? self).stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                     self.workspace?.expectFocus(on: created.surface, generation: intent)
                 }
                 landed = true

@@ -139,22 +139,22 @@ import Testing
         #expect(fixture.notices.isEmpty)
     }
 
-    /// A target that answers busy also to an update while busy (unreachable, another update
-    /// running) keeps the backoff (2, 4, 8, 16, then every 30 minutes) and is left for the next
-    /// launch after six hours, unrecorded.
+    /// A target that answers busy also to an update while busy (another update running, a Cloud
+    /// start holding it) keeps a backoff of 2, then every 4 minutes (`busyMaximum`; an unreachable
+    /// one goes to 30, below) and is left for the next launch after six hours, unrecorded.
     @Test func aTargetBusyAlsoWhileBusyIsLeftAfterSixHours() async throws {
         let fixture = try PolicyFixture()
         defer { fixture.remove() }
         let clock = PolicyTestClock()
-        let target = fixture.target("unreachable", build: Self.older, outcomes: [.busy])
+        let target = fixture.target("busy", build: Self.older, outcomes: [.busy])
         await fixture.policy([target], clock: clock).run()
 
-        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        let minutes: [Int64] = [2] + Array(repeating: 4, count: 89)
         #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
         #expect(fixture.whileBusy == Array(repeating: true, count: minutes.count + 1))
         #expect(await target.currentBuild() == Self.older)
         // Left: the board forgets it rather than promise a retry.
-        #expect(fixture.states("unreachable").suffix(3) == [.retrying, .updating, .cleared])
+        #expect(fixture.states("busy").suffix(3) == [.retrying, .updating, .cleared])
         // Not recorded: the next launch tries again.
         #expect(fixture.ledger.targets.isEmpty)
         #expect(fixture.notices.isEmpty)

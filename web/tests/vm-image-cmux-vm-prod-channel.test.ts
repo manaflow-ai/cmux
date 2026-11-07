@@ -31,6 +31,19 @@ function environmentFor(expr: string | undefined, inputs: Record<string, string>
   return inputs[m[1]!] === m[2] ? m[3]! : m[4]!;
 }
 
+/**
+ * Whether a step's `if:` keeps it out of prod-copy mode: an `&&` chain (no `||`) with a conjunct that is exactly
+ * `inputs.mode == '<dev mode>'` or `inputs.mode != 'prod-copy'`, where prod-copy appears in no other form.
+ */
+function keyStepGateExcludesProdCopy(condition: string): boolean {
+  const expr = condition.trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1");
+  if (expr.includes("||")) return false;
+  const conjuncts = expr.split("&&").map((part) => part.trim());
+  const excludes = /^inputs\.mode == '(?!prod-copy')[a-z-]+'$|^inputs\.mode != 'prod-copy'$/;
+  if (conjuncts.some((part) => part.includes("prod-copy") && part !== "inputs.mode != 'prod-copy'")) return false;
+  return conjuncts.some((part) => excludes.test(part));
+}
+
 const ID = (n: number) => `sh-${n.toString(16).padStart(32, "0")}`;
 const dirs: string[] = [];
 const scratch = () => {
@@ -119,7 +132,29 @@ describe("prod-gate", () => {
       for (const call of s.run!.match(/^.*\bbun .*$/gm) ?? []) if (!call.includes("prod-copy.ts plan")) expect(call).toContain('FREESTYLE_API_KEY_FILE="$key_file" bun ');
     }
     // No prod-copy step gets the raw key: the dev steps that do never run in prod-copy mode.
-    for (const s of bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_API_KEY)) expect(s.if ?? "").toMatch(/inputs\.mode == 'bake'|inputs\.mode == 'repro'|inputs\.mode != 'prod-copy'/);
+    for (const s of bakeWf.jobs.bake!.steps.filter((s) => s.env?.FREESTYLE_API_KEY)) expect(keyStepGateExcludesProdCopy(s.if ?? "")).toBe(true);
+  });
+
+  test("the raw-key gate check refuses any condition that could let prod-copy in", () => {
+    for (const ok of [
+      "inputs.mode == 'bake'",
+      "inputs.mode == 'first-session'",
+      "inputs.mode == 'bake' && inputs.dev_tree",
+      "always() && inputs.mode != 'prod-copy'",
+    ])
+      expect(keyStepGateExcludesProdCopy(ok)).toBe(true);
+    for (const bad of [
+      "",
+      "always()",
+      "inputs.mode == 'prod-copy'",
+      "inputs.mode == 'prod-copy' || inputs.mode == 'first-session'",
+      "inputs.mode == 'first-session' || inputs.mode == 'prod-copy'",
+      "inputs.mode == 'bake' || inputs.dev_tree",
+      "inputs.mode != 'bake'",
+      "contains(inputs.mode, 'prod-copy')",
+      "inputs.mode == 'bake' && inputs.mode != 'prod-copy' || always()",
+    ])
+      expect(keyStepGateExcludesProdCopy(bad)).toBe(false);
   });
 
   const refused: Array<[string, Record<string, unknown> | "missing", string, string?]> = [

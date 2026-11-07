@@ -400,3 +400,6 @@ mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests;
+
+#[cfg(all(test, unix))]
+mod launch_activation_tests;

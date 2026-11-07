@@ -4,6 +4,9 @@
 set -euo pipefail
 build_sha="${SOURCE_COMMIT:-$TIP_SHA}"
 [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no build commit" >&2; exit 1; }
+# One machine-readable log line naming the commit this run builds and checks (its head_sha can be another: a resume
+# builds its original run's commit). Readers of job logs (cmuxterm-hq base-red-watch) attribute the run's verdicts to it.
+echo "built_sha=$build_sha tip_sha=$TIP_SHA"
 {
   echo "build_sha=$build_sha"
   echo "build_short_sha=${build_sha:0:7}"

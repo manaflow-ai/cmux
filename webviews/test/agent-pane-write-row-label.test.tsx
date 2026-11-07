@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture paths and file text, not shipped UI.
 // A Write's transcript row reads as an edit's does ("Edited batch38.sh +18 -0"): "Writing x.ts"
 // while it runs, "Wrote x.ts" once done with the counts its edits line shows (a create "+N", a
-// known overwrite "+a -d", none when the old contents are unknown), the file name opening the
-// file, and "Writing x.ts failed" when it failed. Leo (2026-10-21): "there's this 'write' tool call and i think it can be
+// known overwrite "+a -d", none when the old contents are unknown), the file name as plain words,
+// and "Writing x.ts failed" when it failed. Leo (2026-10-21): "there's this 'write' tool call and i think it can be
 // called better than just 'write' with that icon... writing? writing something?"
 //
 // Before: Claude Code names a Write as its block starts, before any input, and the row read the
@@ -76,20 +76,20 @@ test("a Write that created its file reads Wrote x.ts +N, N the lines it wrote, i
   expect(dom.host().querySelector(".cv-tool__counts .cv-edit-diff__del")).toBeNull();
 });
 
-test("the file name is a link that opens the file and leaves the row as it was", async () => {
+test("the file name is plain text, not a link: a click on it opens no file", async () => {
+  // Codex parity (Lucas, 2026-11-06): a Write's file name reads as words, with no link of its own.
   const calls: [string, Record<string, unknown>][] = [];
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
   setChipHost(async (method, params) => void calls.push([method, params]));
   await row(await toolCall("w4", [announced, whole, created]));
-  const link = dom.host().querySelector('.cv-tool__text [role="link"]');
-  expect(link?.textContent).toBe("x.ts");
-  expect(link?.getAttribute("data-path")).toBe(PATH);
-  const toggle = dom.host().querySelector("button.cv-tool");
-  expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-  await dom.click(link);
+  expect(dom.host().querySelector('.cv-tool__text [role="link"]')).toBeNull();
+  const name = dom.host().querySelector<HTMLElement>(".cv-tool__text .cv-tool__file");
+  expect(name?.textContent).toBe("x.ts");
+  expect(name?.getAttribute("data-path")).toBe(PATH);
+  expect(name?.hasAttribute("tabindex")).toBe(false);
+  await dom.click(name);
   await Promise.resolve();
-  expect(calls).toEqual([["link.openPath", { path: PATH }]]);
-  expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  expect(calls).toEqual([]);
 });
 
 test("a Write over a file whose old text is known shows its real +a -d", async () => {
@@ -100,23 +100,6 @@ test("a Write over a file of unknown old contents shows no counts", async () => 
   expect(await row(await toolCall("w3u", [announced, whole, { status: "completed" }]))).toBe("Wrote x.ts");
   expect(dom.host().querySelector(".cv-tool__counts")).toBeNull();
 });
-
-for (const key of ["Enter", " "])
-  test(`${key === " " ? "Space" : key} on the file name opens the file and leaves the row closed`, async () => {
-    const calls: [string, Record<string, unknown>][] = [];
-    const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-    setChipHost(async (method, params) => void calls.push([method, params]));
-    await row(await toolCall(`wk${key}`, [announced, whole, created]));
-    const link = dom.host().querySelector<HTMLElement>('.cv-tool__text [role="link"]')!;
-    const toggle = dom.host().querySelector("button.cv-tool");
-    const { act } = await import("react");
-    await act(async () => {
-      link.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    });
-    await Promise.resolve();
-    expect(calls).toEqual([["link.openPath", { path: PATH }]]);
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-  });
 
 test("a failed Write reads Writing x.ts failed, with no counts", async () => {
   expect(await row(await toolCall("w5", [announced, whole, { status: "failed" }]))).toBe("Writing x.ts failed");
@@ -140,7 +123,7 @@ test("a done Write with no path at all reads Wrote a file", async () => {
   expect(await row(await toolCall("w8", [announced, { status: "completed" }]))).toBe("Wrote a file");
 });
 
-test("opencode's write reads the same, a relative path opening inside the session's folder", async () => {
+test("opencode's write reads the same, a relative path resolved inside the session's folder", async () => {
   const item = await toolCall("w9", [
     {
       title: "write",
@@ -158,7 +141,7 @@ test("opencode's write reads the same, a relative path opening inside the sessio
   );
   // Its input carries the text but no diff: it may have overwritten a file, so no counts.
   expect(dom.text(".cv-tool__text")).toBe("Wrote notes.md");
-  expect(dom.host().querySelector('[role="link"]')?.getAttribute("data-path")).toBe(`${FOLDER}/docs/notes.md`);
+  expect(dom.host().querySelector(".cv-tool__file")?.getAttribute("data-path")).toBe(`${FOLDER}/docs/notes.md`);
 });
 
 test("a Codex patch that adds a file (adopted as Write retry.ts) reads Wrote retry.ts +N", async () => {

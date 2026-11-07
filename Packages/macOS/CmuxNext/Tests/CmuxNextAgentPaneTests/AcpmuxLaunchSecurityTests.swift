@@ -157,4 +157,60 @@ struct AcpmuxLaunchSecurityTests {
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
         #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
     }
+
+    /// The nightly hang reports of 2026-11-05: `resolve`'s strict signature check read the whole
+    /// acpmux file on the main thread every time it was asked (1.7-2.1 s each, `QuitAgents` and
+    /// `GitHubAppLease` callers). The verdict is kept for the file as it is on disk, so asking again
+    /// reads nothing; any write to the file (its pages changed in place, or another file renamed
+    /// over it) changes its identity and the file is read again.
+    @Test func strictTeamCheckReadsAFileOnceUntilItChanges() throws {
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-sig-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: copy)
+        // A clock well past the file's times; the settle rule is checked below.
+        let verdicts = AcpmuxServerPeer.StrictVerdicts(now: { Int64(Date().timeIntervalSince1970) + 60 })
+        var reads = 0
+        let check = { verdicts.verdict(path: copy.path, team: "TEAM") { reads += 1; return true } }
+
+        #expect(check())
+        #expect(check())
+        #expect(reads == 1)
+
+        // One byte changed in place, as a page patched after signing would be.
+        let handle = try FileHandle(forUpdating: copy)
+        try handle.seek(toOffset: 0x4100)
+        let byte = try #require(try handle.read(upToCount: 1)?.first)
+        try handle.seek(toOffset: 0x4100)
+        try handle.write(contentsOf: Data([byte ^ 0xFF]))
+        try handle.close()
+        #expect(check())
+        #expect(reads == 2)
+
+        // Another file renamed over it.
+        let other = copy.appendingPathExtension("new")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: other)
+        #expect(rename(other.path, copy.path) == 0)
+        #expect(check())
+        #expect(reads == 3)
+
+        // Another team is its own question, and a refusal is never kept.
+        #expect(!verdicts.verdict(path: copy.path, team: "OTHER") { reads += 1; return false })
+        #expect(!verdicts.verdict(path: copy.path, team: "OTHER") { reads += 1; return false })
+        #expect(reads == 5)
+        #expect(check())
+        #expect(reads == 5)
+
+        // A file that cannot be read is never kept.
+        let missing = copy.appendingPathExtension("missing").path
+        #expect(!verdicts.verdict(path: missing, team: "TEAM") { reads += 1; return false })
+        #expect(!verdicts.verdict(path: missing, team: "TEAM") { reads += 1; return false })
+        #expect(reads == 7)
+
+        // A file changed within the settle time is never kept: a coarse timestamp could hide a
+        // second write in the same second.
+        let fresh = AcpmuxServerPeer.StrictVerdicts(now: { Int64(Date().timeIntervalSince1970) })
+        #expect(fresh.verdict(path: copy.path, team: "TEAM") { reads += 1; return true })
+        #expect(fresh.verdict(path: copy.path, team: "TEAM") { reads += 1; return true })
+        #expect(reads == 9)
+    }
 }

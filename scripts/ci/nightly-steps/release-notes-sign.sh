@@ -15,8 +15,8 @@ python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
   --head "$HEAD_SHA" --since "$since" --out notes --pr-media --pr-descriptions
 # Extend the published index only when its signature verifies.
 previous=""
-# The first cmux NEXT build carries the history over from the old feed.
-for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do
+# The retired cmux NEXT-identity feed's notes are the fallback history.
+for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_RETIRED_FEED_BASE}"; do
   if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "$base/notes/index.json" \
      && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "$base/notes/index.json.sig" \
      && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
@@ -36,7 +36,7 @@ signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
 # crash can never upload rewritten notes without their new signatures.
 backfill_dir="$(mktemp -d)"
 if listed="$(python3 scripts/cmux-next/release-notes.py backfill --index notes/index.json \
-     --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_LEGACY_FEED_BASE" \
+     --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_RETIRED_FEED_BASE" \
      --public-key "$CONTENT_PUBLIC_KEY" --out "$backfill_dir" --existing notes)"; then
   while IFS= read -r file; do
     [ -n "$file" ] || continue
@@ -51,6 +51,15 @@ if [ -f release-notes/next/announcements.json ]; then
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
   cp release-notes/next/announcements.json notes/announcements.json
   signed+=(notes/announcements.json)
+fi
+# The handover card for the retired cmux NEXT-identity feed (com.cmuxterm.app.nightly.cmux-next):
+# Sparkle cannot move an install to another bundle id, and the app has no informational update,
+# so a stray cmux NEXT install learns from this card where its builds went (hq#7156).
+# release-notes-upload-to-r2.sh writes it beside that feed as notes/announcements.json.
+if [ -f release-notes/next/retired-feed-announcements.json ]; then
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list) and d["items"]' release-notes/next/retired-feed-announcements.json
+  cp release-notes/next/retired-feed-announcements.json notes/retired-feed-announcements.json
+  signed+=(notes/retired-feed-announcements.json)
 fi
 # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
 # release-notes/next/flags.json, signed with the same content-signing key.

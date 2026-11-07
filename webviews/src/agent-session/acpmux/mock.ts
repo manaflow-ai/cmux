@@ -39,6 +39,10 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
   cmuxAcpmuxMockTrustPending?: boolean;
+  /** `?mock&slowDaemon` fixture: keep the socket open while one RPC answers slowly. */
+  cmuxAcpmuxMockSlowMethod?: string;
+  /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
+  cmuxAcpmuxMockSlowMs?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -364,6 +368,56 @@ export class MockAcpmuxSocket {
     return { deltas, chars: at, tools };
   }
 
+  /// Runs one long tool call in `target` for `options.seconds`, as a busy agent's command does: its
+  /// output grows every `tickMs` (the running row and the live line tick), and every `sidebarMs`
+  /// another chat in the list changes (its indicator and time), as a sidebar does while it works.
+  /// No reply text streams, so whatever the transcript draws past the running turn is waste.
+  async tickLoadTurn(
+    target: string,
+    options: { seconds: number; tickMs: number; sidebarMs: number },
+  ): Promise<{ ticks: number; sidebar: number }> {
+    const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+    this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+    this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
+    this.emit(target, { mux: "turn_started" });
+    const call = `load-tick-${turn}`;
+    this.emit(target, {
+      update: tool(call, "execute", "Run bun test --watch", "in_progress", {
+        rawInput: { command: "bun test --watch" },
+      }),
+    });
+    const other = this.sessions.find((entry) => entry.sessionId !== target)?.sessionId;
+    const start = performance.now();
+    const end = start + options.seconds * 1000;
+    let ticks = 0;
+    let sidebar = 0;
+    let output = "";
+    let nextSidebar = start + options.sidebarMs;
+    while (performance.now() < end && !this.closed) {
+      await this.delay(options.tickMs);
+      ticks += 1;
+      output += `pass ${ticks}\n`;
+      this.emit(target, {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: call,
+          status: "in_progress",
+          content: [{ type: "content", content: { type: "text", text: output } }],
+        },
+      });
+      if (other && options.sidebarMs > 0 && performance.now() >= nextSidebar) {
+        nextSidebar += options.sidebarMs;
+        sidebar += 1;
+        this.touch(other, { indicator: sidebar % 2 ? "working" : "done", status: sidebar % 2 ? "running" : "idle" });
+      }
+    }
+    this.emit(target, { update: done(call) });
+    this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+    this.touch(target, { status: "idle", indicator: "done" });
+    if (other) this.touch(other, { indicator: null, status: "idle" });
+    return { ticks, sidebar };
+  }
+
   send(raw: string): void {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, any> };
     if (request.method === "session/cancel") {
@@ -403,6 +457,8 @@ export class MockAcpmuxSocket {
       method: `acpmux ${method}`,
       params,
     });
+    const { cmuxAcpmuxMockSlowMethod: slowMethod, cmuxAcpmuxMockSlowMs: slowMs } = globalThis as MockAuthGlobals;
+    if (slowMethod === method) await this.delay(typeof slowMs === "number" ? slowMs : 6_000);
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.

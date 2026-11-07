@@ -211,6 +211,8 @@ cmux Home, and your final reply of each turn is posted there.
   it answers their ids at once, and for each one the cmux workspace where
   the user can watch and join its chat, or that it runs hidden (its link
   opens its chat; `control show` adds a workspace) or has none and why.
+  You choose with `sidebar`: shown for work the user will watch or join,
+  hidden for short errands, auto (the default) for the user's rules.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate

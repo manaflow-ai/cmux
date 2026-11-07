@@ -184,8 +184,11 @@ test("a starting machine is read again until it leaves the starting stages, and 
   }
 });
 
-test("a machine stuck starting is read at most STARTING_READS times", async () => {
-  const { STARTING_READS } = await import("../src/agent-session/acpmux/peerCloudMachine");
+test("a machine slow to start is read past the old 3-minute cap until it leaves the starting stages", async () => {
+  // #35206: a busy machine never turns a slow start into a terminal state, so the reads have no
+  // count cap; they stop when the machine leaves the starting stages or the banner goes (above).
+  const { STARTING_READ_MS } = await import("../src/agent-session/acpmux/peerCloudMachine");
+  const ticks = Math.ceil(180_000 / STARTING_READ_MS) + 1;
   const app = fakeApp([{ ...paused, stage: "booting" }]);
   const timers: (() => void)[] = [];
   const cleared: unknown[] = [];
@@ -197,13 +200,13 @@ test("a machine stuck starting is read at most STARTING_READS times", async () =
     await mount(PEER, app.call);
     const before = reads(app.calls);
     // Each tick's read answers before the next (a read in flight is shared, not repeated).
-    for (let i = 0; i < STARTING_READS; i++)
+    for (let i = 0; i < ticks; i++)
       await act(async () => {
         timers[0]!();
         await new Promise((resolve) => setImmediate(resolve));
       });
-    expect(reads(app.calls)).toBe(before + STARTING_READS);
-    expect(cleared).toContain(1);
+    expect(reads(app.calls)).toBe(before + ticks);
+    expect(cleared).not.toContain(1);
     // Still starting, as far as the list knows: the banner keeps saying so, with no Resume.
     expect(banner()?.dataset.machine).toBe("starting");
     expect(timers.length).toBe(1);
