@@ -44,6 +44,7 @@ const SCRIPTS: &[Script] = &[
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
             include_str!("shell_integration/incognito-history.zsh"),
+            include_str!("shell_integration/prompt-redraw.zsh"),
         ),
     },
     Script {
