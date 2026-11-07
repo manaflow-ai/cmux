@@ -10245,7 +10245,6 @@ CmuxNextSettings	extension	SettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNex
 CmuxNextSettings	extension	SettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentRefusals.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	SettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+RowFacts.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	SettingsSchemaSamples	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Samples.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	enum	AppearanceSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
 CmuxNextSettings	enum	AutoArchiveSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift	from extension AutoArchiveSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	AutoArchiveSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AutoArchive.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	AutoArchiveStyle	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AutoArchiveChoices.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
@@ -10267,7 +10266,6 @@ CmuxNextSettings	enum	GroupHoverCardOrderSetting	0	GENERATED	0	0	Packages/macOS/
 CmuxNextSettings	enum	HoverCardLayoutSetting	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HoverCardsChoices.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	LabsSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	from extension CmuxConfigSnapshot:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	CmuxConfigSnapshot	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Labs.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	enum	MotionSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Motion.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
 CmuxNextSettings	enum	NewTabWidgetSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	from extension NewTabWidgetSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	NewTabWidgetSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+NewTabWidgets.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	NotificationSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Notifications.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
@@ -10292,10 +10290,8 @@ CmuxNextSettings	enum	SessionKeepAwakeSetting	0	GENERATED	0	0	Packages/macOS/Cmu
 CmuxNextSettings	enum	ShortcutHintsSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ShortcutHints.generated.swift	from extension ModifierHoldHintsSetting:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	ModifierHoldHintsSetting	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+ShortcutHints.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	SidebarSectionSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+SidebarSections.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
-CmuxNextSettings	enum	StatusIndicatorSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+StatusIndicator.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
 CmuxNextSettings	enum	SubsessionSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Subsessions.generated.swift	from extension SubsessionSettings:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	SubsessionSettings	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Subsessions.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
-CmuxNextSettings	enum	SurfaceSettingsSchema	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Surfaces.swift	Setting descriptors: keys, defaults, ranges, choices (schema source; Rust embeds the export; target data file)
 CmuxNextSettings	enum	TaskSettingsSchema	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tasks.generated.swift	from extension TasksLayoutSetting:4: codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	extension	TasksLayoutSetting	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Tasks.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
 CmuxNextSettings	enum	TasksLayoutPreference	0	GENERATED	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+TasksChoices.generated.swift	codegen from schemas/settings/source via gen-settings-sources.py
@@ -11257,77 +11253,6 @@ CmuxNextTabs	struct	TabUserIcon	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextTabs	class	ThemeHookView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/ThemeHookView.swift	Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
 CmuxNextTabs	class	WindowMainObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/WindowMainObserver.swift	from class WindowMainObserver:7: Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
 CmuxNextTabs	class	WindowVisibilityObserver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/WindowVisibilityObserver.swift	from class WindowVisibilityObserver:8: Tab strip view code: drag, layout, pointer, sync, phantom, titlebar, caches, window observers
-CmuxNextTasks	struct	WorkspaceChecklistStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Checklist/WorkspaceChecklistStrings.swift	localized strings
-CmuxNextTasks	class	MockTasksSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/MockTasksSource.swift	from class MockTasksSource:6: mock owner for demos and tests
-CmuxNextTasks	extension	MockTasksSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/MockTasksSource.swift	mock owner for demos and tests
-CmuxNextTasks	class	SocketTasksSource	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	from class SocketTasksSource:17: unix socket I/O PLATFORM ~210; reconnect backoff, resubscribe, line dispatch LOGIC ~140
-CmuxNextTasks	class	TasksSocketConnection	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	from class SocketTasksSource:17: unix socket I/O PLATFORM ~210; reconnect backoff, resubscribe, line dispatch LOGIC ~140
-CmuxNextTasks	struct	TasksRequestLine	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	from class SocketTasksSource:17: unix socket I/O PLATFORM ~210; reconnect backoff, resubscribe, line dispatch LOGIC ~140
-CmuxNextTasks	enum	TaskAssigneeChoice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskAssignee.swift	assignee choices, delegate vs assignee rule, session id mint
-CmuxNextTasks	struct	TaskAssigneeChoices	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskAssignee.swift	from enum TaskAssigneeChoice:7: assignee choices, delegate vs assignee rule, session id mint
-CmuxNextTasks	enum	TaskAttention	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskEnums.swift	from enum TaskCategory:5: hand-written task enums decoded from owner JSON
-CmuxNextTasks	enum	TaskCategory	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskEnums.swift	hand-written task enums decoded from owner JSON
-CmuxNextTasks	enum	TaskPriority	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskEnums.swift	from enum TaskCategory:5: hand-written task enums decoded from owner JSON
-CmuxNextTasks	struct	TaskItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskItem.swift	hand-written task record
-CmuxNextTasks	struct	TaskAgent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskPeople.swift	hand-written principal/agent records
-CmuxNextTasks	struct	TaskPrincipal	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskPeople.swift	from struct TaskAgent:3: hand-written principal/agent records
-CmuxNextTasks	enum	TaskSessionStatus	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskSession.swift	hand-written session status
-CmuxNextTasks	struct	TaskPlanStep	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskSession.swift	from enum TaskSessionStatus:3: hand-written session status
-CmuxNextTasks	struct	TaskSessionItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskSession.swift	from enum TaskSessionStatus:3: hand-written session status
-CmuxNextTasks	struct	TaskLabelItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskWorkflow.swift	from struct TaskStatusItem:3: hand-written workflow status item
-CmuxNextTasks	struct	TaskProjectItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskWorkflow.swift	from struct TaskStatusItem:3: hand-written workflow status item
-CmuxNextTasks	struct	TaskStatusItem	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TaskWorkflow.swift	hand-written workflow status item
-CmuxNextTasks	class	TasksAppearance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksAppearance.swift	from struct TasksColors:10: pane colors from theme (view)
-CmuxNextTasks	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksAppearance.swift	from struct TasksColors:10: pane colors from theme (view)
-CmuxNextTasks	struct	TasksColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksAppearance.swift	pane colors from theme (view)
-CmuxNextTasks	enum	TasksChange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksEvents.swift	from struct TasksEvent:4: hand-written event type
-CmuxNextTasks	enum	TasksConnection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksEvents.swift	from struct TasksEvent:4: hand-written event type
-CmuxNextTasks	struct	TasksEvent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksEvents.swift	hand-written event type
-CmuxNextTasks	class	TasksHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksHostView.swift	AppKit host of the Tasks pane
-CmuxNextTasks	struct	TasksRoot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksHostView.swift	from class TasksHostView:12: AppKit host of the Tasks pane
-CmuxNextTasks	enum	TasksIntentKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksIntent.swift	hand-written op names and params of owner ops
-CmuxNextTasks	enum	TasksJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksIntent.swift	from enum TasksIntentKind:7: hand-written op names and params of owner ops
-CmuxNextTasks	struct	TasksIntent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksIntent.swift	from enum TasksIntentKind:7: hand-written op names and params of owner ops
-CmuxNextTasks	enum	TasksLayout	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksLayout.swift	layout setting enum (view variant)
-CmuxNextTasks	extension	TasksModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksModel+Assignee.swift	assignee choices from the mirror
-CmuxNextTasks	extension	TasksModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksModel+Create.swift	client mints task_ ids for idempotent create
-CmuxNextTasks	class	TasksModel	0	MIXED	33	67	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksModel.swift	from class TasksModel:9: confirmed mirror + intent log MIRROR ~130; visible/shown filtering LOGIC ~63
-CmuxNextTasks	enum	TasksPaletteCatalog	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift	from struct TasksPaletteItem:7: palette entries built from the catalog export
-CmuxNextTasks	struct	TasksPaletteItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift	palette entries built from the catalog export
-CmuxNextTasks	enum	TasksPreview	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPreview.swift	FFI call to Rust tasks_preview reducer
-CmuxNextTasks	enum	TasksScope	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksScope.swift	client view scope (never sent to owner)
-CmuxNextTasks	struct	TasksSettings	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksSnapshot.swift	hand-written snapshot and workflow settings
-CmuxNextTasks	struct	TasksSnapshot	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksSnapshot.swift	from struct TasksSettings:4: hand-written snapshot and workflow settings
-CmuxNextTasks	enum	TasksSourceEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksSource.swift	source protocol and event enum (wiring)
-CmuxNextTasks	protocol	TasksSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksSource.swift	from enum TasksSourceEvent:3: source protocol and event enum (wiring)
-CmuxNextTasks	enum	TasksStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksStrings.swift	localized strings
-CmuxNextTasks	enum	TasksTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift	debug tunable declarations
-CmuxNextTasks	enum	TasksWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksWire.swift	hand-written line decoder of the owner protocol
-CmuxNextTasks	struct	AssigneeMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/AssigneeMenu.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TaskContextMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/AssigneeMenu.swift	from struct AssigneeMenu:8: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	AttentionDot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/AttentionDot.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	NewTaskField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/NewTaskField.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	OwnerNotRunningView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/OwnerNotRunningView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	ScopeBar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/OwnerNotRunningView.swift	from struct OwnerNotRunningView:9: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	PlanProgress	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/PlanProgress.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	PriorityGlyph	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/StatusGlyph.swift	from struct StatusGlyph:7: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	StatusGlyph	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/StatusGlyph.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	AssigneeBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskBadges.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	LabelChips	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskBadges.swift	from struct AssigneeBadge:6: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	LabelDots	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskBadges.swift	from struct AssigneeBadge:6: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	SessionCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskDetailView.swift	from struct TaskDetailView:7: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TaskDetailView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskDetailView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	StatusMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskRow.swift	from struct TaskRow:5: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TaskRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TaskRow.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	BoardCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksBoardView.swift	from struct TasksBoardView:6: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	BoardColumn	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksBoardView.swift	from struct TasksBoardView:6: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TasksBoardView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksBoardView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	InboxGroups	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksInboxView.swift	from struct TasksInboxView:6: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TasksInboxView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksInboxView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	StatusHeader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksListView.swift	from struct TasksListView:5: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TasksListView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksListView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	OwnerBanner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksView.swift	from struct TasksView:5: AppKit/SwiftUI view, drawing, gesture or animation code
-CmuxNextTasks	struct	TasksView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Views/TasksView.swift	AppKit/SwiftUI view, drawing, gesture or animation code
 CmuxNextTerminal	enum	GhosttyAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyAction.swift	Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	enum	GhosttyActionDecoder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyActionDecoder.swift	Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	enum	GhosttyActionDispatcher	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyActionDispatcher.swift	Ghostty FFI, config adaption and key translation

@@ -12,10 +12,8 @@ public nonisolated enum NekoIconTheme: String, CaseIterable, Sendable {
     case neko
 }
 
+/// Its path, default and descriptor are generated from schemas/settings/source/appearance.json.
 public nonisolated struct NekoIconThemeSetting: Sendable {
-    public static let configPath = ["appearance", "iconTheme"]
-    public static let fallback: NekoIconTheme = .default
-
     public init() {}
 
     /// Parses the reserved value. `neko` is accepted for forward-compatible
@@ -30,21 +28,5 @@ public nonisolated struct NekoIconThemeSetting: Sendable {
         }
         // Keep this explicit so enabling the family later is one reviewed seam.
         return fallback
-    }
-
-    /// The descriptor is reserved but hidden until a reviewed set of artwork
-    /// is ready to ship. Keeping it in the schema makes the config key stable.
-    public static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .appearance, group: group,
-            title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
-            help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
-            kind: .choice([
-                SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                SettingChoice(NekoIconTheme.neko.rawValue, "Neko"),
-            ]),
-            default: .string(fallback.rawValue),
-            keywords: ["icons", "icon", "theme", "neko", "cat"]
-        ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review")
     }
 }

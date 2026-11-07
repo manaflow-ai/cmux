@@ -2177,7 +2177,11 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         #[cfg(unix)]
-        let workspace = crate::machine_secrets::daemon_workspace_service(&auth, &state_dir);
+        let workspace = crate::machine_secrets::daemon_workspace_service(
+            &auth,
+            &state_dir,
+            options.carrier_grant_config.as_deref(),
+        );
         #[cfg(not(unix))]
         let workspace = cmux_remote::workspace::WorkspaceService::new();
         // The admin proof and service forwarding must use the same resolved

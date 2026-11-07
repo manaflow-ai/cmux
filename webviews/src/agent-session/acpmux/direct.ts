@@ -401,6 +401,18 @@ const PROMPT_INDEX_TRIES = 3;
 /// The snapshot's `earlierPrompts` when there are none: one list, so the rail's memo holds.
 const NO_EARLIER_PROMPTS: readonly AcpmuxRow[] = [];
 
+/// How soon after a question was declined the person's prompt still counts as its answer: the hat
+/// sends the typed reply right after the decline, so this only has to cover one round trip.
+const ANSWERED_IN_CHAT_MS = 10_000;
+/// A question the person declined (Skip, or a cancel with no reject option): never one a Stop or
+/// acpmux ended, which the person did not answer at all.
+const declined = (question: AgentQuestion) =>
+  question.state.kind === "cancelled" && (question.state.reason === undefined || question.state.reason === "skipped");
+const inChat = (question: AgentQuestion): AgentQuestion => ({
+  ...question,
+  state: { kind: "cancelled", reason: "answeredInChat" },
+});
+
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
@@ -414,6 +426,8 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
+const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
 /// names when it answers (the row changed while it was out); past that the open fails.
 const ATTACH_TRIES = 3;
@@ -2037,6 +2051,10 @@ export class AcpmuxDirectClient {
   /// The questions asked and not yet decided, by permission id: a decision draws a record of what
   /// was chosen where the card was (`questionRecord`, question/record.ts).
   private askedQuestions = new Map<string, AgentQuestion>();
+  /// Questions the person wrote a prompt of their own while they waited (`answeredInChat`).
+  private repliedWhileAsked = new Set<string>();
+  /// The last question that ended declined or cancelled, until the person's next prompt.
+  private lastUnanswered?: { rowId: string; at: number };
   /// The single permission cards asked and not yet answered, by permission id: an answer draws a
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
@@ -3194,6 +3212,8 @@ export class AcpmuxDirectClient {
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.askedQuestions.clear();
+    this.repliedWhileAsked.clear();
+    this.lastUnanswered = undefined;
     this.askedPermissions.clear();
     this.heldEdits.clear();
     // The chat's commands from its last visit on this page, so `/` lists them before the attach.
@@ -4481,6 +4501,46 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
+  /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
+  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
+  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
+  /// finished subagent as running.
+  async readSubagentLog(subagent: string): Promise<EventRecord[]> {
+    const sessionId = this.selectedSessionId;
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (!sessionId) throw new Error("No chat");
+    const found: EventRecord[] = [];
+    let after = 0;
+    for (let page = 0; page < SUBAGENT_LOG_PAGES; page += 1) {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        subagent,
+        afterSeq: after,
+        limit: KEPT_EVENTS,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+      const events = records(result?.events);
+      found.push(...events);
+      if (result?.hasMore !== true || events.length === 0) return found;
+      after = Math.max(...events.map((event) => event.seq));
+    }
+    const newest = await this.typed("_acpmux/events", {
+      sessionId,
+      subagent,
+      beforeSeq: Number.MAX_SAFE_INTEGER,
+      limit: KEPT_EVENTS,
+      maxBytes: OLDER_PAGE_BYTES,
+      kinds: ["transcript"],
+    });
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
+  }
+
   /// Reads only this pane's selected chat; the native relay enforces the same scope.
   readWorkflowAgent(params: {
     sessionId: string;
@@ -5517,6 +5577,16 @@ export class AcpmuxDirectClient {
   }
 
   /// Takes the oldest ask waiting behind the card, for the card once its ask is answered.
+  /// The asks behind the shown one, in order, as one list kept while they are the same asks, so the
+  /// snapshot's composer hat (question/hatModel.ts) redraws only when one comes or goes.
+  private queuedPermissionsKept: readonly AcpmuxPermission[] = [];
+  private queuedPermissions(): readonly AcpmuxPermission[] {
+    const now = [...this.waitingPermissions.values()];
+    const kept = this.queuedPermissionsKept;
+    if (now.length !== kept.length || now.some((each, at) => each !== kept[at])) this.queuedPermissionsKept = now;
+    return this.queuedPermissionsKept;
+  }
+
   private nextWaitingPermission(): AcpmuxPermission | undefined {
     const [next] = this.waitingPermissions.values();
     if (next) this.waitingPermissions.delete(next.permissionId);
@@ -6329,7 +6399,10 @@ export class AcpmuxDirectClient {
     // Drawn already: a resync replays the live records after its rebuild drew them, and closing
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
-    const question = decidedQuestion(asked, msg.outcome, msg.answeredBy);
+    const decided = decidedQuestion(asked, msg.outcome, msg.answeredBy);
+    const replied = this.repliedWhileAsked.delete(id);
+    const question = replied && declined(decided) ? inChat(decided) : decided;
+    this.lastUnanswered = declined(question) ? { rowId, at: event.at } : undefined;
     this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
@@ -6342,6 +6415,38 @@ export class AcpmuxDirectClient {
         question.state.kind === "answered"
           ? summaryLines(question, question.state.answer).join("\n")
           : translate(cancelledKey(question), cancelledArgs(question)),
+    });
+  }
+
+  /// The composer is about to decline question `permissionId` for a reply the person typed
+  /// (App.tsx `withdrawForTypedReply`): its record reads "Answered in chat" even when the reply waits
+  /// in the queue behind the turn, whose echo would come too late for `answeredInChat`.
+  markAnsweredInChat(permissionId: string): void {
+    if (this.askedQuestions.has(permissionId)) this.repliedWhileAsked.add(permissionId);
+  }
+
+  /// The person wrote a prompt of their own: a question waiting now, or one declined just before it,
+  /// was answered in the chat rather than on its card (Leo, 2026-11-07: "what happens if they respond
+  /// to it in another way, right?"). The composer hat declines a waiting question for a typed reply
+  /// and then sends the reply (App.tsx `withdrawForTypedReply`), so the decline comes first; a prompt
+  /// steered in while it waits comes before. Either way its record reads "Answered in chat", also on
+  /// a reload, which replays the same records in the same order.
+  private answeredInChat(event: EventRecord): void {
+    // One reply answers one question: the oldest waiting, the one the card shows. The others stay
+    // as they are, so a later Skip or Stop of one of them still reads as such.
+    const card = this.askedQuestions.keys().next();
+    if (!card.done) this.repliedWhileAsked.add(card.value);
+    const last = this.lastUnanswered;
+    this.lastUnanswered = undefined;
+    if (!last || event.at - last.at > ANSWERED_IN_CHAT_MS) return;
+    const row = this.rows.get(last.rowId);
+    if (!row?.question || !declined(row.question)) return;
+    const question = inChat(row.question);
+    this.rows.set(row.id, {
+      ...row,
+      version: row.version + 1,
+      question,
+      text: translate(cancelledKey(question), cancelledArgs(question)),
     });
   }
 
@@ -6866,6 +6971,7 @@ export class AcpmuxDirectClient {
                   ? { text: "", incoming }
                   : { text: incoming?.kind === "prompt" ? incoming.text : raw };
         const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
+        if (!untyped && !blank) this.answeredInChat(event);
         // An older page's prompt came before every live result: it sees none of them.
         if (!untyped && this.foldingBelow === undefined) this.seeReactions();
         // Its queued line, if the result waited, gives way to this prompt's.
@@ -7874,7 +7980,7 @@ export class AcpmuxDirectClient {
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
-        ? { permissionsWaiting: this.waitingPermissions.size }
+        ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
         : {}),
       secret: this.pendingSecret,
       asks: this.asks.list(),
@@ -10269,11 +10375,12 @@ export class AcpmuxDirectClient {
     this.emit();
     return id;
   }
-  /// The recap's ×: it stays dismissed on this device, and its row goes.
-  dismissRecap(rowId: string): void {
-    const recap = this.rows.get(rowId)?.recap;
-    if (!recap) return;
-    rememberRecapDismissed(recap.key);
+  /// The recap's ×: it stays dismissed on this device, and its row goes. `key` is the recap the
+  /// person pressed; the row goes only when it is that recap, not another chat's with the same seq
+  /// (a press on the chat a switch still shows).
+  dismissRecap(rowId: string, key: string): void {
+    rememberRecapDismissed(key);
+    if (this.rows.get(rowId)?.recap?.key !== key) return;
     this.rows.delete(rowId);
     this.emit();
   }

@@ -2088,6 +2088,8 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-tasks",
+ "cmux-tasks-core",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
