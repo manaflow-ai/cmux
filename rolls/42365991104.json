@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42365991104",
+  "recorded_at": "2026-11-07T11:04:34Z",
+  "reason": "cmux-tui 31ccdf2de028 changes the image's cmux-tui (pinned 7a2fed0d6e76)",
+  "dry_run": false,
+  "cmux_tui": "31ccdf2de028b57bf47ce678d12a4414fb22f77d",
+  "fixes": [
+    {
+      "sha": "31ccdf2de028b57bf47ce678d12a4414fb22f77d",
+      "mergedAt": "2026-11-07T02:41:14-08:00",
+      "subject": "inference setup: keep --machine from the global option scan (#37721)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T11:04:34Z",
+    "snapshot_id": "sh-03db234c35c24ba2a976c44826826edf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42365991104): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "337ee6578073cfbebc5ca9b06cedf98d6d758bb2",
+    "image": "cloud-native-auto-31ccdf2d-42365991104-1",
+    "revision": "ci-42365991104-1",
+    "at": "2026-11-07T11:04:34Z"
+  },
+  "rolled_back": false
+}
