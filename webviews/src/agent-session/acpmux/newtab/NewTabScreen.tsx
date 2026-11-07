@@ -132,6 +132,7 @@ import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
+import { newTabIconColumnArm } from "./iconColumn.experiment";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -969,6 +970,7 @@ export function NewTabScreen(props: Props) {
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
+  const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1976,6 +1978,7 @@ export function NewTabScreen(props: Props) {
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
+        data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (
