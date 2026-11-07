@@ -322,11 +322,12 @@ describe("view", () => {
     expect(barFills({ material: "off", backgroundOpacity: 0, coverage: 0.34 }).fill).toBe(step(7, surface(34)));
     expect(barFills({ material: "off", backgroundOpacity: 3 }).fill).toBe(step(7, surface(100)));
     expect(barFills({ material: "off", backgroundOpacity: Number.NaN }).fill).toBe(step(7, "transparent"));
-    // Transparent: no fill at rest, the hover alone.
-    expect(barFills({ material: "transparent", backgroundOpacity: 1 })).toEqual({
-      fill: "transparent",
-      hover: step(10, "transparent"),
-    });
+    // Transparent, and a bar the host draws glass under: no fill at rest, the see-through hover alone.
+    const clear = { fill: "transparent", hover: "var(--ds-color-hover)" };
+    expect(barFills({ material: "transparent", backgroundOpacity: 1 })).toEqual(clear);
+    expect(barFills({ material: "regular", backgroundOpacity: 1, glass: true })).toEqual(clear);
+    // Glass the host does not draw (Reduce Transparency) is the flat fill.
+    expect(barFills({ material: "clear", backgroundOpacity: 0, glass: false }).fill).toBe(step(7, "transparent"));
   });
 
   const secure = { kind: "web", connection: "secure", displayName: "example.com" } as const;

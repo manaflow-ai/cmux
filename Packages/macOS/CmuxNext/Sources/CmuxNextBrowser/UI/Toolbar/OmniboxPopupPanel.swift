@@ -62,6 +62,12 @@ final class OmniboxPopupPanel {
         // Another row count: the estimate until the page reports the new height.
         if rows.count != self.rows.count { cardHeight = 0 }
         if rows != self.rows { rowsRevision = revision + 1 }
+        // The field (another web view) cannot point VoiceOver at the card's row: the host reads the
+        // newly highlighted row out, as the native card's selection change did.
+        if let spoken = Self.announcement(rows: rows, highlighted: highlighted, previous: self.highlighted) {
+            NSAccessibility.post(element: window, notification: .announcementRequested,
+                                 userInfo: [.announcement: spoken, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
         self.rows = rows
         self.highlighted = highlighted
         self.upward = upward
@@ -79,6 +85,14 @@ final class OmniboxPopupPanel {
         push()
         place()
         if !panel.isVisible { panel.orderFront(nil) }
+    }
+
+    /// What VoiceOver reads when the highlight moves to another row: its title and detail; nil when
+    /// it did not move or left the rows.
+    nonisolated static func announcement(rows: [BrowserSuggestion], highlighted: Int?, previous: Int?) -> String? {
+        guard let highlighted, highlighted != previous, rows.indices.contains(highlighted) else { return nil }
+        let row = rows[highlighted]
+        return row.detail.isEmpty ? row.title : "\(row.title), \(row.detail)"
     }
 
     /// Keeps an open card on the bar, inside its pane, after the toolbar or its pane moved or resized.
@@ -99,6 +113,7 @@ final class OmniboxPopupPanel {
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
         rows = []
+        highlighted = nil
         for task in faviconTasks.values { task.cancel() }
         faviconTasks = [:]
     }

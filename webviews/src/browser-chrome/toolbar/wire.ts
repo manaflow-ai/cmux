@@ -89,6 +89,11 @@ export type OmnibarLookWire = {
   /** `browser.omnibar.backgroundOpacity`: how much the bar covers a see-through window, 0 to 1. */
   backgroundOpacity: number;
   /**
+   * The host draws Liquid Glass under the bar (`regular` or `clear` without Reduce Transparency):
+   * the page draws no flat fill over it, only the hover.
+   */
+  glass?: boolean;
+  /**
    * `backgroundOpacity` raised to the text's legibility floor in this window
    * (`AddressBarSurface.resolvedCoverage`); absent: `backgroundOpacity` as it is.
    */
@@ -97,13 +102,14 @@ export type OmnibarLookWire = {
 
 export type ToolbarBadges = {
   /** Browser focus mode: "Focus Mode", or "Esc again to exit" once armed. A press leaves it. */
-  focusMode?: { text: string } | null;
+  /** `help`: how to leave it (the Escape hint), the badge's tooltip. */
+  focusMode?: { text: string; help?: string } | null;
   /** The tab's browser profile (more than one profile exists): a monogram on its color. */
   /**
    * `symbol`: the monogram is an SF Symbol name the host drew, as a template PNG `data:` URL the badge
    * shows as a mask in its text color (null or absent: the monogram is text, an emoji or a letter).
    */
-  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string } | null;
+  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string; help?: string } | null;
   /** The machine whose localhost the tab sees. A press opens its menu. */
   machine?: { text: string; help: string } | null;
 };

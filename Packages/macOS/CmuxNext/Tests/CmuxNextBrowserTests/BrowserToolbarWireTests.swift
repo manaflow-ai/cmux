@@ -339,6 +339,29 @@ struct BrowserToolbarWireTests {
         #expect((readOnly.wireState()["events"] as? [Any])?.isEmpty == true)
     }
 
+    /// VoiceOver hears the row the highlight moves to (the field, another web view, cannot point
+    /// at the card's row), never the same row again.
+    @Test func theHighlightedRowIsAnnounced() {
+        let rows = [
+            BrowserSuggestion(kind: .search, title: "weather", detail: "", url: URL(string: "https://s.example/?q=weather")!, score: 1),
+            BrowserSuggestion(kind: .history, title: "Docs", detail: "docs.example.com", url: URL(string: "https://docs.example.com/")!, score: 1),
+        ]
+        #expect(OmniboxPopupPanel.announcement(rows: rows, highlighted: 0, previous: nil) == "weather")
+        #expect(OmniboxPopupPanel.announcement(rows: rows, highlighted: 1, previous: 0) == "Docs, docs.example.com")
+        #expect(OmniboxPopupPanel.announcement(rows: rows, highlighted: 1, previous: 1) == nil)
+        #expect(OmniboxPopupPanel.announcement(rows: rows, highlighted: nil, previous: 1) == nil)
+        #expect(OmniboxPopupPanel.announcement(rows: rows, highlighted: 5, previous: 1) == nil)
+    }
+
+    /// A glass look (`regular`, `clear`) tells the page the host draws glass under its bar, so it
+    /// draws no flat fill; the flat looks do not.
+    @Test func theStateSaysWhetherTheBarIsGlass() {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        let look = bar.wireState()["look"] as? [String: Any]
+        #expect(look?["glass"] as? Bool == bar.drawsBarGlass)
+        #expect(look?["material"] as? String == OmnibarGlassLook.current.material.rawValue)
+    }
+
     @Test func aButtonsStateHasThePagesShape() throws {
         let state = BrowserToolbarPolicy.state(.overflow, BrowserToolbarFacts(engine: .cef, hostsDevTools: true))
         let wire = state.wire(.overflow, pressed: true)
