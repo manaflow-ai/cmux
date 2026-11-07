@@ -172,6 +172,8 @@ extension WindowRules {
     /// The values Set Workspace Status takes, for its refusal.
     public nonisolated struct NotesChoices: Error, Equatable, Sendable {
         public var choices: [String]
+
+        public init(choices: [String]) { self.choices = choices }
     }
 
     /// One tab, as a workspace's directory reads it.
