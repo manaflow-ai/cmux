@@ -453,6 +453,7 @@ impl Hub {
                     class,
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
+                    opts.human_authenticated,
                     &mut accept,
                 ))
                 .await;
@@ -500,17 +501,8 @@ impl Hub {
             && running.as_ref().is_some_and(|t| t.persons)
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
-        // Nor does the person's own prompt go into a turn another agent's message started (an
-        // inbox notice, a digest, a peer's prompt): that turn's reply answers the agent, and the
-        // person's words went unanswered (Leo, 2026-11-04: "... isn't even responding to me").
-        // It queues as the next turn of its own, and while it waits no notice or other agent's
-        // steer keeps the running turn going (`inbox.rs` `persons_prompt_waits`). Its steer into
-        // its own turn, Send now and a steer-only prompt still go in.
-        let agents_turn_held = !from_agent
-            && !opts.send_now
-            && !opts.steer_only
-            && running.as_ref().is_some_and(|t| t.from_agents)
-            && super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref());
+        // The person's own steer goes into any running turn, one another agent's message started
+        // too (Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
         let trigger = crate::prompt_provenance::is_trigger(opts.provenance.as_ref());
         let trigger_held = trigger || running.as_ref().is_some_and(|t| t.trigger);
         if steer
@@ -529,8 +521,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
-            && !persons_held
-            && !agents_turn_held;
+            && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
@@ -621,7 +612,10 @@ impl Hub {
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
+            // Its queue entry's provenance: an edit made it the person's, a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.provenance.as_ref()))
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -694,11 +688,9 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
-        // Another agent's message, or acpmux's notice or digest of them, started it: the person's
-        // prompt does not steer into it (above).
-        turn.from_agents = run.agent.is_some()
-            || super::inbox::is_notice(run.provenance.as_ref())
-            || super::digest::inbox_digest::is_digest(run.provenance.as_ref());
+        // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
+        *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((turn_id.to_string(), false));
         let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
         let mut cloud_exec = if let Some(envelope) = cloud_turn.as_ref() {
             if envelope.session != session.id
@@ -754,9 +746,17 @@ impl Hub {
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
-        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+        // Nor does any parent take one once a shutdown began: no agent may start from then on
+        // (`shutdown.rs`), and the shutdown sets that before it ends the lane turns it cuts.
+        let refused = if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            Some(super::queue::closing_error())
+        } else if super::queue::is_lane_report(run.provenance.as_ref()) && self.shutting_down() {
+            Some(super::shutdown::shutting_down_error())
+        } else {
+            None
+        };
+        if let Some(e) = refused {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            let e = super::queue::closing_error();
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -879,6 +879,10 @@ impl Hub {
         {
             started = Box::pin(self.child_for_since(session, stops)).await;
         }
+        // A start that missed its deadline is pending, not failed: tried again after a wait.
+        let started =
+            Box::pin(self.retry_late_start(session, stops, cancels, &prompt_id, &turn_id, started))
+                .await;
         let started = match started {
             Ok(child) => session
                 .meta()
@@ -890,7 +894,12 @@ impl Hub {
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
-                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
+                // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
+                if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
+                    && self.hands_off(session)
+                {
+                    super::digest::forget_joined(Some(joined));
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1419,6 +1428,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // Its todo calls still held go with it, however the turn ends or is handed off
+        // (`acp_todo_plan.rs`): a late result passes through as any other tool's.
+        crate::acp_todo_plan::forget(&session.id);
         // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
         // no agent starts after it, so the lane reports nothing (`lane_reports.rs`). A restart
         // handed it to the next daemon, which continues it: its end is that daemon's to write.
@@ -1438,6 +1450,11 @@ impl Hub {
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
         let stalled = result.as_ref().ok().and_then(Self::stalled_error);
         if let Some(e) = stalled {
+            result = Err(e);
+        }
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
+        if let Some(e) = refused {
             result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
@@ -1568,11 +1585,20 @@ impl Hub {
                             o.insert("carriedTo".into(), to);
                         }
                     }
+                    // What the turn spent, where its harness says, for a goal's token budget.
+                    let spent = ["inputTokens", "outputTokens"]
+                        .iter()
+                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
+                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
+                    }
+                    // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
+                    if status == "completed" {
+                        self.continue_goal(session, spent);
                     }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
@@ -1704,7 +1730,7 @@ impl Hub {
     /// One a Stop kept from its agent ([`stopped_before_prompt`], a Stop while the agent started
     /// or the prompt's copies were made) ends as the Stop's turn: cancelled, so clients offer
     /// Continue on it, as on any stopped turn.
-    fn fail_unstarted_turn(
+    pub(super) fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
@@ -1917,8 +1943,17 @@ impl Hub {
                 // The mode first, then the mark, under the lock, only while the chat runs it:
                 // a write that moves the mode takes the mark (`write_mode_state`).
                 let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                let mut writes = Vec::new();
+                // Claude Code answers with its options too, the `mode` option now at the new
+                // mode: kept with it, so the option never shows the mode the chat started in.
+                if let Some(opts) = res.get("configOptions").filter(|o| o.is_array()) {
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
                 if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
-                    self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
                 }
                 let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
@@ -2163,8 +2198,11 @@ impl Hub {
             m.name_given = true;
             std::mem::replace(&mut m.name, name.clone())
         };
+        // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
-        self.save_meta_answered(session)?;
+        self.save_meta_kept(session)?;
+        // Its running Claude Code takes the name too (`live_name.rs`).
+        self.rename_live_claude(session);
         Ok(())
     }
 
@@ -2198,6 +2236,8 @@ impl Hub {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
+        // A start that waits to be tried again ends its wait (`start_retry.rs`).
+        session.start_retry_wake.notify_waiters();
         // Stopped, not hibernated: its next start is no wake (`idle.rs`).
         self.clear_hibernation(session);
         self.stop_auto_resume(session);

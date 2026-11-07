@@ -36,12 +36,13 @@ export type SummaryWakeup = {
   failed?: true;
 };
 export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp" | "image";
-/// `image`: a pasted image's id in its prompt, and its bytes when the prompt carried them.
+/// `image`: a pasted image's id in its prompt, its bytes when the prompt carried them, and the app
+/// it was copied from when acpmux kept that (its Sources row reads "<source> screenshot 2").
 export type SummarySource = {
   url?: string;
   label: string;
   kind?: SummarySourceKind;
-  image?: { id: string; src?: string };
+  image?: { id: string; src?: string; source?: string };
 };
 export type SummaryBackgroundTask = {
   id: string;
@@ -240,7 +241,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       // pasted, and a prompt that failed to send gave the agent nothing.
       if (!row.untyped && !row.from && !row.failed)
         for (const image of row.images ?? [])
-          add({ label: image.name ?? "", kind: "image", image: { id: image.id, src: image.src } }, rowIndex);
+          add(
+            {
+              label: image.name ?? "",
+              kind: "image",
+              image: { id: image.id, src: image.src, ...(image.source ? { source: image.source.name } : {}) },
+            },
+            rowIndex,
+          );
       continue;
     }
     if (row.kind === "assistant") {

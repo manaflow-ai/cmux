@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextLayout
 import Foundation
 import Observation
@@ -32,6 +33,9 @@ final class WindowState {
     /// The window frame's docked workspaces (Debug Settings `window.dockedWorkspaces`,
     /// plans/cmux-next/docked-workspace-DESIGN.md). Persisted in the record; empty while the prototype is off.
     var docks = WindowDocks()
+    /// Set when `docks` came from a saved record: the next arrangement drops a Home dock the person did not choose,
+    /// once (`WindowController.dropUnchosenChiefDocks`, cmux#37365).
+    var restoredDocksUnchecked = false
     /// The workspace the frame's stage shows (W5): `workspaceID` unless that one is docked. Persisted.
     var stageWorkspaceID: String?
     /// The top page this window shows in place of its workspace
@@ -51,7 +55,7 @@ final class WindowState {
     let selection = TabSelectionMemory()
     /// This window's focus state machine: the only owner of focus, last
     /// focused pane per workspace, and browser focus mode. Never persisted.
-    let focus = FocusCoordinator()
+    let focus: FocusCoordinator
     /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
     let localBrowserTabs = LocalBrowserTabs()
     /// Sidebar width in points (nil = default); kept while hidden, so the
@@ -98,8 +102,8 @@ final class WindowState {
     /// keep `full_screen` while it is set.
     var restoresFullScreen = false
 
-    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
-        self.id = id
+    init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil, focusInput: FocusInput) {
+        (self.id, focus) = (id, FocusCoordinator(machine: FocusMachine(input: focusInput)))
         self.workspaceID = workspaceID
         self.machineID = machineID ?? MachineRegistry.localID
     }
@@ -114,8 +118,8 @@ extension WindowState {
     }
 
     /// The state saved for one window.
-    convenience init(record: WindowRecord) {
-        self.init(id: record.id)
+    convenience init(record: WindowRecord, focusInput: FocusInput) {
+        self.init(id: record.id, focusInput: focusInput)
         adopt(record)
     }
 
@@ -127,6 +131,7 @@ extension WindowState {
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         docks = WindowDocks(record: record)
+        restoredDocksUnchecked = !docks.isEmpty
         stageWorkspaceID = record.stageKey?.rawValue
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }

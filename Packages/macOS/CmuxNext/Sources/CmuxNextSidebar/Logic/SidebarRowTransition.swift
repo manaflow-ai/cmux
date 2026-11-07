@@ -51,6 +51,23 @@ nonisolated enum SidebarRowTransition {
         foldingHeader(of: row, open: old, closed: new, placedIn: new)?.y
     }
 
+    /// Whether a collapse hides `row` (a row of `old` that `new` lacks): its group or section folded (`foldedY`), or
+    /// a group it is nested in (a header above it at a lower `depth`) did (ask-71821f1cda, Codex review of #36457).
+    static func isFolded(_ row: SidebarRow, from old: SidebarLayout, to new: SidebarLayout) -> Bool {
+        if foldedY(row, from: old, to: new) != nil { return true }
+        guard row.depth > 0, var index = old.position(of: row.key) else { return false }
+        var depth = row.depth
+        while depth > 0, index > 0 {
+            index -= 1
+            let above = old.rows[index]
+            guard above.section == row.section else { return false }
+            guard above.key.isGroupHeader, above.depth < depth else { continue }
+            if let hidden = new.row(for: above.key), isFolded(hidden), !isFolded(above) { return true }
+            depth = above.depth
+        }
+        return false
+    }
+
     /// The nearest header that shows `row` in `open` and hides it in
     /// `closed`, as it sits in `placedIn`: its group, then its section.
     private static func foldingHeader(of row: SidebarRow, open: SidebarLayout, closed: SidebarLayout,

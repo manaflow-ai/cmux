@@ -142,14 +142,21 @@ import Testing
                                   managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
     }
 
-    /// Waits until `settings` shows `accent`, at most 5 s. Returns whether it did.
-    static func waitForAccent(_ accent: ThemeAccent, in settings: SettingsController) async -> Bool {
+    /// Waits until `ready` holds, at most 5 s. Returns whether it did. Every wait here is on the
+    /// thing it waits for: a watcher reload takes as long as the machine needs, so a fixed sleep
+    /// would pass on an idle machine and fail on a loaded one.
+    static func waitUntil(_ ready: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(5)
-        while settings.snapshot.accent != accent {
+        while !ready() {
             if ContinuousClock.now > deadline { return false }
             try? await Task.sleep(for: .milliseconds(2))
         }
         return true
+    }
+
+    /// Waits until `settings` shows `accent`, at most 5 s. Returns whether it did.
+    static func waitForAccent(_ accent: ThemeAccent, in settings: SettingsController) async -> Bool {
+        await waitUntil { settings.snapshot.accent == accent }
     }
 
     @Test func theNamedFileAppliesOverCmuxNextJSONAndListsTheFolder() async throws {
@@ -199,9 +206,11 @@ import Testing
         let sorted = samples.sorted()
         print("theme-file save-to-apply: p50 \(sorted[sorted.count / 2]) max \(sorted.last ?? .zero) over \(sorted.count) saves")
 
-        // A file made after the setting names it applies too.
+        // A file made after the setting names it applies too. The controller must have read the new
+        // name before the file is written, or a pass would prove nothing: it would be the plain
+        // "the named file applies" case again. So the wait is on the name the controller holds.
         try Data(#"{ "appearance": { "themeFile": "later" } }"#.utf8).write(to: home.config, options: .atomic)
-        try await Task.sleep(for: .milliseconds(50))
+        #expect(await Self.waitUntil { settings.themeFile?.name == "later" }, "cmux-next.json's new themeFile name")
         try home.write(#"{ "appearance.accent": "cyan" }"#, theme: "later")
         #expect(await Self.waitForAccent(.cyan, in: settings))
     }

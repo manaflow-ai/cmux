@@ -114,15 +114,18 @@ extension TabStripView {
         }
 
         // A new tab grows into its slot while its neighbours slide, on one clock, and a closed one
-        // gives its room back, only with `ui.animations.newTab` on (hq-1d, Lawrence 2026-10-14: no big
-        // animations by default). Off (the default) or under Reduce Motion the strip takes its new
-        // places in one step, with no crossfade standing in for the motion (DESIGN P6). A tab that
+        // shrinks out while the tabs right of it slide into its room (close case A, Lawrence cmux-ad
+        // m49 2026-11-07: "A: animate the tab strip"; plans/cmux-next/close-animation/DESIGN.md), with
+        // `ui.animations.newTab` on (on by default, hq-1d). Off or under Reduce Motion the strip takes
+        // its new places in one step, with no crossfade standing in for the motion (DESIGN P6). A tab that
         // comes or goes during a person's gesture (a drag, a group drag, a drop settling) appears or
         // leaves at once while the gesture's other springs keep running. Reorders keep their motion.
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        let structureAnimates = !(adding || removing) || Motion.tabs.animates(.newTab)
+        // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
+        let closesLastTab = removing && ordered.isEmpty
+        let structureAnimates = (!(adding || removing) || Motion.tabs.animates(.newTab)) && !closesLastTab
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -280,6 +283,8 @@ extension TabStripView {
 
     /// Drops `id`'s place and the moves that tracked it.
     func forgetPlace(_ id: TabID) {
+        // A tab or chip that goes no longer counts in the cells' trailing edge (`followWidth`).
+        framedCells = nil
         placed[id] = nil
         dying.remove(id)
         goesAt[id] = nil

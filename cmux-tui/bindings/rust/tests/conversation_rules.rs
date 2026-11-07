@@ -1,0 +1,98 @@
+//! The conversation client rules (src/conversation_rules.rs) against every
+//! golden vector in tests/cases/conversation_rules.json, which encode what
+//! the Swift client did (each case names its Swift source).
+
+use cmux::conversation_rules::{call, policy};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+const CASES: &str = include_str!("cases/conversation_rules.json");
+/// The corpus's code for a rule this build does not know.
+const UNKNOWN_RULE: i32 = -3;
+
+#[derive(Deserialize)]
+struct Corpus {
+    cases: Vec<Case>,
+}
+
+#[derive(Deserialize)]
+struct Case {
+    name: String,
+    op: String,
+    request: Value,
+    expect: Option<Value>,
+    code: Option<i32>,
+}
+
+/// Equal JSON, with numbers equal to 1e-12 (progress fractions).
+fn same(actual: &Value, expect: &Value) -> bool {
+    match (actual, expect) {
+        (Value::Number(a), Value::Number(b)) => match (a.as_f64(), b.as_f64()) {
+            (Some(a), Some(b)) => (a - b).abs() < 1e-12 && a.fract().eq(&0.0) == b.fract().eq(&0.0),
+            _ => a == b,
+        },
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same(a, b))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len() && a.iter().all(|(k, v)| b.get(k).is_some_and(|w| same(v, w)))
+        }
+        _ => actual == expect,
+    }
+}
+
+#[test]
+fn every_golden_vector() {
+    let corpus: Corpus = serde_json::from_str(CASES).expect("tests/cases/conversation_rules.json");
+    assert!(corpus.cases.len() > 50);
+    let mut failures = Vec::new();
+    for case in &corpus.cases {
+        let actual = match call(&case.op, &case.request) {
+            None => Err(UNKNOWN_RULE),
+            Some(Ok(value)) => Ok(value),
+            Some(Err(reject)) => Ok(json!({"error": reject.code()})),
+        };
+        let ok = match (&actual, &case.expect, case.code) {
+            (Ok(value), Some(expect), None) => same(value, expect),
+            (Err(code), None, Some(expected)) => *code == expected,
+            _ => false,
+        };
+        if !ok {
+            failures.push(format!(
+                "{}: got {actual:?}, want {:?} {:?}",
+                case.name, case.expect, case.code
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} cases differ:\n{}",
+        failures.len(),
+        corpus.cases.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn the_policy_names_the_daemon_limits() {
+    assert_eq!(policy()["max_page"], 500);
+    assert_eq!(policy()["attachment_chunk_bytes"], 4 << 20);
+}
+
+#[test]
+fn an_upload_plan_covers_a_large_file_exactly() {
+    let size: u64 = 1 << 30;
+    let plan =
+        call("upload_plan", &json!({"attachment": {"byte_count": size}, "needs": ["original"]}))
+            .expect("a known rule")
+            .expect("a plan");
+    let chunks = plan["pieces"][0]["chunks"].as_array().expect("chunks");
+    assert_eq!(chunks.len(), 256);
+    let mut next = 0;
+    for chunk in chunks {
+        assert_eq!(chunk["offset"].as_u64(), Some(next));
+        next += chunk["length"].as_u64().expect("length");
+        assert!(chunk["progress"].as_f64().expect("progress") <= 0.99);
+    }
+    assert_eq!(next, size);
+}

@@ -21,6 +21,7 @@ import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
 import type { DiffViewerConfig } from "../types";
 import { sanitizeViewerPrefs } from "../viewer-prefs";
 import { installWebviewStyles } from "./installWebviewStyles";
+import { markDiffOpen } from "../diff-viewer/openTiming";
 
 /** The empty state's theme listener, stopped when the viewer renders. */
 let stopFollowingEmpty: (() => void) | undefined;
@@ -44,6 +45,7 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
  * answers; the returned promise settles then.
  */
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
+  markDiffOpen("boot");
   const embedded = readEmbeddedConfig();
   if (embedded) {
     return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
@@ -80,6 +82,7 @@ export async function renderDiffSurface(
   config: DiffViewerConfig,
   languages: unknown,
 ): Promise<void> {
+  markDiffOpen("config");
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
   installWebviewStyles("git", gitStyles);
@@ -102,6 +105,7 @@ export async function renderDiffSurface(
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
   const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
+  markDiffOpen("render");
   createRoot(rootElement).render(
     <UiProvider container={rootElement} popupHost={appPopupHost(diffPageClient())}>
       <RouterProvider router={router} />

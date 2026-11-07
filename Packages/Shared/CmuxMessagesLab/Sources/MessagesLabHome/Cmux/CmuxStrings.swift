@@ -140,6 +140,11 @@ enum CmuxStrings {
         String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on my message in a Chief chat that deletes it (#36019).
+    static var deleteMessage: String {
+        String(localized: "home.menu.deleteMessage", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
+    }
+
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var viewVideoLarger: String {
         String(localized: "home.video.viewLarger", defaultValue: "View Larger", table: "CmuxHome", bundle: .module)
@@ -222,5 +227,35 @@ enum CmuxStrings {
     static func tableOpenPicture(_ alt: String) -> String {
         let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module) : alt
         return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: .module), name)
+    }
+
+    // MARK: The large picture viewer (HomePictureViewer)
+
+    static var closePictureViewer: String { String(localized: "home.picture.close", defaultValue: "Close", table: "CmuxHome", bundle: .module) }
+    static var picturePrevious: String { String(localized: "home.picture.previous", defaultValue: "Previous Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureNext: String { String(localized: "home.picture.next", defaultValue: "Next Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureToolMove: String { String(localized: "home.picture.tool.move", defaultValue: "Move", table: "CmuxHome", bundle: .module) }
+    static var pictureToolArrow: String { String(localized: "home.picture.tool.arrow", defaultValue: "Arrow", table: "CmuxHome", bundle: .module) }
+    static var pictureToolBox: String { String(localized: "home.picture.tool.box", defaultValue: "Box", table: "CmuxHome", bundle: .module) }
+    static var pictureToolPen: String { String(localized: "home.picture.tool.pen", defaultValue: "Pen", table: "CmuxHome", bundle: .module) }
+    static var pictureToolText: String { String(localized: "home.picture.tool.text", defaultValue: "Text", table: "CmuxHome", bundle: .module) }
+    static var pictureUndo: String { String(localized: "home.picture.undo", defaultValue: "Undo", table: "CmuxHome", bundle: .module) }
+    static var pictureCompare: String { String(localized: "home.picture.compare", defaultValue: "Compare Side by Side", table: "CmuxHome", bundle: .module) }
+    static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: .module) }
+    static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's switch between a comparison's rows ("Light | Dark"), for VoiceOver.
+    static var pictureRowSwitch: String { String(localized: "home.picture.rowSwitch", defaultValue: "Picture Set", table: "CmuxHome", bundle: .module) }
+    static var pictureViewer: String { String(localized: "home.picture.viewer", defaultValue: "Picture Viewer", table: "CmuxHome", bundle: .module) }
+    static var pictureLoading: String { String(localized: "home.picture.loading", defaultValue: "Loading Picture", table: "CmuxHome", bundle: .module) }
+    static var pictureLoadFailed: String { String(localized: "home.picture.loadFailed", defaultValue: "This picture could not be loaded.", table: "CmuxHome", bundle: .module) }
+    static var pictureTextPlaceholder: String { String(localized: "home.picture.textPlaceholder", defaultValue: "Type, then press Return", table: "CmuxHome", bundle: .module) }
+    /// A picture with no name in the viewer's title (its table cell and alt text are empty).
+    static var pictureUntitled: String {
+        String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module)
+    }
+    /// The viewer's place in its pictures: "2 of 4".
+    static func pictureCounter(_ index: Int, _ count: Int) -> String {
+        String(format: String(localized: "home.picture.counter", defaultValue: "%1$ld of %2$ld", table: "CmuxHome", bundle: .module), index, count)
     }
 }

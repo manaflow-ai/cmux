@@ -78,14 +78,23 @@ public nonisolated struct AddDeviceStrings {
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
         case .signIn: SignInButton.defaultTitle
         case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
+        case .pairAnotherMachine: s("addDevice.joinLine.pairAnotherMachine", "Pair Another Machine…")
+        case .toggleAdvanced: advanced
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")
         }
     }
 
-    // "Any machine: one line" (Labs labs.machineJoin).
+    /// The disclosure over the ssh way (Add Machine's enroll), which the pair code replaced as the default.
+    static var advanced: String { s("addDevice.advanced", "Advanced: add over SSH") }
+
+    // "Any machine": the pair code signed in, the one line signed out.
     static var joinLineHelp: String {
         s("addDevice.joinLine.help", "Paste this line in a terminal on any Mac or Linux machine. It installs what that machine needs and joins it to your team's machines.")
+    }
+    /// Signed in, the way offers the invite (Pair Another Machine) in place of the ticket line.
+    static var joinLineInviteHelp: String {
+        s("addDevice.joinLine.inviteHelp", "Pair any Mac or Linux machine with a code: run one line there, then confirm its four words here. No SSH needed.")
     }
     static var joinLineName: String { s("addDevice.joinLine.name", "Name (optional)") }
     static var joinLineNamePlaceholder: String { s("addDevice.joinLine.namePlaceholder", "e.g. build-box") }

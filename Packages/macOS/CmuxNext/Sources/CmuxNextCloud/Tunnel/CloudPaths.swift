@@ -115,6 +115,14 @@ public struct CloudPaths: Sendable {
         return id
     }
 
+    /// The ids in the `device-id` of each folder under ``root`` (`<root>/<backend namespace>`, #35284): the
+    /// install ids launches that selected those backends named this Mac with. Blocking disk I/O: call it off
+    /// the main thread.
+    public func backendDeviceIDs() -> [String] {
+        let folders = (try? FileManager.checked.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return folders.compactMap { CloudPaths(root: $0).readDeviceID() }
+    }
+
     /// The id in `device-id`, or nil when there is no file or it is empty.
     private func readDeviceID() -> String? {
         guard let text = try? String(blockingContentsOf: deviceIDFile, encoding: .utf8) else { return nil }

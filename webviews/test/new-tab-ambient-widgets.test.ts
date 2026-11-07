@@ -4,7 +4,7 @@
 // color that stays the same for its name. Every layout shows them when they are on.
 import { expect, test } from "bun:test";
 import { machineColor } from "../src/agent-session/acpmux/machineColor";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import {
   WEATHER_MAX_AGE_MS,
   degrees,

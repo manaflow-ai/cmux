@@ -1088,9 +1088,12 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* No floor of its own: the location menu's 200 px, so a short folder list is no wider than its
-     fullest row plus the menu-fit spare (design/menus.md, gallery invariants.ts menu-fit). */
-  max-height: min(360px, calc(100dvh - 36px));
+  /* A lower floor than the location menu's 200 px: with only short rows (Add folder…, No folder,
+     short names), the menu is no wider than its fullest row plus the menu-fit spare (design/menus.md,
+     gallery invariants.ts menu-fit). */
+  min-width: 184px;
+  /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
+  max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
   overflow: hidden;
 }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
@@ -1110,7 +1113,9 @@
      compressed field grow back to its row height and moves every result under the caret. */
   flex-shrink: 0;
   box-sizing: border-box;
-  width: 100%;
+  /* The rows set the menu's width; the field's default size (about 218 px) never does. */
+  width: 0;
+  min-width: 100%;
   height: var(--ui-row-height);
   margin: 0 0 4px;
   padding: 0 var(--ui-row-padding-inline);
@@ -1129,7 +1134,11 @@
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); width: 100%; min-width: 0; }
-.acpmux-folder-popover .ui-combobox-pinned::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
+.acpmux-folder-popover .ui-combobox-pinned[data-placement="top"]::after { content: ""; display: block; height: 1px; margin: 4px 6px 0; background: color-mix(in srgb, currentColor 12%, transparent); }
+/* Actions under the folders (Leo, 2026-11-06: "it's just folder"): the rule
+   sits over them, and each carries its glyph in the folders' icon column. */
+.acpmux-folder-popover .ui-combobox-pinned[data-placement="bottom"]::before { content: ""; display: block; height: 0; margin: 0 var(--cmux-menu-highlight-inset) var(--ds-space-1); border-top: var(--cmux-hairline) solid color-mix(in srgb, currentColor 12%, transparent); }
+.acpmux-location-action-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; color: var(--agent-muted); }
 /* Match the environment picker (#33137): hover/search/arrow navigation is neutral; the check
    alone marks selection. Preserve automatic keyboard focus without painting it on open. */
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); box-shadow: none; }
@@ -1158,11 +1167,8 @@
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */
 .acpmux-location-row[data-worktree] { padding-inline-start: 28px; }
 .acpmux-location-branch-icon { display: inline-flex; flex: none; justify-content: center; width: 20px; color: var(--agent-muted); }
-/* One column for every name (Leo 2026-10-21, "aligned columns"): the actions after the folders start
-   where a repository's name does, past the 20 px badge and the shared icon gap. */
-.acpmux-folder-popover .acpmux-location-action {
-  padding-inline-start: calc(20px + var(--cmux-menu-icon-gap));
-}
+/* One column for every name (Leo 2026-10-21, "aligned columns"): an action's glyph sits in the
+   20 px badge column (.acpmux-location-action-icon), so its label starts where a folder's name does. */
 .acpmux-location-worktrees {
   display: inline-flex;
   flex: none;
