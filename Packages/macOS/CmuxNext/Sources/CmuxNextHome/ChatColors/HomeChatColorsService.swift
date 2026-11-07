@@ -80,6 +80,7 @@ public final class HomeChatColorsService {
         let panel = HomeChatColorsWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                                          styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
+        panel.delegate = panel
         panel.hidesOnDeactivate = true
         panel.setAccessibilityIdentifier("cmux.home.chatColors")
         panel.onClose = { [weak self] in
@@ -150,14 +151,14 @@ public final class HomeChatColorsService {
     }
 }
 
-/// The Chat Colors panel: its close button and Escape end the session as Done does.
+/// The Chat Colors panel: its close button and Escape end the session as Done does. It is its own
+/// delegate, so every close (the button, Escape, `close()`) reaches `onClose` with no `close` override.
 @MainActor
-final class HomeChatColorsWindow: NSPanel {
+final class HomeChatColorsWindow: NSPanel, NSWindowDelegate {
     var onClose: (() -> Void)?
 
-    override func close() {
+    func windowWillClose(_ notification: Notification) {
         onClose?()
-        super.close()
     }
 
     override func cancelOperation(_ sender: Any?) {
