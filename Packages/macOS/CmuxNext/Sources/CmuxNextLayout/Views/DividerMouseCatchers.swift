@@ -28,6 +28,8 @@ public final class DividerMouseCatchers {
     public var onHover: ((String, Bool) -> Void)?
     /// Whether a layout divider drag runs: only then does a pressed panel keep the resize cursor off the panel.
     public var isDividerDragging: () -> Bool = { false }
+    /// Whether the left button is down now. A seam for tests, which press no hardware button.
+    var isLeftButtonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     /// Panel frame changes and panels made since launch (`debug.layers`): each is a window
     /// server move, so a bench counts them over an action.
     public private(set) var panelUpdates = 0
