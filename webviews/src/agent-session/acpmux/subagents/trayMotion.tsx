@@ -275,8 +275,17 @@ export function Tick({
   // `previous` is the leaving words, `entering` whether the new ones still rise; each part settles
   // on its own animation's end (or cancel), so the shorter exit never cuts the entrance short.
   // `rolled` is the text whose numbers are rolling out, for a numbers-only change.
-  type TickState = { text: string; previous?: string; rolled?: string; entering: boolean; turn: number };
-  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0 });
+  // `turn` counts every change; `slid` only those of the words, which key the sliding spans: a count
+  // that rolls mid-slide keeps them, so the slide plays on instead of starting over.
+  type TickState = {
+    text: string;
+    previous?: string;
+    rolled?: string;
+    entering: boolean;
+    turn: number;
+    slid: number;
+  };
+  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0, slid: 0 });
   const cell = useRef<HTMLSpanElement>(null);
   // The words' drawn width before this change: the cell's width eases from it (`slide`).
   const widthFrom = useRef<number | undefined>(undefined);
@@ -290,10 +299,17 @@ export function Tick({
   } else if (state.text !== text) {
     const moves = cell.current ? motionAllowed(cell.current) : false;
     if (moves && slide) widthFrom.current = cell.current?.getBoundingClientRect().width;
-    shown = { text, previous: moves ? state.text : undefined, entering: moves, turn: state.turn + 1 };
+    shown = {
+      text,
+      previous: moves ? state.text : undefined,
+      entering: moves,
+      turn: state.turn + 1,
+      slid: state.slid + 1,
+    };
     setState(shown);
   }
   const turn = shown.turn;
+  const slid = shown.slid;
   // The cell's width eases from the old words' to the new ones' while they slide. One animation per
   // change on the cell alone (a short row), on the slide's own clock; it ends with the slide, a newer
   // change replaces it, and the motion gate's 0 ms token or Reduce Motion skip it.
@@ -321,7 +337,7 @@ export function Tick({
   }, [turn, slide]);
   const settled = (part: "previous" | "entering" | "rolled") => () =>
     setState((current) =>
-      current.turn !== turn
+      (part === "rolled" ? current.turn !== turn : current.slid !== slid)
         ? current
         : part === "previous"
           ? { ...current, previous: undefined }
@@ -333,7 +349,7 @@ export function Tick({
     <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"} data-slide={slide || undefined}>
       {shown.previous !== undefined && (
         <span
-          key={`out-${turn}`}
+          key={`out-${slid}`}
           className="acpmux-tick__out"
           aria-hidden="true"
           ref={onAnimationDone(settled("previous"))}
@@ -342,7 +358,7 @@ export function Tick({
         </span>
       )}
       <span
-        key={`in-${turn}`}
+        key={`in-${slid}`}
         className={shown.entering ? "acpmux-tick__in" : undefined}
         ref={shown.entering ? onAnimationDone(settled("entering")) : undefined}
       >

@@ -785,6 +785,13 @@ button.cv-subagent > :last-child {
   color: var(--agent-status-failure);
   font-variant-numeric: tabular-nums;
 }
+/* A folded lone item that waits on the person or failed: its state word in its line's tone. */
+.acpmux-running-tray__time[data-lone][data-status="waiting"] .acpmux-running-tray__lone-state {
+  color: var(--acpmux-needs-you-mark);
+}
+.acpmux-running-tray__time[data-lone][data-status="failed"] .acpmux-running-tray__lone-state {
+  color: var(--agent-status-failure);
+}
 /* A subagent of another model family than the chat's, by its harness's mark, after the counts. */
 .acpmux-running-tray__marks {
   flex: none;

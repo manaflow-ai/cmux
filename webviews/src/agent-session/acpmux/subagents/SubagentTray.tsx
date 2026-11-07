@@ -603,19 +603,18 @@ export const SubagentTray = memo(function SubagentTray({
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneHead ? (
             // A lone item's state and time end the row, where its line's would (AgentLine.tsx trail).
-            <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone>
+            // A failed or waiting one's state word takes its line's tone (summary.css): folded, the
+            // header is all that says so.
+            <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneHead.status}>
               {loneHead.status === "done" ? (
                 <DoneMark state={loneHead.state} time={loneHead.time} look={doneLook} />
-              ) : loneHead.retry ? (
-                loneHead.time === undefined ? (
-                  loneHead.state
-                ) : (
-                  `${loneHead.state} · ${loneHead.time}`
-                )
-              ) : loneHead.status === "running" || loneHead.time === undefined ? (
-                (loneHead.time ?? loneHead.state)
+              ) : loneHead.status === "running" && !loneHead.retry && loneHead.time !== undefined ? (
+                loneHead.time
               ) : (
-                `${loneHead.state} · ${loneHead.time}`
+                <>
+                  <span className="acpmux-running-tray__lone-state">{loneHead.state}</span>
+                  {loneHead.time !== undefined && ` · ${loneHead.time}`}
+                </>
               )}
             </span>
           ) : (
@@ -678,6 +677,9 @@ export const SubagentTray = memo(function SubagentTray({
           data-open={open || undefined}
           tabIndex={-1}
           aria-hidden="true"
+          // A pointer twin of the header: a press never moves focus onto a control assistive tech
+          // can't see; the header keeps it.
+          onMouseDown={(event) => event.preventDefault()}
           onClick={toggle}
         >
           <Icon name="disclosure.expanded" size={12} />
