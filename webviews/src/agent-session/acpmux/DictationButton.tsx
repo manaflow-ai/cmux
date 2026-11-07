@@ -50,7 +50,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       {look === "codex" && isActive(state) ? (
         <StopIcon />
       ) : icon && !isActive(state) ? (
-        <img className="acpmux-mic-app" src={icon} alt="" width={16} height={16} draggable={false} />
+        <img className="acpmux-mic-app-icon" src={icon} alt="" width={16} height={16} draggable={false} />
       ) : (
         <MicIcon />
       )}

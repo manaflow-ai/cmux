@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 601,
   "sections": [
     {
       "id": "general",
@@ -29,6 +29,31 @@
           "values": [
             "context",
             "planUsage"
+          ]
+        },
+        {
+          "key": "agentPane.dictationShortcut",
+          "title": "Dictation App Shortcut",
+          "help": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+          "kind": "text",
+          "default": "",
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.dictationSource",
+          "title": "Dictate With",
+          "help": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "macos",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wisprFlow",
+            "superwhisper"
           ]
         },
         {
@@ -2271,7 +2296,7 @@
           "title": "Window Style",
           "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
           "kind": "choice",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "group": "Panes",
           "values": [
             "default",
@@ -5735,7 +5760,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {
