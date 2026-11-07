@@ -1370,6 +1370,8 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // A full-access starter's chat runs in full access there too.
+                hub.forward_starter_policy(conn.caller(), &mut p);
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).
                 if peer.vm_boundary()
@@ -1384,7 +1386,11 @@ async fn dispatch_request_with_identity(
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
                 }
-                let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
+                let asked = p.clone();
+                let mut result =
+                    super::remote_guard::hint::new_on(&peer, &params, p).await.map_err(|e| {
+                        crate::hub::full_access_children::refused_by(&peer.name, &asked, e)
+                    })?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
