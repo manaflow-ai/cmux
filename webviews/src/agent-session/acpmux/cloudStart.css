@@ -153,7 +153,8 @@
 /* A start's question (CloudStartAsk.tsx) in its row: the row opens from no height to the question's
    and closes back, so the card and the composer under it move with it (no pop-in, no jump). Its
    negative margin cancels the column's gap while it is closed; the question's own margin opens it.
-   The motion gate (data-cmux-motion off) ends the transition: the row then opens in one frame. */
+   The motion gate (data-cmux-motion off) ends the transition: the row then opens in one frame;
+   reduced motion opens it at once and keeps only the crossfade. */
 .acpmux-cloud-ask-row {
   display: grid;
   grid-template-rows: 0fr;
@@ -163,6 +164,7 @@
     grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
     opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
+:root[data-cmux-motion="reduced"] .acpmux-cloud-ask-row { transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
 .acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
 @starting-style {
   .acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 0fr; opacity: 0; }
