@@ -166,15 +166,18 @@ def measured_fling(seed):
     return fling
 
 
-def gesture(target, total, events, phased):
-    """One scroll of `total` px (positive scrolls up) in `events` eased native events 8 ms apart."""
+def gesture(target, total, events, phased, errors):
+    """One scroll of `total` px (positive scrolls up) in `events` eased native events 8 ms apart; a
+    refused event's error goes into `errors`."""
     weights = [(1 - index / events) ** 2 for index in range(events)]
     whole = sum(weights)
     for index, weight in enumerate(weights):
         params = dict(target, action="scroll", dy=total * weight / whole, hover=index == 0)
         if phased:
             params["phase"] = "began" if index == 0 else "ended" if index == events - 1 else "changed"
-        rpc("debug.mouse", params)
+        sent = rpc("debug.mouse", params)
+        if isinstance(sent, dict) and sent.get("error"):
+            errors.append(str(sent["error"])[:200])
         time.sleep(0.008)  # test harness: input pacing, a trackpad's event rate
     time.sleep(0.4)  # test harness: the scroll comes to rest before the next one
 
@@ -187,14 +190,22 @@ def scroll_ticks(rows):
     target = {"target": "page", "pane": engine.get("pane")} if engine.get("engine") == "cef" else {"pane": engine.get("pane")}
     out = {"rows": rows, "seed": seeded}
     for kind, phased in (("trackpad", True), ("wheel", False)):
-        pane("tick_watch")
+        errors = []
+        started = pane("tick_watch")
+        if not started.get("started"):
+            errors.append(f"tick_watch start: {started.get('error') or started}"[:200])
         for _ in range(opts.ticks):
-            gesture(target, 120, 20, phased)
-            gesture(target, -120, 20, phased)
-        gesture(target, 3000, 60, phased)
-        gesture(target, -3000, 60, phased)
+            gesture(target, 120, 20, phased, errors)
+            gesture(target, -120, 20, phased, errors)
+        gesture(target, 3000, 60, phased, errors)
+        gesture(target, -3000, 60, phased, errors)
         watch = {"stop": True, **({"nominal_ms": 1000 / opts.target_hz} if opts.target_hz else {})}
         out[kind] = pane("tick_watch", **watch)
+        if out[kind].get("error"):
+            errors.append(f"tick_watch stop: {out[kind]['error']}"[:200])
+        # A tick run is only a measurement when every event went in and the page saw them move it.
+        out[kind]["errors"] = errors[:5]
+        out[kind]["complete"] = not errors and bool(out[kind].get("moved_frames"))
         print(f"ticks rows={rows} {kind}", json.dumps(out[kind]), flush=True)
     return out
 
@@ -385,6 +396,8 @@ def run_mode(mode):
     result["measurement_complete"] = flings_complete(result["flings"], opts.flings)
     if opts.ticks > 0:
         result["ticks"] = [scroll_ticks(rows) for rows in (opts.tick_small_rows, opts.rows)]
+        ticks_complete = all(t[kind].get("complete") for t in result["ticks"] for kind in ("trackpad", "wheel"))
+        result["measurement_complete"] = result["measurement_complete"] and ticks_complete
     more = [open_chat() for _ in range(opts.chats - 1)]
     result["more_chats"] = more
     time.sleep(opts.settle)  # test harness: the chats settle before they are measured
@@ -403,7 +416,7 @@ def run_mode(mode):
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
         "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
         "ticks": [{"rows": t["rows"], **{kind: {key: (t.get(kind) or {}).get(key) for key in
-                   ("frames", "work", "work_over_8ms", "notch_events", "js_writes", "js_write_max_px")}
+                   ("complete", "frames", "work", "work_over_8ms", "notch_events", "js_writes", "js_write_max_px")}
                    for kind in ("trackpad", "wheel")}} for t in result.get("ticks", [])],
     }
     return result
