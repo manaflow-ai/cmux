@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42366404463",
+  "recorded_at": "2026-11-07T11:10:58Z",
+  "reason": "cmux-tui e76cd52be2c8 changes the image's cmux-tui (pinned 31ccdf2de028)",
+  "dry_run": false,
+  "cmux_tui": "e76cd52be2c84cd2ea1849e3e348afe91c039bb7",
+  "fixes": [
+    {
+      "sha": "a1b76e2ecdfe0bf300472f1f8e4e2bc0df86373b",
+      "mergedAt": "2026-11-07T02:47:13-08:00",
+      "subject": "acpmux: a stopped hand-written daemon unit moves to acpmux.service; agents rank above the daemon for the OOM killer (#37504)"
+    },
+    {
+      "sha": "dea97371088e3d9c27ac235724d322038ffc5586",
+      "mergedAt": "2026-11-07T02:44:10-08:00",
+      "subject": "cmux-tui: clippy lock-scope lints catch a lock held across slow work (#37644)"
+    },
+    {
+      "sha": "f655987f69af3e7e55f6b1349ead237c4b1d337d",
+      "mergedAt": "2026-11-07T02:41:51-08:00",
+      "subject": "cmux-tui-core: take the lone dock with first_mut, not [0] (panic ratchet) (#37495)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T11:10:58Z",
+    "snapshot_id": "sh-2c1004456ddb4cbe8addbff8c0577d3d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42366404463): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a42c6140c052563d55023d953575777f22ca5b9d",
+    "image": "cloud-native-auto-e76cd52b-42366404463-1",
+    "revision": "ci-42366404463-1",
+    "at": "2026-11-07T11:10:58Z"
+  },
+  "rolled_back": false
+}
