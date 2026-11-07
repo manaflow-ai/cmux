@@ -1320,7 +1320,10 @@ pub(super) fn exchange(
 
 /// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
 /// that is only busy. For an optional read that must never hold up a command. The write and
-/// every read share the one deadline, so an app that trickles bytes cannot stretch it.
+/// every read share the one deadline, so an app that trickles bytes cannot stretch it. Like
+/// every app request, it carries the read barrier ([`with_read_barrier`]), so a value an earlier
+/// `cmux` call wrote through the daemon is the one read; the barrier's round trip is inside the
+/// same deadline.
 pub(super) fn exchange_within(
     stream: &mut UnixStream,
     method: &str,
@@ -1335,7 +1338,7 @@ pub(super) fn exchange_within(
             .ok_or_else(|| wait::timeout_message(timeout))
     };
     stream.set_write_timeout(Some(left()?)).map_err(|error| error.to_string())?;
-    let line = json!({ "id": 1, "method": method, "params": params });
+    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(method, params) });
     send_line(stream, &line)
         .map_err(|error| if left().is_err() { wait::timeout_message(timeout) } else { error })?;
     let mut response = Vec::new();
