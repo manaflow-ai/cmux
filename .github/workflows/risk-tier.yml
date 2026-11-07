@@ -66,7 +66,12 @@ jobs:
       # The pull request's head goes in the same repository, as data that is never checked out, so
       # the classifier takes the merge base from git instead of a `compare` call on every run. When it
       # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.
+      # An explicit zero deletions skips the fetch: there is no deleted line to blame, and with no
+      # removed line the classifier needs no merge base (it grades against the base sha, no `compare`).
+      # Missing metadata still fetches, so event drift cannot waive the takeback check. The condition goes
+      # through toJSON: an expression compares null as 0, so `deletions == null` is true for zero too.
       - name: Fetch the base's recent history
+        if: ${{ toJSON(github.event.pull_request.deletions) != '0' }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
