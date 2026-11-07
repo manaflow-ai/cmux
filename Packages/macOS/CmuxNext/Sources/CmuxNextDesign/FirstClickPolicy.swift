@@ -70,7 +70,7 @@ public struct FirstClickPolicy {
         // A sheet or a modal session keeps the keys where AppKit put them (a Save panel's name field).
         guard appIsActive, !appIsModal, !window.isKeyWindow, window.canBecomeKey, window.attachedSheet == nil,
               keyWindow?.sheetParent == nil else { return false }
-        if let keyWindow, keyWindow !== window, isDescendant(keyWindow, of: window) { return true }
+        if let keyWindow, keyWindow !== window, isChildWindow(keyWindow, of: window) { return true }
         guard !modifiers.contains(.command), mainWindow == nil || mainWindow === window else { return false }
         guard let keyWindow, keyWindow !== window else { return true }
         // A panel of the app (the palette, the quick composer, the Chief pet) that belongs to no other window.
@@ -78,7 +78,8 @@ public struct FirstClickPolicy {
     }
 }
 
-@MainActor private func isDescendant(_ child: NSWindow, of ancestor: NSWindow) -> Bool {
+/// Whether `child` is a child window of `ancestor`, at any depth (`WindowPressRouter` too).
+@MainActor func isChildWindow(_ child: NSWindow, of ancestor: NSWindow) -> Bool {
     var parent = child.parent
     while let current = parent {
         if current === ancestor { return true }

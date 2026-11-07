@@ -8,8 +8,8 @@ extension ShellWindow {
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
-        if presses.willSend(event, in: self) { return } // the first click's key (`WindowPressRouter`)
         cursorRectHold?.windowWillSend(event, in: self)
+        if presses.willSend(event, in: self) { return } // a divider press keeps the page's key; others' first click
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
