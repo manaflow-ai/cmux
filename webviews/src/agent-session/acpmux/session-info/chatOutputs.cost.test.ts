@@ -9,6 +9,7 @@
 // the update must read none of them, at N = 10 as at N = 100.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
+import { turnFiles } from "../diff";
 import { chatOutputs } from "./chatOutputs";
 
 const lines = (seed: string) => Array.from({ length: 500 }, (_, index) => `${seed} line ${index}`).join("\n");
@@ -81,4 +82,30 @@ test("one streamed update reads no past diff, however long the chat", () => {
   expect(hundred.after).toEqual(hundred.before);
   expect(ten.reads, "past diff texts read for one update, N = 10").toBe(0);
   expect(hundred.reads, "past diff texts read for one update, N = 100").toBe(0);
+});
+
+test("the files it counts are the ones turnFiles counts", () => {
+  const tool = (id: string, status: string, diffs: object[]) =>
+    ({
+      id: `a-${id}`,
+      version: 1,
+      at: 0,
+      kind: "activity",
+      items: [{ kind: "tool", tool: { id, kind: "edit", title: "Write", status, diffs } }],
+    }) as unknown as AcpmuxRow;
+  const rows = [
+    tool("new", "completed", [{ path: "/repo/a.md", newText: "a" }]),
+    tool("edited", "completed", [{ path: "/repo/b.md", oldText: "b", newText: "c" }]),
+    tool("fragment", "completed", [{ path: "/repo/c.md", newText: "c", fragment: true }]),
+    tool("unknown", "completed", [{ path: "/repo/d.png", newText: "d", fragment: true }]),
+    tool("then-made", "completed", [{ path: "/repo/d.png", newText: "d" }]),
+    tool("failed-unknown", "failed", [{ path: "/repo/e.csv", newText: "e", fragment: true }]),
+    tool("failed-made", "failed", [{ path: "/repo/e.csv", newText: "e" }]),
+    tool("pending", "pending", [{ path: "/repo/f.md", newText: "f" }]),
+    tool("spelled", "completed", [{ path: "/repo/G.md", canonical: "/repo/g.md", newText: "g" }]),
+    tool("respelled", "completed", [{ path: "/repo/g.md", canonical: "/repo/g.md", oldText: "g", newText: "h" }]),
+    tool("from-input", "completed", [{ path: "/repo/h.xlsx", newText: "h", fragment: true, fromInput: true }]),
+  ];
+  expect(chatOutputs(rows, "/repo")).toEqual(chatOutputs(rows, "/repo", turnFiles(rows)));
+  expect(chatOutputs(rows, "/repo").map((output) => output.displayPath)).toEqual(["a.md", "e.csv", "G.md"]);
 });
