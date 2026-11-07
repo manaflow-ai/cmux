@@ -99,6 +99,12 @@ export function OnboardingPage({
   }, [strings, state]);
   useEffect(() => {
     const press = (event: KeyboardEvent) => {
+      // A held Return repeats: only a fresh press acts. Its repeats would also activate the focused
+      // button natively, and that button may turn into the next step's (Import, then Begin Importing).
+      if (event.key === "Enter" && event.repeat) {
+        event.preventDefault();
+        return;
+      }
       const current = store.getSnapshot();
       if (!current) return;
       // Return is the window's one primary action; on Computer Use the model picks it (the next

@@ -45,9 +45,16 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.delegate = self
         // Kind `.onboarding`: a clear window with only a close button over the window's one
         // backdrop (glass, or opaque under Reduce Transparency); the page draws no background.
-        let content = page ?? NSView()
-        content.frame = NSRect(origin: .zero, size: size)
+        // The page sits in a title row host: its row background reports presses there, and the
+        // host moves the window (a Chromium page is a child window over the titlebar, so AppKit's
+        // own titlebar drag never sees them).
+        let content = TitleRowHostView(frame: NSRect(origin: .zero, size: size))
         content.autoresizingMask = [.width, .height]
+        if let page {
+            page.frame = content.bounds
+            page.autoresizingMask = [.width, .height]
+            content.addSubview(page)
+        }
         window.install(kind: .onboarding, content: content, scope: .app, activeLook: activeLook)
         if model.step == .computerUse { helperPanels = ComputerUseHelperPanels(model: model.computerUse, window: window) }
         window.onKey = { [weak model] key in
@@ -79,6 +86,9 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         guard let page, let button = window?.standardWindowButton(.closeButton), let frame = button.superview else { return }
         page.nativeRects = [page.convert(button.frame, from: frame)]
     }
+
+    /// The page's view, for tests.
+    var pageView: NSView? { page }
 
     /// The rects the page leaves uncovered (``leaveCloseButtonUncovered()``), in window coordinates, for tests.
     var uncoveredRects: [CGRect] {
