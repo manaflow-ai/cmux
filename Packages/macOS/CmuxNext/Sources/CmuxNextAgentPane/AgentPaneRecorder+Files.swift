@@ -29,13 +29,20 @@ extension AgentPaneRecorder {
         return inside ? URL(fileURLWithPath: path) : nil
     }
 
-    /// Off the main actor: moves `movie` into `upload` (made here) and removes its temporary
-    /// folder; nil, with `movie` left in place and `upload` gone, when it could not.
+    /// Off the main actor: moves `movie` into `upload`, a fresh folder made here, and removes its
+    /// temporary folder; nil, with `movie` left in place, when it could not. An `upload` that
+    /// already exists is someone else's: it is neither used nor removed. Only the folder made
+    /// here, still empty, is removed after a failed move.
     nonisolated static func keep(_ movie: URL, in upload: URL) -> URL? {
         let kept = upload.appendingPathComponent(movie.lastPathComponent)
         let files = FileManager.checked
         do {
-            try files.createDirectory(at: upload, withIntermediateDirectories: true)
+            try files.createDirectory(at: upload.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try files.createDirectory(at: upload, withIntermediateDirectories: false)
+        } catch {
+            return nil
+        }
+        do {
             try files.moveItem(at: movie, to: kept)
         } catch {
             try? files.removeItem(at: upload)

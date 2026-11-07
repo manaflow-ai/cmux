@@ -123,6 +123,13 @@ struct AgentPaneCaptureCallTests {
         let other = root.appendingPathComponent("uploads/sessions/S/V")
         #expect(AgentPaneRecorder.keep(movie, in: other) == nil)
         #expect(!FileManager.default.fileExists(atPath: other.path))
+        // An upload folder that already exists is another upload's: it is not used, and it stays whole.
+        let again = movie.deletingLastPathComponent().appendingPathComponent("Again.mp4")
+        try FileManager.default.createDirectory(at: movie.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("movie".utf8).write(to: again)
+        #expect(AgentPaneRecorder.keep(again, in: upload) == nil)
+        #expect(try Data(contentsOf: kept) == Data("movie".utf8))
+        #expect(FileManager.default.fileExists(atPath: again.path))
     }
 
     /// A moved window is filmed where it is now: its part of the display, from the display's corner.
