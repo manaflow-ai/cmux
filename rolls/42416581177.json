@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42416581177",
+  "recorded_at": "2026-11-07T21:46:31Z",
+  "reason": "cmux-tui a5b605724265 changes the image's cmux-tui (pinned 44c97a12088d)",
+  "dry_run": false,
+  "cmux_tui": "a5b6057242658101b9bef77b033142d1be72d90d",
+  "fixes": [
+    {
+      "sha": "a5b6057242658101b9bef77b033142d1be72d90d",
+      "mergedAt": "2026-11-07T21:18:58Z",
+      "subject": "acpmux: one ssh login per peer redial, and the first connect's two in parallel (#38002)"
+    },
+    {
+      "sha": "bc29e88e488d5f53012ab24072b00587e6337280",
+      "mergedAt": "2026-11-07T21:12:28Z",
+      "subject": "chore(next): base autofix at 96e37eb7b971"
+    },
+    {
+      "sha": "96e37eb7b97123ca8dab1350cd918d6a904ba640",
+      "mergedAt": "2026-11-07T21:10:21Z",
+      "subject": "ci(guards): clear four guard steps red at the feat-cmux-next tip (#38005)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T21:46:31Z",
+    "snapshot_id": "sh-284c5d1bae824d949df038e76e87c405",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42416581177): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "54c1d510eaa95126a6db1ad84bc52468fdcbdc57",
+    "image": "cloud-native-auto-a5b60572-42416581177-1",
+    "revision": "ci-42416581177-1",
+    "at": "2026-11-07T21:46:31Z"
+  },
+  "rolled_back": false
+}
