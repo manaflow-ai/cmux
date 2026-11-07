@@ -9,6 +9,9 @@ public protocol BrowserChromeWebContent: AnyObject {
     var view: NSView { get }
     /// The page's next state (JSON object).
     func push(_ state: [String: Any])
+    /// The state a reloaded page (a crashed renderer the host reloads) starts from, without a push to
+    /// the running page: the toolbar keeps the field's unsent text in it as the person types.
+    func keepForReload(_ state: [String: Any])
     /// A message from the page: `command` (a `{type, ...}` object) or `size` (`{width, height}`).
     var onMessage: ((_ kind: String, _ params: [String: Any]) -> Void)? { get set }
     /// Gives the page the keys.
@@ -24,6 +27,10 @@ public protocol BrowserChromeWebContent: AnyObject {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)? { get set }
     /// The surface closes for good.
     func close()
+}
+
+extension BrowserChromeWebContent {
+    public func keepForReload(_ state: [String: Any]) {}
 }
 
 /// The surfaces the browser chrome draws in React.

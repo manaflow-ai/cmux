@@ -49,6 +49,10 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         provider.push(JSONValue(foundation: state) ?? .null)
     }
 
+    public func keepForReload(_ state: [String: Any]) {
+        provider.keep(JSONValue(foundation: state) ?? .null)
+    }
+
     public func focus() {
         page.focusPage()
     }
@@ -99,6 +103,11 @@ final class BrowserChromeWebProvider: PageProvider {
     public func push(_ next: JSONValue) {
         state = next
         for listener in listeners.values { listener(next) }
+    }
+
+    /// The state a page that subscribes next (a reload) gets; the running page is not told.
+    func keep(_ next: JSONValue) {
+        state = next
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
