@@ -39,6 +39,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
+    var lastPlacement: ActionWork? // this pane's last new tab's move into its slot: the next reads its slot after it (NewTabSlot)
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
