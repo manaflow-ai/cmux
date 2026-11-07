@@ -142,7 +142,6 @@
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
-        "CmuxNextHomeModel",
         "CmuxNextIcons",
         "CmuxNextPalette",
         "CmuxNextSidebar",
@@ -314,7 +313,6 @@
         "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
-        "CmuxNextHomeModel",
         "CmuxNextHostPressure",
         "CmuxNextHostedChief",
         "CmuxNextIcons",
@@ -446,7 +444,6 @@
         "CmuxNextHistoryDaemon",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
-        "CmuxNextHomeModel",
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
@@ -732,7 +729,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
-        "CmuxNextHomeModel",
+        "CmuxNextHome",
         "CmuxNextPages",
         "CmuxNextSettings"
       ],
@@ -831,7 +828,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI",
       "targets": [
         "CmuxNextCloud",
-        "CmuxNextDesign"
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -842,6 +842,8 @@
         "CmuxNextCloud",
         "CmuxNextCloudUI",
         "CmuxNextDesign",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextTestSupport"
       ],
       "packages": [],
@@ -884,6 +886,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextCompat",
         "CmuxNextSettings",
@@ -1287,7 +1290,6 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDictation",
-        "CmuxNextHomeModel",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
@@ -1309,7 +1311,6 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
-        "CmuxNextHomeModel",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
@@ -1326,25 +1327,12 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
-        "CmuxNextHomeEngine",
-        "CmuxNextHomeModel"
+        "CmuxNextHomeEngine"
       ],
       "packages": [
         "CmuxHomeCore"
       ],
       "reads": []
-    },
-    "CmuxNextHomeModel": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel",
-      "targets": [
-        "CmuxNextDesignTokens",
-        "CmuxNextIcons"
-      ],
-      "packages": [
-        "CmuxHomeCore",
-        "CmuxHomeRender"
-      ]
     },
     "CmuxNextHostPressure": {
       "kind": "regular",
