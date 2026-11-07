@@ -334,11 +334,10 @@ fn sdk_failed(error: SdkError, given: bool) -> LinkError {
             if given { m.no_answer_socket } else { m.no_answer }
                 .replace("{secs}", &REQUEST_TIMEOUT.as_secs().to_string()),
         ),
-        SdkError::ConnectionIo { kind, .. }
-            if matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
-        {
-            sdk_failed(SdkError::Timeout(String::new()), given)
-        }
+        SdkError::ConnectionIo {
+            kind: io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut,
+            ..
+        } => sdk_failed(SdkError::Timeout(String::new()), given),
         SdkError::Connection(message) if message == "session socket closed" => {
             LinkError::Transport(m.lost.into())
         }

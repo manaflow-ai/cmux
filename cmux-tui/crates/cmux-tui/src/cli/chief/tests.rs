@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::adapter::{Draft, DraftKind, Drafts, UiEvent, adapt};
 use super::chat::Chat;
 use super::editor::{Editor, EditorAction};
-use super::link::{is_brain_socket, select_chief, send_params};
+use super::link::{is_brain_socket, select_chief};
 use super::pipe::finish_text;
 use super::render::wrap;
 use super::turn::TurnWatch;
