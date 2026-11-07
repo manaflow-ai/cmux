@@ -144,9 +144,9 @@ final class HomeChiefSurface {
         let placed = anchor.superview === owner
         if !placed { owner.addSubview(anchor) }
         if let pill {
-            anchor.frame = Self.frame(of: pill, in: owner)
+            anchor.frame = HomeChiefSettingsAnchor.frame(of: pill, in: owner)
         } else if !placed {  // opened by the action before any click: under the header's pill, top centre
-            anchor.frame = Self.frame(of: CGRect(x: owner.bounds.midX - 60, y: 46, width: 120, height: 24), in: owner)
+            anchor.frame = HomeChiefSettingsAnchor.frame(of: CGRect(x: owner.bounds.midX - 60, y: 46, width: 120, height: 24), in: owner)
         }
         made.view.refresh()
         return made.settings.show(relativeTo: anchor, toggles: [anchor])
@@ -155,7 +155,7 @@ final class HomeChiefSurface {
     /// The header's location chip was clicked at `chip` (page points): the Teleport menu pops up under it.
     func openTeleportMenu(under chip: CGRect) {
         guard showsChiefOnScreen, let owner else { return }
-        control.services.chiefTeleport.openMenu(under: Self.frame(of: chip, in: owner), in: owner)
+        control.services.chiefTeleport.openMenu(under: HomeChiefSettingsAnchor.frame(of: chip, in: owner), in: owner)
     }
 
     /// Opens the settings `HomeChiefActions` asked for once this view shows its Chief (Toggle Chief
@@ -164,12 +164,6 @@ final class HomeChiefSurface {
         guard let home = services?.home, showsChiefOnScreen, home.pendingChiefSettings == conversation else { return }
         home.pendingChiefSettings = nil
         toggleSettings(openOnly: true)
-    }
-
-    /// The page's box `rect` (top-left origin, page points) in `owner`'s coordinates.
-    private static func frame(of rect: CGRect, in owner: NSView) -> CGRect {
-        let flipped = owner.isFlipped ? rect : CGRect(x: rect.minX, y: owner.bounds.height - rect.maxY, width: rect.width, height: rect.height)
-        return flipped.integral
     }
 
     private func make() -> Made {
@@ -325,13 +319,6 @@ final class HomeChiefSurface {
         return await view.debugEditPicture(source, zoom: zoom, save: save)
     }
     #endif
-}
-
-/// The box the Chief's settings open under: the page's name pill, which the page reports with each
-/// click. It draws nothing and takes no click (the pill under it is the page's).
-final class HomeChiefSettingsAnchor: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override func isAccessibilityElement() -> Bool { false }
 }
 
 extension CmuxToast {

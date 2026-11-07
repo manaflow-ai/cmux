@@ -22,6 +22,7 @@ final class HomeConversationPage: NSView {
     let host: HomeMessagesHostProvider
     let chief: HomeChiefSurface
     private weak var services: AppServices?
+    private lazy var toastRoom = HomePageToastRoom(page: page)
     /// How long the page call that gives the message box the keyboard waits for the page.
     static let answerDeadline: Duration = .seconds(5)
 
@@ -66,6 +67,7 @@ final class HomeConversationPage: NSView {
     override func layout() {
         super.layout()
         page.frame = bounds
+        toastRoom.follow()
     }
 
     /// The popover is a child panel of the window, not a subview: the page leaving its window (a tab
@@ -111,6 +113,17 @@ final class HomeConversationPage: NSView {
         chief.close()
         page.close()
     }
+}
+
+/// Up and Down while the tab has the keyboard outside the page step its box's history; toasts keep
+/// the page's composer clear (``HomePageToastRoom``).
+extension HomeConversationPage: PrimaryInputTarget, CmuxToastReserving {
+    var primaryInputView: NSView? { nil }
+    var acceptsRedirectedTyping: Bool { true }
+    func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool { false }
+    func routesToPrimaryInput(_ event: NSEvent) -> Bool { HomeComposerHandoff.historyArrow(event, outside: page) != nil }
+    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { toastRoom.settled(rect, duration: duration) }
+    func beginTyping(with event: NSEvent) { recallHistory(event, page: page) }
 }
 
 extension HomeConversationPage: HomeComposerHosting {

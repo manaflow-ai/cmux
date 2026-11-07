@@ -11,6 +11,11 @@
 //   home.moveConversation     {delta}                             -> {moved}    (as Channels serves it)
 //   home.messages.selectNumber {number: 1..9}                     -> {selected} (9 = the last)
 //   home.messages.attach | detach | quoteSelection                -> composerHandoff.ts
+//   home.messages.recallHistory {older}                        -> {recalled}: Up or Down from outside the
+//       page (the pane has the keyboard): the composer takes it and steps its history
+//
+// A plain Up or Down inside the page outside the box (and anything that keeps its arrows) does the
+// same (composerHandoff.ts recallFromOutside).
 //
 // The page command `quoteSelection` (the app's selection menu, Quote in Reply) quotes the selected
 // message text in the composer, as `home.messages.quoteSelection` does.
@@ -23,7 +28,7 @@ import { MOVE_CONVERSATION_OP } from "../home-channels/hostMove";
 import type { HomeChannelsStore } from "../home-channels/store";
 import type { PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
-import { attach, detach, HandoffOps, quoteSelection } from "./composerHandoff";
+import { attach, detach, HandoffOps, quoteSelection, recallFromOutside } from "./composerHandoff";
 import { conversationNumber, neighbor, type ListModel } from "./list/model";
 import type { MessagesNav, SheetKind } from "./nav";
 
@@ -150,7 +155,13 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
     host.handle(HandoffOps.attach, (params) => attach(host, latest().nav.composer(), params)),
     host.handle(HandoffOps.detach, (params) => detach(latest().nav.composer(), params)),
     host.handle(HandoffOps.quoteSelection, () => quoteSelection(document, latest().nav.composer())),
+    host.handle(HandoffOps.recallHistory, (params) => ({
+      recalled: latest().nav.composer()?.recallHistory(record(params).older === false ? "newer" : "older") ?? false,
+    })),
   ];
+  const onKey = (event: KeyboardEvent) => void recallFromOutside(event, latest().nav.composer());
+  document.addEventListener("keydown", onKey);
+  stops.push(() => document.removeEventListener("keydown", onKey));
   // The app's menu on selected message text: Quote in Reply.
   let ended = false;
   let unsubscribe: (() => void) | undefined;

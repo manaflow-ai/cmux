@@ -47,12 +47,12 @@ extension ChiefTeleportModel {
             } else {
                 place
             }
-            let glyph = switch location {
+            let mark = switch location {
             case .thisMac: "thisMac"
             case .cloud: "cloud"
             case .host: "host"
             }
-            (tone, text, glyph) = (location == .thisMac ? "here" : "away", words, glyph)
+            (tone, text, glyph) = (location == .thisMac ? "here" : "away", words, mark)
         }
         return ChiefTeleportChipFace(tone: tone, text: text, glyph: glyph, label: ChiefTeleportStrings.label(text), help: ChiefTeleportStrings.help)
     }

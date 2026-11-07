@@ -241,6 +241,15 @@ export function MessageComposer({
     addFiles,
     removeGroup,
     quote,
+    recallHistory: (direction) => {
+      const field = editor.current;
+      if (!field || !history) return false;
+      field.focus();
+      const next = browse.step(direction, field.text().value, history);
+      if (next === undefined) return direction === "older" && browse.isBrowsing;
+      field.writeText(next, next.length, next.length);
+      return true;
+    },
     focus: () => editor.current?.focus(),
   }));
 

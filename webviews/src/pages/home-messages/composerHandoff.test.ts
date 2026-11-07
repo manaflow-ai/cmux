@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
-import { attach, detach, HandoffOps, readHostFile, type ComposerTarget } from "./composerHandoff";
+import { JSDOM } from "jsdom";
+import { attach, detach, HandoffOps, readHostFile, recallFromOutside, type ComposerTarget } from "./composerHandoff";
 
 const b64 = (text: string) => btoa(text);
 
@@ -21,6 +22,7 @@ function composer(takesFiles = true) {
     addFiles: (files, group) => void added.push({ files: [...files], group }),
     removeGroup: mock((group: string) => group === "card-1"),
     quote: () => true,
+    recallHistory: mock((_direction: "older" | "newer") => true),
   };
   return { target, added };
 }
@@ -73,5 +75,53 @@ describe("composer hand-off", () => {
     expect(detach(target, { group: "card-2" })).toEqual({ removed: false });
     expect(detach(target, { group: "../x y" })).toEqual({ removed: false });
     expect(detach(undefined, { group: "card-1" })).toEqual({ removed: false });
+  });
+});
+
+describe("Up and Down from outside the box", () => {
+  const { document, KeyboardEvent } = new JSDOM("<!doctype html><html><body></body></html>").window;
+  function key(target: Element, init: KeyboardEventInit) {
+    const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    Object.defineProperty(event, "target", { value: target });
+    return event;
+  }
+
+  it("steps the history from the transcript and takes the key", () => {
+    const { target } = composer();
+    const rows = document.createElement("div");
+    document.body.append(rows);
+    const up = key(rows, { key: "ArrowUp" });
+    expect(recallFromOutside(up, target)).toBe(true);
+    expect(up.defaultPrevented).toBe(true);
+    expect(recallFromOutside(key(rows, { key: "ArrowDown" }), target)).toBe(true);
+    expect(target.recallHistory).toHaveBeenNthCalledWith(1, "older");
+    expect(target.recallHistory).toHaveBeenNthCalledWith(2, "newer");
+    rows.remove();
+  });
+
+  it("leaves fields, lists, chords and other keys their own", () => {
+    const { target } = composer();
+    const field = document.createElement("input");
+    const list = document.createElement("div");
+    list.setAttribute("role", "listbox");
+    const item = document.createElement("div");
+    list.append(item);
+    document.body.append(field, list);
+    expect(recallFromOutside(key(field, { key: "ArrowUp" }), target)).toBe(false);
+    expect(recallFromOutside(key(item, { key: "ArrowUp" }), target)).toBe(false);
+    expect(recallFromOutside(key(document.body, { key: "ArrowUp", shiftKey: true }), target)).toBe(false);
+    expect(recallFromOutside(key(document.body, { key: "ArrowLeft" }), target)).toBe(false);
+    expect(target.recallHistory).not.toHaveBeenCalled();
+    field.remove();
+    list.remove();
+  });
+
+  it("does nothing without a composer, and leaves the key when the history has nothing", () => {
+    expect(recallFromOutside(key(document.body, { key: "ArrowUp" }), undefined)).toBe(false);
+    const { target } = composer();
+    target.recallHistory = mock(() => false);
+    const up = key(document.body, { key: "ArrowUp" });
+    expect(recallFromOutside(up, target)).toBe(false);
+    expect(up.defaultPrevented).toBe(false);
   });
 });

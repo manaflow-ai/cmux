@@ -116,7 +116,7 @@ public struct HomeComposerHandoff {
     /// Calls `op` once the page answers at all (a page still loading has no handler yet: a cheap
     /// read is asked again, spaced by a backoff, for up to ``answerDeadline``), then waits for its
     /// answer up to `deadline`. Nil: the page never answered.
-    private func call(_ op: String, _ params: [String: JSONValue], within deadline: Duration) async -> JSONValue? {
+    func call(_ op: String, _ params: [String: JSONValue], within deadline: Duration) async -> JSONValue? {
         let clock = ContinuousClock()
         let end = clock.now.advanced(by: Self.answerDeadline)
         var backoff = Backoff(initial: .milliseconds(100), maximum: .seconds(1))

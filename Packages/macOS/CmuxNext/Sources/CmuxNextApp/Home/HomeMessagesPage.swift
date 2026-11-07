@@ -29,6 +29,7 @@ final class HomeMessagesPage: NSView {
     let route: HomeMessagesPageRoute
     let host: HomeMessagesHostProvider
     private let dragStrip = HomeWindowDragStrip()
+    private lazy var toastRoom = HomePageToastRoom(page: page)
     private weak var services: AppServices?
     /// Follows `HomeService.pendingSelection` (a conversation a sheet, the CLI or a run started), the
     /// preferred Chief and the unread colour.
@@ -86,6 +87,7 @@ final class HomeMessagesPage: NSView {
         super.layout()
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeWindowDragStrip.height)
         updateWindowControls()
+        toastRoom.follow()
     }
 
     override func viewDidMoveToWindow() {
@@ -301,6 +303,10 @@ extension HomeComposerHandoff {
             await PageAnswerDeadline(deadline).answer { try await router.callPage(op, params: .object(params)) }
         }
     }
+}
+
+extension HomeMessagesPage: CmuxToastReserving {
+    func toastsSettled(in rect: NSRect?, duration: TimeInterval) { toastRoom.settled(rect, duration: duration) }
 }
 
 extension HomeMessagesPage: HomeChiefShowing {

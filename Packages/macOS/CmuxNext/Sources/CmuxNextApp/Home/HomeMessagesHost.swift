@@ -145,18 +145,14 @@ final class HomeMessagesHostProvider: PageProvider {
             let text = fields["email"]?.stringValue ?? ""
             guard let address = ContactAddress.parse(text), address.isEmail else { return .object(["result": .object(["kind": .string("sendFailed")])]) }
             let answer = await services.cloud.auth.inviteOne(address.description, toTeam: team.id)
-            return .object(["result": .object(["kind": .string(Self.kind(answer))])])
+            return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             return (await start(fields, home: home)).pageOutcome
         case "chief.settings", "chief.place", "chief.stop", "chief.continue", "chief.retry":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let chief = chiefShown(try conversation(fields))
-            let box = fields["anchor"]?.objectValue
-            let number = { (key: String) in box?[key]?.doubleValue }
-            let anchor = number("x").flatMap { x in number("y").flatMap { y in number("width").flatMap { w in number("height").map { h in
-                CGRect(x: x, y: y, width: max(1, min(w, 4096)), height: max(1, min(h, 4096)))
-            } } } }
+            let anchor = HomeChiefSettingsAnchor.box(fields["anchor"])
             switch name {
             case "chief.settings": return .object(["shown": .bool(chief?.toggleSettings(under: anchor) ?? false)])
             case "chief.place": if let chief, let anchor { chief.openTeleportMenu(under: anchor) }
@@ -326,16 +322,6 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     static func isID(_ text: String) -> Bool { !text.isEmpty && text.count <= 256 }
-
-    static func kind(_ answer: CloudTeamInviteAnswer) -> String {
-        switch answer {
-        case .sent: "sent"
-        case .alreadyMember: "alreadyMember"
-        case .sendFailed: "sendFailed"
-        case .notAllowed: "notAllowed"
-        case .unreachable: "unreachable"
-        }
-    }
 }
 
 /// A Chief chat's pinned Needs you section (``FeedNeedsYouPin``) over the app's Feed, as the page draws it.

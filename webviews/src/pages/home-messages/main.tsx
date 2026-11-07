@@ -7,6 +7,7 @@
 // The host adds only what the app knows (host.ts: the row and compose menus, the traffic lights).
 // In the gallery and dev loop (`?mock`) the Channels page's in-memory mock provider stands in.
 import "../shared/desktop";
+import { installToastRoom } from "../../agent-session/acpmux/toastRoom";
 // Before any part that reads the pane's table: the Channels rows' keys, the mic's and the chips'.
 import "./paneStrings";
 import { useState } from "react";
@@ -133,6 +134,9 @@ function daemonEndpoint(): string | null {
   }
 }
 
+// The app's toasts keep a band at the page's foot that the transcript and composer stay above
+// (HomePageToastRoom.swift, transcript.css --cmux-toast-room).
+installToastRoom(document, ".mt-transcript > .mt-scroller, .mt-transcript > .mt-compose");
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "home-messages") {
   const query = new URLSearchParams(location.search);

@@ -18,6 +18,7 @@ export const HandoffOps = {
   attach: "home.messages.attach",
   detach: "home.messages.detach",
   quoteSelection: "home.messages.quoteSelection",
+  recallHistory: "home.messages.recallHistory",
   read: "cmux.home.messages.compose.read",
 } as const;
 
@@ -30,6 +31,9 @@ export interface ComposerTarget {
   removeGroup(group: string): boolean;
   /** Puts `text` in the field as a quote, the caret after it; false when the field is not there. */
   quote(text: string): boolean;
+  /** Up (`older`) or Down from outside the box: the box takes the keyboard and steps the sent-message
+   *  history (history.ts); false when it had nothing to show. */
+  recallHistory(direction: "older" | "newer"): boolean;
 }
 
 /** One file the host offers by token. */
@@ -125,6 +129,28 @@ export function selectedMessageText(doc: Document): string | undefined {
   if (!element || element.closest(".mt-compose, input, textarea, [contenteditable]")) return undefined;
   if (!element.closest(".mt-scroller")) return undefined;
   return text;
+}
+
+/** The keys that keep their arrows: a field, a list or menu that moves with them, the first run's rows. */
+const KEEPS_ARROWS =
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="listbox"], [role="menu"], ' +
+  '[role="menubar"], [role="grid"], [role="tree"], [role="tablist"], [role="radiogroup"], [role="slider"], ' +
+  '[role="dialog"], .hm-first-run';
+
+/** A plain Up or Down from anywhere in the page that does not keep its arrows (Lawrence 2026-10-19:
+ *  "Up arrow ... handle unfocus as well"; HomeHostView+PrimaryInputHistory.swift): the composer
+ *  takes the keyboard and steps its history. A transcript text selection keeps its arrows. */
+export function recallFromOutside(event: KeyboardEvent, composer: ComposerTarget | undefined): boolean {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+    return false;
+  const target = event.target as Element | null;
+  if (!composer || typeof target?.closest !== "function" || target.closest(KEEPS_ARROWS)) return false;
+  const selection = target?.ownerDocument.getSelection();
+  if (selection && !selection.isCollapsed) return false;
+  if (!composer.recallHistory(event.key === "ArrowUp" ? "older" : "newer")) return false;
+  event.preventDefault();
+  return true;
 }
 
 export function quoteSelection(doc: Document, composer: ComposerTarget | undefined): { quoted: boolean } {

@@ -39,6 +39,9 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  box-sizing: border-box;
+  /* The app's toasts' band (toastRoom.ts): the rows and the composer stay above it. */
+  padding-bottom: var(--cmux-toast-room, 0px);
   overflow: hidden;
   color: var(--page-text);
   font: var(--text-body);

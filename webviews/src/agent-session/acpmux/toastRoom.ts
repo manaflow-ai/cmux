@@ -8,6 +8,9 @@
 // Motion: the band applies in one layout; the chat then slides from where it was drawn to its new
 // place over the toasts' own move time as one compositor transform (no layout per frame). Off or
 // reduced motion (the app's `data-cmux-motion`, the system setting) skips the slide.
+//
+// The Home Messages page uses the same band (HomePageToastRoom.swift): its transcript and composer
+// stay above it, sliding as `.mt-transcript`.
 import { isAgentMotionOff } from "../shared/motion";
 
 let current = 0;
@@ -18,9 +21,12 @@ function moves(doc: Document): boolean {
   return !doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
-/// Sets `doc`'s toast band to `px` CSS pixels (a non-finite or negative value is 0); the chat slides
-/// there over `ms` milliseconds (0: at once).
-export function setToastRoom(px: number, doc: Document = document, ms = 0): void {
+/** What slides when the band changes: the agent chat's main column. */
+export const AGENT_TOAST_SLIDE = ".acpmux-shell > .acpmux-main";
+
+/// Sets `doc`'s toast band to `px` CSS pixels (a non-finite or negative value is 0); `slide` (a
+/// selector of the chat's parts) slides there over `ms` milliseconds (0: at once).
+export function setToastRoom(px: number, doc: Document = document, ms = 0, slide = AGENT_TOAST_SLIDE): void {
   const room = Number.isFinite(px) && px > 0 ? Math.round(px * 100) / 100 : 0;
   const delta = room - current;
   current = room;
@@ -28,18 +34,19 @@ export function setToastRoom(px: number, doc: Document = document, ms = 0): void
   if (room === 0) root.style.removeProperty("--cmux-toast-room");
   else root.style.setProperty("--cmux-toast-room", `${room}px`);
   if (!(ms > 0) || Math.abs(delta) < 0.5 || !moves(doc)) return;
-  const main = doc.querySelector<HTMLElement>(".acpmux-shell > .acpmux-main");
   // The chat rose (or fell) by `delta`: it shows where it was and slides to its place.
-  main?.animate?.([{ transform: `translateY(${delta}px)` }, { transform: "none" }], {
-    duration: ms,
-    easing: "cubic-bezier(0.2, 0, 0, 1)",
-  });
+  for (const part of doc.querySelectorAll<HTMLElement>(slide)) {
+    part.animate?.([{ transform: `translateY(${delta}px)` }, { transform: "none" }], {
+      duration: ms,
+      easing: "cubic-bezier(0.2, 0, 0, 1)",
+    });
+  }
 }
 
 /// Lets the host set the band: `globalThis.__cmuxToastRoom(px, ms)`.
-export function installToastRoom(doc: Document = document): void {
+export function installToastRoom(doc: Document = document, slide = AGENT_TOAST_SLIDE): void {
   (globalThis as typeof globalThis & { __cmuxToastRoom?: (px: number, ms?: number) => void }).__cmuxToastRoom = (
     px,
     ms,
-  ) => setToastRoom(Number(px), doc, Number(ms) || 0);
+  ) => setToastRoom(Number(px), doc, Number(ms) || 0, slide);
 }
