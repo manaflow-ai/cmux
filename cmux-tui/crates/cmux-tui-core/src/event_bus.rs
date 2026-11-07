@@ -283,6 +283,8 @@ impl SurfaceSessionScope {
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::HistoryChanged { .. }
+            | MuxEvent::FeedViewChanged { .. }
+            | MuxEvent::FeedReportsChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
             | MuxEvent::Conversation(_)

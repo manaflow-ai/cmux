@@ -106,8 +106,6 @@ import PackageDescription
 //   CmuxNextWindowRules -> CCmuxAppFFI, Daemon (the window handlers' rules, asked of cmux-window-rules over the
 //     app FFI's JSON channel, ops window_*: facts in, decisions out; no AppKit)
 //   CmuxNextChecklist (no deps): the workspace checklist's strings (the Todo page and its refusals)
-//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
-//     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
 //     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
@@ -350,7 +348,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChecklist",
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextNotifications",
                 "CmuxNextNowPlaying",
                 "CmuxNextFloating",
@@ -369,7 +367,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Needs you banners of tabs an agent marked (tab-attention-v1, AttentionBanners).
         .target(
             name: "CmuxNextNotifications",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextFeed",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign",
                            "CmuxNextMobileHost", "CmuxNextSettings"],
             resources: [
                 .process("Resources"),
@@ -413,6 +411,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextNowPlaying",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextSidebar", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The daemon feed client's native side (`feed-client-v1`, plans/cmux-next/feed-page.md): the
+        // `feed.*` ops and change events for the app's glue, the item JSON it reads, the update
+        // cards it posts and the pinned Needs you section's frame. The Feed page draws the feed.
+        .target(
+            name: "CmuxNextFeedClient",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Stash (a native OneTab, cx-rws36): the Stashed page's source on this Mac's daemon.
@@ -1149,17 +1158,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Feed panel (plans/cmux-next/feed.md section 12): list, inbox and
-        // menu bar prototypes over a confirmed mirror + intent log of the
-        // feed owner; the App supplies the source.
-        .target(
-            name: "CmuxNextFeed",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
         // VideoToolbox decode, presenter variants, chrome A, input capture and
         // a VideoToolbox mock host. Transport neutral. The App shows it in
@@ -1838,7 +1836,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
-                "CmuxNextFeed",
+                "CmuxNextFeedClient",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",

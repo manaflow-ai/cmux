@@ -103,6 +103,7 @@ impl Mux {
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
         self.stop_output_cleanup();
+        self.shutdown_feed_client();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();

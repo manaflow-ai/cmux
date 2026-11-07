@@ -283,6 +283,36 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// The cmux app's own process on the local socket: its verified main connection (not bound to an
+/// agent), or a page relay of that same process (the audit-token peer key of a verified main
+/// connection, as `origin.confirmation.issue` pairs them). The Feed's reads carry the person's
+/// whole feed, Reports basket and GitHub results, so an agent or a script on the same socket
+/// reads none of them (feed.md: a non-user principal sees only its own items).
+pub(super) fn app_process(mux: &Mux, client: u64) -> bool {
+    if mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER {
+        return false;
+    }
+    let state = mux.control_clients.state.lock().recover_poison();
+    let Some(record) = state.clients.get(&client) else { return false };
+    if !matches!(record.transport, ClientTransport::Unix) {
+        return false;
+    }
+    match record.origin.role {
+        HelloRole::Main => record.origin.verified_app,
+        HelloRole::PageRelay => {
+            let Some(peer) = record.origin.peer_key.as_deref() else { return false };
+            state.clients.iter().any(|(id, other)| {
+                *id != client
+                    && matches!(other.transport, ClientTransport::Unix)
+                    && other.origin.role == HelloRole::Main
+                    && other.origin.verified_app
+                    && other.origin.peer_key.as_deref() == Some(peer)
+            })
+        }
+        HelloRole::Legacy => false,
+    }
+}
+
 /// A WebSocket connection admitted with a page-bound credential
 /// (`page-credential {page}`): fixed at accept, with its page.
 pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
@@ -625,6 +655,10 @@ mod test_hooks {
     /// What accept sets for a connection from the bundled cmux-mobile-host.
     pub(in crate::server) fn set_mobile_host_peer_for_test(mux: &Arc<Mux>, client: u64) {
         with_origin(mux, client, |origin| origin.mobile_host = true);
+    }
+
+    pub(in crate::server) fn set_page_for_test(mux: &Arc<Mux>, client: u64, page: &str) {
+        with_origin(mux, client, |origin| origin.page = Some(page.to_string()));
     }
 
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
