@@ -123,4 +123,22 @@ import Testing
                                                        workspaces: store.workspaces))
         #expect(aPlaced.last == "ws-3,ws-a,ws-b,ws-4", "ws-a's item came first: \(aPlaced)")
     }
+
+    /// Two creates below a group member (the second below the first), then the member selected again: both stay in
+    /// the group, in press order, whatever order the pass lists new rows in.
+    @Test func aChainOfCreatesInAGroupStaysInItWhenAMemberIsSelected() {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4", "ws-a", "ws-b"])
+        let docSections = SidebarDocSections(document: { nil })
+        let full = Self.projection(members: Self.members)
+        let without = { (ids: Set<String>) in store.workspaces.filter { !ids.contains($0.resourceID?.rawValue ?? "") } }
+        docSections.newRowsPlace = { .below(Self.id("ws-coord", in: store)) }
+        _ = docSections.sections(full, session: Self.session, workspaces: without(["ws-a", "ws-b"]))
+        docSections.newRowsPlace = { .below(Self.id("ws-a", in: store)) }
+        _ = docSections.sections(full, session: Self.session, workspaces: without(["ws-b"]))
+        docSections.newRowsPlace = { .below(Self.id("ws-b", in: store)) }
+        _ = docSections.sections(full, session: Self.session, workspaces: store.workspaces)
+        docSections.newRowsPlace = { .below(Self.id("ws-coord", in: store)) }
+        let selected = Self.layout(docSections.sections(full, session: Self.session, workspaces: store.workspaces))
+        #expect(selected.contains("[Leads: ws-coord,ws-a,ws-b,ws-merge,ws-adopt-a,ws-adopt-b,ws-411]"), "the new rows left Leads: \(selected)")
+    }
 }
