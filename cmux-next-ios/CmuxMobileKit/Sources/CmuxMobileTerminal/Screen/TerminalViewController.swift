@@ -83,6 +83,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let scrollToBottomButton = UIButton(configuration: .glass())
     private var scrollButtonVisibility = JumpToBottomVisibility()
     private var keyBarHost: UIHostingController<TerminalKeyBar>!
+    /// The key row's host view (`TerminalModel.keyboardKeyLayout`).
+    var keyBarView: UIView? { keyBarHost?.view }
     private var composerHost: UIHostingController<TerminalComposer>!
     private var tuiHeight: NSLayoutConstraint!
 
@@ -316,6 +318,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
+        MobileMovingTapTargets.shared.unregister(self)
         outputLink?.invalidate()
         followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
@@ -373,6 +376,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         keyBarHost = keyBar
         composerHost = composer
+        // A tap on the keyboard key where it is drawn while the dock rides the
+        // keyboard reverses the keyboard: UIKit alone sends it to whatever is at
+        // the key's end position (the terminal, or the rising keyboard).
+        MobileMovingTapTargets.shared.register(
+            self,
+            host: keyBar.view,
+            frame: { [weak model] in model?.keyboardKeyFrame },
+            action: { [weak model] in model?.toggleKeyboard() }
+        )
         // Not clipped: the keys' glass lifts past the row on touch. Hide
         // Toolbar folds the row by hiding it, and unfolding fades it in
         // (`dockChanged`), so it never draws over the composer while it grows.

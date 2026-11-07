@@ -18,6 +18,8 @@ struct CmuxMobileApp: App {
     init() {
         // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // Info.plist's NSPrincipalClass; named here so the linker keeps it.
+        _ = CmuxMobileApplication.self
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug

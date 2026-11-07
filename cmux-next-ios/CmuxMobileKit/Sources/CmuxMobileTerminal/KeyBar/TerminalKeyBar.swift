@@ -10,6 +10,8 @@ import SwiftUI
 /// Glass cap (classic: `.glass()` / `.prominentGlass()`), in cmux NEXT's
 /// small-radius shape; there is no bar behind them.
 struct TerminalKeyBar: View {
+    /// The row's coordinate space: its host view's bounds.
+    static let space = "terminal.keybar"
     let model: TerminalModel
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
@@ -77,6 +79,7 @@ struct TerminalKeyBar: View {
         .contentMargins(.vertical, KeyRowGlass.liftRoom, for: .scrollContent)
         .frame(height: TerminalDockMetrics.keyRowHeight + 2 * KeyRowGlass.liftRoom)
         .padding(.vertical, -KeyRowGlass.liftRoom)
+        .coordinateSpace(.named(Self.space))
         .tint(.primary)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
@@ -171,6 +174,10 @@ struct KeyboardToggleKey: View {
         .keyGlass(armed: false)
         .accessibilityLabel(shown ? "Hide Keyboard" : "Show Keyboard")
         .accessibilityIdentifier("terminal.key.keyboard")
+        // Where a tap on the key lands while the dock moves (TerminalViewController).
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(TerminalKeyBar.space)) } action: { frame in
+            model.keyboardKeyFrame = frame
+        }
     }
 }
 

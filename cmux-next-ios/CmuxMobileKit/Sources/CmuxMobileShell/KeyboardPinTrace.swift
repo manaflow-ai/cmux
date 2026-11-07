@@ -45,38 +45,35 @@ final class KeyboardPinTrace: NSObject {
     /// (`tapProbe(identifier:)`): one `label:hit|miss(...)` per probe.
     private var taps: [String] = []
 
-    /// Hit-tests where a finger lands on the moving dock right now, as UIKit
-    /// routes a touch: at the composer field's DRAWN centre (presentation
-    /// layers), through the scene's windows from the top. The key row rides
-    /// in the same dock as the field, so the field's drawn-minus-model offset
-    /// (`shift`) is the key's too: a 28 pt key is missed once it passes 14 pt.
-    /// `label:hit(shift)` when the touch reaches the field within a key's
-    /// half height, else
-    /// `label:miss(view hit/shift)`.
-    static func tapProbe(label: String) {
+    /// Where a finger on the keyboard key, as drawn right now, goes: UIKit
+    /// hit-tests the scene's windows from the top at the key's drawn centre
+    /// (presentation layers), and the app's `sendEvent` first offers the touch
+    /// to `MobileMovingTapTargets`. The key is reached when the router claims
+    /// the touch, or when UIKit's own hit lands in the key row's host inside
+    /// the key's laid-out frame. `label:hit(shift)` or `label:miss(view/shift)`,
+    /// `shift` being the key's drawn-minus-laid-out offset.
+    static func tapProbe(label: String, keyFrame: CGRect?, host: UIView?) {
         guard let shared, let window = shared.keyWindow, let scene = window.windowScene else { return }
-        guard let field = Self.composerField(in: window) else {
-            shared.record(tap: "\(label):miss(no-field)")
+        guard let host, let keyFrame, host.window === window else {
+            shared.record(tap: "\(label):miss(no-key)")
             return
         }
-        let model = field.convert(field.bounds, to: window)
-        let drawn = MobileKeyboardProbe().onScreen(field, in: window)
-        let point = CGPoint(x: drawn.midX, y: drawn.midY)
+        let model = host.convert(keyFrame, to: window)
+        let hostModel = host.convert(host.bounds, to: window)
+        let hostDrawn = MobileKeyboardProbe().onScreen(host, in: window)
+        let shiftY = hostDrawn.minY - hostModel.minY
+        let point = CGPoint(x: model.midX + hostDrawn.minX - hostModel.minX, y: model.midY + shiftY)
         var hit: UIView?
         for candidate in scene.windows.sorted(by: { $0.windowLevel > $1.windowLevel }) where !candidate.isHidden {
             if let view = candidate.hitTest(candidate.convert(point, from: window), with: nil) { hit = view; break }
         }
-        let shift = String(format: "%.0f", drawn.minY - model.minY)
-        let onField = hit.map { $0 === field || $0.isDescendant(of: field) } ?? false
-        if onField, abs(drawn.minY - model.minY) < 14 {
+        let inHost = hit.map { $0 === host || $0.isDescendant(of: host) } ?? false
+        let shift = String(format: "%.0f", shiftY)
+        if MobileMovingTapTargets.shared.claims(point, in: window) || (inHost && model.contains(point)) {
             shared.record(tap: "\(label):hit(\(shift))")
         } else {
             var name = "none"
-            if onField {
-                name = "field"
-            } else if let hit {
-                name = String(NSStringFromClass(type(of: hit)).split(separator: ".").last ?? "?")
-            }
+            if let hit { name = String(NSStringFromClass(type(of: hit)).split(separator: ".").last ?? "?") }
             shared.record(tap: "\(label):miss(\(name)/\(shift))")
         }
     }

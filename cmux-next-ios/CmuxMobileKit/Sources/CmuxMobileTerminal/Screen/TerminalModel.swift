@@ -33,6 +33,12 @@ public final class TerminalModel {
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
     var sticky = TerminalStickyModifiers()
+    /// The key row's keyboard key in the key row's host view, as laid out
+    /// (`TerminalKeyBar.space`): where `MobileMovingTapTargets` finds the key
+    /// as drawn while the dock rides the keyboard. Not observed: nothing redraws on it.
+    @ObservationIgnored var keyboardKeyFrame: CGRect?
+    /// For DEBUG probes: the keyboard key's laid-out frame and the view it is laid out in.
+    public var keyboardKeyLayout: (frame: CGRect?, host: UIView?) { (keyboardKeyFrame, controller?.keyBarView) }
 
     // Composer
     public var composerText = ""

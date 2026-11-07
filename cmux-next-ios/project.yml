@@ -243,6 +243,9 @@ targets:
         CFBundleLocalizations: [en, de, fr, ar, es, zh-Hant, zh-Hans, ko, ja]
         CFBundleAllowMixedLocalizations: true
         LSRequiresIPhoneOS: true
+        # CmuxMobileShell's UIApplication: taps on a key riding the moving
+        # keyboard dock reach it where it is drawn (MobileMovingTapTargets).
+        NSPrincipalClass: CmuxMobileApplication
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
         CmuxMobileCloudAPIBase: $(CMUX_MOBILE_CLOUD_API_BASE)
