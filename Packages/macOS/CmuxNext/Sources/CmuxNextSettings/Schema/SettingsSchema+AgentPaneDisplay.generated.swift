@@ -3,87 +3,87 @@
 
 extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.width`: The chat column's cap in points.
-    public nonisolated static let widthPath = ["agentPane", "display", "width"]
-    public nonisolated static let widthDefault: Double = 800
-    public nonisolated static let widthRange: ClosedRange<Double> = 480...4000
-    public nonisolated static let widthPlaceholder: Double = 800
+    nonisolated static let widthPath = ["agentPane", "display", "width"]
+    nonisolated static let widthDefault: Double = 800
+    nonisolated static let widthRange: ClosedRange<Double> = 480...4000
+    nonisolated static let widthPlaceholder: Double = 800
     /// `agentPane.display.fullWidth`.
-    public nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
-    public nonisolated static let fullWidthDefault = false
+    nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
+    nonisolated static let fullWidthDefault = false
     /// `agentPane.display.vscodeMinimap`: The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx). Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
-    public nonisolated static let vscodeMinimapPath = ["agentPane", "display", "vscodeMinimap"]
-    public nonisolated static let vscodeMinimapDefault = false
+    nonisolated static let vscodeMinimapPath = ["agentPane", "display", "vscodeMinimap"]
+    nonisolated static let vscodeMinimapDefault = false
     /// `agentPane.display.pinnedPlan`: The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).
-    public nonisolated static let pinnedPlanPath = ["agentPane", "display", "pinnedPlan"]
-    public nonisolated static let pinnedPlanDefault = false
+    nonisolated static let pinnedPlanPath = ["agentPane", "display", "pinnedPlan"]
+    nonisolated static let pinnedPlanDefault = false
     /// `agentPane.display.trayTucked`: The hat over the composer tucked away to a pull tab at the composer's top middle (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to collapse that one line?"). The hat's own chevron and the tab write it too.
-    public nonisolated static let trayTuckedPath = ["agentPane", "display", "trayTucked"]
-    public nonisolated static let trayTuckedDefault = false
+    nonisolated static let trayTuckedPath = ["agentPane", "display", "trayTucked"]
+    nonisolated static let trayTuckedDefault = false
     /// `agentPane.display.trayHandle`: Where along the composer's top edge the hat's tuck chevron and its pull tab sit (webviews subagents/TrayPullTab.tsx; Leo, 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left... or the right...").
-    public nonisolated static let trayHandlePath = ["agentPane", "display", "trayHandle"]
-    public nonisolated static let trayHandleDefault = "middle"
-    public nonisolated static let trayHandleValues = ["left", "middle", "right"]
+    nonisolated static let trayHandlePath = ["agentPane", "display", "trayHandle"]
+    nonisolated static let trayHandleDefault = "middle"
+    nonisolated static let trayHandleValues = ["left", "middle", "right"]
     /// `agentPane.display.font.preset`.
-    public nonisolated static let fontPresetPath = ["agentPane", "display", "font", "preset"]
-    public nonisolated static let fontPresetDefault = "markdown"
-    public nonisolated static let fontPresetValues = ["markdown", "system", "serif", "mono"]
+    nonisolated static let fontPresetPath = ["agentPane", "display", "font", "preset"]
+    nonisolated static let fontPresetDefault = "markdown"
+    nonisolated static let fontPresetValues = ["markdown", "system", "serif", "mono"]
     /// `agentPane.display.font.ui`: The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: "I haven't tried switching fonts in my own app yet. So we could just try some stuff like that"). The default is today's: Inter with its calculated tracking.
-    public nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
-    public nonisolated static let uiFontDefault = "inter-tuned"
-    public nonisolated static let uiFontValues = ["inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson", "system-ui", "system-ui-tight"]
+    nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
+    nonisolated static let uiFontDefault = "inter-tuned"
+    nonisolated static let uiFontValues = ["inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson", "system-ui", "system-ui-tight"]
     /// `agentPane.display.font.size`.
-    public nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
-    public nonisolated static let fontSizeDefault: Double = 14
-    public nonisolated static let fontSizeRange: ClosedRange<Double> = 10...28
-    public nonisolated static let fontSizePlaceholder: Double = 14
+    nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
+    nonisolated static let fontSizeDefault: Double = 14
+    nonisolated static let fontSizeRange: ClosedRange<Double> = 10...28
+    nonisolated static let fontSizePlaceholder: Double = 14
     /// `agentPane.display.font.lineHeight`.
-    public nonisolated static let lineHeightPath = ["agentPane", "display", "font", "lineHeight"]
-    public nonisolated static let lineHeightDefault: Double = 1.625
-    public nonisolated static let lineHeightRange: ClosedRange<Double> = 1.2...2.4
-    public nonisolated static let lineHeightPlaceholder: Double = 1.625
+    nonisolated static let lineHeightPath = ["agentPane", "display", "font", "lineHeight"]
+    nonisolated static let lineHeightDefault: Double = 1.625
+    nonisolated static let lineHeightRange: ClosedRange<Double> = 1.2...2.4
+    nonisolated static let lineHeightPlaceholder: Double = 1.625
     /// `agentPane.display.code.family`.
-    public nonisolated static let codeFamilyPath = ["agentPane", "display", "code", "family"]
+    nonisolated static let codeFamilyPath = ["agentPane", "display", "code", "family"]
     /// `agentPane.display.code.scale`: No value of its own by default: the chat follows markdown.code.scale; the placeholder is the Markdown viewer's default.
-    public nonisolated static let codeScalePath = ["agentPane", "display", "code", "scale"]
-    public nonisolated static let codeScaleRange: ClosedRange<Double> = 0.6...1.25
-    public nonisolated static let codeScalePlaceholder: Double = 0.875
+    nonisolated static let codeScalePath = ["agentPane", "display", "code", "scale"]
+    nonisolated static let codeScaleRange: ClosedRange<Double> = 0.6...1.25
+    nonisolated static let codeScalePlaceholder: Double = 0.875
     /// `agentPane.display.sessionInfo.placement`: Where the chat's Session Info opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx). It was agentPane.display.inspector.placement (RenamedSettingKeys).
-    public nonisolated static let sessionInfoPlacementPath = ["agentPane", "display", "sessionInfo", "placement"]
-    public nonisolated static let sessionInfoPlacementDefault = "overlay"
-    public nonisolated static let sessionInfoPlacementValues = ["push", "overlay"]
+    nonisolated static let sessionInfoPlacementPath = ["agentPane", "display", "sessionInfo", "placement"]
+    nonisolated static let sessionInfoPlacementDefault = "overlay"
+    nonisolated static let sessionInfoPlacementValues = ["push", "overlay"]
     /// `agentPane.display.environment.placement`: The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
-    public nonisolated static let environmentPlacementPath = ["agentPane", "display", "environment", "placement"]
-    public nonisolated static let environmentPlacementDefault = "left"
-    public nonisolated static let environmentPlacementValues = ["left", "right", "off"]
+    nonisolated static let environmentPlacementPath = ["agentPane", "display", "environment", "placement"]
+    nonisolated static let environmentPlacementDefault = "left"
+    nonisolated static let environmentPlacementValues = ["left", "right", "off"]
     /// `agentPane.display.minimap`: What the chat's edge shows (webviews threadMinimap/ThreadMinimap.tsx): the prompt rail of ticks, the full map (ScrollMap.tsx), or nothing. The values are the thread-minimap-layout experiment's arms and the default is its default arm (webviews/test/thread-minimap-setting.test.ts checks both), so the row never says one thing while the chat shows another. The keywords are the words people search for it with (Leo, 2026-10-22, searching "TICK RAIL": "doesn't show as an option"). It was an on/off toggle; AgentPaneDisplaySettingsSchema.pageValue reads the old values.
-    public nonisolated static let minimapPath = ["agentPane", "display", "minimap"]
-    public nonisolated static let minimapDefault = "compact"
-    public nonisolated static let minimapValues = ["compact", "full", "off"]
+    nonisolated static let minimapPath = ["agentPane", "display", "minimap"]
+    nonisolated static let minimapDefault = "compact"
+    nonisolated static let minimapValues = ["compact", "full", "off"]
     /// `agentPane.display.transcriptView`: How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code desktop's Transcript view: a chat's ... menu changes its own, and its "Make ... the default" writes this row.
-    public nonisolated static let transcriptViewPath = ["agentPane", "display", "transcriptView"]
-    public nonisolated static let transcriptViewDefault = "normal"
-    public nonisolated static let transcriptViewValues = ["normal", "thinking", "verbose"]
+    nonisolated static let transcriptViewPath = ["agentPane", "display", "transcriptView"]
+    nonisolated static let transcriptViewDefault = "normal"
+    nonisolated static let transcriptViewValues = ["normal", "thinking", "verbose"]
     /// `agentPane.display.presentation`.
-    public nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
-    public nonisolated static let presentationDefault = "transcript"
-    public nonisolated static let presentationValues = ["transcript", "messages"]
+    nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
+    nonisolated static let presentationDefault = "transcript"
+    nonisolated static let presentationValues = ["transcript", "messages"]
     /// `agentPane.display.statusVerbs.mode`: The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.
-    public nonisolated static let statusVerbsModePath = ["agentPane", "display", "statusVerbs", "mode"]
-    public nonisolated static let statusVerbsModeDefault = "thinking"
-    public nonisolated static let statusVerbsModeValues = ["thinking", "rotate", "custom"]
+    nonisolated static let statusVerbsModePath = ["agentPane", "display", "statusVerbs", "mode"]
+    nonisolated static let statusVerbsModeDefault = "thinking"
+    nonisolated static let statusVerbsModeValues = ["thinking", "rotate", "custom"]
     /// `agentPane.display.statusVerbs.custom`.
-    public nonisolated static let statusVerbsCustomPath = ["agentPane", "display", "statusVerbs", "custom"]
+    nonisolated static let statusVerbsCustomPath = ["agentPane", "display", "statusVerbs", "custom"]
     /// `agentPane.display.harnessPlacement`.
-    public nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
-    public nonisolated static let harnessPlacementDefault = "symbols"
-    public nonisolated static let harnessPlacementValues = ["symbols", "left", "top", "compact"]
+    nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
+    nonisolated static let harnessPlacementDefault = "symbols"
+    nonisolated static let harnessPlacementValues = ["symbols", "left", "top", "compact"]
     /// `agentPane.display.rail.side`.
-    public nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
-    public nonisolated static let railSideDefault = "left"
-    public nonisolated static let railSideValues = ["left", "right"]
+    nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
+    nonisolated static let railSideDefault = "left"
+    nonisolated static let railSideValues = ["left", "right"]
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
-    public nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
-    public nonisolated static let commandLabelsDefault: [String] = []
+    nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
+    nonisolated static let commandLabelsDefault: [String] = []
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

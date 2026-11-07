@@ -45,18 +45,29 @@
 //! credential to the person's own team and refuses a machine of a shared
 //! one. It is `team_` and 20 lowercase hex digits; any other value is
 //! `bad_request`. Unset, no header is sent.
+//!
+//! The ok reply line also carries `"vmk":"owner"` or `"vmk":"team"`, the
+//! person's role on the machine as the carrier grant's `vmk` claim says
+//! it; a grant without one leaves the field out.
+//!
+//! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
+//! flags and environment and serves the same stream on a Unix socket, one
+//! dial per accepted connection ([`serve`]).
 
 mod answer;
 mod client;
 mod contract;
 mod noise_key;
 mod route_log;
+mod secrets;
+mod serve;
 
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cmux_remote::crypto::StaticIdentity;
 use contract::{BAD_REQUEST, DEFAULT_DEADLINE, Failure};
 use zeroize::Zeroizing;
 
@@ -78,6 +89,13 @@ pub(crate) struct DialArgs {
     pub team: Option<String>,
 }
 
+/// One `cmux carrier serve` invocation: a dial per connection to `socket`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ServeArgs {
+    pub dial: DialArgs,
+    pub socket: PathBuf,
+}
+
 /// What the dial's stdio carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DialService {
@@ -96,18 +114,37 @@ pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     if verb != "dial" {
         return None;
     }
-    let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team) =
-        (None, None, None, None, None, None);
+    flags(rest, false).map(|(dial, _)| dial)
+}
+
+/// `serve --machine vm_… --socket PATH` and the dial's other flags but
+/// `--service`, each once: serve carries the mux stream only. The path is
+/// absolute and fits a Unix socket address.
+pub(crate) fn parse_serve(args: &[String]) -> Option<ServeArgs> {
+    let (verb, rest) = args.split_first()?;
+    if verb != "serve" {
+        return None;
+    }
+    let (dial, socket) = flags(rest, true)?;
+    let socket = PathBuf::from(socket?);
+    (socket.is_absolute() && cmux_unix_socket::fits(&socket)).then_some(ServeArgs { dial, socket })
+}
+
+/// The dial's flags; for `serve`, `--socket` in place of `--service`.
+fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
+    let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team, mut socket) =
+        (None, None, None, None, None, None, None);
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
         let slot = match flag.as_str() {
             "--machine" => &mut machine,
-            "--service" => &mut service,
+            "--service" if !serve => &mut service,
             "--deadline-ms" => &mut deadline,
             "--cloud-api" => &mut api,
             "--cloud-token-file" => &mut token_file,
             "--team" => &mut team,
+            "--socket" if serve => &mut socket,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -127,14 +164,15 @@ pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     if team.as_deref().is_some_and(|t| !contract::valid_team(t)) {
         return None;
     }
-    Some(DialArgs {
+    let dial = DialArgs {
         machine,
         service,
         deadline,
         api,
         token_file: token_file.map(PathBuf::from),
         team,
-    })
+    };
+    Some((dial, socket))
 }
 
 /// `--team`, else a non-empty `CMUX_CLOUD_TEAM` (`env`), checked; `None`
@@ -188,6 +226,35 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
     answer::HttpSource::new(api, credential, args.team.clone()).map_err(ticket)
 }
 
+/// What every dial of one invocation shares: the platform source and this
+/// device's Noise identity. `Err` is the exit code, its line written.
+fn prepare(args: DialArgs) -> Result<(DialArgs, Arc<answer::HttpSource>, StaticIdentity), i32> {
+    let Some(args) = with_team_env(args, std::env::var(TEAM_ENV).ok()) else {
+        return Err(usage(&format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits")));
+    };
+    let source = match source(&args) {
+        Ok(source) => Arc::new(source),
+        Err(failure) => return Err(fail(&failure)),
+    };
+    let identity = match noise_key::device_identity() {
+        Ok(identity) => identity,
+        Err(why) => return Err(fail(&Failure::fatal(contract::Step::Handshake, why))),
+    };
+    Ok((args, source, identity))
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime, i32> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
+}
+
+/// The full-jitter draw of the session's own reconnect policy.
+fn jitter(ceiling: Duration) -> Duration {
+    cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
+}
+
 /// Opens the machine's desktop stream on the dialed session by `deadline`.
 /// The daemon's refusal is [`contract::Step::Service`] (exit 6); a session
 /// that drops or stalls before the daemon answers is the carrier's
@@ -215,24 +282,24 @@ async fn open_desktop(
 
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
+    if args.first().is_some_and(|verb| verb == "serve") {
+        return serve::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "secrets") {
+        return secrets::run(args);
+    }
     let Some(args) = parse(args) else {
         return usage(
             "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]",
         );
     };
-    let Some(args) = with_team_env(args, std::env::var(TEAM_ENV).ok()) else {
-        return usage(&format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits"));
+    let (args, source, identity) = match prepare(args) {
+        Ok(prepared) => prepared,
+        Err(code) => return code,
     };
-    let source = match source(&args) {
-        Ok(source) => Arc::new(source),
-        Err(failure) => return fail(&failure),
-    };
-    let identity = match noise_key::device_identity() {
-        Ok(identity) => identity,
-        Err(why) => return fail(&Failure::fatal(contract::Step::Handshake, why)),
-    };
-    let Ok(runtime) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
-        return fail(&Failure::fatal(contract::Step::Relay, "no async runtime"));
+    let runtime = match runtime() {
+        Ok(runtime) => runtime,
+        Err(code) => return code,
     };
     let code = runtime.block_on(async {
         // Route lines wait until the reply line is out, so it stays first.
@@ -250,10 +317,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 let _ = lines.send(line);
             }),
         };
-        let dialed = client::dial(&plan, |ceiling| {
-            cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
-        })
-        .await;
+        let dialed = client::dial(&plan, jitter).await;
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
         // open stays inside the dial's one deadline.
@@ -271,8 +335,8 @@ pub(crate) fn run(args: &[String]) -> i32 {
             (dialed, _) => (dialed, None),
         };
         let code = match &dialed {
-            Ok(_) => {
-                reply(&contract::connected_line());
+            Ok(dialed) => {
+                reply(&contract::connected_line(dialed.vmk));
                 0
             }
             Err(failure) => fail(failure),
@@ -287,7 +351,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 reply(&line);
             }
         });
-        let client::Dialed { connection, multiplexer, mux } = dialed;
+        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
         let _ = match desktop {
             Some(stream) => {
                 mux.close().await;

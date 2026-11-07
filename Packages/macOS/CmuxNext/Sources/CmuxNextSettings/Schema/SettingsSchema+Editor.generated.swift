@@ -3,179 +3,179 @@
 
 extension EditorSettingsSchema {
     /// `editor.fontFamily`.
-    public nonisolated static let fontFamilyPath = ["editor", "fontFamily"]
+    nonisolated static let fontFamilyPath = ["editor", "fontFamily"]
     /// `editor.fontSize`.
-    public nonisolated static let fontSizePath = ["editor", "fontSize"]
-    public nonisolated static let fontSizeRange: ClosedRange<Double> = 6...72
-    public nonisolated static let fontSizePlaceholder: Double = 13
+    nonisolated static let fontSizePath = ["editor", "fontSize"]
+    nonisolated static let fontSizeRange: ClosedRange<Double> = 6...72
+    nonisolated static let fontSizePlaceholder: Double = 13
     /// `editor.fontWeight`.
-    public nonisolated static let fontWeightPath = ["editor", "fontWeight"]
-    public nonisolated static let fontWeightDefault = "normal"
-    public nonisolated static let fontWeightValues = ["normal", "bold", "300", "500", "600"]
+    nonisolated static let fontWeightPath = ["editor", "fontWeight"]
+    nonisolated static let fontWeightDefault = "normal"
+    nonisolated static let fontWeightValues = ["normal", "bold", "300", "500", "600"]
     /// `editor.fontLigatures`.
-    public nonisolated static let fontLigaturesPath = ["editor", "fontLigatures"]
-    public nonisolated static let fontLigaturesDefault = false
+    nonisolated static let fontLigaturesPath = ["editor", "fontLigatures"]
+    nonisolated static let fontLigaturesDefault = false
     /// `editor.lineHeight`.
-    public nonisolated static let lineHeightPath = ["editor", "lineHeight"]
-    public nonisolated static let lineHeightDefault: Double = 0
-    public nonisolated static let lineHeightRange: ClosedRange<Double> = 0...150
+    nonisolated static let lineHeightPath = ["editor", "lineHeight"]
+    nonisolated static let lineHeightDefault: Double = 0
+    nonisolated static let lineHeightRange: ClosedRange<Double> = 0...150
     /// `editor.letterSpacing`.
-    public nonisolated static let letterSpacingPath = ["editor", "letterSpacing"]
-    public nonisolated static let letterSpacingDefault: Double = 0
-    public nonisolated static let letterSpacingRange: ClosedRange<Double> = -5...20
+    nonisolated static let letterSpacingPath = ["editor", "letterSpacing"]
+    nonisolated static let letterSpacingDefault: Double = 0
+    nonisolated static let letterSpacingRange: ClosedRange<Double> = -5...20
 }
 
 extension EditorSettingsSchema {
     /// `editor.tabSize`.
-    public nonisolated static let tabSizePath = ["editor", "tabSize"]
-    public nonisolated static let tabSizeDefault: Double = 4
-    public nonisolated static let tabSizeRange: ClosedRange<Double> = 1...16
+    nonisolated static let tabSizePath = ["editor", "tabSize"]
+    nonisolated static let tabSizeDefault: Double = 4
+    nonisolated static let tabSizeRange: ClosedRange<Double> = 1...16
     /// `editor.insertSpaces`.
-    public nonisolated static let insertSpacesPath = ["editor", "insertSpaces"]
-    public nonisolated static let insertSpacesDefault = true
+    nonisolated static let insertSpacesPath = ["editor", "insertSpaces"]
+    nonisolated static let insertSpacesDefault = true
     /// `editor.detectIndentation`.
-    public nonisolated static let detectIndentationPath = ["editor", "detectIndentation"]
-    public nonisolated static let detectIndentationDefault = true
+    nonisolated static let detectIndentationPath = ["editor", "detectIndentation"]
+    nonisolated static let detectIndentationDefault = true
     /// `editor.wordWrap`.
-    public nonisolated static let wordWrapPath = ["editor", "wordWrap"]
-    public nonisolated static let wordWrapDefault = "off"
-    public nonisolated static let wordWrapValues = ["off", "on", "wordWrapColumn", "bounded"]
+    nonisolated static let wordWrapPath = ["editor", "wordWrap"]
+    nonisolated static let wordWrapDefault = "off"
+    nonisolated static let wordWrapValues = ["off", "on", "wordWrapColumn", "bounded"]
     /// `editor.wordWrapColumn`.
-    public nonisolated static let wordWrapColumnPath = ["editor", "wordWrapColumn"]
-    public nonisolated static let wordWrapColumnDefault: Double = 80
-    public nonisolated static let wordWrapColumnRange: ClosedRange<Double> = 10...1000
+    nonisolated static let wordWrapColumnPath = ["editor", "wordWrapColumn"]
+    nonisolated static let wordWrapColumnDefault: Double = 80
+    nonisolated static let wordWrapColumnRange: ClosedRange<Double> = 10...1000
 }
 
 extension EditorSettingsSchema {
     /// `editor.lineNumbers`.
-    public nonisolated static let lineNumbersPath = ["editor", "lineNumbers"]
-    public nonisolated static let lineNumbersDefault = "on"
-    public nonisolated static let lineNumbersValues = ["on", "off", "relative", "interval"]
+    nonisolated static let lineNumbersPath = ["editor", "lineNumbers"]
+    nonisolated static let lineNumbersDefault = "on"
+    nonisolated static let lineNumbersValues = ["on", "off", "relative", "interval"]
     /// `editor.rulers`.
-    public nonisolated static let rulersPath = ["editor", "rulers"]
-    public nonisolated static let rulersDefault: [Double] = []
-    public nonisolated static let rulersRange: ClosedRange<Double> = 1...1000
+    nonisolated static let rulersPath = ["editor", "rulers"]
+    nonisolated static let rulersDefault: [Double] = []
+    nonisolated static let rulersRange: ClosedRange<Double> = 1...1000
     /// `editor.minimap.enabled`.
-    public nonisolated static let minimapPath = ["editor", "minimap", "enabled"]
-    public nonisolated static let minimapDefault = false
+    nonisolated static let minimapPath = ["editor", "minimap", "enabled"]
+    nonisolated static let minimapDefault = false
     /// `editor.renderWhitespace`.
-    public nonisolated static let renderWhitespacePath = ["editor", "renderWhitespace"]
-    public nonisolated static let renderWhitespaceDefault = "selection"
-    public nonisolated static let renderWhitespaceValues = ["none", "boundary", "selection", "trailing", "all"]
+    nonisolated static let renderWhitespacePath = ["editor", "renderWhitespace"]
+    nonisolated static let renderWhitespaceDefault = "selection"
+    nonisolated static let renderWhitespaceValues = ["none", "boundary", "selection", "trailing", "all"]
     /// `editor.renderControlCharacters`.
-    public nonisolated static let renderControlCharactersPath = ["editor", "renderControlCharacters"]
-    public nonisolated static let renderControlCharactersDefault = true
+    nonisolated static let renderControlCharactersPath = ["editor", "renderControlCharacters"]
+    nonisolated static let renderControlCharactersDefault = true
     /// `editor.renderLineHighlight`.
-    public nonisolated static let renderLineHighlightPath = ["editor", "renderLineHighlight"]
-    public nonisolated static let renderLineHighlightDefault = "line"
-    public nonisolated static let renderLineHighlightValues = ["none", "gutter", "line", "all"]
+    nonisolated static let renderLineHighlightPath = ["editor", "renderLineHighlight"]
+    nonisolated static let renderLineHighlightDefault = "line"
+    nonisolated static let renderLineHighlightValues = ["none", "gutter", "line", "all"]
     /// `editor.bracketPairColorization.enabled`.
-    public nonisolated static let bracketPairColorizationPath = ["editor", "bracketPairColorization", "enabled"]
-    public nonisolated static let bracketPairColorizationDefault = true
+    nonisolated static let bracketPairColorizationPath = ["editor", "bracketPairColorization", "enabled"]
+    nonisolated static let bracketPairColorizationDefault = true
     /// `editor.guides.bracketPairs`.
-    public nonisolated static let bracketPairGuidesPath = ["editor", "guides", "bracketPairs"]
-    public nonisolated static let bracketPairGuidesDefault = false
+    nonisolated static let bracketPairGuidesPath = ["editor", "guides", "bracketPairs"]
+    nonisolated static let bracketPairGuidesDefault = false
     /// `editor.guides.indentation`.
-    public nonisolated static let indentGuidesPath = ["editor", "guides", "indentation"]
-    public nonisolated static let indentGuidesDefault = true
+    nonisolated static let indentGuidesPath = ["editor", "guides", "indentation"]
+    nonisolated static let indentGuidesDefault = true
     /// `editor.matchBrackets`.
-    public nonisolated static let matchBracketsPath = ["editor", "matchBrackets"]
-    public nonisolated static let matchBracketsDefault = "always"
-    public nonisolated static let matchBracketsValues = ["always", "near", "never"]
+    nonisolated static let matchBracketsPath = ["editor", "matchBrackets"]
+    nonisolated static let matchBracketsDefault = "always"
+    nonisolated static let matchBracketsValues = ["always", "near", "never"]
     /// `editor.stickyScroll.enabled`.
-    public nonisolated static let stickyScrollPath = ["editor", "stickyScroll", "enabled"]
-    public nonisolated static let stickyScrollDefault = true
+    nonisolated static let stickyScrollPath = ["editor", "stickyScroll", "enabled"]
+    nonisolated static let stickyScrollDefault = true
     /// `editor.folding`.
-    public nonisolated static let foldingPath = ["editor", "folding"]
-    public nonisolated static let foldingDefault = true
+    nonisolated static let foldingPath = ["editor", "folding"]
+    nonisolated static let foldingDefault = true
     /// `editor.scrollBeyondLastLine`.
-    public nonisolated static let scrollBeyondLastLinePath = ["editor", "scrollBeyondLastLine"]
-    public nonisolated static let scrollBeyondLastLineDefault = false
+    nonisolated static let scrollBeyondLastLinePath = ["editor", "scrollBeyondLastLine"]
+    nonisolated static let scrollBeyondLastLineDefault = false
     /// `editor.smoothScrolling`.
-    public nonisolated static let smoothScrollingPath = ["editor", "smoothScrolling"]
-    public nonisolated static let smoothScrollingDefault = false
+    nonisolated static let smoothScrollingPath = ["editor", "smoothScrolling"]
+    nonisolated static let smoothScrollingDefault = false
     /// `editor.mouseWheelZoom`.
-    public nonisolated static let mouseWheelZoomPath = ["editor", "mouseWheelZoom"]
-    public nonisolated static let mouseWheelZoomDefault = false
+    nonisolated static let mouseWheelZoomPath = ["editor", "mouseWheelZoom"]
+    nonisolated static let mouseWheelZoomDefault = false
 }
 
 extension EditorSettingsSchema {
     /// `editor.cursorStyle`.
-    public nonisolated static let cursorStylePath = ["editor", "cursorStyle"]
-    public nonisolated static let cursorStyleDefault = "line"
-    public nonisolated static let cursorStyleValues = ["line", "block", "underline", "line-thin", "block-outline", "underline-thin"]
+    nonisolated static let cursorStylePath = ["editor", "cursorStyle"]
+    nonisolated static let cursorStyleDefault = "line"
+    nonisolated static let cursorStyleValues = ["line", "block", "underline", "line-thin", "block-outline", "underline-thin"]
     /// `editor.cursorBlinking`.
-    public nonisolated static let cursorBlinkingPath = ["editor", "cursorBlinking"]
-    public nonisolated static let cursorBlinkingDefault = "blink"
-    public nonisolated static let cursorBlinkingValues = ["blink", "smooth", "phase", "expand", "solid"]
+    nonisolated static let cursorBlinkingPath = ["editor", "cursorBlinking"]
+    nonisolated static let cursorBlinkingDefault = "blink"
+    nonisolated static let cursorBlinkingValues = ["blink", "smooth", "phase", "expand", "solid"]
     /// `editor.cursorSmoothCaretAnimation`.
-    public nonisolated static let cursorSmoothCaretAnimationPath = ["editor", "cursorSmoothCaretAnimation"]
-    public nonisolated static let cursorSmoothCaretAnimationDefault = "off"
-    public nonisolated static let cursorSmoothCaretAnimationValues = ["off", "explicit", "on"]
+    nonisolated static let cursorSmoothCaretAnimationPath = ["editor", "cursorSmoothCaretAnimation"]
+    nonisolated static let cursorSmoothCaretAnimationDefault = "off"
+    nonisolated static let cursorSmoothCaretAnimationValues = ["off", "explicit", "on"]
     /// `editor.cursorSurroundingLines`.
-    public nonisolated static let cursorSurroundingLinesPath = ["editor", "cursorSurroundingLines"]
-    public nonisolated static let cursorSurroundingLinesDefault: Double = 0
-    public nonisolated static let cursorSurroundingLinesRange: ClosedRange<Double> = 0...50
+    nonisolated static let cursorSurroundingLinesPath = ["editor", "cursorSurroundingLines"]
+    nonisolated static let cursorSurroundingLinesDefault: Double = 0
+    nonisolated static let cursorSurroundingLinesRange: ClosedRange<Double> = 0...50
     /// `editor.multiCursorModifier`.
-    public nonisolated static let multiCursorModifierPath = ["editor", "multiCursorModifier"]
-    public nonisolated static let multiCursorModifierDefault = "alt"
-    public nonisolated static let multiCursorModifierValues = ["alt", "ctrlCmd"]
+    nonisolated static let multiCursorModifierPath = ["editor", "multiCursorModifier"]
+    nonisolated static let multiCursorModifierDefault = "alt"
+    nonisolated static let multiCursorModifierValues = ["alt", "ctrlCmd"]
 }
 
 extension EditorSettingsSchema {
     /// `editor.autoClosingBrackets`.
-    public nonisolated static let autoClosingBracketsPath = ["editor", "autoClosingBrackets"]
-    public nonisolated static let autoClosingBracketsDefault = true
+    nonisolated static let autoClosingBracketsPath = ["editor", "autoClosingBrackets"]
+    nonisolated static let autoClosingBracketsDefault = true
     /// `editor.autoClosingQuotes`.
-    public nonisolated static let autoClosingQuotesPath = ["editor", "autoClosingQuotes"]
-    public nonisolated static let autoClosingQuotesDefault = true
+    nonisolated static let autoClosingQuotesPath = ["editor", "autoClosingQuotes"]
+    nonisolated static let autoClosingQuotesDefault = true
     /// `editor.linkedEditing`.
-    public nonisolated static let linkedEditingPath = ["editor", "linkedEditing"]
-    public nonisolated static let linkedEditingDefault = false
+    nonisolated static let linkedEditingPath = ["editor", "linkedEditing"]
+    nonisolated static let linkedEditingDefault = false
     /// `editor.quickSuggestions`.
-    public nonisolated static let quickSuggestionsPath = ["editor", "quickSuggestions"]
-    public nonisolated static let quickSuggestionsDefault = false
+    nonisolated static let quickSuggestionsPath = ["editor", "quickSuggestions"]
+    nonisolated static let quickSuggestionsDefault = false
     /// `editor.wordBasedSuggestions`.
-    public nonisolated static let wordBasedSuggestionsPath = ["editor", "wordBasedSuggestions"]
-    public nonisolated static let wordBasedSuggestionsDefault = true
+    nonisolated static let wordBasedSuggestionsPath = ["editor", "wordBasedSuggestions"]
+    nonisolated static let wordBasedSuggestionsDefault = true
     /// `editor.acceptSuggestionOnEnter`.
-    public nonisolated static let acceptSuggestionOnEnterPath = ["editor", "acceptSuggestionOnEnter"]
-    public nonisolated static let acceptSuggestionOnEnterDefault = "on"
-    public nonisolated static let acceptSuggestionOnEnterValues = ["on", "smart", "off"]
+    nonisolated static let acceptSuggestionOnEnterPath = ["editor", "acceptSuggestionOnEnter"]
+    nonisolated static let acceptSuggestionOnEnterDefault = "on"
+    nonisolated static let acceptSuggestionOnEnterValues = ["on", "smart", "off"]
     /// `editor.emptySelectionClipboard`.
-    public nonisolated static let emptySelectionClipboardPath = ["editor", "emptySelectionClipboard"]
-    public nonisolated static let emptySelectionClipboardDefault = true
+    nonisolated static let emptySelectionClipboardPath = ["editor", "emptySelectionClipboard"]
+    nonisolated static let emptySelectionClipboardDefault = true
     /// `editor.find.seedSearchStringFromSelection`.
-    public nonisolated static let findSeedPath = ["editor", "find", "seedSearchStringFromSelection"]
-    public nonisolated static let findSeedDefault = "always"
-    public nonisolated static let findSeedValues = ["always", "selection", "never"]
+    nonisolated static let findSeedPath = ["editor", "find", "seedSearchStringFromSelection"]
+    nonisolated static let findSeedDefault = "always"
+    nonisolated static let findSeedValues = ["always", "selection", "never"]
 }
 
 extension EditorSettingsSchema {
     /// `editor.autoSave`.
-    public nonisolated static let autoSavePath = ["editor", "autoSave"]
-    public nonisolated static let autoSaveDefault = "afterDelay"
-    public nonisolated static let autoSaveValues = ["afterDelay", "off"]
+    nonisolated static let autoSavePath = ["editor", "autoSave"]
+    nonisolated static let autoSaveDefault = "afterDelay"
+    nonisolated static let autoSaveValues = ["afterDelay", "off"]
     /// `editor.autoSaveDelay`.
-    public nonisolated static let autoSaveDelayPath = ["editor", "autoSaveDelay"]
-    public nonisolated static let autoSaveDelayDefault: Double = 1000
-    public nonisolated static let autoSaveDelayRange: ClosedRange<Double> = 100...60_000
+    nonisolated static let autoSaveDelayPath = ["editor", "autoSaveDelay"]
+    nonisolated static let autoSaveDelayDefault: Double = 1000
+    nonisolated static let autoSaveDelayRange: ClosedRange<Double> = 100...60_000
     /// `editor.trimTrailingWhitespace`.
-    public nonisolated static let trimTrailingWhitespacePath = ["editor", "trimTrailingWhitespace"]
-    public nonisolated static let trimTrailingWhitespaceDefault = false
+    nonisolated static let trimTrailingWhitespacePath = ["editor", "trimTrailingWhitespace"]
+    nonisolated static let trimTrailingWhitespaceDefault = false
     /// `editor.insertFinalNewline`.
-    public nonisolated static let insertFinalNewlinePath = ["editor", "insertFinalNewline"]
-    public nonisolated static let insertFinalNewlineDefault = false
+    nonisolated static let insertFinalNewlinePath = ["editor", "insertFinalNewline"]
+    nonisolated static let insertFinalNewlineDefault = false
     /// `editor.formatOnSave`.
-    public nonisolated static let formatOnSavePath = ["editor", "formatOnSave"]
-    public nonisolated static let formatOnSaveDefault = false
+    nonisolated static let formatOnSavePath = ["editor", "formatOnSave"]
+    nonisolated static let formatOnSaveDefault = false
 }
 
 extension EditorSettingsSchema {
     /// `editor.importFrom`: Which editor's settings give the defaults (EditorImportChoice). Not agent-settable: it decides which of the person's files cmux reads.
-    public nonisolated static let importFromPath = ["editor", "importFrom"]
-    public nonisolated static let importFromDefault = "auto"
-    public nonisolated static let importFromValues = ["auto", "vscode", "cursor", "windsurf", "vscodium", "zed", "none"]
+    nonisolated static let importFromPath = ["editor", "importFrom"]
+    nonisolated static let importFromDefault = "auto"
+    nonisolated static let importFromValues = ["auto", "vscode", "cursor", "windsurf", "vscodium", "zed", "none"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

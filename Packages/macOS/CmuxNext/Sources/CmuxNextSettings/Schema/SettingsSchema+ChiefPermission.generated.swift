@@ -3,9 +3,9 @@
 
 extension ChiefPermissionSettingsSchema {
     /// `chief.permissionMode`: The permission mode the Chief's own Claude turns run in (cmux#37392: "there is no way for me to switch this to dangerously-skip-permissions? ... it should be default on that right?"). Bypass (Claude Code's bypassPermissions) by default: the Chief never asks (Lawrence 2026-10-20). Auto lets Claude Code's safety classifier judge each call; Manual (default) refuses each call Claude Code would ask about. The Chief host reads it at each turn start; a Chief's own chief engine set --mode picks within it, never wider.
-    public nonisolated static let modePath = ["chief", "permissionMode"]
-    public nonisolated static let modeDefault = "bypassPermissions"
-    public nonisolated static let modeValues = ["bypassPermissions", "auto", "default"]
+    nonisolated static let modePath = ["chief", "permissionMode"]
+    nonisolated static let modeDefault = "bypassPermissions"
+    nonisolated static let modeValues = ["bypassPermissions", "auto", "default"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

@@ -3,19 +3,19 @@
 
 extension ChiefSidebarSettingsSchema {
     /// `chief.subagentSidebar`.
-    public nonisolated static let modePath = ["chief", "subagentSidebar"]
-    public nonisolated static let modeDefault = "auto"
-    public nonisolated static let modeValues = ["auto", "always", "never"]
+    nonisolated static let modePath = ["chief", "subagentSidebar"]
+    nonisolated static let modeDefault = "auto"
+    nonisolated static let modeValues = ["auto", "always", "never"]
     /// `chief.subagentSidebarShowWords`.
-    public nonisolated static let showWordsPath = ["chief", "subagentSidebarShowWords"]
-    public nonisolated static let showWordsDefault: [String] = []
+    nonisolated static let showWordsPath = ["chief", "subagentSidebarShowWords"]
+    nonisolated static let showWordsDefault: [String] = []
     /// `chief.subagentSidebarHideWords`.
-    public nonisolated static let hideWordsPath = ["chief", "subagentSidebarHideWords"]
-    public nonisolated static let hideWordsDefault: [String] = []
+    nonisolated static let hideWordsPath = ["chief", "subagentSidebarHideWords"]
+    nonisolated static let hideWordsDefault: [String] = []
     /// `chief.subagentSidebarMinWords`.
-    public nonisolated static let minWordsPath = ["chief", "subagentSidebarMinWords"]
-    public nonisolated static let minWordsDefault: Double = 50
-    public nonisolated static let minWordsRange: ClosedRange<Double> = 0...1000
+    nonisolated static let minWordsPath = ["chief", "subagentSidebarMinWords"]
+    nonisolated static let minWordsDefault: Double = 50
+    nonisolated static let minWordsRange: ClosedRange<Double> = 0...1000
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

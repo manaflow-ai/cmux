@@ -3,17 +3,17 @@
 
 extension AgentDefaultsSettingsSchema {
     /// `agents.defaultPermissionMode`: acpmux reads it at each new chat (cmux-tui/crates/acpmux/src/hub/start_mode.rs): a mode picked in a chat applies to that chat only (Leo 2026-10-21). A value MDM or the team policy forces reaches acpmux through the app's settings push (ChatSettings) and wins over the settings file.
-    public nonisolated static let permissionModePath = ["agents", "defaultPermissionMode"]
-    public nonisolated static let permissionModeDefault = "fullAccess"
-    public nonisolated static let permissionModeValues = ["fullAccess", "standard", "ask"]
+    nonisolated static let permissionModePath = ["agents", "defaultPermissionMode"]
+    nonisolated static let permissionModeDefault = "fullAccess"
+    nonisolated static let permissionModeValues = ["fullAccess", "standard", "ask"]
     /// `agents.promptCache`: How long Claude Code keeps a chat's prompt cached. acpmux reads it at each Claude Code start (cmux-tui/crates/acpmux/src/prompt_cache_env.rs).
-    public nonisolated static let promptCachePath = ["agents", "promptCache"]
-    public nonisolated static let promptCacheDefault = "1h"
-    public nonisolated static let promptCacheValues = ["1h", "5m"]
+    nonisolated static let promptCachePath = ["agents", "promptCache"]
+    nonisolated static let promptCacheDefault = "1h"
+    nonisolated static let promptCacheValues = ["1h", "5m"]
     /// `agents.modelRouter.model`: The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.
-    public nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
-    public nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
-    public nonisolated static let modelRouterModelValues = ["deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]
+    nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
+    nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
+    nonisolated static let modelRouterModelValues = ["deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

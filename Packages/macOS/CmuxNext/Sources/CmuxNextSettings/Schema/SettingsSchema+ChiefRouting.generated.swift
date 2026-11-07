@@ -3,8 +3,8 @@
 
 extension ChiefRoutingSettingsSchema {
     /// `chief.autoRouteSubagents`: Whether the Chief may route each subagent to the harness best at its task (spawn(harness)), whatever harness the Chief itself runs on (Leo 2026-11-01: "maybe toggle off-able but if you look into grokbot they auto route stuff all the time"). Off by default (Leo 2026-11-01: "optional ofc we don't wanna change defaults or whatnot yet"); a Chief's own chief engine set --subagent-routing auto|off wins over it. Read at each spawn.
-    public nonisolated static let autoRoutePath = ["chief", "autoRouteSubagents"]
-    public nonisolated static let autoRouteDefault = false
+    nonisolated static let autoRoutePath = ["chief", "autoRouteSubagents"]
+    nonisolated static let autoRouteDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
