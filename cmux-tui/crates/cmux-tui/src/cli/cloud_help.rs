@@ -530,6 +530,7 @@ This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
+  -- TEXT            The same, read as text even when it starts with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --name MACHINE     Use the machine with this name, or create it
