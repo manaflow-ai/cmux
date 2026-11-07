@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "build": "4233527143501",
+  "notes": "notes/4233527143501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37368,
+      "title": "auto_archive: a snooze's next check is never sooner than a minute",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37424,
+      "title": "ci(cmux-next): restore the committed layout-reducer FFI lockfile instead of deleting it before pin-cmux-tui",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37441,
+      "title": "cmux-action-catalog: the Debug-build-only actions and argument values; two Italian titles match the app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37413,
+      "title": "iOS peer approvals: mirror the peer's may_allow before asking for the key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37355,
+      "title": "cmux NEXT: the incognito mark is a toolbar icon in a narrow sidebar (#37351)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37366,
+      "title": "test(next): the Chief-anchored create test reads the window rule, not a claim a failed create releases",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37439,
+      "title": "ci(base-red): cmux-cloud-tasks follower: the semicolon clippy asks for",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37334,
+      "title": "Cloud move rules in Rust: cmux-cloud-start-core moves, app FFI ops cloud_move_* (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34371,
+      "title": "Cloud: sign in inline and resume first send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37435,
+      "title": "base red: a missing ; in cmux-cloud-tasks' follower fails clippy -D warnings (from #37291)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37421,
+      "title": "base red: crash ratchet and clippy panic ratchet back under baseline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37404,
+      "title": "crash gate: launch with -ApplePersistenceIgnoreState so the reopen-windows alert cannot freeze it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37422,
+      "title": "cloud hands: a restart fails the refreshes it ends; relaunch backoff resets on any list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37417,
+      "title": "cmux NEXT debug.window_snapshot: window server captures, mask and paint off the main actor (RESIZE P0 missed refreshes)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37414,
+      "title": "ci(base-red): read every page of a PR's changed files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36915,
+      "title": "cmux NEXT: a top page's top row moves the window",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37382,
+      "title": "cmux next: the + opens its tab at the end, New Tab page buttons stay in place",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37245,
+      "title": "Agent chat: a closed turn fold never hides a reply to the person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37396,
+      "title": "cmux-sdk conversation_rules: refuse sizes and offsets past u64",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37285,
+      "title": "cloud: Chief hands and the automation relay move to Rust; their Swift goes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37410,
+      "title": "cmux NEXT onboarding: no Install from a stale harness answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37416,
+      "title": "hot-apply proof: say where the copy's daemon went when none is found, and check the workspace switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37415,
+      "title": "Move to Cloud and Bring Back Local place their workspace like Cmd-N",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37389,
+      "title": "ci(base-red): read workflows with a vendored PyYAML where the host has none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37362,
+      "title": "cmux-action-catalog: every NEXT action descriptor, title translation and default binding in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35245,
+      "title": "cmux NEXT: invite an account to a chat in one daemon call (cmux share invite, Invite People sheet)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37395,
+      "title": "acpmux: harness discovery skips a PATH entry it could not run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37292,
+      "title": "cmux-layout-reducer: auto-archive planner in Rust (auto_archive_plan), step A",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36794,
+      "title": "cmux NEXT browser: delete six Debug switches whose default stays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37397,
+      "title": "Phone peer approvals: converge on a full peer, sign only a one-time allow, warn on an older acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37403,
+      "title": "cmux NEXT onboarding: offer Install only when the agents service answered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37295,
+      "title": "Cloud VM image roll: pin, bake, gate, promote and roll back with no hand PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37235,
+      "title": "fix(cmux link): a first dial to a running Cloud machine keeps trying for the handshake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37399,
+      "title": "cmux-sdk: an origin claim rides on every request its handle's connection sends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37357,
+      "title": "Cloud bootstrap: the --repo parser and repo step in Rust (FFI ops first)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37291,
+      "title": "Cloud: the cloud task follower's rules in Rust (cmux-cloud-tasks) over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37406,
+      "title": "cmux NEXT: a link from Home's chat opens an even 50/50 split (#37391)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37386,
+      "title": "fix(close): a closing page pane shows the color the person saw, on both engines",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
