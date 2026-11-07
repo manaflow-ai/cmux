@@ -933,11 +933,13 @@ impl Hub {
             // A refusal once the shutdown began (its trust read found no answer: chaos fault
             // `daemon-restart-session-new`) writes no end of its own, as a start the shutdown
             // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
-            if !self.shutting_down() {
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-            } else if !self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined)
-                && self.hands_off(session)
-            {
+            // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
+            // after a read of its flag a shutdown could begin behind.
+            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+                if session.status() == SessionStatus::Disconnected {
+                    self.set_status(session, SessionStatus::Ready);
+                }
+            } else if self.hands_off(session) {
                 super::digest::forget_joined(Some(joined));
             }
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
