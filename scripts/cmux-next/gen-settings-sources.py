@@ -29,7 +29,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
-group whose rows are not contiguous in the export is two lists with the same group text. A text is
+group whose rows are not contiguous in the export is two lists with the same group text. A section
+whose rows span several groups may name a `joined` var in SECTIONS: the generator writes it as the
+concatenation of every list in source order, so its readers keep one var (`descriptors`). A text is
 {key, text}: key is the string catalog key, or null for text that is not translated (a product
 name, a syntax example). A row:
 
@@ -61,7 +63,8 @@ name, a syntax example). A row:
                  enum (cases from the values in camel case, or each choice's swift_case; doc from
                  note) into <file>Choices*.generated.swift, at most 3 per file. generated false: a
                  hand-written enum (it has logic, more cases, or lives in another module); the
-                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it;
+                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it
+                 (its name may be nested: `Owner.Enum`);
                  module names the module that declares it when that is not CmuxNextSettings (the
                  generated files `public import` it).
                  Absent: plain string values, plus a `values` constant.
@@ -272,6 +275,109 @@ SECTIONS = [
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
     },
+    {
+        "source": "schemas/settings/source/diff-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+DiffViewer.generated.swift",
+        "type": "DiffViewerSettingsSchema",
+        "lists": {"diffViewer": ("descriptors", "DiffViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/markdown-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+MarkdownViewer.generated.swift",
+        "type": "MarkdownViewerSettingsSchema",
+        "lists": {"markdownViewer": ("descriptors", "MarkdownViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-display.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneDisplay.generated.swift",
+        "type": "AgentPaneDisplaySettingsSchema",
+        "lists": {"agentPaneDisplay": ("descriptors", "AgentPaneDisplaySettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/terminal.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Terminal.generated.swift",
+        "type": "TerminalSettingsSchema",
+        "lists": {"terminalFont": ("fontRows", None), "openingLinks": ("linkRows", None),
+                  "terminalCompatibility": ("compatibilityRows", None)},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/editor.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Editor.generated.swift",
+        "type": "EditorSettingsSchema",
+        "lists": {"editorFont": ("fontRows", "EditorSettingsSchema"), "editorText": ("textRows", "EditorSettingsSchema"),
+                  "editorDisplay": ("displayRows", "EditorSettingsSchema"), "editorCursor": ("cursorRows", "EditorSettingsSchema"),
+                  "editorEditing": ("editingRows", "EditorSettingsSchema"), "editorSaving": ("savingRows", "EditorSettingsSchema"),
+                  "editorDefaults": ("defaultsRows", "EditorSettingsSchema")},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/agent-pane.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPane.generated.swift",
+        "type": "AgentPaneSettingsSchema",
+        "lists": {"agentPane": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-edited-files.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneEditedFiles.generated.swift",
+        "type": "AgentPaneEditedFilesSettingsSchema",
+        "lists": {"editedFiles": ("descriptors", "AgentPaneEditedFilesSetting")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-composer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneComposer.generated.swift",
+        "type": "AgentPaneComposerSettingsSchema",
+        "lists": {"composer": ("descriptors", "AgentPaneComposerSetting")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-zoom.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneZoom.generated.swift",
+        "type": "AgentPaneZoomSettingsSchema",
+        "lists": {"zoom": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/agent-defaults.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentDefaults.generated.swift",
+        "type": "AgentDefaultsSettingsSchema",
+        "lists": {"agentDefaults": ("descriptors", "AgentDefaultsSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/hang-reports.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+HangReports.generated.swift",
+        "type": "HangReportsSettingsSchema",
+        "lists": {"hangReports": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/home.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Home.generated.swift",
+        "type": "HomeSettingsSchema",
+        "lists": {"messagesServer": ("serverRows", None), "chiefChat": ("chiefChatRows", None), "attachments": ("attachmentRows", None), "sidebar": ("sidebarRows", None), "chiefPet": ("chiefPetRows", None), "chiefDock": ("chiefDockRows", None), "chiefEngine": ("engineRows", None)},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/chief-reactions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefReactions.generated.swift",
+        "type": "ChiefReactionSettingsSchema",
+        "lists": {"chiefReactions": ("descriptors", "ChiefReactionSettings")},
+    },
+    {
+        "source": "schemas/settings/source/chief-permission.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefPermission.generated.swift",
+        "type": "ChiefPermissionSettingsSchema",
+        "lists": {"chiefPermission": ("descriptors", "ChiefPermissionSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/chief-routing.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefRouting.generated.swift",
+        "type": "ChiefRoutingSettingsSchema",
+        "lists": {"chiefRouting": ("descriptors", "ChiefRoutingSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/chief-sidebar.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefSidebar.generated.swift",
+        "type": "ChiefSidebarSettingsSchema",
+        "lists": {"chiefSidebar": ("descriptors", "ChiefSidebarSettingsSchema")},
+    },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
@@ -280,6 +386,8 @@ ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choice
               "palette_shown", "swift_enum", "swift_owner"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*$")
+# A hand-written enum may be nested in another type (`AgentPaneReplySetting.OutsideRoots`).
+NESTED_TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*(\.[A-Z][A-Za-z0-9]*)*$")
 # Each source kind and its SettingKind case (None: the case takes arguments, built in kind_swift).
 KINDS = {"toggle": ".toggle", "number": None, "choice": None, "choice_or_number": None, "choice_or_url": None,
          "color": ".color", "sound": ".sound", "url": ".url", "host_list": ".hostList", "folder_list": ".folderList",
@@ -512,7 +620,8 @@ def check_row(src, row, seen_keys, idents):
     enum = row.get("swift_enum")
     if enum is not None:
         if kind not in CHOICE_KINDS or not isinstance(enum, dict) or set(enum) - {"name", "generated", "module"} \
-                or not TYPE.match(enum.get("name", "")) or not isinstance(enum.get("generated", True), bool) \
+                or not isinstance(enum.get("generated", True), bool) \
+                or not (TYPE if enum.get("generated", True) else NESTED_TYPE).match(enum.get("name", "")) \
                 or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
             fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
@@ -546,6 +655,9 @@ def check_section(section, data, seen_keys, section_ids, src):
     names = [entry["name"] for entry in data["lists"]]
     if sorted(names) != sorted(section["lists"]):
         fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+    list_vars = [var for var, _ in section["lists"].values()]
+    if len(set(list_vars)) != len(list_vars) or section.get("joined") in list_vars:
+        fail(src, "each list has its own var in SECTIONS, and the joined var is none of them")
     for entry in data["lists"]:
         if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])
@@ -723,6 +835,15 @@ def list_var_swift(var, entry, rows, list_owner):
     return out + ["        ]", "    }"]
 
 
+def joined_var_swift(section, data):
+    """The section's `joined` var: every list's var in source order, or None when SECTIONS names none."""
+    if not section.get("joined"):
+        return None
+    parts = " + ".join(section["lists"][entry["name"]][0] for entry in data["lists"])
+    return ["    /// Every row of the section's lists, in order.",
+            "    static var %s: [SettingDescriptor] { %s }" % (section["joined"], parts)]
+
+
 def line_count(lines):
     return sum(line.count("\n") + 1 for line in lines)
 
@@ -749,6 +870,8 @@ def section_swift(section, data):
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         lists.append((["    /// " + entry["note"]] if entry.get("note") else []) + list_var_swift(var, entry, entry["rows"], list_owner))
+    joined_var = joined_var_swift(section, data)
+    lists += [joined_var] if joined_var else []
     intro = ["/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).",
              "nonisolated enum %s {" % section["type"]]
     single = header + [line for block in constant_blocks for line in block] + intro
@@ -778,6 +901,8 @@ def section_swift(section, data):
         pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
         for n, rows in enumerate(parts):
             pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
+    if joined_var:
+        pieces.append(("list", joined_var))
     files, current, declared = [], list(header), False
     for piece in pieces:
         if isinstance(piece, tuple):
