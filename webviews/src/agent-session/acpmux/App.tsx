@@ -140,7 +140,7 @@ import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, textOnlyRow } from "./streamingRow";
 import { remoteComposer } from "./remoteEditing";
-import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { type CapturedShot, Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
@@ -2164,22 +2164,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
-  // that would not fit the image cap answers `tooLarge` with its name.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
+  // screencapture's own pick, saves the capture as taken in the chat's uploads within the click's
+  // one gesture (AgentPaneCapture.swift), and answers a bounded preview with where it saved the
+  // original. The page never sends the bytes back: that would need a second gesture. A cancelled
+  // pick answers nothing to attach.
+  const captureScreen = useCallback(async (mode: "screen" | "window"): Promise<CapturedShot | undefined> => {
     const shot = await callNative<{
       name?: string;
       mimeType?: string;
       data?: string;
-      tooLarge?: boolean;
+      original?: { path?: unknown };
+      originalUnavailable?: { userMessage?: unknown };
       source?: unknown;
-    } | null>("composer.capture", { mode }).catch(() => null);
-    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
-    if (!shot?.data) return undefined;
-    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
+    } | null>("composer.capture", { mode });
+    const path = shot?.original?.path;
+    const original = typeof path === "string" && path.startsWith("/") ? path : undefined;
+    const unavailable = shot?.originalUnavailable?.userMessage;
+    if (!shot?.data && !original) return undefined;
+    const name = shot?.name ?? "Screenshot.png";
     // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
-    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
-    return withSource(file, attachmentSource(shot.source));
+    const source = attachmentSource(shot?.source);
+    // No preview (the capture is no image the host could read): the original goes as a file.
+    if (!shot?.data)
+      return { file: withSource(new File([], name, { type: "application/octet-stream" }), source), original };
+    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
+    return {
+      file: withSource(new File([bytes], name, { type: shot.mimeType ?? "image/png" }), source),
+      ...(original ? { original } : {}),
+      ...(typeof unavailable === "string" ? { originalUnavailable: unavailable } : {}),
+    };
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>

@@ -12,7 +12,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import type { CapturedShot, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
 
@@ -147,6 +147,7 @@ async function composer(
   onImportFile?: (file: File) => void | Promise<void>,
   upload?: (files: File[]) => Promise<{ paths: string[] }>,
   onOpenInWindow?: (sent: boolean) => void,
+  capture?: (mode: "screen" | "window") => Promise<CapturedShot | undefined>,
 ) {
   const sent: Sent[] = [];
   const sentAttachments: string[][] = [];
@@ -159,6 +160,7 @@ async function composer(
       <Composer
         handle={(value) => void (handle = value)}
         snapshot={snapshot}
+        capture={capture}
         sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={Chips}
         onSend={(text, _attachments, steer) => {
@@ -185,6 +187,7 @@ async function composer(
     field,
     sent,
     sentAttachments,
+    getHandle: () => handle!,
     restore: (text: string) => act(async () => handle!.restore(text, [])),
   };
 }
@@ -603,4 +606,64 @@ test("Shift-Return adds a line and sends nothing", async () => {
   expect(lines(field)).toBe(1);
   await dispatch(field, key({ key: "Enter", keyCode: 13, shiftKey: true }));
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
+});
+
+test("a capture completing after a chat switch never attaches the source original to the destination", async () => {
+  let finish!: (shot: CapturedShot) => void;
+  let calls = 0;
+  const capture = () => {
+    calls++;
+    return new Promise<CapturedShot>((resolve) => {
+      finish = resolve;
+    });
+  };
+  await composer(chat(), "", undefined, false, undefined, undefined, undefined, capture);
+  const plus = host.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button")!;
+  expect(plus).not.toBeNull();
+  await dispatch(plus, new window.MouseEvent("click", { bubbles: true }));
+  const screenshot = document.querySelector<HTMLElement>('[data-value="add.screenshot"]')!;
+  expect(screenshot).not.toBeNull();
+  await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
+  expect(calls).toBe(1);
+  const destination = await composer(
+    chat(),
+    "Destination chat",
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    capture,
+  );
+  await act(async () => {
+    finish({
+      file: new File([], "Screenshot.png", { type: "application/octet-stream" }),
+      original: "/source-chat/uploads/private-capture.png",
+    });
+    await Promise.resolve();
+  });
+  expect(destination.getHandle().wakeState().attachments ?? []).toEqual([]);
+});
+
+test("a capture failure is visible only in its originating composer", async () => {
+  for (const switchChat of [false, true]) {
+    let fail!: (error: Error) => void;
+    const capture = () =>
+      new Promise<CapturedShot>((_resolve, reject) => {
+        fail = reject;
+      });
+    await composer(chat(), "", undefined, false, undefined, undefined, undefined, capture);
+    const plus = host.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button")!;
+    await dispatch(plus, new window.MouseEvent("click", { bubbles: true }));
+    const screenshot = document.querySelector<HTMLElement>('[data-value="add.screenshot"]')!;
+    await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
+    if (switchChat)
+      await composer(chat(), "Destination chat", undefined, false, undefined, undefined, undefined, capture);
+    const message = "Original kept at /private/tmp/cmux-capture-recover.png";
+    await act(async () => {
+      fail(new Error(message));
+      await Promise.resolve();
+    });
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent?.includes(message) ?? false).toBe(!switchChat);
+  }
 });

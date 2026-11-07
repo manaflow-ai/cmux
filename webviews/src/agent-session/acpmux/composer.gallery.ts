@@ -26,6 +26,8 @@ import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
+/// Where the host saved Attach Screenshot…'s capture as taken (AgentChatUploads, the chat's upload folder).
+const CAPTURE_ORIGINAL = "/Users/dev/Library/Application Support/cmux/Chat Uploads/sessions/1/capture/0/Screenshot.png";
 const VIDEO_INFO = {
   durationMs: 42_400,
   width: 1920,
@@ -2296,7 +2298,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
-      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
+      note: "Play: + > Attach Screenshot… asks the host for a region capture, which saves the original in the chat's uploads within the click's own gesture and answers a preview with the original's path; the chip carries both, the page sends no bytes back, and focus returns to the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -2313,6 +2315,8 @@ export default agentPaneEntry({
           name: "Screenshot.png",
           mimeType: "image/png",
           data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          // The host staged the capture as taken (AgentPaneCapture.stage) in the click's gesture.
+          original: { path: CAPTURE_ORIGINAL, name: "Screenshot.png" },
         },
       },
       play: async (ctx) => {
@@ -2326,6 +2330,80 @@ export default agentPaneEntry({
         const asked = log.find(({ method }) => method === "composer.capture");
         if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
           throw new Error(`capture asked ${JSON.stringify(asked)}`);
+        // The chip carries the preview and the original's path (the kept draft names it), so the
+        // prompt links the capture as taken. The click's one gesture went to the capture: the page
+        // never sends the bytes back, which would need a second.
+        await ctx.waitFor(() =>
+          log.some(
+            ({ method, params }) =>
+              method === "chat.draftAttachments" &&
+              (params as { attachments?: { kind?: string; originalPath?: string }[] } | undefined)?.attachments?.some(
+                (chip) => chip.kind === "image" && chip.originalPath === CAPTURE_ORIGINAL,
+              ),
+          ),
+        );
+        const sentBack = log.find(({ method }) => method === "chat.upload.begin" || method === "chat.upload");
+        if (sentBack) throw new Error(`the page sent the capture back: ${sentBack.method}`);
+      },
+    },
+    "attach-screenshot-unsupported": {
+      note: "An older chat host cannot receive the original: the preview still attaches and the composer shows where the original was kept.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 116,
+          reason: "The capture thumbnail row and existing recovery note open above the prompt.",
+        },
+        layoutShiftMax: { value: 0.12, reason: "The composer grows by its preview and recovery note." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          originalUnavailable: {
+            userMessage:
+              "The screenshot preview was attached. This chat cannot receive the original; it was kept at /private/tmp/cmux-capture-recover.png.",
+            originalPath: "/private/tmp/cmux-capture-recover.png",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.waitFor(() =>
+          ctx.document
+            .querySelector(".acpmux-attachment-note")
+            ?.textContent?.includes("/private/tmp/cmux-capture-recover.png"),
+        );
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog;
+        if (log.some(({ method }) => method === "chat.upload.begin" || method === "chat.upload"))
+          throw new Error("the preview was uploaded again after the capture's one gesture");
+      },
+    },
+    "gesture-credit-once": {
+      note: "The pane bridge's stand-in keeps the app's gesture rule: one click is one credit, so a second call that needs a gesture is refused until the next.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView as unknown as {
+          webkit: { messageHandlers: { agentSession: { postMessage(message: unknown): Promise<unknown> } } };
+        };
+        const begin = () =>
+          view.webkit.messageHandlers.agentSession.postMessage({
+            method: "chat.upload.begin",
+            params: { name: "a.bin", size: 1 },
+          }) as Promise<{ ok?: boolean; error?: { code?: string } }>;
+        await ctx.click({ selector: ".acpmux-md" });
+        const first = await begin();
+        if (!first.ok) throw new Error(`the click's credit was refused: ${JSON.stringify(first)}`);
+        const second = await begin();
+        if (second.error?.code !== "transport.gesture_required")
+          throw new Error(`a second call used the same click: ${JSON.stringify(second)}`);
+        await ctx.click({ selector: ".acpmux-md" });
+        if (!(await begin()).ok) throw new Error("a new click gave no new credit");
       },
     },
     "attach-window-cancelled": {
@@ -2351,29 +2429,33 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture left focus off the prompt");
       },
     },
-    "attach-screenshot-too-large": {
-      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
-      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
-        chat(finished),
-      ),
+    "attach-screenshot-failed": {
+      note: "A failed original upload shows the native recovery path in the originating composer instead of silently acting like cancellation.",
+      snapshot: chat(finished),
       checks: {
-        anchorMovePx: {
-          value: 40,
-          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
-        },
-        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
+        anchorMovePx: { value: 18, reason: "The existing attachment error note adds one 18 px line." },
+        layoutShiftMax: { value: 0.005, reason: "The composer grows by its one-line recovery note." },
       },
-      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
+      native: {
+        "composer.capture": {
+          nativeError: {
+            code: "capture_failed",
+            userMessage:
+              "The screenshot could not be attached. Its original was kept at /private/tmp/cmux-capture-recover.png.",
+            details: { originalPath: "/private/tmp/cmux-capture-recover.png" },
+          },
+        },
+      },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() =>
           ctx.document
             .querySelector(".acpmux-attachment-note")
-            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
+            ?.textContent?.includes("/private/tmp/cmux-capture-recover.png"),
         );
         if (ctx.document.querySelector(".acpmux-attachment-image"))
-          throw new Error("a refused capture attached an image");
+          throw new Error("the failed screenshot attached a preview");
       },
     },
     "context-breakdown": {

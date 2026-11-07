@@ -272,4 +272,34 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(result.prompts[0]).toContain("Why does the build fail?");
     expect(result.prompts[0]).toContain("[build] step 40: compiling module 40");
   });
+
+  // #26958 review: a capture in a chat with no session yet keeps its original; the first send
+  // carries the preview and a link to where the host saved the capture as taken.
+  test("a fresh chat's first send carries a capture's preview and its original", async () => {
+    const page = await open("first-send-capture");
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 60_000,
+    });
+    const result = await page.evaluate(() => {
+      const log = (window as unknown as { cmuxGalleryLog: { method: string; params?: { prompt?: unknown } }[] })
+        .cmuxGalleryLog;
+      return {
+        report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+        prompts: log
+          .filter(({ method }) => method === "acpmux session/prompt")
+          .map(({ params }) => params?.prompt as { type?: string; uri?: string; mimeType?: string; text?: string }[]),
+      };
+    });
+    await page.close();
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.prompts).toHaveLength(1);
+    const blocks = result.prompts[0]!;
+    expect(
+      blocks.some((block) => block.type === "text" && block.text?.includes("What is wrong in this capture?")),
+    ).toBe(true);
+    expect(blocks.some((block) => block.type === "image" && block.mimeType === "image/png")).toBe(true);
+    expect(blocks.filter((block) => block.type === "resource_link").map((block) => block.uri)).toEqual([
+      "file:///Users/you/Library/Application%20Support/cmux/Chat%20Uploads/2f0c1d7e/0/Screenshot%202026-10-11%2014.32.05.png",
+    ]);
+  });
 });
