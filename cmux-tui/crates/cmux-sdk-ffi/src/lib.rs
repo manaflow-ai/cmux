@@ -4,8 +4,10 @@
 //! [`cmux::Client::call`], `cmux_sdk_subscribe` / `cmux_sdk_next` /
 //! `cmux_sdk_cancel` are [`cmux::Client::subscribe`] and its stream, and
 //! `cmux_sdk_command` is the older command lines' generic call
-//! ([`cmux::raw::Client::request_raw_reply`]). No logic of its own: JSON in,
-//! JSON out (include/cmux_sdk_ffi.h says the shapes).
+//! ([`cmux::raw::Client::request_raw_reply`]). `cmux_sdk_conversation_rule`
+//! runs one of the SDK's conversation client rules
+//! ([`cmux::conversation_rules::call`]) without a connection. No logic of its
+//! own: JSON in, JSON out (include/cmux_sdk_ffi.h says the shapes).
 //!
 //! Every function catches a panic (it returns `CMUX_SDK_ERR_PANIC`), takes no global
 //! state, and may run on any thread; one client handle may be used from
@@ -26,11 +28,13 @@ use serde_json::{Map, Value, json};
 
 /// The ABI version `cmux_sdk_ffi_abi_version` returns; bump it when a type
 /// or function changes.
-pub const CMUX_SDK_FFI_ABI_VERSION: u32 = 1;
+pub const CMUX_SDK_FFI_ABI_VERSION: u32 = 2;
 
 pub const CMUX_SDK_OK: i32 = 0;
 pub const CMUX_SDK_ERR_NULL: i32 = -1;
 pub const CMUX_SDK_ERR_INVALID: i32 = -2;
+/// `cmux_sdk_conversation_rule` was given a rule this build does not know.
+pub const CMUX_SDK_ERR_UNKNOWN_RULE: i32 = -3;
 pub const CMUX_SDK_ERR_PANIC: i32 = -4;
 
 pub const CMUX_SDK_KIND_READ: i32 = 0;
@@ -155,8 +159,12 @@ pub unsafe extern "C" fn cmux_sdk_call(
         else {
             return CMUX_SDK_ERR_INVALID;
         };
+        // A key given but not UTF-8 is a bad key, never an absent one.
         // SAFETY: per this function's contract.
         let key = unsafe { text(idempotency_key) };
+        if key.is_none() && !idempotency_key.is_null() {
+            return CMUX_SDK_ERR_INVALID;
+        }
         let kind = match (kind, key) {
             (CMUX_SDK_KIND_READ, None) => CallKind::Read,
             (CMUX_SDK_KIND_MUTATION, Some(key)) => match MutationOptions::new(key) {
@@ -201,6 +209,53 @@ pub unsafe extern "C" fn cmux_sdk_command(
         };
         body.insert("cmd".into(), json!(command));
         *out = bytes(&client.command(body));
+        CMUX_SDK_OK
+    })
+}
+
+/// One conversation client rule, `op` (`policy`, `clamp_page`,
+/// `runs_key_batches`, `runs_next`, `upload_plan`, `upload_chunk`,
+/// `read_next`, `run_tool`, `plain_text`, `inbox_op`, ...), on `request` (a
+/// JSON object, or empty): [`cmux::conversation_rules::call`]. No connection.
+/// `*out` is `{"ok": true, "result": ...}`, or `{"ok": false, "error":
+/// {"code", "message"}}` when the rule refuses its request (`code` is the
+/// rule's: `invalid`, `poster_needed`, `preview_needed`, `unknown_piece`,
+/// `no_progress`). A rule this build does not know returns
+/// `CMUX_SDK_ERR_UNKNOWN_RULE` with `*out` empty.
+///
+/// # Safety
+/// `op` is NULL or NUL-terminated; `request` points to `request_len`
+/// readable bytes (or is NULL with 0); `out` is NULL or valid for writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_sdk_conversation_rule(
+    op: *const c_char,
+    request: *const u8,
+    request_len: usize,
+    out: *mut CmuxSdkBytes,
+) -> i32 {
+    guard(|| {
+        if out.is_null() {
+            return CMUX_SDK_ERR_NULL;
+        }
+        // SAFETY: checked non-null; the caller passes a writable pointer.
+        let out = unsafe { &mut *out };
+        *out = empty();
+        // SAFETY: per this function's contract.
+        let (Some(op), Some(request)) =
+            (unsafe { text(op) }, unsafe { json_object(request, request_len) })
+        else {
+            return CMUX_SDK_ERR_INVALID;
+        };
+        let reply = match cmux::conversation_rules::call(op, &request) {
+            None => return CMUX_SDK_ERR_UNKNOWN_RULE,
+            Some(Ok(result)) => json!({"ok": true, "result": result}),
+            Some(Err(reject)) => {
+                let code = reject.code();
+                let message = format!("conversation rule {op} refused its request: {code}");
+                json!({"ok": false, "error": {"code": code, "message": message}})
+            }
+        };
+        *out = bytes(&reply);
         CMUX_SDK_OK
     })
 }
