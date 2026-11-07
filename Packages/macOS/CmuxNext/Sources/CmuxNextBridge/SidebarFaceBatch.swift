@@ -7,11 +7,12 @@ import Foundation
 /// The sidebar row face of many rows in one Rust call (`cmux_sidebar_face_rows`, cmux-layout-reducer
 /// `sidebar_face`). It encodes each row's workspace (O(its tabs)) into fixed-size C structs and one UTF-8
 /// buffer, calls once for the whole batch, and decodes each row's face. It decides nothing: the closures
-/// `SidebarMapping.row` takes are run by the caller first and reach it as strings and flags. Every buffer
+/// `SidebarMapping.sections` and `row` take are run by the caller first and reach it as strings and flags. Every buffer
 /// is kept and reused from batch to batch, and the Rust handle reuses its reply buffers, so a frame's batch
 /// allocates only when it is larger than every batch before it. Main actor only: the reply belongs to the
-/// handle and is read before the next call.
-final class SidebarFaceBatch {
+/// handle and is read before the next call. A window's sidebar keeps one (`SidebarMapping.sections(faces:)`), so its
+/// buffers last from pass to pass.
+public final class SidebarFaceBatch {
     static let none = UInt32.max
     private static let absent = CmuxSidebarFaceRange(offset: none, len: 0)
 
@@ -33,15 +34,19 @@ final class SidebarFaceBatch {
     private var entries: [CmuxSidebarFaceEntry] = []
     private var strings: [UInt8] = []
     private let homeRange: CmuxSidebarFaceRange
-    private let home: [UInt8]
+    /// This Mac's home folder, UTF-8: what the rules shorten to `~` on a local row.
+    let home: [UInt8]
     private var showsUnread = true
     private var newTabTitled = false
     /// Every row's tabs in pane order, and the title the tab list shows for each before a folder title is
     /// shortened (`tabTitle`, a New Tab page's title, else the display title): the row assembly reads both.
     private(set) var tabs: [TabModel] = []
     private(set) var listTitles: [String] = []
+    /// Held by a row batch between its begin and its run (`SidebarMapping.FaceRowBatch`); a batch begun meanwhile
+    /// takes buffers of its own.
+    var inUse = false
 
-    init(home: String = NSHomeDirectory()) {
+    public init(home: String = NSHomeDirectory()) {
         self.home = Array(home.utf8)
         homeRange = CmuxSidebarFaceRange(offset: 0, len: UInt32(clamping: self.home.count))
     }

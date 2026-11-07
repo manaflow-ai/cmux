@@ -4,11 +4,11 @@ import CmuxNextSidebar
 import Foundation
 import Testing
 
-/// Whether the sidebar row face can move from Swift (`SidebarMapping.row`) to the Rust rules
-/// (`cmux_sidebar_face_rows`, `SidebarFaceBatch`) at least as fast. N workspaces (each with a few tabs of mixed
-/// kinds: terminals, agent terminals, pages, agent chats, remote terminals, New Tab pages) are mapped all at once,
-/// the way a full sidebar flush maps every row: with `row` one by one, and with `faceRows` in one Rust call. It
-/// prints median and p95 per size (lines `SIDEBAR-FACE-COST`) and checks that both give the same rows.
+/// What mapping sidebar rows costs through the face batch (`SidebarMapping.FaceRowBatch`: `cmux_sidebar_face_rows`
+/// over the mapping's reused `SidebarFaceBatch`, then the Swift row assembly). N workspaces (each with a few tabs of
+/// mixed kinds: terminals, agent terminals, pages, agent chats, remote terminals, New Tab pages) map in one batch,
+/// the way a full sidebar flush maps every row. It prints median and p95 per size, the per-row cost and the phases
+/// (lines `SIDEBAR-FACE-COST`).
 @MainActor @Suite(.serialized) struct SidebarFaceCostTests {
     typealias Request = SidebarMapping.FaceRowRequest
 
@@ -24,22 +24,8 @@ import Testing
         tab.notification.map { "Notification \($0.notification.rawValue)" }
     }
 
-    /// Fields the Rust face decides (directly or through the tab it picks), and the ones it does not cover.
-    static let covered = [
-        "directory", "branch (folder tab)", "process", "status", "ports", "pullRequest", "lastActivity", "rowKind", "kind",
-        "kindBrand (face tab)", "unread", "progress", "folder (bucket)", "focusedTab", "agentName/agentBrand (agent tab)",
-        "notificationText (notice tab)", "lastMessage (chat tab)", "title/icon (face tab's page face)",
-        "tabs[].title", "tabs[].kind", "tabs[].folder", "tabs[].lastActivity", "tabs[].state/host (New Tab blank)",
-        "status block entry filter (kept entries)",
-    ]
-    static let notCovered = [
-        "title text and favicon (pageFace: browser runtime)", "icon/color (workspace record, iconAsset)",
-        "activity/activityStyle/agentWorking/activityFromProgram (StatusMapping)", "presence", "audio",
-        "isUnnamed/homeShellName/chief task title", "workspaceDescription/taskStatus/checklist", "detail (hover card)",
-        "reported block (icons, log line, progress label)", "agentIcon (harness icon art)",
-        "lastMessage and notification text (turn store, notification store)",
-        "tabs[].favicon/host/path/model/command/machine/branch/brand/isUnread/state/subagents/commands/isFreed",
-    ]
+    static let options = SidebarMapping.FaceOptions(machine: .local, selectedTab: selectedTab, newTabTitle: newTabTitle, pageFace: pageFace,
+                                                    notificationText: notificationText)
 
     // MARK: Fixture
 
@@ -116,136 +102,6 @@ import Testing
 
     static func requests(_ count: Int) -> [Request] { (0 ..< count).map(request) }
 
-    // MARK: The two paths
-
-    static func swiftRows(_ requests: [Request], machine: MachineID, homeShellTitle: String? = nil) -> [SidebarWorkspace] {
-        let mapping = SidebarMapping.shared
-        return requests.map { request in
-            mapping.row(request.workspace, machine: machine, status: request.status, showsUnread: true, muted: request.muted,
-                        selectedTab: selectedTab, newTabPages: request.newTabPages, newTabTitle: newTabTitle, pageFace: pageFace,
-                        notificationText: notificationText, homeShellTitle: homeShellTitle)
-        }
-    }
-
-    static func faceRows(_ requests: [Request], batch: SidebarFaceBatch, machine: MachineID, homeShellTitle: String? = nil) -> [SidebarWorkspace] {
-        SidebarMapping.shared.faceRows(requests, batch: batch, machine: machine, showsUnread: true, selectedTab: selectedTab,
-                                       newTabTitle: newTabTitle, pageFace: pageFace, notificationText: notificationText,
-                                       homeShellTitle: homeShellTitle) ?? []
-    }
-
-    static func encode(_ requests: [Request], batch: SidebarFaceBatch, machine: MachineID) {
-        SidebarMapping.shared.encodeFaces(requests, into: batch, machine: machine, showsUnread: true, selectedTab: selectedTab,
-                                          newTabTitle: newTabTitle, tabTitle: nil, harnessIcons: .none)
-    }
-
-    /// The face as `row` decides it today, in Swift: the same rules, read out of the mapping's own helpers.
-    static func swiftFace(_ request: Request, machine: MachineID) -> SidebarFace {
-        let mapping = SidebarMapping.shared, workspace = request.workspace, newTabPages = request.newTabPages
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        func index(_ tab: TabModel?) -> Int? { tab.flatMap { tab in tabs.firstIndex { $0 === tab } } }
-        let shorten: (String) -> String = machine == .local ? { mapping.abbreviate($0) } : SidebarMapping.abbreviateRemote
-        let focused = mapping.frontTab(workspace, selectedTab: selectedTab)
-        let label = mapping.labelTab(focused, tabs, newTabPages: newTabPages)
-        let face = mapping.faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
-        let folder = mapping.folderTab(tabs, label: label)
-        let bucket = focused?.cwd != nil ? focused : tabs.first { $0.cwd != nil }
-        var result = SidebarFace()
-        result.front = index(focused)
-        result.label = index(label)
-        result.face = index(face)
-        result.work = index(mapping.workTab(workspace, selectedTab: selectedTab))
-        result.chat = index(mapping.chatTab(label, tabs))
-        result.folderTab = index(folder)
-        result.bucketTab = index(bucket)
-        result.agent = index(mapping.agentTab(tabs))
-        var attention: (index: Int, at: UInt64)?
-        for (position, tab) in tabs.enumerated() {
-            if let at = tab.attention?.atMs, attention.map({ at > $0.at }) ?? true { attention = (position, at) }
-        }
-        if let attention {
-            result.notice = .attention(attention.index)
-        } else if let unread = index(mapping.newestUnread(tabs)) {
-            result.notice = .notification(unread)
-        }
-        result.kind = mapping.kind(face)
-        result.rowKind = mapping.rowKind(tabs)
-        result.unread = workspace.unreadCount > 0 ? 2
-            : (workspace.markedUnread || tabs.contains { $0.markedUnread || $0.attention != nil }) ? 1 : 0
-        result.progress = mapping.progress(workspace, tabs: tabs)
-        result.directory = folder?.cwd.map(shorten)
-        result.bucket = bucket?.cwd.map(shorten)
-        result.process = mapping.process(label)
-        let entries = workspace.status?.entries ?? []
-        result.statusLine = (request.status ?? SidebarMapping.statusLine(entries)).flatMap { $0.isEmpty ? nil : $0 }
-        result.ports = entries.firstIndex { $0.key == SidebarMapping.portsKey && !$0.text.isEmpty }
-        result.pullRequest = entries.firstIndex { $0.key == SidebarMapping.pullRequestKey && !$0.text.isEmpty }
-        result.statusEntries = entries.indices.filter { entries[$0].key != SidebarMapping.portsKey && entries[$0].key != SidebarMapping.pullRequestKey }
-        result.lastActivityMs = tabs.map { max($0.agent?.updatedAtMs ?? 0, $0.notification?.createdAtMs ?? 0) }.max() ?? 0
-        result.listed = tabs.map { tab in
-            let blank = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-            let listTitle = SidebarMapping.listTitle(tab, of: workspace, newTabPages: newTabPages, newTabTitle: newTabTitle, tabTitle: nil)
-            let title = SidebarMapping.shortenedPath(listTitle, of: tab, shorten: shorten)
-            return SidebarFace.Listed(
-                title: title == listTitle ? nil : title,
-                folder: blank ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
-                kind: newTabPages.contains(tab.id) ? 1 : tab.agentSession != nil ? 2 : 0,
-                blank: blank,
-                lastActivityMs: max(tab.agent?.updatedAtMs ?? 0, tab.notification?.createdAtMs ?? 0))
-        }
-        return result
-    }
-
-    // MARK: Parity
-
-    /// The labels of the stored properties where `a` and `b` differ (one level deep, tabs by index).
-    static func differences(_ a: SidebarWorkspace, _ b: SidebarWorkspace) -> [String] {
-        guard a != b else { return [] }
-        var labels: [String] = []
-        for (left, right) in zip(Mirror(reflecting: a).children, Mirror(reflecting: b).children) {
-            let label = left.label ?? "?"
-            if label == "tabs" {
-                for (position, pair) in zip(a.tabs, b.tabs).enumerated() where pair.0 != pair.1 {
-                    for (l, r) in zip(Mirror(reflecting: pair.0).children, Mirror(reflecting: pair.1).children)
-                        where String(describing: l.value) != String(describing: r.value) {
-                        labels.append("tabs[\(position)].\(l.label ?? "?"): \(l.value) vs \(r.value)")
-                    }
-                }
-                if a.tabs.count != b.tabs.count { labels.append("tabs.count \(a.tabs.count) vs \(b.tabs.count)") }
-            } else if String(describing: left.value) != String(describing: right.value) {
-                labels.append("\(label): \(left.value) vs \(right.value)")
-            }
-        }
-        return labels.isEmpty ? ["(rows differ in a field Mirror does not show)"] : labels
-    }
-
-    @Test func rustFacesAndRowsMatchSwift() throws {
-        let requests = Self.requests(400)
-        let batch = SidebarFaceBatch()
-        for (machine, homeShellTitle) in [(MachineID.local, nil as String?), (MachineID("cloud-1"), "Terminal")] {
-            Self.encode(requests, batch: batch, machine: machine)
-            let rust = try #require(SidebarMapping.shared.decodeFaces(batch), "the face rules read the request")
-            var faceMismatches: [String] = []
-            for (index, request) in requests.enumerated() {
-                let swift = Self.swiftFace(request, machine: machine)
-                if swift != rust[index] { faceMismatches.append("row \(index) (variant \(index % 8)): swift \(swift) rust \(rust[index])") }
-            }
-            let swiftRows = Self.swiftRows(requests, machine: machine, homeShellTitle: homeShellTitle)
-            let faceRows = Self.faceRows(requests, batch: batch, machine: machine, homeShellTitle: homeShellTitle)
-            try #require(faceRows.count == swiftRows.count)
-            var rowMismatches: [String] = []
-            for (index, pair) in zip(swiftRows, faceRows).enumerated() {
-                let diff = Self.differences(pair.0, pair.1)
-                if !diff.isEmpty { rowMismatches.append("row \(index) (variant \(index % 8)): \(diff.joined(separator: "; "))") }
-            }
-            print("SIDEBAR-FACE-PARITY machine=\(machine) rows=\(requests.count) face_mismatches=\(faceMismatches.count) row_mismatches=\(rowMismatches.count)")
-            for line in (faceMismatches.prefix(5) + rowMismatches.prefix(5)) { print("SIDEBAR-FACE-PARITY mismatch \(line)") }
-            #expect(faceMismatches.isEmpty, "\(faceMismatches.prefix(3))")
-            #expect(rowMismatches.isEmpty, "\(rowMismatches.prefix(3))")
-        }
-        print("SIDEBAR-FACE-PARITY covered: \(Self.covered.joined(separator: ", "))")
-        print("SIDEBAR-FACE-PARITY not covered (Swift in both paths): \(Self.notCovered.joined(separator: ", "))")
-    }
-
     // MARK: Cost
 
     static func milliseconds(_ duration: Duration) -> Double {
@@ -260,11 +116,9 @@ import Testing
 
     static func format(_ value: Double) -> String { String(format: "%.3f", value) }
 
-    @Test func mappingEveryRowCostsInSwiftAndThroughTheFace() throws {
+    @Test func mappingEveryRowThroughTheFaceBatch() throws {
         let clock = ContinuousClock()
         let mapping = SidebarMapping.shared
-        let batch = SidebarFaceBatch()
-        let machine = MachineID.local
         #if DEBUG
         let configuration = "debug-define"
         #else
@@ -272,64 +126,37 @@ import Testing
         #endif
         print("SIDEBAR-FACE-COST config=\(configuration) env=\(ProcessInfo.processInfo.environment["CMUX_SWIFT_SUITE_CONFIGURATION"] ?? "debug")")
         var sink = 0
-        for count in [50, 200, 1000, 5000] {
+        for count in [50, 200, 5000] {
             let requests = Self.requests(count)
-            let rounds = count >= 5000 ? 9 : count >= 1000 ? 15 : 31
-            // Warm both paths (first-call allocations, the handle's reply buffers, lazy statics).
-            sink &+= Self.swiftRows(requests, machine: machine).count
-            sink &+= Self.faceRows(requests, batch: batch, machine: machine).count
-            var swiftRow: [Double] = [], faceRow: [Double] = [], swiftFace: [Double] = [], faceOnly: [Double] = []
-            var encode: [Double] = [], call: [Double] = [], decode: [Double] = [], assemble: [Double] = []
+            let rounds = count >= 5000 ? 9 : 31
+            // Warm the path (first-call allocations, the handle's reply buffers, lazy statics).
+            sink &+= try #require(mapping.faceRows(requests, options: Self.options)).count
+            var total: [Double] = [], stage: [Double] = [], run: [Double] = [], finish: [Double] = []
             for _ in 0 ..< rounds {
-                var started = clock.now
-                sink &+= Self.swiftRows(requests, machine: machine).count
-                swiftRow.append(Self.milliseconds(clock.now - started))
-
-                started = clock.now
-                sink &+= Self.faceRows(requests, batch: batch, machine: machine).count
-                faceRow.append(Self.milliseconds(clock.now - started))
-
-                started = clock.now
-                for request in requests { sink &+= Self.swiftFace(request, machine: machine).listed.count }
-                swiftFace.append(Self.milliseconds(clock.now - started))
-
-                // The adapter's phases: encode, the one call, decode every face, then the Swift row assembly.
-                started = clock.now
-                Self.encode(requests, batch: batch, machine: machine)
-                let encoded = clock.now
-                let reply = try #require(batch.run())
-                let called = clock.now
-                let faces = (0 ..< batch.count).map { reply.face($0, tabCount: batch.tabRange($0).count) }
-                let decoded = clock.now
-                for (index, request) in requests.enumerated() {
-                    let range = batch.tabRange(index)
-                    sink &+= mapping.faceRow(request, face: faces[index], tabs: Array(batch.tabs[range]), listTitles: Array(batch.listTitles[range]),
-                                             machine: machine, showsUnread: true, newTabTitle: Self.newTabTitle, pageFace: Self.pageFace,
-                                             notificationText: Self.notificationText, iconAsset: { _ in nil }, harnessIcons: .none,
-                                             homeShellTitle: nil).tabs.count
-                }
-                let assembled = clock.now
-                encode.append(Self.milliseconds(encoded - started))
-                call.append(Self.milliseconds(called - encoded))
-                decode.append(Self.milliseconds(decoded - called))
-                assemble.append(Self.milliseconds(assembled - decoded))
-                faceOnly.append(Self.milliseconds(decoded - started))
+                // The batch's phases as the feed runs them: every row staged (encoded), one call (and decode), every row finished.
+                let started = clock.now
+                let batch = SidebarMapping.FaceRowBatch(mapping: mapping, options: Self.options)
+                batch.begin()
+                let slots = requests.map(batch.stage)
+                let staged = clock.now
+                try #require(batch.run(), "the face rules read the batch")
+                let ran = clock.now
+                for slot in slots { sink &+= batch.finish(slot).tabs.count }
+                let finished = clock.now
+                total.append(Self.milliseconds(finished - started))
+                stage.append(Self.milliseconds(staged - started))
+                run.append(Self.milliseconds(ran - staged))
+                finish.append(Self.milliseconds(finished - ran))
             }
             let perRow = { (ms: Double) in Self.format(ms * 1000 / Double(count)) }
-            let swift = Self.stats(swiftRow), face = Self.stats(faceRow)
-            let swiftOnlyFace = Self.stats(swiftFace), rustFace = Self.stats(faceOnly)
-            let tabs = batch.tabs.count
-            print("SIDEBAR-FACE-COST n=\(count) tabs=\(tabs) rounds=\(rounds) row: swift median=\(Self.format(swift.median))ms p95=\(Self.format(swift.p95))ms"
-                + " adapter median=\(Self.format(face.median))ms p95=\(Self.format(face.p95))ms"
-                + " adapter/swift=\(Self.format(face.median / swift.median)) per_row swift=\(perRow(swift.median))us adapter=\(perRow(face.median))us")
-            print("SIDEBAR-FACE-COST n=\(count) face-only: swift median=\(Self.format(swiftOnlyFace.median))ms p95=\(Self.format(swiftOnlyFace.p95))ms"
-                + " rust(encode+call+decode) median=\(Self.format(rustFace.median))ms p95=\(Self.format(rustFace.p95))ms"
-                + " rust/swift=\(Self.format(rustFace.median / swiftOnlyFace.median))")
-            let phases = [("encode", encode), ("call", call), ("decode", decode), ("assemble", assemble)].map { name, values in
+            let all = Self.stats(total)
+            print("SIDEBAR-FACE-COST n=\(count) rounds=\(rounds) batch median=\(Self.format(all.median))ms p95=\(Self.format(all.p95))ms"
+                + " per_row=\(perRow(all.median))us")
+            let phases = [("stage", stage), ("run", run), ("finish", finish)].map { name, values in
                 let stat = Self.stats(values)
                 return "\(name) median=\(Self.format(stat.median))ms p95=\(Self.format(stat.p95))ms (\(perRow(stat.median))us/row)"
             }
-            print("SIDEBAR-FACE-COST n=\(count) adapter phases: \(phases.joined(separator: " "))")
+            print("SIDEBAR-FACE-COST n=\(count) phases: \(phases.joined(separator: " "))")
         }
         #expect(sink > 0)
     }
