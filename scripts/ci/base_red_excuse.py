@@ -297,6 +297,15 @@ HOME_REPO = "manaflow-ai/cmux"
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
 }
+# A called workflow's base verdict, from the workflow that calls it on base pushes (2026-11-07). ci.yml runs on pull
+# requests only; on feat-cmux-next the same ci-web.yml runs from cmux-next-web.yml's `web` job, under the same
+# 'web / ...' check names. ci.yml's newest feat-cmux-next run was a 2026-10-06 dispatch, so every web shard red on a
+# PR was judged against that month-old pass and refused as having no verdict at or after its merge-base (cmux#37667's
+# 'web / Web tests (1/4)', red on the base in cmux-next web run 42358745538). Keyed by (the PR run's workflow file,
+# the caller job id whose '<id> / ' prefix the check carries), the value is the base workflow file whose job of the
+# same id calls the same reusable workflow on pushes to the base. tests/test_base_red_excuse.py checks each entry
+# against the workflows. Its verdict is read only when the PR run's own workflow has none at or after the merge-base.
+BASE_WORKFLOW_FOR = {("ci.yml", "web"): "cmux-next-web.yml"}
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
@@ -2507,15 +2516,42 @@ def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
             f"{tested}{via})"] + lines
 
 
+def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> None:
+    """BASE_RUNS[WORKFLOW] (a workflow id or file name): its BASE runs, newest first, read once per judge."""
+    if workflow in base_runs:
+        return
+    # Every status: a job's verdict is final once the job completes, so a base run still running its slower jobs
+    # already answers for its finished ones (before_merge_base's note).
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&per_page={BASE_RUNS_PAGE}")
+    # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
+    # pull_request_target) is never the base's.
+    base_runs[workflow] = sorted(
+        (run for run in listed.get("workflow_runs") or []
+         if run.get("event") not in ("pull_request", "pull_request_target")
+         and run.get("conclusion") != "skipped"),
+        key=lambda run: run.get("created_at") or "", reverse=True)
+
+
+def base_caller(repo: str, run: dict, name: str) -> str | None:
+    """The workflow file that runs job NAME on base pushes when RUN's own workflow (a pull-request-only caller of the
+    same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, repo or unread workflow path."""
+    path = run.get("path") if isinstance(run, dict) else None
+    if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
+        return None
+    file = path.removeprefix(".github/workflows/").split("@", 1)[0]
+    return next((caller for (pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                 if pr_file == file and name.startswith(f"{job_id} / ")), None)
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
     when a read was rate-limited (no verdict on any red, so nothing below may excuse or charge one)."""
     github = rate_limit_aware(github)
     audit: list[str] = []
-    base_runs: dict[int, list[dict]] = {}
+    base_runs: dict[int | str, list[dict]] = {}  # by workflow id, or file name for a base caller (BASE_WORKFLOW_FOR)
     base_jobs: dict[int, list[dict] | None] = {}
-    job_reads: dict[int, int] = {}
+    job_reads: dict[int | str, int] = {}
     suites = SuiteChecks(github)
     merge_bases: dict[str, str] = {}
     run_reads: dict = {}  # head_jobs' SEEN: the head's check runs, each run's workflow, each head's run list
@@ -2581,21 +2617,21 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"excused '{name}': quarantined base flakes: "
                          + "; ".join(f"{test} ({why})" for test, why in sorted(known.items())))
             continue
-        if workflow not in base_runs:
-            # Every status: a job's verdict is final once the job completes, so a base run still running its slower
-            # jobs already answers for its finished ones (before_merge_base's note).
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
-                                 f"&per_page={BASE_RUNS_PAGE}")
-            # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
-            # pull_request_target) is never the base's.
-            base_runs[workflow] = sorted(
-                (run for run in listed.get("workflow_runs") or []
-                 if run.get("event") not in ("pull_request", "pull_request_target")
-                 and run.get("conclusion") != "skipped"),
-                key=lambda run: run.get("created_at") or "", reverse=True)
+        list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
         base_run, base_job = next(verdicts, (None, None))
+        if ((caller := base_caller(repo, workflow_info, name)) is not None
+                and (base_run is None or before_merge_base(repo, base, sha, base_run, github, merge_bases))):
+            # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
+            # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
+            # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
+            list_base_runs(repo, base, caller, github, base_runs)
+            pushed = base_verdicts(repo, base, caller, name, github, base_runs, base_jobs, job_reads, suites)
+            pushed_run, pushed_job = next(pushed, (None, None))
+            if pushed_run is not None and (
+                    base_run is None or before_merge_base(repo, base, sha, pushed_run, github, merge_bases) is None):
+                base_run, base_job, verdicts = pushed_run, pushed_job, pushed
         if base_run is None:
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
