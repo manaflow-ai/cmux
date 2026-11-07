@@ -4755,7 +4755,6 @@ CmuxNextCloud	struct	CloudVmHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextCloud	class	CloudVmHostStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudVmHostStore.swift	from class CloudVmHostStore:12: per-machine vm-host store with retry-after-a-minute timing
 CmuxNextCloud	enum	FeedServiceError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/FeedServiceError.swift	error enum for feed calls (renders owner reject)
 CmuxNextCloud	class	SandboxRunFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift	from class SandboxRunFollower:17: sandbox run follower: poll/wait tasks, max age, persistence across relaunch
-CmuxNextCloud	enum	CloudTaskRead	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunModels.swift	from struct SandboxRunRecord:4: persisted sandbox Run record (Codable on disk)
 CmuxNextCloud	struct	CloudTaskNotice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunModels.swift	from struct SandboxRunRecord:4: persisted sandbox Run record (Codable on disk)
 CmuxNextCloud	struct	SandboxRunEnd	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunModels.swift	from struct SandboxRunRecord:4: persisted sandbox Run record (Codable on disk)
 CmuxNextCloud	struct	SandboxRunEnded	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunModels.swift	from struct SandboxRunRecord:4: persisted sandbox Run record (Codable on disk)
