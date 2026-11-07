@@ -35,8 +35,6 @@ struct AgentPaneDictationHandoff {
 
     /// Where an app is installed (tests pass their own).
     var installedURL: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-    /// The bundle ids running now.
-    var running: () -> Set<String> = { Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)) }
     /// Whether this app may post key events (Accessibility), asking once when it may not.
     var mayPost: () -> Bool = {
         if CGPreflightPostEventAccess() { return true }
@@ -66,13 +64,12 @@ struct AgentPaneDictationHandoff {
     /// The bundle id of `app` this Mac has, or nil.
     func installed(_ app: App) -> String? { app.bundleIds.first { installedURL($0) != nil } }
 
-    /// `dictation.sources`: each app source this Mac has, with whether it runs now, for the mic's
-    /// menu. Apps the Mac does not have are left out, so the page learns nothing about them.
+    /// `dictation.sources`: each app source this Mac has, for the mic's menu. Apps the Mac does not
+    /// have are left out, so the page learns nothing about them. Whether one runs is not read: cmux
+    /// never scans processes (plans/cmux-next/pty-holder.md).
     func sources() -> [[String: Any]] {
-        let running = running()
-        return Self.apps.compactMap { app in
-            guard let bundleId = installed(app) else { return nil }
-            return ["id": app.source.rawValue, "bundleId": bundleId, "running": app.bundleIds.contains { running.contains($0) }]
+        Self.apps.compactMap { app in
+            installed(app).map { ["id": app.source.rawValue, "bundleId": $0] }
         }
     }
 

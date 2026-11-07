@@ -18,7 +18,6 @@ import Testing
     private func handoff(installed: Set<String> = ["com.openai.codex"], mayPost: Bool = true, posted: Posted) -> AgentPaneDictationHandoff {
         var handoff = AgentPaneDictationHandoff()
         handoff.installedURL = { installed.contains($0) ? URL(fileURLWithPath: "/Applications/\($0).app") : nil }
-        handoff.running = { ["com.openai.codex"] }
         handoff.mayPost = { mayPost }
         handoff.post = { posted.presses.append(($0, $1)); return true }
         handoff.systemDictation = { posted.system += 1 }
@@ -77,8 +76,6 @@ import Testing
         let sources = handoff(installed: ["com.openai.chat", "com.electron.wispr-flow"], posted: posted).sources()
         #expect(sources.map { $0["id"] as? String } == ["chatgpt", "wisprFlow"])
         #expect(sources.first?["bundleId"] as? String == "com.openai.chat")
-        #expect(sources.first?["running"] as? Bool == true)
-        #expect(sources.last?["running"] as? Bool == false)
     }
 
     @Test func everyDefaultChordParsesToAKey() {
