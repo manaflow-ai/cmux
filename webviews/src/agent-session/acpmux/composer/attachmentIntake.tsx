@@ -478,7 +478,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
         return;
       }
-      if (dedupeContent && stagedNow.current.some((existing) => sameImageContent(existing, attachment))) {
+      // Keep distinct images from one paste batch even when their normalized bytes match. A
+      // later paste is a new batch and can reuse the already staged image instead.
+      if (dedupeContent && staged.size === 0 && stagedNow.current.some((existing) => sameImageContent(existing, attachment))) {
         // The editor already placed this intake chip. Remove only the duplicate atom so the
         // existing chip and its token remain the canonical attachment.
         live.current.options.remove?.(attachment.id);
