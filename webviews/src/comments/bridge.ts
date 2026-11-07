@@ -94,3 +94,12 @@ export async function saveComment(repoRoot: string, comment: DiffCommentSaveInpu
 export async function deleteComment(repoRoot: string, id: string): Promise<void> {
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
 }
+
+/**
+ * Sends `text` (the comments `ids` as one prompt, `commentsPromptText`) to the chat that owns the
+ * diff; the host clears those comments once the chat took it. `opid` keeps a resend from
+ * delivering it twice.
+ */
+export async function sendComments(repoRoot: string, ids: string[], text: string, opid: string): Promise<void> {
+  await callDiffComments<unknown>("comments.send", { repoRoot, ids, text }, { opid });
+}

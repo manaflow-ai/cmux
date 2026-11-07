@@ -1,11 +1,15 @@
 // Owns the diff viewer's review comments: saving, deleting and submitting them through the host
 // bridge or locally.
 import type { SelectedLineRange } from "@pierre/diffs";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
-import { deleteComment as bridgeDeleteComment, saveComment as bridgeSaveComment } from "../comments/bridge";
-import { commentSubmissionText } from "../comments/format";
-import type { DiffCommentRecord, DiffCommentSide } from "../comments/types";
+import {
+  deleteComment as bridgeDeleteComment,
+  saveComment as bridgeSaveComment,
+  sendComments as bridgeSendComments,
+} from "../comments/bridge";
+import { commentSubmissionText, commentsPromptText } from "../comments/format";
+import type { CommentsSendState, DiffCommentRecord, DiffCommentSide } from "../comments/types";
 import { fileName, type DiffItem } from "../diff-stream";
 import { type AppAction, type AppState } from "./state";
 import { useSyncedRef } from "./useSyncedRef";
@@ -14,20 +18,25 @@ import { useSyncedRef } from "./useSyncedRef";
  * Bundles the diff comment handlers: loading persisted comments, opening a
  * draft from the gutter utility, and saving/editing/deleting. Saved comments
  * carry a precomputed `submissionText`; native code pools them per workspace
- * and consumes the pool on TextBox submit.
+ * and consumes the pool on TextBox submit. A host that sends to the diff's
+ * chat (`canSend`) takes every saved comment as one prompt (`send`) and clears
+ * them once the chat took it.
  */
 export function useDiffComments({
   bridgeAvailable,
+  canSend,
   dispatch,
   latestState,
   repoRoot,
 }: {
   bridgeAvailable: boolean;
+  canSend: boolean;
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
+  const [sendState, setSendState] = useState<CommentsSendState>("idle");
   const onLoaded = useCallback(
     (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
@@ -107,7 +116,37 @@ export function useDiffComments({
     }
   };
 
-  return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
+  const send = () => {
+    const comments = latestState.current.comments;
+    if (!canSend || !bridgeAvailable || repoRoot == null || comments.length === 0 || sendState === "sending") {
+      return;
+    }
+    const targetRepoRoot = repoRoot;
+    const ids = comments.map((comment) => comment.id);
+    setSendState("sending");
+    bridgeSendComments(targetRepoRoot, ids, commentsPromptText(comments), `diff-comments-${crypto.randomUUID()}`)
+      .then(() => {
+        if (activeRepoRoot.current !== targetRepoRoot) return;
+        // Only the comments sent leave; one saved while it was on its way stays for the next send.
+        dispatch({ type: "remove-comments", ids });
+        setSendState("idle");
+      })
+      .catch((error) => {
+        console.warn("cmux diff comments send failed", error);
+        if (activeRepoRoot.current === targetRepoRoot) setSendState("failed");
+      });
+  };
+
+  return {
+    canSend: canSend && bridgeAvailable,
+    editMessage,
+    onGutterUtilityClick,
+    onLoaded,
+    remove,
+    saveDraft,
+    send,
+    sendState,
+  };
 }
 
 function localCommentRecord(input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">): DiffCommentRecord {

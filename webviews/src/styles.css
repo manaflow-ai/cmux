@@ -1322,9 +1322,33 @@ body[data-loading="true"] #status::before {
 #comments-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 6px 0 10px;
   color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
+   the button keeps the wider one's width and the header never moves when it starts sending. */
+#comments-send {
+  display: inline-grid;
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--cmux-diff-ui-font-size);
+  white-space: nowrap;
+}
+#comments-send > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+#comments-send > span[aria-hidden="true"] {
+  visibility: hidden;
+}
+#comments-send-error {
+  padding: 0 10px 6px;
+  color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }
 #comments-list {

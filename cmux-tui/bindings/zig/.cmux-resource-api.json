@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "4ffece08bb7e3d771eed6a24cf511b7f623afbfd35c3e6f65382936e17e45f09",
+  "catalog_sha256": "e90f878725ef35e282db4329c32e9c210ac9f74f08cdf93bf798ec358620d8b5",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -330,6 +330,15 @@
     },
     "credential.verify": {
       "class": "read"
+    },
+    "diff.comments.delete": {
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "class": "mutation"
     },
     "frontend_projection.get": {
       "class": "read"
