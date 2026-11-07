@@ -124,10 +124,14 @@ fn help() -> String {
 /// What `cmux vm --help` adds under the Cloud verbs: where devices went, and the old names.
 pub(super) fn vm_help_note(japanese: bool) -> &'static str {
     if japanese {
-        "ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
+        "cmux アプリがあれば、`cmux vm ls|status|pause|resume|rm|resize|fork|rename` は VM の名前か ID\n\
+         （1 台なら省略可）であなたの Cloud VM を操作します。アプリがなければ cmux VM API の動詞として動きます。\n\
+         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
          `cmux cloud` と `cmux machine new|show|pause|…` は `cmux vm` の旧名で、どちらも使えます。"
     } else {
-        "Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
+        "With the cmux app, `cmux vm ls|status|pause|resume|rm|resize|fork|rename` act on your\n\
+         Cloud VMs by name or id (or the only one); without it they are the cmux VM API's verbs.\n\
+         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
          `cmux cloud` and `cmux machine new|show|pause|...` are old names of `cmux vm`;\n\
          both work."
     }
@@ -366,13 +370,13 @@ pub(super) enum DeviceRoute {
 
 /// `device revoke|rotate|doctor|vault …` and `device SELECTOR show|session|doctor …` as
 /// `machine …`, which runs them today: `device` is the noun for devices and `machine` its old
-/// name (cmuxterm-hq#7487 item 6). A `--json` typed after `device` moves before `machine`, like
-/// [`machine_alias`]. A VM verb ([`MACHINE_VERBS`]) is [`DeviceRoute::Vm`]. `None` for anything
+/// name (cmuxterm-hq#7487 item 6). An output flag (`--json`, `--jsonl`, `--quiet`, `-q`) typed
+/// after `device` moves before `machine`, like [`machine_alias`]'s `--json`. A VM verb ([`MACHINE_VERBS`]) is [`DeviceRoute::Vm`]. `None` for anything
 /// else: devices/mod.rs ran `device list|ls|remove|rm|audit|network|invite|add --yes|help` before
 /// this, and `device add` with no `--yes` is the app action of that name (Add Device).
 pub(super) fn device_alias(args: &[String]) -> Option<DeviceRoute> {
     let (_, at) = scope_at(args, |word| word == "device")?;
-    let (rest, json) = without_json(args.get(at.checked_add(1)?..)?);
+    let (rest, output) = without_output(args.get(at.checked_add(1)?..)?);
     let [first, after @ ..] = rest.as_slice() else { return None };
     let selector_verb = !first.starts_with('-')
         && after.first().is_some_and(|verb| DEVICE_SELECTOR_VERBS.contains(&verb.as_str()));
@@ -380,12 +384,28 @@ pub(super) fn device_alias(args: &[String]) -> Option<DeviceRoute> {
         return MACHINE_VERBS.contains(&first.as_str()).then(|| DeviceRoute::Vm(first.clone()));
     }
     let mut rewritten = args.get(..at)?.to_vec();
-    if json {
-        rewritten.push("--json".to_owned());
-    }
+    // `device` takes `-q` (devices/mod.rs); the global options `machine` reads say `--quiet`.
+    rewritten.extend(output.into_iter().map(long_quiet));
     rewritten.push("machine".to_owned());
     rewritten.extend(rest);
     Some(DeviceRoute::Machine(rewritten))
+}
+
+/// `word`, with `-q` spelled `--quiet`.
+fn long_quiet(word: String) -> String {
+    if word == "-q" { "--quiet".to_owned() } else { word }
+}
+
+/// `words` without the global output flags typed after the scope (`--json`, `--jsonl`,
+/// `--quiet`, `-q`; never after `--`), and those flags, which go before it.
+fn without_output(words: &[String]) -> (Vec<String>, Vec<String>) {
+    const OUTPUT: [&str; 4] = ["--json", "--jsonl", "--quiet", "-q"];
+    let mut passthrough = false;
+    let (lifted, kept): (Vec<String>, Vec<String>) = words.iter().cloned().partition(|word| {
+        passthrough |= word == "--";
+        !passthrough && OUTPUT.contains(&word.as_str())
+    });
+    (kept, lifted)
 }
 
 /// The refusal of `cmux device VERB` for a VM verb.

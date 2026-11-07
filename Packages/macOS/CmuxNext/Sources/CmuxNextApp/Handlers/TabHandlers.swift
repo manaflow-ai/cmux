@@ -26,7 +26,7 @@ enum TabHandlers {
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
+        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
         registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .afterCurrent) })
@@ -37,7 +37,7 @@ enum TabHandlers {
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
-        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
+        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs.cefUnavailableReason() }
         registry.bind("openBrowser.chromium", unavailable: chromiumReason, invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .cef) })
