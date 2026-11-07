@@ -245,6 +245,21 @@ mod tests {
             "error": "authentication_failed"}))
     }
 
+    /// The first refused retry may be a sign-in being refreshed: it ends nothing. The second
+    /// ends the turn.
+    #[tokio::test]
+    async fn a_refused_sign_in_ends_its_turn_at_the_second_retry() {
+        let (hub, session) = running_turn().await;
+        hub.end_sign_in_refused(&session, &refused(1));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(session.steer_end.borrow().is_none(), "the first refused retry ends nothing");
+        hub.end_sign_in_refused(&session, &refused(2));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let ended = session.steer_end.borrow().clone();
+        let (_, answer) = ended.expect("the second refused retry ends the turn");
+        assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(2)));
+    }
+
     /// The end at the third retry, then the fourth: one end, the third's (review F2).
     #[tokio::test]
     async fn a_refused_sign_in_schedules_one_end_per_turn() {
