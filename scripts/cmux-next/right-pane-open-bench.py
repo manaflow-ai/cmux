@@ -552,6 +552,27 @@ def measure(run, chat, surface, label, round_index):
 #                every one); longest_stall_ms the longest such run
 #   frames       debug.frames over the round: missed refreshes, p95 and longest frame interval, main-thread p95 / max
 
+def drag_chat(run):
+    """A chat on the launched app's own acpmux, answered by chat_open_agent.py (its turns end at once), with a few
+    realistic turns of transcript: its session id."""
+    chats = bm.FakeChats(run.app, APP, AGENT)
+    made = subprocess.run([run.app.cli_path, "acp", "new", "--json", "-d", "-m", bm.FAKE_AGENT_ID, "turn: 1"],
+                          capture_output=True, text=True, timeout=120, env=chats.env)
+    try:
+        session = json.loads(made.stdout)["sessionId"]
+    except (ValueError, KeyError):
+        raise SystemExit(f"right-pane-open: drag: acp new: {(made.stdout + made.stderr).strip()[:400]}")
+    for turn in range(2, 7):
+        subprocess.run([run.app.cli_path, "acp", "wait", session, "--timeout", "60"], capture_output=True, text=True,
+                       timeout=90, env=chats.env)
+        sent = subprocess.run([run.app.cli_path, "acp", "send", session, f"turn: {turn}"], capture_output=True, text=True,
+                              timeout=120, env=chats.env)
+        if sent.returncode != 0:
+            say(f"right-pane-open: drag: acp send turn {turn}: {(sent.stdout + sent.stderr).strip()[:300]}")
+            break
+    return session
+
+
 def window_layers(run):
     layers = run.rpc("debug.layers") or {}
     return ((layers.get("windows") or [{}])[0]) if isinstance(layers, dict) else {}
@@ -870,9 +891,14 @@ def main():
                 say(f"right-pane-open: VDISPLAY-FALLBACK {error}")
             time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
         repo = make_repo(root)
-        say("right-pane-open: seeding")
-        home, chats, meta_keys = seed(root, repo)
-        results["seed"] = {"subagents": SUBAGENTS, "meta_keys": meta_keys}
+        if opts.drag:
+            # The drag's chat is made on the launched app's own acpmux (drag_chat): no seeding daemon.
+            home, chats = os.path.join(root, "acpmux"), {}
+            icl.private_dir(home)
+        else:
+            say("right-pane-open: seeding")
+            home, chats, meta_keys = seed(root, repo)
+            results["seed"] = {"subagents": SUBAGENTS, "meta_keys": meta_keys}
         for condition in CONDITIONS:
             info = {}
             try:
@@ -920,7 +946,7 @@ def run_condition(condition, runs, home, chats, load, results, info):
         results["app_version"] = (run.app.identify() or {}).get("version")
     time.sleep(5)  # test script: let launch work end before the chat opens
     chat = Chat(run)
-    chat.open(chats[condition])
+    chat.open(drag_chat(run) if opts.drag else chats[condition])
     if condition == "stress":
         stress = chat.stress
         stress.busy_where = "elsewhere"
