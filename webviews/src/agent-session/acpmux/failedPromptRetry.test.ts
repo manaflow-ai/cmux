@@ -107,6 +107,26 @@ test("Retry sends the same prompt again, and a sent one leaves no failed bubble"
   }
 });
 
+// A prompt the host could not write to its crash-recovery journal does not go (the host refuses
+// it with `transport.prompt_not_kept`): its bubble says it was not sent, and Retry sends it.
+test("a prompt the host could not keep for crash recovery is not sent, and Retry sends it", async () => {
+  const { translate } = await import("./i18n");
+  const notKept = Object.assign(new Error(translate("transport.refused")), { code: "transport.prompt_not_kept" });
+  const pane = await paneWith((attempt) => (attempt === 1 ? notKept : undefined));
+  try {
+    await pane.client.send("ship it").catch(() => undefined);
+    const failed = pane.rows().find((row) => row.kind === "user" && row.text === "ship it" && row.failed);
+    expect(failed?.error).toBe("Not sent: The app refused this request.");
+    await pane.client.retryPrompt(failed!.id);
+    expect(pane.prompts).toEqual(["ship it", "ship it"]);
+    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "ship it");
+    expect(users).toHaveLength(1);
+    expect(users.some((row) => row.failed)).toBe(false);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
 test("a Retry refused again says so, instead of drawing the same bubble back", async () => {
   const refusal = await gestureRefusal();
   const pane = await paneWith(() => refusal);
