@@ -233,9 +233,13 @@ impl Hub {
 /// Runs `sudo -S -k -p MARKER -- argv`, answers sudo's own prompt with `password`, then runs
 /// `sudo -k`. The password is zeroed when this returns.
 ///
-/// The password goes to stdin only once sudo has printed `MARKER`, a prompt unique to this run,
-/// on stderr (`answer_prompt`). A sudo that asks for none (a `NOPASSWD` rule) prints no prompt and
-/// hands its stdin to the command, which then reads an empty stdin, never the password.
+/// The password is never written where the command could read it. First `sudo -n -k -l`, which
+/// runs no command, says whether this account has any passwordless rule (sudoers' default
+/// `listpw=any` lists without a password only then). With one, the command runs as
+/// `sudo -n -k -- argv` with an empty stdin and the password is not used: a passwordless command
+/// that read stdin, or printed sudo's prompt, could otherwise take it. With none, sudo must ask
+/// before it runs anything, and the password goes to stdin only once sudo has printed `MARKER`, a
+/// prompt unique to this run, on stderr (`answer_prompt`).
 async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     let mut command = tokio::process::Command::new(sudo);
     command.env_clear();
@@ -246,12 +250,16 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     }
     // A fixed PATH: sudo's own secure_path decides the command's; this one is only sudo's.
     command.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+    let passwordless = has_passwordless_rule(sudo).await;
     let marker = prompt_marker();
+    if passwordless {
+        command.args(["-n", "-k", "--"]).stdin(std::process::Stdio::null());
+    } else {
+        command.args(["-S", "-k", "-p", &marker, "--"]).stdin(std::process::Stdio::piped());
+    }
     command
-        .args(["-S", "-k", "-p", &marker, "--"])
         .args(&ask.argv)
         .current_dir("/")
-        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
@@ -312,6 +320,14 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     let mut stderr = mask_within(err, &password, MAX_OUTPUT_BYTES);
     if let Some(Err(e)) = &status {
         stderr.push_str(&format!("\nwaiting for sudo: {e}"));
+    }
+    if passwordless {
+        stderr.push_str(
+            "\nacpmux: this account has passwordless sudo rules, so cmux ran the command with \
+             `sudo -n` and did not use the password (a passwordless command could read it). If \
+             sudo said a password is required, this command needs one: the person can run it \
+             in a terminal.",
+        );
     }
     // A process that left sudo's group (`setsid`, a daemon) is out of sight, so a timeout never
     // proves nothing is left.
@@ -467,6 +483,31 @@ fn group_alive(_: Option<u32>) -> bool {
 }
 
 /// `sudo -k`: no cached timestamp is left behind (`-k` on the run already made none).
+/// Whether this account has a sudo rule that asks for no password: `sudo -n -k -l` lists the
+/// rules without a password only then (sudoers' default `listpw=any`), and runs no command. Any
+/// failure (a password is required, sudo is missing, the probe hangs) reads as none.
+async fn has_passwordless_rule(sudo: &Path) -> bool {
+    let mut probe = tokio::process::Command::new(sudo);
+    probe.env_clear();
+    for key in KEPT_ENV {
+        if let Some(v) = std::env::var_os(key) {
+            probe.env(key, v);
+        }
+    }
+    probe
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .args(["-n", "-k", "-l"])
+        .current_dir("/")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(Duration::from_secs(10), probe.status()).await,
+        Ok(Ok(status)) if status.success()
+    )
+}
+
 async fn forget_timestamp(sudo: &Path) {
     let forget = tokio::process::Command::new(sudo)
         .arg("-k")

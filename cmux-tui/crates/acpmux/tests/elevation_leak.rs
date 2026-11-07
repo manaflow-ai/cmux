@@ -217,6 +217,7 @@ fn fake_sudo(dir: &Path) -> PathBuf {
             r#"#!/bin/sh
 echo "$*" >> '{calls}'
 [ "$1" = "-k" ] && exit 0
+if [ "$1" = "-n" ]; then echo "sudo: a password is required" >&2; exit 1; fi
 printf '%s' "$4" >&2
 IFS= read -r pw
 if [ "$pw" != '{SENTINEL}' ]; then echo "sudo: incorrect password" >&2; exit 1; fi
@@ -319,7 +320,8 @@ async fn the_password_reaches_sudo_and_no_persisted_surface() {
     // command that printed it would have it masked.
     assert_eq!(result["stdout"].as_str().unwrap().trim_end(), "root-output", "{result}");
     let calls = std::fs::read_to_string(tools.join("calls")).unwrap();
-    let first = calls.lines().next().unwrap();
+    assert_eq!(calls.lines().next(), Some("-n -k -l"), "{calls}");
+    let first = calls.lines().find(|l| l.starts_with("-S")).unwrap();
     assert!(first.starts_with("-S -k -p [acpmux-sudo-") && first.contains("] -- sh -c"), "{calls}");
     assert_eq!(calls.lines().last(), Some("-k"), "no `sudo -k` after the run: {calls}");
     person.note("_acpmux/event", |p| p["kind"] == "elevation_decision").await;

@@ -25,12 +25,17 @@ import Testing
         #expect(records.map(old).isEmpty)
     }
 
-    /// The phone asks for the card's records on attach and live; acpmux sends a client only the
-    /// kinds it names, so without them the card never shows on the phone.
-    @Test @MainActor func theChatSubscribesToTheCardsRecords() {
-        let kinds = AcpmuxSessionSource.chatKinds.arrayValue ?? []
-        #expect(kinds.contains(.string("elevation_request")))
-        #expect(kinds.contains(.string("elevation_decision")))
+    /// The phone asks for the card's records on attach and live (acpmux sends a client only the
+    /// kinds it names) from a Mac that serves the card; an older Mac refuses more than 8 kinds, so
+    /// it gets the plain list.
+    @Test @MainActor func theChatSubscribesToTheCardsRecordsOnlyWhereServed() {
+        let with = AcpmuxSessionSource.chatKindsWithElevation.arrayValue ?? []
+        #expect(with.contains(.string("elevation_request")))
+        #expect(with.contains(.string("elevation_decision")))
+        #expect(with.count <= 9)
+        let plain = AcpmuxSessionSource.chatKinds.arrayValue ?? []
+        #expect(plain.count <= 8)
+        #expect(!plain.contains(.string("elevation_request")))
     }
 
     @Test func theCommandReadsAsSudoGetsIt() {

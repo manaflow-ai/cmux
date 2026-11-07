@@ -22,7 +22,13 @@ fn fake_sudo(dir: &Path) -> PathBuf {
         r#"#!/bin/sh
 echo "$*" >> '{calls}'
 [ "$1" = "-k" ] && exit 0
-if [ ! -e '{nopasswd}' ]; then
+if [ "$1" = "-n" ] && [ "$3" = "-l" ]; then
+  [ -e '{nopasswd}' ] && exit 0
+  echo "sudo: a password is required" >&2; exit 1
+fi
+if [ "$1" = "-n" ]; then
+  [ -e '{nopasswd}' ] || {{ echo "sudo: a password is required" >&2; exit 1; }}
+elif [ ! -e '{nopasswd}' ]; then
   printf '%s' "$4" >&2
   IFS= read -r pw
   if [ "$pw" != '{PASSWORD}' ]; then echo "sudo: incorrect password" >&2; exit 1; fi
@@ -105,8 +111,9 @@ async fn run_writes_the_password_to_sudo_masks_it_and_forgets_the_timestamp() {
     assert!(!out.to_string().contains(PASSWORD), "{out}");
     let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
     let lines: Vec<&str> = calls.lines().collect();
-    assert!(lines[0].starts_with("-S -k -p [acpmux-sudo-"), "{calls}");
-    assert!(lines[0].contains("] -- sh -c"), "{calls}");
+    assert_eq!(lines[0], "-n -k -l", "no passwordless-rule probe first: {calls}");
+    assert!(lines[1].starts_with("-S -k -p [acpmux-sudo-"), "{calls}");
+    assert!(lines[1].contains("] -- sh -c"), "{calls}");
     assert_eq!(lines.last(), Some(&"-k"), "no `sudo -k` after the run: {calls}");
     assert!(!calls.contains(PASSWORD));
 
@@ -170,8 +177,8 @@ async fn a_timeout_ends_the_whole_group_even_past_an_ignored_sigterm() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A sudo that asks for no password (a `NOPASSWD` rule) hands its stdin to the command: the
-/// command reads an empty stdin, never the password (review F1 of e4f5ef1).
+/// An account with a passwordless rule (`NOPASSWD`) runs the command with `sudo -n` and an empty
+/// stdin: the command never reads the password (review F1 of e4f5ef1 and of 852e490).
 #[cfg(unix)]
 #[tokio::test]
 async fn a_sudo_that_asks_for_no_password_never_hands_it_to_the_command() {
@@ -190,7 +197,12 @@ async fn a_sudo_that_asks_for_no_password_never_hands_it_to_the_command() {
         "0000000",
         "the command read the password: {out}"
     );
-    assert!(started.elapsed() < Duration::from_secs(30), "{:?}", started.elapsed());
+    // The account's passwordless rule was found before anything ran: sudo -n, no password and
+    // no prompt to wait for (review F1 of 852e490: a command could print the prompt itself).
+    let calls = std::fs::read_to_string(dir.join("calls")).unwrap();
+    assert!(calls.lines().any(|l| l.starts_with("-n -k -- sh -c")), "{calls}");
+    assert!(!calls.contains("-S"), "the password path ran: {calls}");
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
