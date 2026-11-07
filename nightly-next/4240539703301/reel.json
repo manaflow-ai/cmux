@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4240539703301",
+  "notes": "notes/4240539703301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33597,
+      "title": "fix(diff): stream generated attributes for every changed path (#32999)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36821,
+      "title": "Queue after a failed turn keeps going by itself; an inbox notice is never your queued prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37967,
+      "title": "merge drivers: conflict on any unparsable JSON/TOML result and on doubled jsonl rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37989,
+      "title": "measure scripts: a pair commit is fetched from the public repository when the step checkout has no origin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37970,
+      "title": "ci(cmux-tui): point the Cloud machine channel from the Linux build, without waiting for macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37982,
+      "title": "gateway-e2e: the Mac job installs the client published for its cmux-tui tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37971,
+      "title": "Attach Screenshot: never refuse a capture for its size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37981,
+      "title": "ci(base-red): read a ws-check step line that ends with its seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33436,
+      "title": "acpmux: Codex chats get the suggested next prompt too, behind the same switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37977,
+      "title": "ci(base-red): a job log's byte-order mark no longer hides its WS_CHECK_RESULT line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37515,
+      "title": "cmux NEXT: an agent's workspace goes below the workspace that made it (created_by)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37603,
+      "title": "settings: editor, terminal, markdown, diff and agent chat display rows as data",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37934,
+      "title": "Agent pane: a page that loaded without its string table asks for it again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37303,
+      "title": "cmux-layout-reducer: the sidebar section layout's planners in Rust (sidebar_layout_plan)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37958,
+      "title": "agent pane: cloud start, start folder, context card, mention menu and inspector export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37865,
+      "title": "ci: two guard base reds: the protected media probe loads its own page; depth fetches check for a shallow checkout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37969,
+      "title": "ci(base-red): judge a gallery shard whose base replay crashed against an older base verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37619,
+      "title": "cmux NEXT: the window top shares one line, and the sidebar's + sits on the rows' trailing column",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37952,
+      "title": "agent pane: composer drop overlay, send slot, source badge and attachment tiles export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37604,
+      "title": "fix(chat): identify message senders by session, not machine",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
