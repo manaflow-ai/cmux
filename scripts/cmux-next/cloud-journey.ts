@@ -217,6 +217,10 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
   return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
 }
 
+const OP_ATTEMPTS = 3;
+/** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
+export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -224,9 +228,13 @@ class Api {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
-    if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
-    return r.body.value;
+    for (let attempt = 1; ; attempt++) {
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
+      // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
+      if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
+      return r.body.value;
+    }
   }
   async read(op: string, params: unknown): Promise<any> {
     const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers());

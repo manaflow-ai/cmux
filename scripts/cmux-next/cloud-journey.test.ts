@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { carrierDial, hopSpans, hopTimes, machineIds, newMachineIds } from "./cloud-journey";
+import { carrierDial, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -275,5 +275,15 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&
     expect(hopSpans(out)).toEqual({ calls: 3, auth: 7, "worker-do": 210, "do-wait": 4, "do-gateway": 160, object_hop: 46, edge: 23 });
     expect(hopSpans([...call(200, null), ...call(200, null)].join("\n"))).toBeNull();
     expect(hopSpans([...call(200, null), ...call(200, "auth;dur=1, worker-do;dur=2")].join("\n"))).toBeNull();
+  });
+});
+
+describe("opRetryable", () => {
+  test("retries only a cut-off provider call the API marks retryable", () => {
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", message: "the provider call was cut off; retry with the same key", retryable: true } })).toBe(true);
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: false } })).toBe(false);
+    expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
+    expect(opRetryable({ ok: true, value: {} })).toBe(false);
+    expect(opRetryable("vm_unavailable")).toBe(false);
   });
 });
