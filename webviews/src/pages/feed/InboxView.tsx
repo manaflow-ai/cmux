@@ -111,25 +111,31 @@ function InboxHeader({ store, snap, strings, hasUnread, onListKeys }: HeaderProp
           onValueChange={(value) => store.setConnection(value as InboxConnection)}
         >
           <TabsList>
-            <TabsTrigger value="github" className="feed-tab">
+            <TabsTrigger value="github" className="feed-tab" title={t("feed.github")}>
               <FeedIcon name="brand.github" size={12} />
-              {t("feed.github")}
+              <span className="feed-tab-label">{t("feed.github")}</span>
             </TabsTrigger>
-            <TabsTrigger value="feed" className="feed-tab">
+            <TabsTrigger value="feed" className="feed-tab" title={t("feed.title")}>
               <FeedIcon name="inbox" size={12} />
-              {t("feed.title")}
+              <span className="feed-tab-label">{t("feed.title")}</span>
             </TabsTrigger>
             {snap.view?.reports.available !== false ? (
-              <TabsTrigger value="reports" className="feed-tab">
+              <TabsTrigger value="reports" className="feed-tab" title={t("reports.title")}>
                 <FeedIcon name="agent.chat" size={12} />
-                {t("reports.title")}
+                <span className="feed-tab-label">{t("reports.title")}</span>
               </TabsTrigger>
             ) : null}
           </TabsList>
         </Tabs>
-        <button type="button" className="feed-add" onClick={() => store.addConnection()}>
+        <button
+          type="button"
+          className="feed-add"
+          title={t("feed.addConnection")}
+          aria-label={t("feed.addConnection")}
+          onClick={() => store.addConnection()}
+        >
           <FeedIcon name="action.add" size={12} />
-          {t("feed.addConnection")}
+          <span className="feed-add-label">{t("feed.addConnection")}</span>
         </button>
       </div>
       {connection === "reports" ? null : (

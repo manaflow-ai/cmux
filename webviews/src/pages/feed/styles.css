@@ -727,6 +727,43 @@
   flex: 1;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
+}
+
+/* The tab strip never runs under Add connection: a narrow column keeps the selected tab's name
+   and only the icons of the others and of Add connection (their names stay tooltips and
+   labels); a name that still does not fit ends in an ellipsis. */
+.feed-tab-list > * {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.feed-tab {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.feed-tab-label,
+.feed-add-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-add {
+  flex: none;
+}
+
+.feed-tabs {
+  container-type: inline-size;
+}
+
+@container (max-width: 400px) {
+  .feed-add-label,
+  .feed-tab:not([data-active]) .feed-tab-label {
+    display: none;
+  }
 }
 
 .feed-tab,
