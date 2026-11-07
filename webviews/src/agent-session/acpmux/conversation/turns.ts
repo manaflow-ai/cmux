@@ -1110,8 +1110,8 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
 /// it, and each stretch of hidden work between them as closed run lines, one for the stretch
 /// (`groups`) or one per run (`runs`). A line counts calls only; its short notes go with it as quiet
 /// lines; an edit stays on the turn's edits card, and the other calls of its step on the line
-/// (`lineWork`); another agent's message stays as its line (`isReceivedLine`), which the run beside it
-/// folds with (messageRuns.ts); anything else hidden stays under "Worked for".
+/// (`lineWork`); another agent's message beside a run stays as its line (`isReceivedLine`), which
+/// that run folds with (messageRuns.ts); anything else hidden stays under "Worked for".
 /// A line keeps its first run's id, so opening the fold keeps that line where it is (one row, one
 /// open state) rather than fading it out and drawing its run anew.
 /// Leo, 2026-11-07, on a closed turn whose received message and the calls beside it had gone, two
@@ -1137,34 +1137,34 @@ function aroundReplies(
     // which drops it after mergeShortNotes, so a draft-only row still ends a run there.
     const all = stretch.flatMap((row) => (isEdit(row) ? (lineWork(row) ?? []) : [row]));
     stretch = [];
+    // Another agent's message keeps its line only beside a run, which it folds with (messageRuns.ts:
+    // "Ran a command, received a message"); messages alone fold under Worked for, as work does.
     if (arm === "runs") {
+      const drawn = mergeShortNotes(all, keep, edits).flatMap(withoutDrafts);
+      if (!drawn.some(isRun)) return;
       shaped.push(
-        ...mergeShortNotes(all, keep, edits)
-          .flatMap(withoutDrafts)
-          .filter((row) => isRun(row) || isReceivedLine(row))
-          .map((row) => (isRun(row) ? line(row) : row)),
+        ...drawn.filter((row) => isRun(row) || isReceivedLine(row)).map((row) => (isRun(row) ? line(row) : row)),
       );
       return;
     }
     const work = all.flatMap(withoutDrafts);
     const runs = work.filter(isRun);
-    const from = runs.length ? work.indexOf(runs[0]!) : work.length;
-    const to = runs.length ? work.lastIndexOf(runs.at(-1)!) : work.length;
+    if (!runs.length) return;
+    const from = work.indexOf(runs[0]!);
+    const to = work.lastIndexOf(runs.at(-1)!);
     const received = work.filter(isReceivedLine);
-    shaped.push(...received.filter((row) => work.indexOf(row) < from));
-    if (runs.length) {
-      const parts = work.slice(from, to + 1).filter((row) => isRun(row) || isShortNote(row));
-      shaped.push(
-        line({
-          ...runs[0]!,
-          items: parts.flatMap((row) => (isRun(row) ? (row.items ?? []) : [{ kind: "note", text: row.text!.trim() }])),
-          toolCount: runs.reduce((n, run) => n + (run.toolCount ?? 0), 0),
-          joined: parts.map((row) => row.id),
-          version: parts.reduce((version, row) => mixVersion(version, row.version), 0),
-        }),
-      );
-    }
-    shaped.push(...received.filter((row) => work.indexOf(row) > from));
+    const parts = work.slice(from, to + 1).filter((row) => isRun(row) || isShortNote(row));
+    shaped.push(
+      ...received.filter((row) => work.indexOf(row) < from),
+      line({
+        ...runs[0]!,
+        items: parts.flatMap((row) => (isRun(row) ? (row.items ?? []) : [{ kind: "note", text: row.text!.trim() }])),
+        toolCount: runs.reduce((n, run) => n + (run.toolCount ?? 0), 0),
+        joined: parts.map((row) => row.id),
+        version: parts.reduce((version, row) => mixVersion(version, row.version), 0),
+      }),
+      ...received.filter((row) => work.indexOf(row) > from),
+    );
   };
   for (const row of rows) {
     if (out(row)) {
