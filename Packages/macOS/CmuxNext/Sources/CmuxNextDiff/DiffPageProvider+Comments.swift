@@ -11,8 +11,9 @@ public protocol DiffCommentsStoring: AnyObject {
     func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `diff.comments.save {root, comment}`: the stored record (the host owns id and dates).
     func saveComment(root: String, comment: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue
-    /// `diff.comments.delete {root, ids}`.
-    func deleteComments(root: String, ids: [String], key: String) async throws(AgentPaneGitFailure) -> JSONValue
+    /// `diff.comments.delete {root, ids, versions}` → `{deleted, ids}`: a comment `versions` names
+    /// goes only while its `updatedAt` is still that version, checked under the host's lock.
+    func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue
 }
 
 /// The diff tab's review comments (hq #7563): `cmux.diff.comments {method, params}` carries the
@@ -52,7 +53,7 @@ extension DiffPageProvider {
                 return ["comment": saved]
             case "comments.delete":
                 guard let id = inner["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
-                _ = try await store.deleteComments(root: root, ids: [id], key: key)
+                _ = try await store.deleteComments(root: root, ids: [id], versions: [:], key: key)
                 return .object([:])
             case "comments.send":
                 return try await sendComments(inner, root: root, store: store, context: context)
@@ -81,18 +82,12 @@ extension DiffPageProvider {
             throw PageError(code: "cmux.diff.send_failed", message: "The chat did not take the comments")
         }
         // The chat has them: they leave the store, except one edited since the page sent it (its
-        // `updatedAt` moved on), which stays for the next send. A failed delete leaves them listed,
-        // never lost.
-        let sent = params["versions"]?.objectValue ?? [:]
-        let stored = try await store.listComments(root: root)["comments"]?.arrayValue ?? []
-        let unchanged = Set(stored.compactMap { comment -> String? in
-            guard let id = comment["id"]?.stringValue, ids.contains(id) else { return nil }
-            guard let version = sent[id]?.stringValue else { return id }
-            return comment["updatedAt"]?.stringValue == version ? id : nil
-        })
-        let cleared = ids.filter(unchanged.contains)
-        if !cleared.isEmpty { _ = try await store.deleteComments(root: root, ids: cleared, key: promptID + "-clear") }
-        return ["sent": .number(Double(ids.count)), "cleared": .array(cleared.map(JSONValue.string))]
+        // `updatedAt` moved on), which stays for the next send. The host checks each version and
+        // deletes in one step under its lock. A failed delete leaves them listed, never lost.
+        let versions = params["versions"]?.objectValue ?? [:]
+        let deleted = try await store.deleteComments(root: root, ids: ids, versions: versions, key: promptID + "-clear")
+        let cleared = deleted["ids"]?.arrayValue ?? []
+        return ["sent": .number(Double(ids.count)), "cleared": .array(cleared)]
     }
 
     /// The tab's repository root: a page names only its own.
@@ -124,8 +119,10 @@ extension DiffAgentGit: DiffCommentsStoring {
         try await mutate("diff.comments.save", ["root": .string(root), "comment": comment], key: key)
     }
 
-    public func deleteComments(root: String, ids: [String], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        try await mutate("diff.comments.delete", ["root": .string(root), "ids": .array(ids.map(JSONValue.string))], key: key)
+    public func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        var params: [String: JSONValue] = ["root": .string(root), "ids": .array(ids.map(JSONValue.string))]
+        if !versions.isEmpty { params["versions"] = .object(versions) }
+        return try await mutate("diff.comments.delete", .object(params), key: key)
     }
 
     private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {

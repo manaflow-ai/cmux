@@ -34,11 +34,15 @@ struct DiffCommentsTests {
             return ["comment": .object(record)]
         }
 
-        func deleteComments(root: String, ids: [String], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
             keys.append(key)
-            let before = comments[root]?.count ?? 0
-            comments[root]?.removeAll { ids.contains($0["id"]?.stringValue ?? "") }
-            return ["deleted": .number(Double(before - (comments[root]?.count ?? 0)))]
+            let removed = (comments[root] ?? []).compactMap { comment -> String? in
+                guard let id = comment["id"]?.stringValue, ids.contains(id) else { return nil }
+                if let version = versions[id], comment["updatedAt"] != version { return nil }
+                return id
+            }
+            comments[root]?.removeAll { removed.contains($0["id"]?.stringValue ?? "") }
+            return ["deleted": .number(Double(removed.count)), "ids": .array(removed.map(JSONValue.string))]
         }
     }
 

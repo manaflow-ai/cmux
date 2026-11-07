@@ -71,7 +71,8 @@ pub(super) fn dispatch(
         }
         ResourceOperation::DiffCommentsDelete => {
             let ids = ids(&request.fields)?;
-            mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids)))
+            let versions = versions(&request.fields)?;
+            mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
@@ -163,15 +164,24 @@ fn save(
     Ok((json!({"comment": comment}), true))
 }
 
-/// Removes the comments `ids` names; unknown ids are ignored. Returns
-/// `{deleted}`.
-fn delete(file: &mut File, ids: &[String]) -> (Value, bool) {
-    let before = file.comments.len();
+/// Removes the comments `ids` names; unknown ids are ignored. A comment
+/// `versions` names stays unless its `updatedAt` is still that version, so
+/// an edit saved after the caller read it is never removed. Returns
+/// `{deleted, ids}`: the count and the ids removed.
+fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Value, bool) {
+    let mut removed = Vec::new();
     file.comments.retain(|comment| {
-        !comment.get("id").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|x| x == id))
+        let Some(id) = comment.get("id").and_then(Value::as_str) else { return true };
+        if !ids.iter().any(|x| x == id) {
+            return true;
+        }
+        if versions.get(id).is_some_and(|version| comment.get("updatedAt") != Some(version)) {
+            return true;
+        }
+        removed.push(id.to_string());
+        false
     });
-    let deleted = before.saturating_sub(file.comments.len());
-    (json!({"deleted": deleted}), deleted > 0)
+    (json!({"deleted": removed.len(), "ids": removed}), !removed.is_empty())
 }
 
 /// `root`: an absolute path, at most 4096 bytes, without NUL.
@@ -207,6 +217,22 @@ fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
         ));
     }
     Ok(ids)
+}
+
+/// `versions`: optional, each id's `updatedAt` as the caller last read it.
+fn versions(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceError> {
+    match fields.get("versions") {
+        None | Some(Value::Null) => Ok(Map::new()),
+        Some(Value::Object(versions))
+            if versions.len() <= MAX_DELETE_IDS && versions.values().all(Value::is_string) =>
+        {
+            Ok(versions.clone())
+        }
+        Some(_) => Err(ResourceError::validation_invalid(
+            Some("versions"),
+            format!("versions maps at most {MAX_DELETE_IDS} ids to updatedAt strings"),
+        )),
+    }
 }
 
 /// A caller-chosen id the daemon keeps: 1 to 128 visible ASCII characters.
@@ -332,8 +358,16 @@ mod tests {
         assert_eq!(chosen["comment"]["id"], "mine");
         let (bad, _) = save(&mut file, "/r", "k4", comment(json!({"id": "has space"}))).unwrap();
         assert!(bad["comment"]["id"].as_str().unwrap().starts_with("dc_"));
-        let (deleted, changed) = delete(&mut file, &[id, "unknown".into()]);
-        assert_eq!(deleted["deleted"], 1);
+        let stale = Map::from_iter([("mine".to_string(), json!("1999"))]);
+        let (kept, changed) = delete(&mut file, &["mine".into()], &stale);
+        assert_eq!(
+            kept,
+            json!({"deleted": 0, "ids": []}),
+            "an edit since the caller read it stays"
+        );
+        assert!(!changed);
+        let (deleted, changed) = delete(&mut file, &[id.clone(), "unknown".into()], &Map::new());
+        assert_eq!(deleted, json!({"deleted": 1, "ids": [id]}));
         assert!(changed);
         assert_eq!(file.comments.len(), 2);
     }

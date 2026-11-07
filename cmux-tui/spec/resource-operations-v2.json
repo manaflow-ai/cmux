@@ -9784,6 +9784,20 @@
             "name": "uint32"
           },
           "description": "How many of the named comments were removed; unknown ids count none."
+        },
+        "ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "The ids removed, in store order."
         }
       },
       "extra": false
@@ -24811,6 +24825,17 @@
               "max_items": 500
             },
             "description": "The ids of the comments to remove, at most 500."
+          },
+          "versions": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Optional: each id's updatedAt as the caller last read it, at most 500. A named comment whose updatedAt differs (edited since) is kept."
           }
         },
         "extra": false
@@ -24835,6 +24860,7 @@
       ],
       "constraints": [
         "Unknown ids are ignored, so a repeated delete removes nothing more.",
+        "The version check and the removal happen under the root's lock, so an edit saved after the caller read a comment is never removed.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments) or store_failed; extra.message explains it."
       ]
