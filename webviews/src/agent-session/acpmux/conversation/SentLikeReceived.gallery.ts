@@ -58,11 +58,14 @@ const drawn = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
 };
 
-/// Both messages open, the received one first, as Leo's capture shows them.
+/// Both messages open, the received one first, as Leo's capture shows them. A message already open
+/// stays open, so the experiment's script can run after a variant's play.
+const RECEIVED_TOGGLE = ".cv-received:not(.cv-sent-msg) .cv-disclosure__toggle[aria-expanded=false]";
+const SENT_TOGGLE = ".cv-sent-msg .cv-disclosure__toggle[aria-expanded=false]";
 const opened = async (ctx: PlayContext) => {
   await drawn(ctx);
-  await ctx.click({ selector: ".cv-received:not(.cv-sent-msg) .cv-disclosure__toggle" });
-  await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+  if (ctx.document.querySelector(RECEIVED_TOGGLE)) await ctx.click({ selector: RECEIVED_TOGGLE });
+  if (ctx.document.querySelector(SENT_TOGGLE)) await ctx.click({ selector: SENT_TOGGLE });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md"));
 };
 
@@ -108,8 +111,8 @@ export default agentPaneEntry({
       {
         name: "Open Raw",
         run: async (ctx) => {
-          const raw = ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more");
-          if (raw) await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
+          const raw = ".cv-sent-msg .cv-sent__raw > .cv-received__more[aria-expanded=false]";
+          if (ctx.document.querySelector(raw)) await ctx.click({ selector: raw });
         },
       },
     ],
