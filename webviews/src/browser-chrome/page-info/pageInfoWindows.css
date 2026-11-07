@@ -155,6 +155,9 @@
 .piw-segments {
   display: inline-flex;
   gap: var(--piw-row-gap);
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
   padding: var(--piw-row-gap);
   border-radius: var(--ds-radius-control);
   background: var(--ds-color-hover);
