@@ -141,4 +141,26 @@ import Testing
         let selected = Self.layout(docSections.sections(full, session: Self.session, workspaces: store.workspaces))
         #expect(selected.contains("[Leads: ws-coord,ws-a,ws-b,ws-merge,ws-adopt-a,ws-adopt-b,ws-411]"), "the new rows left Leads: \(selected)")
     }
+
+    /// A machine that is only a group: a new row listed first opens a loose section above it, and a new row below a
+    /// member still goes into the group.
+    @Test func aNewRowBelowAMemberJoinsTheGroupWhenAnotherOpensALooseRunAbove() {
+        let records = SidebarDocRecords(sections: [Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session))], items: [
+            "itm_g": SidebarDocItem(id: "itm_g", section: Self.machine, body: .group(name: "Leads", color: nil, icon: nil, collapsed: false)),
+            "itm_a": SidebarDocItem(id: "itm_a", section: Self.machine, parent: "itm_g", body: .workspace(Self.ref("ws-a"))),
+            "itm_b": SidebarDocItem(id: "itm_b", section: Self.machine, parent: "itm_g", body: .workspace(Self.ref("ws-b"))),
+        ])
+        let projection = SidebarDocProjection(rows: [
+            SidebarDocRow(key: "itm_g", kind: "group", section: Self.machine, item: "itm_g"),
+            SidebarDocRow(key: "itm_a", kind: "item", section: Self.machine, parent: "itm_g", depth: 1, item: "itm_a", ref: Self.ref("ws-a")),
+            SidebarDocRow(key: "itm_b", kind: "item", section: Self.machine, parent: "itm_g", depth: 1, item: "itm_b", ref: Self.ref("ws-b")),
+        ], records: records, revision: 1)
+        let store = Self.store(["ws-a", "ws-b", "ws-x", "ws-y"])
+        let docSections = SidebarDocSections(document: { nil })
+        docSections.newRowsPlace = { .below("gone") }
+        _ = docSections.sections(projection, session: Self.session, workspaces: store.workspaces.filter { $0.resourceID?.rawValue != "ws-y" })
+        docSections.newRowsPlace = { .below(Self.id("ws-a", in: store)) }
+        let shown = Self.layout(docSections.sections(projection, session: Self.session, workspaces: store.workspaces))
+        #expect(shown == ["ws-x", "[Leads: ws-a,ws-y,ws-b]"], "ws-y is not in Leads below ws-a: \(shown)")
+    }
 }
