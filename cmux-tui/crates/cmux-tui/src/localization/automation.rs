@@ -137,7 +137,7 @@ pub(super) const ENGLISH: AutomationMessages = AutomationMessages {
     install_failed: "Could not load the launchd agent; the plist is in ~/Library/LaunchAgents. Run `cmux automation runner` to run it in this terminal.",
     uninstalled: "Removed the automation runner. Automations stay; nothing runs on schedule until it is installed again.",
     bad_target: "--target takes local or cloud, not \"{value}\"",
-    cloud_local_only: "--{flag} runs on this Mac only; on cmux Cloud use --hourly, --daily, --weekdays, --weekly, --cron, --webhook or --manual、--watch コマンド",
+    cloud_local_only: "--{flag} runs on this Mac only; on cmux Cloud use --hourly, --daily, --weekdays, --weekly, --cron, --webhook or --manual",
     cloud_no_command: "a Cloud automation runs a prompt in your Cloud Chief, not a shell command; use --prompt, or drop --target cloud to run the command on this Mac",
     cloud_no_chief: "you have no Cloud Chief yet; open Home in the cmux app once to make one",
     cloud_created: "Created \"{name}\" ({id}) on cmux Cloud. Each run posts its result in your Cloud Chief chat.",

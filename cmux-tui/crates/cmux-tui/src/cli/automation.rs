@@ -1098,7 +1098,7 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
         cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
         Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
     };
-    for local_only in ["every", "at", "in"] {
+    for local_only in ["every", "at", "in", "watch", "debounce", "if", "cooldown", "max-runs"] {
         if a.value(local_only).is_some() {
             return usage(messages().cloud_local_only.replace("{flag}", local_only));
         }
@@ -1376,10 +1376,13 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
             Err(done) => done,
         },
         "edit" | "update" => {
-            let unsupported = ["prompt", "command", "folder", "model", "timeout", "tz"]
-                .iter()
-                .chain(SCHEDULE_FLAGS)
-                .any(|f| a.value(f).is_some())
+            let unsupported = [
+                "prompt", "command", "folder", "model", "timeout", "tz", "if", "cooldown",
+                "max-runs", "debounce",
+            ]
+            .iter()
+            .chain(SCHEDULE_FLAGS)
+            .any(|f| a.value(f).is_some())
                 || ["hourly", "manual", "webhook"].iter().any(|f| a.flag(f));
             if unsupported {
                 return usage(messages().cloud_edit_flags);

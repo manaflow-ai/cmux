@@ -156,8 +156,13 @@ fn to_cloud(store: &Store, x: &Automation, global: &GlobalArgs, out: &Out) -> Ou
         return usage(messages().teleport_command);
     };
     let triggers = cloud_triggers(&x.trigger)?;
-    if x.gate.condition.is_some() {
-        return usage(messages().cloud_local_only.replace("{flag}", "if"));
+    let local_only = [
+        (x.gate.condition.is_some(), "if"),
+        (x.gate.cooldown_seconds > 0, "cooldown"),
+        (x.gate.max_runs_per_day.is_some(), "max-runs"),
+    ];
+    if let Some((_, flag)) = local_only.iter().find(|(set, _)| *set) {
+        return usage(messages().cloud_local_only.replace("{flag}", flag));
     }
     let chief = match cloud::call(global, "chief.list", json!({}), None) {
         Ok(Answer::Value(v)) => cloud::default_chief(&v)

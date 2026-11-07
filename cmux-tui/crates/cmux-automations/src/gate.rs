@@ -75,12 +75,16 @@ impl Verdict {
 }
 
 /// Whether `r` started its body: running, or ended after it started. A skip,
-/// and a run whose condition said no or failed, did not.
+/// a run whose process never started, and a run whose condition said no or
+/// failed, did not.
 pub fn fired(r: &Run) -> bool {
-    let condition_stopped = r.reason.as_deref().is_some_and(|why| why.starts_with("condition_"));
+    let stopped = r
+        .reason
+        .as_deref()
+        .is_some_and(|why| why.starts_with("condition_") || why.starts_with("start_failed"));
     matches!(r.state, RunState::Running | RunState::Succeeded | RunState::Failed)
         && r.started_at.is_some()
-        && !condition_stopped
+        && !stopped
 }
 
 /// The verdict for a fire of an automation with `gate` and run `history` at

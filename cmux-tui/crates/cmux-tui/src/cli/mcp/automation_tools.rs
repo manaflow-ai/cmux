@@ -103,6 +103,8 @@ const STRING: u8 = 0;
 const BOOL: u8 = 1;
 const INT: u8 = 2;
 const LIST: u8 = 3;
+/// An integer where 0 means off.
+const COUNT: u8 = 4;
 
 const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("prompt", "prompt", STRING),
@@ -127,7 +129,7 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("paused", "paused", BOOL),
     ("if", "if", STRING),
     ("cooldown", "cooldown", STRING),
-    ("max_runs", "max-runs", INT),
+    ("max_runs", "max-runs", COUNT),
     ("private", "private", BOOL),
     ("editors", "editor", LIST),
 ];
@@ -183,6 +185,7 @@ fn descriptor(tool: &AutomationTool) -> Value {
         let schema = match *kind {
             BOOL => json!({"type": "boolean"}),
             INT => json!({"type": "integer", "minimum": 1, "maximum": 1000}),
+            COUNT => json!({"type": "integer", "minimum": 0, "maximum": 1000}),
             LIST => json!({"type": "array", "items": {"type": "string", "minLength": 1}}),
             _ => json!({"type": "string", "minLength": 1}),
         };
@@ -257,6 +260,9 @@ fn words(
             (BOOL, Value::Bool(false)) => {}
             (INT, v) if v.as_u64().is_some_and(|n| (1..=1000).contains(&n)) => {
                 out.push(format!("--{flag}={}", v.as_u64().unwrap_or(1)));
+            }
+            (COUNT, v) if v.as_u64().is_some_and(|n| n <= 1000) => {
+                out.push(format!("--{flag}={}", v.as_u64().unwrap_or(0)));
             }
             (LIST, Value::Array(items)) => {
                 for item in items {
