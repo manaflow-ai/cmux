@@ -72,7 +72,7 @@ import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
 import { useSessionHover } from "../started/SessionHoverCard";
-import { resolveSessionRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
+import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -199,7 +199,8 @@ export function SenderName({
     sessionRefsResolve();
   // acpmux's record of who sent it, never the line's text, which may carry a note for the reader
   // ("(self-declared, unauthenticated)"): asked by that text, no chat ever matched (Leo, 2026-11-07).
-  const query = asks ? (message.lookup ?? message.name).trim() : undefined;
+  // A line with no record still has the note stripped (senderRef).
+  const query = asks ? senderRef(message.lookup ?? message.name) || undefined : undefined;
   const resolved = useSessionRef(query, false);
   useEffect(
     () => (query && resolved === undefined ? whenIdle(() => void resolveSessionRef(query)) : undefined),

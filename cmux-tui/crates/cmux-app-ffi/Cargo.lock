@@ -92,6 +92,7 @@ dependencies = [
  "cbindgen",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
+ "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
@@ -150,6 +151,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-daemon-conn-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
