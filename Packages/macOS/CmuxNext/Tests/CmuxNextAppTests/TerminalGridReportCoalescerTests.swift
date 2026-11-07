@@ -262,12 +262,13 @@ struct TerminalGridReportCoalescerTests {
     /// or after 25 ms. A held key moves a pane 10-20 pt per 120 Hz refresh; one grid per 25 ms window (4 refreshes) left the
     /// program's own drawing 40-80 pt off its pane edge (px-keys-held-2-s1r x1, runner 2b757265: 63 frames, band 36 and
     /// edge 27). Chromium sends a new size with the next frame (visual properties at the begin-frame), never on a timer.
-    /// Here: a change in every refresh goes to the PTY at that refresh, only the newest of that refresh, at most one per
+    /// Here: two changes in every refresh. The first of the first refresh goes at once (test (10), RESIZE P0 7); from then on
+    /// each refresh already sent one, so its changes wait and only the newest goes at the next refresh: at most one per
     /// refresh, and the late timers send nothing more.
     @Test func whileFramesRunEachWindowEndsAtTheNextRefresh() async throws {
         let rig = Rig(ticking: true)
         let ticks = try #require(rig.ticks)
-        var newest: [TerminalGridSize] = []
+        var newest: [TerminalGridSize] = [Self.grid(102)]
         // No await between the refreshes: the timers' tasks get no turn, as on a busy main thread.
         for refresh in 1...4 {
             rig.coalescer.viewSized(Self.grid(100 + 2 * refresh))
@@ -279,32 +280,34 @@ struct TerminalGridReportCoalescerTests {
             #expect(rig.sent.grids == newest, "refresh \(refresh) did not send its newest grid: \(rig.sent.grids)")
             #expect(!rig.coalescer.isWaiting, "a grid still waits after refresh \(refresh)")
         }
-        #expect(rig.sent.times == (1...4).map { Self.frame * $0 }, "the grids did not go at their refreshes: \(rig.sent.times)")
-        #expect(ticks.ticked.isEmpty, "a closed window is still ticked")
+        #expect(rig.sent.times == (0...4).map { Self.frame * $0 }, "the grids did not go at their refreshes: \(rig.sent.times)")
 
-        // A refresh with no change sends nothing, and the late timers send nothing.
+        // A refresh with no change sends nothing and ends the ticks, and the late timers send nothing.
         ticks.refresh()
+        #expect(ticks.ticked.isEmpty, "a quiet coalescer is still ticked")
         rig.clock.advance(by: .milliseconds(100))
         await rig.drain()
         ticks.refresh()
         #expect(rig.sent.grids == newest, "a refresh with no change or a late timer sent again: \(rig.sent.grids)")
     }
 
-    /// (8) No refresh comes (no frames run, or a test steps frames by hand): the timer ends the window, and the grid goes
-    /// once. A refresh that comes after the timer sends nothing more.
+    /// (8) No refresh comes (no frames run, or a test steps frames by hand): after the grid that went at once (test (10)),
+    /// the timer ends the next window, and its grid goes once. A refresh that comes after the timer sends nothing more.
     @Test func withNoRefreshTheTimerEndsTheWindowAndTheGridGoesOnce() async throws {
         let rig = Rig(ticking: true)
         let ticks = try #require(rig.ticks)
+        let first = Self.grid(99)
+        rig.coalescer.viewSized(first)
         let a = Self.grid(100)
         rig.coalescer.viewSized(a)
         try await rig.clock.waitForSleeper()
         rig.clock.advance(by: .milliseconds(25))
         await rig.settle()
-        #expect(rig.sent.grids == [a], "the timer did not end a window no refresh reached")
-        #expect(rig.sent.times == [.milliseconds(25)])
+        #expect(rig.sent.grids == [first, a], "the timer did not end a window no refresh reached")
+        #expect(rig.sent.times == [.zero, .milliseconds(25)])
         ticks.refresh()
         await rig.drain()
-        #expect(rig.sent.grids == [a], "a refresh after the timer sent the grid twice")
+        #expect(rig.sent.grids == [first, a], "a refresh after the timer sent the grid twice")
         #expect(ticks.ticked.isEmpty)
     }
 
@@ -313,17 +316,19 @@ struct TerminalGridReportCoalescerTests {
     @Test func aRefreshAndTheTimerForOneWindowSendItsGridOnce() async throws {
         let rig = Rig(ticking: true)
         let ticks = try #require(rig.ticks)
+        let first = Self.grid(99)
+        rig.coalescer.viewSized(first) // goes at once (test (10)): the next grid waits in a window
         let a = Self.grid(100)
         rig.coalescer.viewSized(a)
         try await rig.clock.waitForSleeper()
         // The clock passes the deadline: the timer's task is released but has not run yet; the refresh comes first.
         rig.clock.advance(by: .milliseconds(25))
         ticks.refresh()
-        #expect(rig.sent.grids == [a])
+        #expect(rig.sent.grids == [first, a])
         await rig.drain()
-        #expect(rig.sent.grids == [a], "the timer sent the grid the refresh already sent")
+        #expect(rig.sent.grids == [first, a], "the timer sent the grid the refresh already sent")
 
-        // The next window: the timer first, then the refresh.
+        // The next window (that refresh sent a, so b waits): the timer first, then the refresh.
         let b = Self.grid(110)
         rig.coalescer.viewSized(b)
         try await rig.clock.waitForSleeper()
@@ -331,7 +336,7 @@ struct TerminalGridReportCoalescerTests {
         await rig.settle()
         ticks.refresh()
         await rig.drain()
-        #expect(rig.sent.grids == [a, b], "a window sent its grid twice or not at all: \(rig.sent.grids)")
+        #expect(rig.sent.grids == [first, a, b], "a window sent its grid twice or not at all: \(rig.sent.grids)")
     }
 
     /// (10) RESIZE P0 7 (cause T): while frames run, the grid of a size that just landed goes to the PTY in the landing's own

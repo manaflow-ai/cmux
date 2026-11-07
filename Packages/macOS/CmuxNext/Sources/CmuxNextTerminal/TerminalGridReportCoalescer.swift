@@ -11,13 +11,20 @@ import CmuxNextWakeups
 /// and one grid per 25 ms window (4 refreshes) left the program's own drawing 40-80 pt off its pane edge (the m20
 /// judge allows 2 refreshes and one cell; px-keys-held-2-s1r x1, P0 runner 2b757265: 63 frames).
 ///
-/// - A new grid while nothing waits opens a window; it is not sent at once.
+/// - While frames run (the view's window has a presenter, ``TerminalGridReportTicks``), the first new grid after a
+///   refresh goes at once, in the turn that showed its size (RESIZE P0 7, cause T): a key spring lands one size per
+///   refresh at the end of its turn, and a grid that waited for the next refresh made the program's redraw race the next
+///   draw-ahead render, so it showed 3 refreshes after its pane (m20 allows 2; px-keys-held-2-s1r x1, fd7a1664 on cmux21
+///   1x: 46 terminal frames, every PTY grid 3-6 ms after the trace sample that showed its width). Chromium's
+///   `RenderWidgetHostImpl::SynchronizeVisualProperties` sends a new size at once and keeps one in flight. A send spends
+///   the refresh (``spent``) until the next one.
+/// - A new grid in a refresh that already sent one, or with no frames running, opens a window; it is not sent at once.
 /// - Each later grid inside that window replaces the waiting one (no timer work: a compare and a store).
-/// - The window ends at the next display refresh of the view's window (its frame ticks, ``TerminalGridReportTicks``),
-///   or when its ``DemandTimer`` fires after ``interval``, whichever comes first: the newest waiting grid is sent
-///   once. The next change opens a new window. The refresh is the clock that runs while frames run (a timer task
-///   can come late on a loaded main thread: 124 ms for a 25 ms window, diag bf2b674a); the timer ends a window no
-///   refresh reaches (no frames run, a test that steps frames by hand).
+/// - The window ends at the next display refresh of the view's window (its frame ticks), or when its ``DemandTimer``
+///   fires after ``interval``, whichever comes first: the newest waiting grid is sent once, and spends that refresh.
+///   The next change opens a new window. The refresh is the clock that runs while frames run (a timer task can come
+///   late on a loaded main thread: 124 ms for a 25 ms window, diag bf2b674a); the timer ends a window no refresh
+///   reaches (no frames run, a test that steps frames by hand).
 /// - A grid equal to the last sent grid sends nothing: one that arrives while nothing waits starts no
 ///   window, and a waiting grid that changed back to the last sent grid makes the fire send nothing.
 ///
@@ -49,6 +56,10 @@ final class TerminalGridReportCoalescer {
     /// Whether a window's timer is open (a grid waits).
     var isWaiting: Bool { pending != nil }
 
+    /// A grid went since the last refresh of the view's window (at once, or at that refresh): the next new grid waits for
+    /// the next refresh. Cleared by a refresh that sends nothing.
+    private(set) var spent = false
+
     private let send: @MainActor (TerminalGridSize) -> Void
     private let timer: DemandTimer
     /// The refreshes of the view's window, nil out of a window: an open window ends at the next one.
@@ -79,18 +90,31 @@ final class TerminalGridReportCoalescer {
             return
         }
         guard grid != lastSent else { return }
+        let source = ticks()
+        if let source, !spent {
+            // Frames run and this refresh sent nothing: the grid goes in the turn that showed its size.
+            spent = true
+            deliver(grid)
+            source.tickGridReports(self)
+            return
+        }
         pending = grid
         window &+= 1
         armBackstop()
-        ticks()?.tickGridReports(self)
+        source?.tickGridReports(self)
     }
 
     /// A display refresh of the view's window (``TerminalGridReportTicks``): the open window ends now and its newest grid
-    /// goes. Returns whether a window is still open (never: the source stops ticking it).
+    /// goes, which spends this refresh; with nothing waiting, the refresh is unspent. Returns whether to tick it at the next
+    /// refresh (while a grid went in this one).
     func frameTicked() -> Bool { // perf-hot: 1ms motion-frame
-        guard pending != nil else { return false }
+        guard pending != nil else {
+            spent = false
+            return false
+        }
         windowEnded(window)
-        return false
+        spent = true
+        return true
     }
 
     /// Sends the waiting grid now (unless it is the last sent grid) and closes the window. Nothing waits:
