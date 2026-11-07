@@ -105,9 +105,6 @@ final class HomeConversationPage: NSView {
         if page.hasPainted { focus() } else { page.whenPainted(focus) }
     }
 
-    /// The person opened this conversation from Home (a click, Return, a switch key): its message box takes the keyboard.
-    func takeKeyboardOnOpen() { focusPrimaryInput() }
-
     /// The tab closed: the page's document ends.
     func close() {
         chief.close()

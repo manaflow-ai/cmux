@@ -282,13 +282,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The blank page's first send (what the native New Message sent first): makes the DM or group with the
     /// recipients and posts `text` there. Addresses only: the email-link start carries the text.
     private func start(_ fields: [String: JSONValue], home: HomeService) async -> HomeComposeOutcome {
-        let contacts = home.contacts()
-        let recipients: [HomeRecipient] = (fields["recipients"]?.arrayValue ?? []).compactMap { entry in
-            if let id = entry["contact"]?.stringValue, !id.isEmpty {
-                return .contact(contacts.first { $0.id.rawValue == id } ?? HomeContact(id: ParticipantID(id), name: id, source: .team))
-            }
-            return entry["address"]?.stringValue.flatMap { ContactAddress.parse($0) }.map(HomeRecipient.address)
-        }
+        let recipients = HomeRecipient.page(fields["recipients"], contacts: home.contacts())
         guard !recipients.isEmpty else { return .refused("") }
         let text = (fields["text"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let parts: [MessagePart] = text.isEmpty ? [] : [.text(text)]
@@ -306,17 +300,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The deleted conversations changed: the page's list reads them again.
     func publishHidden() { hiddenStream.publish(hidden().pageHidden) }
 
-    private func appearance() -> JSONValue {
-        guard let home = services?.home else { return .null }
-        let design = DesignSettings.shared
-        let colors = home.chatColors.chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }
-        return .object([
-            "look": .string("imessage"),
-            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
-            "defaults": HomeChatColorStore.colors(fromHexes: design.homeBubbleColors).pageJSON,
-            "colors": .object(colors),
-        ])
-    }
+    private func appearance() -> JSONValue { services?.home.chatColors.pageAppearance(.shared) ?? .null }
 
     /// What the header's toggles read: the page's window and its open conversation's Chief.
     private func panelContext(_ services: AppServices) -> HomeHeaderPanelContext {

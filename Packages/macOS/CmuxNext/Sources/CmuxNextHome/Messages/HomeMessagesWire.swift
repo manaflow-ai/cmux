@@ -1,9 +1,9 @@
 public import CmuxHomeCore
 public import CmuxHomeRender
+public import CmuxNextDesign
 public import CmuxNextHomeModel
 public import CmuxNextSettings
 import AppKit
-import CmuxNextDesign
 import MessagesLabHome
 
 // The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
@@ -183,5 +183,29 @@ extension [ConversationID: Seq] {
     /// `{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq.
     public var pageHidden: JSONValue {
         .object(["hidden": .object(reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
+    }
+}
+
+extension HomeChatColorStore {
+    /// The `appearance` stream: the bubble look, the default colours and each chat's own.
+    public func pageAppearance(_ design: DesignSettings) -> JSONValue {
+        .object([
+            "look": .string("imessage"),
+            "chiefLook": .string(design.homeChiefBubblesThemed ? "theme" : "imessage"),
+            "defaults": Self.colors(fromHexes: design.homeBubbleColors).pageJSON,
+            "colors": .object(chats.reduce(into: [String: JSONValue]()) { $0[$1.key] = $1.value.pageJSON }),
+        ])
+    }
+}
+
+extension HomeRecipient {
+    /// New Message's recipients as the page sends them (`start {recipients: [{contact} | {address}]}`).
+    public static func page(_ entries: JSONValue?, contacts: [HomeContact]) -> [HomeRecipient] {
+        (entries?.arrayValue ?? []).compactMap { entry in
+            if let id = entry["contact"]?.stringValue, !id.isEmpty {
+                return .contact(contacts.first { $0.id.rawValue == id } ?? HomeContact(id: ParticipantID(id), name: id, source: .team))
+            }
+            return entry["address"]?.stringValue.flatMap { ContactAddress.parse($0) }.map(HomeRecipient.address)
+        }
     }
 }
