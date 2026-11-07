@@ -416,10 +416,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
 
     // The waiting prompt runs there, once.
     let deadline = Instant::now() + Duration::from_secs(60);
-    let events = loop {
+    loop {
         let events = journal(&b2, &id);
         if events.iter().any(|e| says(e, "echo: second")) {
-            break events;
+            break;
         }
         if Instant::now() >= deadline {
             let copy = ca.call("_acpmux/peer_snapshot", json!({"sessionId": "b/moved"})).await;
@@ -440,7 +440,7 @@ async fn move_to_a_fresh_machine(fault: Fault) {
             );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
-    };
+    }
     let raced = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
     assert!(raced.get("error").is_none(), "the racer was refused: {raced}");
     if let Some(local) = local {
