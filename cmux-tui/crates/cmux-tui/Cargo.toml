@@ -68,8 +68,11 @@ tempfile = "3"
 cmux-json.workspace = true
 cmux-cloud-client.workspace = true
 cmux-cloud-environment.workspace = true
+cmux-cloud-wire.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# The daemon client every SDK user shares (cli/chief/link.rs talks through it).
+cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
@@ -186,6 +189,8 @@ serde_json.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true
+# Paused-clock tests of the Cloud dial's handshake wait.
+tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 

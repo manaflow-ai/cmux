@@ -178,6 +178,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
+mod bookmarks_routed;
 mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
@@ -2745,6 +2746,7 @@ mod listen;
 pub use listen::{
     BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    verify_session_socket_directory,
 };
 mod restoring;
 mod terminal_sessions;

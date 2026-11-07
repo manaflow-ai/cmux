@@ -571,7 +571,8 @@ fn run<H: Http>(
         return log("relay: no relay URL for this machine");
     };
     let mut platform = Platform { client, url, runner, now_wall_ms };
-    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, detached);
+    let network = cmux_server::cloud_http::network_watch();
+    relay_loop(&rt, &mut platform, log, &mut stop, &mut resumes, &network, detached);
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
 
@@ -582,6 +583,7 @@ fn relay_loop(
     log: fn(&str),
     stop: &mut watch::Receiver<bool>,
     resumes: &mut watch::Receiver<u64>,
+    network: &watch::Receiver<u64>,
     detached: Arc<AtomicBool>,
 ) {
     let mut backoff = Duration::from_secs(1);
@@ -595,6 +597,7 @@ fn relay_loop(
             seen = *resumes.borrow();
             dial.reset_transport();
         }
+        let changes = *network.borrow();
         let Some(outcome) = dial.serve(rt, stop, &mut link, resumes, seen) else { break };
         match outcome {
             Ok(Ended::Resumed) => {
@@ -610,6 +613,12 @@ fn relay_loop(
                 if e != last_error {
                     log(&format!("relay: {e}"));
                     last_error = e;
+                }
+                // The machine's addresses changed during the attempt (a fresh machine's network attach lands about
+                // a second after its bind) and failed it: the next one goes at once, on a fresh connection.
+                if *network.borrow() != changes {
+                    backoff = Duration::from_secs(1);
+                    continue;
                 }
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
