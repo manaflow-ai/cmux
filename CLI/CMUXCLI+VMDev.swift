@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// `cmux vm dev`: one command from a local folder to a running dev layout on a
@@ -56,7 +57,7 @@ extension CMUXCLI {
                                \(openFocusDefaultHelp)
           --dry-run            Print the plan (detection, remote path, layout) without touching anything.
           --json               {machine, workspace_id, local_workspace_id, workspace_name, existing, local,
-                                remote, synced, command, port, url, terminals: {dev, shell}, layout_applied, opened}
+                                remote, synced, command, recipe, port, url, terminals: {dev, shell}, layout_applied, opened}
 
         Examples:
           cmux vm dev brave-otter                      # this folder → brave-otter, layout opened here
@@ -80,6 +81,77 @@ extension CMUXCLI {
         let detail: String
 
         static let unrecognized = VMDevDetection(kind: "none", command: nil, port: nil, detail: "no package.json, Cargo.toml, go.mod, Makefile dev target, manage.py, pyproject.toml, requirements.txt, or index.html here")
+    }
+
+    /// A checked-in `.cmux/cloud.json` recipe. Values are intentionally plain
+    /// commands and named ports; secrets stay in `cmux vm env`.
+    struct VMDevRecipe: Equatable {
+        let setup: [String]
+        let checks: [String]
+        let lockHash: String?
+        let source: String
+    }
+
+    static func vmDevRecipe(in directory: URL) -> VMDevRecipe? {
+        let url = directory.appendingPathComponent(".cmux/cloud.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let setup = object["setup"] as? [String],
+              setup.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return nil }
+        let checks = (object["checks"] as? [String]) ?? []
+        // Include every supported lockfile in the digest. A changed lockfile
+        // therefore invalidates the materialized setup on the next `vm dev`.
+        let lockfiles = ["bun.lock", "bun.lockb", "pnpm-lock.yaml", "yarn.lock", "package-lock.json", "uv.lock", "poetry.lock", "Cargo.lock", "go.sum"]
+        var digestInput = Data("cmux-cloud-recipe-v1\0".utf8)
+        for command in setup {
+            digestInput.append(Data(command.utf8)); digestInput.append(0)
+        }
+        for check in checks {
+            digestInput.append(Data("check\0".utf8)); digestInput.append(Data(check.utf8)); digestInput.append(0)
+        }
+        for name in lockfiles {
+            let lock = directory.appendingPathComponent(name)
+            guard let bytes = try? Data(contentsOf: lock) else { continue }
+            digestInput.append(Data(name.utf8)); digestInput.append(0); digestInput.append(bytes); digestInput.append(0)
+        }
+        let hash = SHA256.hash(data: digestInput).map { String(format: "%02x", $0) }.joined()
+        return VMDevRecipe(setup: setup, checks: checks, lockHash: hash, source: ".cmux/cloud.json")
+    }
+
+    static func vmDevSetupCommand(_ recipe: VMDevRecipe, remote: String) -> String {
+        guard let hash = recipe.lockHash else { return ":" }
+        // The same recipe can be used by two checkouts on one machine. Include
+        // the remote project path in the cache scope so an install for one
+        // checkout never suppresses setup for another.
+        let scope = SHA256.hash(data: Data("\(remote)\0\(hash)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let root = "$HOME/.cache/cmux/setup/\(scope)"
+        let marker = "\(root)/ready"
+        let lock = "\(root)/lock"
+        let setup = recipe.setup
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { "(\($0))" }
+            .joined(separator: " && ")
+        let run = setup.isEmpty ? ":" : setup
+        let checksRun = recipe.checks
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { "(\($0))" }
+            .joined(separator: " && ")
+        let verify = checksRun.isEmpty ? ":" : checksRun
+        // `flock` is provided by util-linux in every devbox image. Holding the
+        // descriptor for the whole check/install/marker transaction means a
+        // killed owner cannot leave a stale directory that blocks future runs;
+        // the marker is checked again after lock acquisition so a waiter never
+        // replays a recipe that another owner completed while it was waiting.
+        // Run the complete check/install/marker transaction as the lock child so
+        // concurrent dev invocations serialize and killed owners are reclaimed
+        // by the kernel. Use pathname mode: `flock 9 ... 9>lock` treats `9` as
+        // a pathname on util-linux when a command follows it, rather than as
+        // the descriptor we intended. The body is single-quoted for `/bin/sh
+        // -c`; escape any recipe quotes without changing their meaning inside
+        // the nested shell.
+        let body = "if [ -f \"\(marker)\" ]; then :; else \(run) && \(verify) && : > \"\(marker)\"; fi"
+        let quotedBody = "'" + body.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return "mkdir -p \"\(root)\" && flock \"\(lock)\" /bin/sh -c \(quotedBody)"
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
@@ -448,7 +520,16 @@ extension CMUXCLI {
         let remote = options.remote ?? "work/\(basename)"
 
         let detection = Self.detectVMDevProject(in: localURL)
-        let command = options.command ?? detection.command
+        let recipe = Self.vmDevRecipe(in: localURL)
+        let detectedCommand = options.command ?? detection.command
+        let command: String?
+        if let recipe, let detectedCommand {
+            command = "\(Self.vmDevSetupCommand(recipe, remote: remote)) && \(detectedCommand)"
+        } else if let recipe {
+            command = Self.vmDevSetupCommand(recipe, remote: remote)
+        } else {
+            command = detectedCommand
+        }
         let port: Int?
         if let explicit = options.port {
             port = explicit
@@ -499,6 +580,7 @@ extension CMUXCLI {
                     "open": !options.noOpen,
                     "detected": ["kind": detection.kind, "detail": detection.detail],
                     "command": Self.vmDevJSON(command),
+                    "recipe": Self.vmDevJSON(recipe.map { ["source": $0.source, "setup": $0.setup, "checks": $0.checks, "lock_hash": Self.vmDevJSON($0.lockHash)] }),
                     "port": Self.vmDevJSON(port),
                     "layout": Self.vmDevJSON(documentObject),
                 ]
@@ -664,6 +746,7 @@ extension CMUXCLI {
                 "synced": sync,
                 "detected": ["kind": detection.kind, "detail": detection.detail],
                 "command": Self.vmDevJSON(command),
+                "recipe": Self.vmDevJSON(recipe.map { ["source": $0.source, "setup": $0.setup, "checks": $0.checks, "lock_hash": Self.vmDevJSON($0.lockHash)] }),
                 "port": Self.vmDevJSON(port),
                 "url": Self.vmDevJSON(publicURL),
                 "terminals": ["dev": Self.vmDevJSON(terminals["dev"]), "shell": Self.vmDevJSON(terminals["shell"])],
