@@ -91,6 +91,43 @@ impl Hub {
         self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
     }
 
+    /// A chat of `harness` reported its model choices (`listed`, from the CLI that runs it).
+    /// When they name a model its live list lacks, the CLI changed under an unchanged program:
+    /// a Codex update behind a launcher or wrapper script (`codex.js`, whose size and npm
+    /// mtime stay the same, or a `cmux-codex` that execs it), which keeps the cache key, or a
+    /// new server catalog. The list is probed again in the background, once per distinct report,
+    /// so a stale list (GPT-6.1 Sol under Legacy beside GPT-5.6 as current, #38044) lasts
+    /// until the next Codex chat starts, not until the daemon restarts.
+    pub(super) fn recheck_live_models(&self, harness: &str, listed: &[(String, String)]) {
+        let Some(live) = self.live_models_for(harness) else { return };
+        let mut report: Vec<String> = listed
+            .iter()
+            .map(|(id, _)| id.clone())
+            .filter(|id| id != "default")
+            .collect();
+        if !report.iter().any(|id| !live.iter().any(|m| &m.id == id)) {
+            return;
+        }
+        report.sort();
+        report.dedup();
+        {
+            let mut seen = self.live_rechecks.lock().unwrap_or_else(PoisonError::into_inner);
+            if seen.get(harness) == Some(&report) {
+                return;
+            }
+            seen.insert(harness.to_owned(), report);
+        }
+        let (Some(hub), Ok(runtime)) = (
+            self.hub_ref.get().and_then(std::sync::Weak::upgrade),
+            tokio::runtime::Handle::try_current(),
+        ) else {
+            return;
+        };
+        tracing::info!(agent = %harness, "a chat lists models the live list lacks; probing again");
+        let only = std::collections::BTreeSet::from([harness.to_owned()]);
+        runtime.spawn(async move { hub.probe_live_models(false, Some(only)).await });
+    }
+
     /// Serves the cached lists whose programs are unchanged. Daemon start,
     /// before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {

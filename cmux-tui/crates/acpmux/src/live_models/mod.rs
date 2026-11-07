@@ -59,6 +59,10 @@ pub struct LiveModel {
     /// The CLI's default model.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_default: bool,
+    /// The model the CLI's own catalog moves this one to (Codex's `upgrade`): set, the model is
+    /// a legacy one, listed but not among the harness's current models (`topModels`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<String>,
 }
 
 /// Which CLI a harness's live list comes from.
