@@ -511,7 +511,7 @@ fn a_page_continues_a_copy_only_where_it_joins_it() {
     let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
     assert_eq!((ahead.len(), ahead[0].2, back), (1, 9, vec![10, 11, 12]));
     // The peer refused them (another history): the copy goes, and its next page starts one.
-    store.take(Op::Restored { key: key("m1"), last: None });
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: None });
     put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
     assert_eq!(seqs(&mut store, "m1"), vec![8, 9]);
 }
@@ -618,14 +618,19 @@ fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_ba
     assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
     assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)])[0].3.len(), 3);
     // Taken back, the peer's journal ends where the copy does, and its pages join it.
-    store.take(Op::Restored { key: key("m1"), last: Some(3) });
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: Some(3) });
     put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
     assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
     // A peer that refuses them is another history: the copy goes, and its pages start one.
     let mut empty = attach(7, 3, false, vec![]);
     empty.host_last_seq = Some(0);
     put(&mut store, "m1", empty);
-    store.take(Op::Restored { key: key("m1"), last: None });
+    // A refusal on the link before, or of another generation, proves nothing of this one: the
+    // copy stays (review of #37284 at af36583c, F1).
+    store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: None });
+    store.take(Op::Restored { key: key("m1"), link: (1, 3), generation: 6, last: None });
+    assert_eq!(seqs(&mut store, "m1"), (1..=5).collect::<Vec<_>>());
+    store.take(Op::Restored { key: key("m1"), link: (1, 3), generation: 7, last: None });
     assert!(seqs(&mut store, "m1").is_empty());
     put(&mut store, "m1", attach(7, 3, true, recs(4..=5)));
     assert_eq!(seqs(&mut store, "m1"), vec![4, 5]);

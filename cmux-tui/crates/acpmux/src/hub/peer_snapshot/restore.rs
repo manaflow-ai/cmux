@@ -165,9 +165,11 @@ impl PeerSnapshots {
         blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
     }
 
-    fn restored(&self, (peer, mux): (&str, &str), last: Option<u64>) {
+    fn restored(&self, (peer, mux): (&str, &str), at: (Link, u64), last: Option<u64>) {
         let key = (peer.to_owned(), mux.to_owned());
-        self.admit(peer, OP_BYTES + mux.len() as u64, false, || Op::Restored { key, last });
+        let (link, generation) = at;
+        let op = || Op::Restored { key, link, generation, last };
+        self.admit(peer, OP_BYTES + mux.len() as u64, false, op);
     }
 
     /// Prompts to `peer`'s session `session` wait here until its link's restores are decided,
@@ -244,12 +246,17 @@ impl Hub {
         };
         let (hub, peer) = (self.clone(), peer.to_owned());
         tokio::spawn(async move {
+            // Every step goes only on the link it started on: a task whose link was replaced
+            // stops where it is, touching no copy, deciding nothing and delivering nothing again
+            // (the new link's own task does all of it). An answer counts only when the link is
+            // still this one once it is in.
+            let on_link = || hub.peer(&peer).filter(|p| (p.generation, p.link_epoch()) == link);
             // Read again on the way while the read fails, at most [`READ_WAITS`] (15.5 s and
             // the reads' own [`ANSWER_WITHIN`]); never read is every session held.
             let mut ahead = None;
             for wait in std::iter::once(Duration::ZERO).chain(READ_WAITS) {
                 tokio::time::sleep(wait).await;
-                if hub.peer(&peer).is_none_or(|p| (p.generation, p.link_epoch()) != link) {
+                if on_link().is_none() {
                     return;
                 }
                 let (h, p, rows) = (hub.clone(), peer.clone(), rows.clone());
@@ -257,6 +264,9 @@ impl Hub {
                     .await
                     .ok()
                     .flatten();
+                if on_link().is_none() {
+                    return;
+                }
                 if ahead.is_some() {
                     break;
                 }
@@ -279,10 +289,12 @@ impl Hub {
                                     "afterSeq": after, "records": records});
                 let mut done = false;
                 for wait in RETRY_WAITS {
-                    let Some(to) = hub.peer(&peer).filter(|p| p.generation == generation) else {
-                        break;
-                    };
-                    match to.request("_acpmux/journal_restore", params.clone()).await {
+                    let Some(to) = on_link() else { return };
+                    let answer = to.request("_acpmux/journal_restore", params.clone()).await;
+                    if on_link().is_none() {
+                        return;
+                    }
+                    match answer {
                         // Taken back whole: the peer's journal ends at or past the copy's last.
                         Ok(answer)
                             if answer
@@ -292,13 +304,13 @@ impl Hub {
                         {
                             let last = answer.get("lastSeq").and_then(Value::as_u64);
                             tracing::info!(peer, session = %mux, after, ?last, "journal restored");
-                            hub.peer_snapshots.restored((&peer, &mux), last);
+                            hub.peer_snapshots.restored((&peer, &mux), (link, created_at), last);
                             done = true;
                             break;
                         }
                         Err(e) if refused(&e) => {
                             tracing::info!(peer, session = %mux, "journal restore refused: {}", e.message);
-                            hub.peer_snapshots.restored((&peer, &mux), None);
+                            hub.peer_snapshots.restored((&peer, &mux), (link, created_at), None);
                             done = true;
                             break;
                         }
@@ -319,6 +331,9 @@ impl Hub {
             }
             // A copy not taken back whole holds its session's prompts, and every delivery to the
             // peer, until a later link decides again.
+            if on_link().is_none() {
+                return;
+            }
             let clear = held.is_empty();
             hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: Some(held) });
             if clear {

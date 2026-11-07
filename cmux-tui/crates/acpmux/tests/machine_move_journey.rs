@@ -235,7 +235,10 @@ fn says(e: &Value, text: &str) -> bool {
 
 /// The prompts a move with `fault` sends, each of which runs exactly once.
 fn prompts(fault: Fault) -> Vec<&'static str> {
-    let mut all = vec!["p0", "p1", "p2", "p-race"];
+    let mut all = vec!["p0", "p1", "p2"];
+    if fault != Fault::StaleTry {
+        all.push("p-race");
+    }
     if fault == Fault::LocalPrompt {
         all.push("p-local");
     }
@@ -260,6 +263,9 @@ enum Fault {
     ReadsFailTwice,
     /// The Mac cannot read its copies at all.
     ReadsFail,
+    /// The fresh machine's first try stops short, and before the Mac tries again its link goes
+    /// to another machine on an even older disk, whose own restore reads slowly.
+    StaleTry,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -287,6 +293,14 @@ async fn a_prompt_during_a_restore_waits_and_runs_once_after_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_copy_read_that_fails_holds_everything_until_it_reads() {
     move_to_a_fresh_machine(Fault::ReadsFailTwice).await;
+}
+
+/// Review of #37284 at af36583c, F1: a restore task whose link was replaced (by a machine on an
+/// older disk still) stops; it never sends its old `afterSeq` there and deletes the Mac's copy
+/// on the `diverged` answer. The new link's restore gives that machine every record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_whose_link_was_replaced_leaves_the_copy_to_the_new_link() {
+    move_to_a_fresh_machine(Fault::StaleTry).await;
 }
 
 /// The Mac never can: a prompt to the machine fails visibly, and nothing is delivered again.
@@ -319,8 +333,14 @@ async fn move_to_a_fresh_machine(fault: Fault) {
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
                      "_meta": {"acpmux": {"name": "moved"}}});
     let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
-    if fail_midway {
+    if fail_midway || fault == Fault::StaleTry {
         acpmux::hub::journal_restore::fail_once_after_first_record(&id);
+    }
+    // The disk before any turn, for a machine older still (`Fault::StaleTry`).
+    let first_snapshot = home.path().join("b-snapshot-0");
+    if fault == Fault::StaleTry {
+        b.flush();
+        copy_dir(&b_disk, &first_snapshot);
     }
 
     // A, the person's Mac, keeps its copies on disk and has the chat open.
@@ -356,9 +376,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
     b2.resume_queues();
     // A prompt sent the moment the fresh machine's link reads ready races its restore: it waits
     // for the restore's decision, so it never takes the seqs the restored records need.
-    let racer = {
-        let (a, mut cr) = (a.clone(), client(a.clone()).await);
+    let racer = (fault != Fault::StaleTry).then(|| {
+        let a = a.clone();
         tokio::spawn(async move {
+            let mut cr = client(a.clone()).await;
             let deadline = Instant::now() + Duration::from_secs(30);
             // The old machine's link goes first, then the fresh one's comes up.
             while a.peers()[0]["connected"] == true {
@@ -373,7 +394,7 @@ async fn move_to_a_fresh_machine(fault: Fault) {
                               "_meta": {"acpmux": {"promptId": "p-race"}}});
             cr.raw(method::SESSION_PROMPT, race).await
         })
-    };
+    });
     match fault {
         Fault::ReadsFailTwice => acpmux::hub::peer_snapshot_reads_fail("b", 2),
         Fault::ReadsFail => acpmux::hub::peer_snapshot_reads_fail("b", u32::MAX),
@@ -397,7 +418,28 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         })
     });
     relay.point_at(serve(b2.clone(), &auth).await);
+    let b2 = if fault == Fault::StaleTry {
+        // B2's first try stopped short; while the Mac waits to try again, its link goes to B3,
+        // started from the disk before any turn, whose own restore cannot read the copy at
+        // first (it reads it a few seconds later).
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while acpmux::hub::journal_restore::fail_once_armed() {
+            assert!(Instant::now() < deadline, "B2's restore never stopped short");
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        acpmux::hub::peer_snapshot_reads_fail("b", 4);
+        relay.cut();
+        b2.shutdown_all().await;
+        let b3 =
+            Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &first_snapshot).unwrap());
+        b3.resume_queues();
+        relay.point_at(serve(b3.clone(), &auth).await);
+        b3
+    } else {
+        b2
+    };
     if fault == Fault::ReadsFail {
+        let racer = racer.unwrap();
         // The racer is refused, saying why, and nothing reaches the machine: not it, not the
         // deliveries the old machine had taken.
         let answer = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
@@ -441,8 +483,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    let raced = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
-    assert!(raced.get("error").is_none(), "the racer was refused: {raced}");
+    if let Some(racer) = racer {
+        let raced = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
+        assert!(raced.get("error").is_none(), "the racer was refused: {raced}");
+    }
     if let Some(local) = local {
         tokio::time::timeout(Duration::from_secs(60), local).await.unwrap().unwrap();
     }
@@ -482,8 +526,10 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         assert!(local["seq"].as_u64().unwrap() > restored, "the local prompt went first: {local}");
     }
     // The racer ran after every restored record.
-    let raced = events.iter().find(|e| names_prompt(e, "user_message", "p-race")).unwrap();
-    assert!(raced["seq"].as_u64().unwrap() > restored, "the racer went first: {raced}");
+    if fault != Fault::StaleTry {
+        let raced = events.iter().find(|e| names_prompt(e, "user_message", "p-race")).unwrap();
+        assert!(raced["seq"].as_u64().unwrap() > restored, "the racer went first: {raced}");
+    }
     if fail_midway {
         assert!(!acpmux::hub::journal_restore::fail_once_armed(), "the restore never failed");
     }

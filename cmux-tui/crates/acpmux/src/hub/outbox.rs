@@ -10,7 +10,9 @@
 //! `held` (the runaway guard holds it until the person resumes the pair, `agent_pairs.rs`) or
 //! `failed` (the last error). The record is saved in `outbox.json` beside the sessions on
 //! every change, so a daemon restart goes on with what was not delivered yet; a store in memory
-//! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`].
+//! keeps it in memory. Settled deliveries are kept for [`KEEP_SETTLED_MS`]; one a peer took and
+//! may have lost with its disk (`open_on_peer`) is not settled for that: it is kept while it is
+//! open, at most [`OPEN_ON_PEER_FOR_MS`], and then fails, saying why.
 //!
 //! A change returns once a file that holds it is on disk, unless the write failed: that is
 //! logged and the change is only in memory until a later write succeeds, as before. The file is
@@ -44,6 +46,16 @@ pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 
 /// lost because a machine was off or overloaded for half an hour (Leo, 2026-11-02: "sends
 /// shouldn't time out just bc of load").
 pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
+
+/// How long a delivery a peer took stays open for that peer's journal to show it
+/// (`Delivery::open_on_peer`), from when it was handed over: 30 days, past any machine that is
+/// off for a while. Past it the delivery fails, with [`OPEN_LAPSED`] as its error, so its sender
+/// sees that it may not have run; it is never dropped while open.
+pub const OPEN_ON_PEER_FOR_MS: u64 = 30 * KEEP_SETTLED_MS;
+
+/// The error of a delivery whose peer never showed it within [`OPEN_ON_PEER_FOR_MS`].
+pub const OPEN_LAPSED: &str = "the peer took this message, but its machine lost it with its disk \
+     and did not come back within 30 days to take it again; it may not have run";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +131,19 @@ impl Delivery {
         self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
     }
 
+    /// Open on its peer past [`OPEN_ON_PEER_FOR_MS`].
+    pub fn open_lapsed(&self, now: u64) -> bool {
+        self.open_on_peer && now >= self.created_at.saturating_add(OPEN_ON_PEER_FOR_MS)
+    }
+
+    /// Closes an open delivery that cannot be delivered again (it lapsed, or the peer refused it
+    /// for good): failed, with `error`, never a quiet drop.
+    pub fn fail_open(&mut self, error: String) {
+        self.open_on_peer = false;
+        self.state = State::Failed;
+        self.error = Some(error);
+    }
+
     pub fn settled(&self) -> bool {
         // Projection intents stay in a legacy-terminal state on disk. An older
         // daemon ignores them instead of executing a lookup as a prompt.
@@ -140,8 +165,17 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            // Why it failed, for a program: the target's machine has no such session.
-            "reason": self.no_session().then_some("no_session"),
+            // Why it failed, for a program: the target's machine has no such session, or it
+            // took it and lost it, and did not come back for it.
+            "reason": if self.no_session() {
+                Some("no_session")
+            } else {
+                (self.state == State::Failed && self.error.as_deref() == Some(OPEN_LAPSED))
+                    .then_some("open_lapsed")
+            },
+            // Taken by a peer whose journal has not shown it since: delivered again if its
+            // machine lost it (`server/outbox.rs` `redeliver_open`).
+            "openOnPeer": self.open_on_peer,
         })
     }
 
@@ -195,7 +229,8 @@ impl Outbox {
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
         let mut named = std::collections::HashSet::new();
-        for d in book.deliveries.values_mut().filter(|d| !d.settled()) {
+        // An open delivery's too: a delivery again sends them (`open_on_peer`).
+        for d in book.deliveries.values_mut().filter(|d| !d.settled() || d.open_on_peer) {
             let kept = dir.join(format!("{}.json", d.id));
             if let Some(request) =
                 std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok())
@@ -417,11 +452,18 @@ impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
+        for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
+            tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
+            d.fail_open(OPEN_LAPSED.to_owned());
+            crate::attach::strip(&mut d.request);
+            d.updated_at = now;
+        }
         self.deliveries.retain(|_, d| {
             // Team bodies/receipts live at the hub for seven days; retain their origin
             // for that entire lifetime, including owner sends with no caller session.
             let keep = if d.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
-            !d.settled() || now.saturating_sub(d.updated_at) < keep
+            // Open on its peer is not settled for this: kept until it closes or lapses.
+            !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
         self.changes += 1;
         self.changes
@@ -548,6 +590,23 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and
+    /// its sender's status names the reason.
+    #[test]
+    fn an_open_delivery_past_its_bound_fails_visibly() {
+        let outbox = Outbox::default();
+        let mut d = delivery(1);
+        (d.state, d.open_on_peer) = (State::Delivered, true);
+        d.created_at -= OPEN_ON_PEER_FOR_MS;
+        outbox.add(d);
+        outbox.add(delivery(2));
+        outbox.update("d-2", |d| d.attempts += 1);
+        let lapsed = outbox.get("d-1").expect("an open delivery past its bound went unseen");
+        assert_eq!((lapsed.state, lapsed.open_on_peer), (State::Failed, false));
+        assert_eq!(lapsed.status()["reason"], "open_lapsed");
+        assert!(outbox.open_on_peers().is_empty());
     }
 
     #[test]

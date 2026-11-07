@@ -209,8 +209,13 @@ enum Op {
     },
     /// How the peer took a copy's records back: its journal's new end, or None (refused, the
     /// copy goes).
+    /// The peer's answer to a restore of generation `generation`, on link `link`: taken (its
+    /// journal ends at `last`) or refused (None, and the copy goes), only while `link` is the
+    /// newest the store saw and the copy is still of that generation.
     Restored {
         key: Key,
+        link: Link,
+        generation: u64,
         last: Option<u64>,
     },
 }
@@ -729,7 +734,13 @@ impl Store {
             Op::Ahead { peer, rows, reply } => {
                 let _ = reply.send(self.ahead(&peer, rows));
             }
-            Op::Restored { key, last } => self.restored(&key, last),
+            Op::Restored { key, link, generation, last } => {
+                let same =
+                    self.copies.get(&key).is_some_and(|c| c.head.generation == Some(generation));
+                if same && self.fresh_link(&key.0, link) {
+                    self.restored(&key, last);
+                }
+            }
             Op::Flush { peer, done } => {
                 if done.is_none() {
                     self.dropped.lock().unwrap_or_else(|e| e.into_inner()).flushes.remove(&peer);

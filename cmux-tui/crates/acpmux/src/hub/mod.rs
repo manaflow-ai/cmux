@@ -265,6 +265,8 @@ pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
+#[cfg(test)]
+mod outbox_open_tests;
 pub mod rules;
 pub(crate) mod stop_if_idle;
 #[cfg(test)]

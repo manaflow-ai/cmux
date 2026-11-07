@@ -14,7 +14,7 @@
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
 //! resend of that id joins it instead of running it twice.
 //!
-//! Design (fourth review of #37284): a restore is one exclusive operation on its chat, from
+//! Design (fifth review of #37284): a restore is one exclusive operation on its chat, from
 //! the owner's first try until every record it holds is in and flushed, or the owner gave up.
 //! - Locks, in this order: `close_lock` (as a stop or purge takes it; refused `generation` when
 //!   the chat was purged, replaced under its id, or has another `createdAt`), `turn_lock` (at
@@ -27,6 +27,10 @@
 //!   counts are read back from disk, never counted in memory, so a retry writes no seq twice.
 //!   Short of the last record, or any flush error, answers `append_failed`: the owner keeps its
 //!   copy and tries again. The try that finishes settles the log as a restart's load does.
+//! - On the owner (`peer_snapshot/restore.rs`): every step of a restore, each try and each change
+//!   to its copy, goes only on the link and of the generation it started on; a replaced link's
+//!   task stops and the new link's owns the copy. A delivery the peer took stays open (kept, and
+//!   sent again with its generation) until its journal shows it, or fails visibly after 30 days.
 
 use super::*;
 use std::time::Duration;

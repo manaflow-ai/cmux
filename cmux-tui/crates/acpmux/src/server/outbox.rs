@@ -624,10 +624,13 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     d.peer_generation = generation;
                     d.error = None;
                     d.accepted = Some(accepted);
-                    // Settled: its record keeps no attachment bytes (`attach.rs`).
-                    crate::attach::strip(&mut d.request);
+                    // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
+                    // its peer keeps them until it closes: a delivery again sends them too.
+                    if !open {
+                        crate::attach::strip(&mut d.request);
+                    }
                 });
-                if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                if !open && let Some(path) = hub.outbox.attachments_path(&delivery) {
                     forget_attachments(path).await;
                 }
                 return;
@@ -726,8 +729,10 @@ pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
     let hub = hub.clone();
     tokio::spawn(async move {
         for d in open {
-            if expired(&d, now) {
-                hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+            // Open past its bound: failed, saying so (`hub/outbox.rs` `OPEN_ON_PEER_FOR_MS`).
+            if d.open_lapsed(now) {
+                let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
+                close_open(&hub, &d, |d| d.fail_open(lapsed)).await;
                 continue;
             }
             let mut request = d.request.clone();
@@ -741,24 +746,43 @@ pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
             }
             match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await {
                 Ok(accepted) if duplicate(&accepted) => {
-                    hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+                    close_open(&hub, &d, |d| d.open_on_peer = false).await;
                 }
                 // Taken again: settled, as a first delivery is, and not delivered a third time.
                 Ok(accepted) => {
                     tracing::info!(delivery = %d.id, "a peer that had lost a delivery took it again");
-                    hub.outbox.update(&d.id, |d| {
+                    close_open(&hub, &d, |d| {
                         d.open_on_peer = false;
                         d.accepted = Some(accepted);
-                    });
+                    })
+                    .await;
                 }
-                // Refused for good (the session is gone there): nothing more to keep open.
-                Err((_, Next::Fail | Next::NoSession | Next::Held)) => {
-                    hub.outbox.update(&d.id, |d| d.open_on_peer = false);
+                // Held there for a paused pair: the peer has it.
+                Err((_, Next::Held)) => {
+                    close_open(&hub, &d, |d| d.open_on_peer = false).await;
+                }
+                // Refused for good (the session is gone there, or is another generation of it):
+                // it did not run, and its sender sees why, never a quiet close.
+                Err((error, Next::Fail | Next::NoSession)) => {
+                    tracing::warn!(delivery = %d.id, "a delivery again was refused: {error}");
+                    close_open(&hub, &d, |d| d.fail_open(error)).await;
                 }
                 Err(_) => {}
             }
         }
     });
+}
+
+/// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
+/// the ones kept beside the outbox go.
+async fn close_open(hub: &Arc<Hub>, d: &Delivery, f: impl FnOnce(&mut Delivery)) {
+    hub.outbox.update(&d.id, |d| {
+        f(d);
+        crate::attach::strip(&mut d.request);
+    });
+    if let Some(path) = hub.outbox.attachments_path(d) {
+        forget_attachments(path).await;
+    }
 }
 
 /// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
