@@ -242,7 +242,11 @@ const chipBox = (place: { left: number; top: number }): Rect => ({
   right: place.left + 72,
   bottom: place.top + 28,
 });
-const covers = (place: { left: number; top: number }, rect: Rect) => hit(chipBox(place), rect);
+/// Whether a placed chip covers `rect`; a hidden chip (undefined) fails the test.
+const covers = (place: { left: number; top: number } | undefined, rect: Rect) => {
+  expect(place).toBeDefined();
+  return hit(chipBox(place!), rect);
+};
 
 test("a clear spot over the selection's end keeps the chip there, centred on the end", () => {
   expect(selectionReplyPlace(at(400), SIZE, PANE, probeOf([rest(400)]))).toEqual({ left: 364, top: 166 });
@@ -278,11 +282,11 @@ test("a right-edge end mid-paragraph, no free spot near: over the selection's ow
 test("the chip never leaves the visible transcript: on its first or last line", () => {
   // The last line: inline would end at 225, past the visible foot (226 less its 2 px).
   const last = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 226 }, probeOf([OVER]));
-  expect(last.top + 28).toBeLessThanOrEqual(224);
+  expect(last!.top + 28).toBeLessThanOrEqual(224);
   expect(covers(last, OVER)).toBe(false);
   // The first line: the spot over it is above the visible top (194 plus its 2 px).
   const first = selectionReplyPlace(at(400), SIZE, { width: 1040, height: 700, top: 194 }, probeOf([rest(400), UNDER]));
-  expect(first.top).toBeGreaterThanOrEqual(196);
+  expect(first!.top).toBeGreaterThanOrEqual(196);
   expect(covers(first, UNDER)).toBe(false);
   expect(covers(first, rest(400))).toBe(false);
 });

@@ -68,6 +68,8 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
     page.evaluate(() => {
       const box = (rect: DOMRect) => ({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
       const BLOCK = "p, li, h1, h2, h3, h4, h5, h6, td, th, dd, dt, figcaption, blockquote, .cv-md, [data-row-id]";
+      // raf-read: the reads are layout boxes (getBoundingClientRect forces layout), not painted
+      // pixels; the frames only let React commit the chip's placement (a layout effect, before paint).
       const frame = () => new Promise((done) => requestAnimationFrame(done));
       const chipOf = () => document.querySelector<HTMLElement>(".cv-selection-reply");
       const shown = (chip: HTMLElement | null) =>
