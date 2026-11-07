@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42357220959",
+  "recorded_at": "2026-11-07T09:01:09Z",
+  "reason": "cmux-tui f1e0cec40249 changes the image's cmux-tui (pinned 3ad6baf8ae6e)",
+  "dry_run": false,
+  "cmux_tui": "f1e0cec4024906e4df7675248005ad314bc2002f",
+  "fixes": [
+    {
+      "sha": "f1e0cec4024906e4df7675248005ad314bc2002f",
+      "mergedAt": "2026-11-07T08:37:08Z",
+      "subject": "base red: ghostty-vt reads the prompt redraw's grid without indexing (panic ratchet indexing_slicing 107 > 103, #37461) (#37503)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:01:09Z",
+    "snapshot_id": "sh-a4dae0307351474fa2509737cddbaa10",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42357220959): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b915a88e7486f2b6ee22e2a198750e05153d1905",
+    "image": "cloud-native-auto-f1e0cec4-42357220959-1",
+    "revision": "ci-42357220959-1",
+    "at": "2026-11-07T09:01:09Z"
+  },
+  "rolled_back": false
+}
