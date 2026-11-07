@@ -4,6 +4,7 @@ import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextStash
+import CmuxNextWakeups
 import Foundation
 
 /// The Stashed Tabs page's `cmux.stash.*` (webviews/src/pages/stash). The daemon owns the stashes:
@@ -116,7 +117,7 @@ public final class StashPageProvider: PageProvider {
                 undo.dismiss = dismiss
             }
         } onCancel: {
-            Task { @MainActor in undo.keep() }
+            MainDelivery().run { undo.keep() }
         }
     }
 
