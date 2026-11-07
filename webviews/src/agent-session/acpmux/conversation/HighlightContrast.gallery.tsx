@@ -8,6 +8,7 @@
 // be coverable by other sorts of things ... sometimes there's, like, low contrast on the highlight."
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { assistant, user } from "../../../gallery/fixtures/acpmux";
 import { Tooltip } from "../../../ui/Tooltip";
 import { paintAdaptiveFind, clearAdaptiveFind } from "../../../ui/findPaint";
@@ -90,13 +91,9 @@ function Board({ strategy }: { strategy: Strategy }) {
     // The current match sits in the prompt's bubble, as in the screenshot.
     const current = ranges[1];
     paintAdaptiveFind(doc, "gallery-contrast", CHAT_FIND_COLORS, ranges, current ? [current] : [], [], floors);
-    // The selection: the bubble's words as a person drags across them, fit to the bubble.
+    // The selection's fill for this strategy, fit to the bubble; the variant's play selects the words
+    // after the find field has taken focus (and the selection with it).
     const selected = root.querySelector("[data-board-selected]")!;
-    const range = doc.createRange();
-    range.selectNodeContents(selected);
-    const selection = doc.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
     const base = resolveCssColor(doc, SELECTION_BASE);
     if (base) {
       const surface = surfaceUnder(selected.firstChild);
@@ -111,7 +108,14 @@ function Board({ strategy }: { strategy: Strategy }) {
       ref={board}
       className="acpmux-shell hc-board"
       style={
-        { position: "relative", height: "100%", overflow: "auto", "--hc-selection": selectionFill } as CSSProperties
+        {
+          position: "relative",
+          height: "100%",
+          overflow: "auto",
+          "--hc-selection": selectionFill,
+          // No Session Info beside the chat here (SessionInfo.tsx sets it in the pane).
+          "--acpmux-session-info-clear": "0px",
+        } as CSSProperties
       }
     >
       {/* The board's own selection rule, so a variant shows its strategy whatever the page's fit sets. */}
@@ -169,7 +173,10 @@ function Board({ strategy }: { strategy: Strategy }) {
   );
 }
 
-const variant = (strategy: Strategy, note: string) => ({ note, props: { strategy } });
+const selectBubbleWords = async (ctx: PlayContext) => {
+  await ctx.selectText({ selector: "[data-board-selected]" });
+};
+const variant = (strategy: Strategy, note: string) => ({ note, props: { strategy }, play: selectBubbleWords });
 
 export default componentEntry<{ strategy: Strategy }>({
   id: "agent-pane.highlight-contrast",

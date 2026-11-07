@@ -64,18 +64,18 @@ export function webKitSelectionColor(color: RGBA): RGBA {
   return color;
 }
 
-const score = (fill: RGB, surface: RGB, ink: RGB, floor: HighlightFloor) =>
-  Math.min(contrast(fill, surface) / floor.surface, contrast(ink, fill) / floor.ink);
-
 /** The best of `ink` and the other of black and white for text on `fill`. */
 const readableInk = (fill: RGB): RGB => (contrast(BLACK, fill) >= contrast(WHITE, fill) ? BLACK : WHITE);
 
+/** Room kept for a fainter text's floor: hue and chroma make the ratios multiply only roughly. */
+const INK_SLACK = 1.15;
+
 /**
  * `base` (as it draws over `surface`) fit to the floors: unchanged when it passes, else its OKLCH
- * lightness stepped away from the surface, toward the text, until fill and text both pass. With
- * `freeInk` the text may change too (Find's current match draws its own text color): when no
- * lightness passes with `ink`, the more readable of black and white is tried. Never fails: with no
- * passing step it returns the step closest to passing.
+ * lightness stepped away from the surface (toward the text first, then the other way) until fill
+ * and text both pass. With `freeInk` the text may change too (Find's current match draws its own
+ * text color): the more readable of black and white is tried after it. With no passing step it
+ * returns the step closest to passing, which never trades the text's legibility for the fill's.
  */
 export function fitHighlight(
   base: RGBA,
@@ -87,27 +87,29 @@ export function fitHighlight(
   const start = over(base, surface);
   // Text already fainter than AA on its surface (a muted label) keeps what the fill's step from the
   // surface leaves it: contrast ratios multiply along lightness, so asking more could never pass.
-  const inkFloor = (text: RGB) => Math.min(floor.ink, contrast(text, surface) / floor.surface);
-  const passes = (fill: RGB, text: RGB) =>
-    contrast(fill, surface) >= floor.surface && contrast(text, fill) >= inkFloor(text) - 1e-6;
-  if (passes(start, ink)) return { fill: start, ink };
+  const inkFloor = (text: RGB) => Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
+  const score = (fill: RGB, text: RGB) =>
+    Math.min(contrast(fill, surface) / floor.surface, contrast(text, fill) / inkFloor(text));
+  if (score(start, ink) >= 1) return { fill: start, ink };
   const inks = options.freeInk ? [ink, readableInk(start)] : [ink];
   let best: FitHighlight = { fill: start, ink };
-  let bestScore = score(start, surface, ink, floor);
+  let bestScore = score(start, ink);
   const origin = toOklch(start);
   const surfaceLightness = toOklch(surface).l;
   for (const text of inks) {
-    // Away from the surface: up on a dark one, down on a light one. With the text's own color the
-    // fill moves toward the text, so the scan ends where the text would stop reading.
     const textLightness = toOklch(text).l;
-    const direction = textLightness !== surfaceLightness ? Math.sign(textLightness - surfaceLightness) : 1;
-    for (let l = origin.l; l >= 0 && l <= 1; l += direction * LIGHTNESS_STEP) {
-      const fill = fromOklch({ ...origin, l });
-      if (passes(fill, text)) return { fill, ink: text };
-      const value = score(fill, surface, text, floor);
-      if (value > bestScore) {
-        best = { fill, ink: text };
-        bestScore = value;
+    const toward = textLightness !== surfaceLightness ? Math.sign(textLightness - surfaceLightness) : 1;
+    for (const direction of [toward, -toward]) {
+      for (let l = origin.l; l >= 0 && l <= 1; l += direction * LIGHTNESS_STEP) {
+        const fill = fromOklch({ ...origin, l });
+        const value = score(fill, text);
+        if (value >= 1) return { fill, ink: text };
+        if (value > bestScore) {
+          best = { fill, ink: text };
+          bestScore = value;
+        }
+        // Past the point where the text stops reading on it, no further step helps.
+        if (contrast(text, fill) < inkFloor(text)) break;
       }
     }
   }
@@ -127,7 +129,7 @@ export function fitHighlightOn(
   if (!first) return { fill: over(base, WHITE), ink };
   let worst = first;
   for (const surface of rest)
-    if (score(over(base, surface), surface, ink, floor) < score(over(base, worst), worst, ink, floor)) worst = surface;
+    if (contrast(over(base, surface), surface) < contrast(over(base, worst), worst)) worst = surface;
   return fitHighlight(base, worst, ink, floor, options);
 }
 

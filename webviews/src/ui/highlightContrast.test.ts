@@ -105,3 +105,15 @@ describe("webKitSelectionColor", () => {
       expect(Math.abs(shown[channel] - expected[channel])).toBeLessThan(0.01);
   });
 });
+
+describe("fitHighlight on muted text", () => {
+  // The gallery's tool card: a 40% find tint under gray text on a 4% card went to solid black.
+  test("a match under muted text on a card never turns into a dark slab", () => {
+    const card = over({ ...rgba("#1d1d1f"), a: 0.04 }, page);
+    const muted = hex("#6e6e73");
+    const fit = fitHighlight({ ...rgba("#0a84ff"), a: 0.4 }, card, muted, HIGHLIGHT_FLOORS.findMatch);
+    expect(contrast(fit.fill, card)).toBeGreaterThanOrEqual(HIGHLIGHT_FLOORS.findMatch.surface);
+    expect(contrast(muted, fit.fill)).toBeGreaterThanOrEqual(2.5);
+    expect(toOklch(fit.fill).l).toBeGreaterThan(0.6);
+  });
+});
