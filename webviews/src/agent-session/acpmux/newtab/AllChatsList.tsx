@@ -24,7 +24,16 @@ import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
-import { type AllChatsRow, type LoadChatsPage, CHATS_READ_CEILING_MS, type ChatProject, projectGroups, useChatPages, useChatOpenFeedback, watchable } from "./allChatsListModel";
+import {
+  type AllChatsRow,
+  type LoadChatsPage,
+  CHATS_READ_CEILING_MS,
+  type ChatProject,
+  projectGroups,
+  useChatPages,
+  useChatOpenFeedback,
+  watchable,
+} from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
