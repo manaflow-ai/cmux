@@ -1185,11 +1185,13 @@ const isReceivedLine = (row: AcpmuxRow) => row.kind === "user" && isLineRow(row)
 
 /// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
 /// on the closed fold's line, under the id the step's copy has in the open fold (`FOLDED`), so the
-/// card keeps the step's own id. Undefined when the step only edited.
+/// card keeps the step's own id. It is `partial`: a Find match in the step, which may be in an edit's
+/// diff, opens the fold to the step's whole copy (chatFind.ts isFindRow). Undefined when the step
+/// only edited.
 function lineWork(row: AcpmuxRow): AcpmuxRow | undefined {
   const items = (row.items ?? []).filter((item) => !isEditTool(item.tool));
   const calls = items.filter((item) => item.tool).length;
-  return calls ? { ...row, id: `${row.id}${FOLDED}`, items, toolCount: calls } : undefined;
+  return calls ? { ...row, id: `${row.id}${FOLDED}`, items, toolCount: calls, partial: true } : undefined;
 }
 
 function shapeTurn(
