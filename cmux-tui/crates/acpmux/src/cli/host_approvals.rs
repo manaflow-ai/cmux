@@ -147,7 +147,9 @@ pub(crate) async fn unenroll_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
     // This Mac's phones there go with it: every id under its prefix. Nothing changes until the
     // list is read, so an unenroll never leaves a phone of this Mac allowing there unsaid.
     let listed = match ssh("host approvals") {
-        Ok(r) if r.ok => serde_json::from_str::<Value>(&r.stdout).ok().filter(|v| v.get("macs").is_some_and(Value::is_array)),
+        Ok(r) if r.ok => serde_json::from_str::<Value>(&r.stdout)
+            .ok()
+            .filter(|v| v.get("macs").is_some_and(Value::is_array)),
         _ => None,
     };
     let Some(listed) = listed else {

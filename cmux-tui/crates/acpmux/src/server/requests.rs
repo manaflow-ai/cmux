@@ -1234,7 +1234,8 @@ async fn dispatch_request_with_identity(
             let mut view = hub.person.macs.view(&params);
             if let Some(fields) = view.as_object_mut() {
                 fields.insert("thisMacPhones".into(), json!(hub.person.approvers.peer_entries()));
-                fields.insert("thisMacPhonePrefix".into(), json!(hub.person.approvers.peer_prefix()));
+                fields
+                    .insert("thisMacPhonePrefix".into(), json!(hub.person.approvers.peer_prefix()));
             }
             Ok(view)
         }
