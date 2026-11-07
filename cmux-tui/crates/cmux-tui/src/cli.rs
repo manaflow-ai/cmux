@@ -65,6 +65,8 @@ mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
+#[cfg(unix)]
+mod inference_gateway;
 mod codex_app_server;
 mod command;
 #[cfg(unix)]
@@ -541,6 +543,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
