@@ -1,0 +1,128 @@
+// l10n-allow-file: test fixtures, not shipped UI.
+import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { NEXT_STEP } from "../conversation/turns";
+import type { AcpmuxPermission, AcpmuxRow } from "../model";
+import type { WatchedAsk } from "../needsYou/model";
+import type { AcpmuxSessionEntry } from "../sessionList";
+import { hatQuestions, hatTag, keepShown, liveNextStep, oneClickAnswers, sameHatQuestions } from "./hatModel";
+import { questionFromPermission, type AgentQuestion } from "./model";
+
+const FIXTURES = fileURLToPath(
+  new URL("../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/", import.meta.url),
+);
+const fixture = (name: string): AgentQuestion =>
+  questionFromPermission(JSON.parse(fs.readFileSync(`${FIXTURES}${name}.request.json`, "utf8")))!;
+
+const permission = (question: AgentQuestion, id = question.source.permission ?? "perm-1"): AcpmuxPermission =>
+  ({ permissionId: id, pending: true, options: [], question }) as unknown as AcpmuxPermission;
+
+let seq = 0;
+const row = (kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+  ({ id: `row-${++seq}`, version: 1, at: seq, kind, ...extra }) as AcpmuxRow;
+const tagged = (extra: { answer?: string; superseded?: boolean } = {}) =>
+  row(NEXT_STEP, {
+    nextStep: {
+      ask: {
+        tag: "physical",
+        question: "Can you create that key and run the command?",
+        options: [
+          { label: "Yes", key: "recap.yes" },
+          { label: "Not now", key: "recap.notNow" },
+        ],
+        rest: "",
+      },
+      ...extra,
+    },
+  });
+const said = (text: string) => row("user", { text });
+
+describe("the questions the composer hat holds", () => {
+  test("one click answers a single choice of up to four, and nothing that needs more", () => {
+    expect(oneClickAnswers(fixture("pending-single")).length).toBeGreaterThan(1);
+    expect(oneClickAnswers(fixture("pending-multi"))).toEqual([]);
+    expect(oneClickAnswers(fixture("pending-4-questions"))).toEqual([]);
+    expect(oneClickAnswers(fixture("pending-with-preview"))).toEqual([]);
+  });
+
+  test("the chat's own question comes first, answered here, its header chip read as a tag", () => {
+    const asked = fixture("pending-single");
+    const [own, ...rest] = hatQuestions({
+      sessionId: "chat",
+      permission: permission(asked),
+      rows: [],
+      sessions: [],
+      asks: [],
+    });
+    expect(rest).toEqual([]);
+    expect(own).toMatchObject({ source: "own", prompt: asked.items[0]!.prompt });
+    expect(own!.answers.map((answer) => answer.label)).toEqual(asked.items[0]!.options.map((option) => option.label));
+    expect(hatTag("Physical")).toBe("physical");
+    expect(hatTag("[check in]")).toBe("check-in");
+    expect(hatTag("Auth method")).toBeUndefined();
+  });
+
+  // Leo, 2026-11-07: "what happens if they respond to it in another way, right? ... the question fade
+  // from relevance is a thing that needs to be accounted for".
+  test("a tagged ask leaves the hat once the person says anything after it, or a later card settles it", () => {
+    const ask = tagged();
+    expect(liveNextStep([said("go"), row("assistant"), ask])).toBe(ask);
+    expect(liveNextStep([ask, said("I made the key but on the other account")])).toBeUndefined();
+    expect(liveNextStep([tagged({ answer: "Yes" })])).toBeUndefined();
+    expect(liveNextStep([tagged({ superseded: true })])).toBeUndefined();
+    const [shown] = hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] });
+    expect(shown).toMatchObject({ source: "nextStep", tag: "physical", typed: true });
+    expect(shown!.answers.map((answer) => answer.key)).toEqual(["recap.yes", "recap.notNow"]);
+  });
+
+  test("while the chat's own question waits, no tagged ask shows: a turn is running", () => {
+    const list = hatQuestions({
+      sessionId: "chat",
+      permission: permission(fixture("pending-single")),
+      rows: [tagged()],
+      sessions: [],
+      asks: [],
+    });
+    expect(list.map((question) => question.source)).toEqual(["own"]);
+  });
+
+  test("a started chat's question opens that chat; another chat's never shows", () => {
+    const sessions = [
+      { sessionId: "chat", title: "Coordinator" },
+      { sessionId: "child", title: "Key setup", startedBy: "chat", pendingPermissions: 1 },
+      { sessionId: "stranger", title: "Elsewhere", pendingPermissions: 1 },
+    ] as unknown as AcpmuxSessionEntry[];
+    const asked = (sessionId: string, id: string): WatchedAsk => ({
+      sessionId,
+      permission: permission({ ...fixture("pending-single"), source: { harness: "claude", session: sessionId } }, id),
+      at: 1,
+    });
+    const list = hatQuestions({
+      sessionId: "chat",
+      rows: [],
+      sessions,
+      asks: [asked("child", "perm-child"), asked("stranger", "perm-stranger")],
+    });
+    expect(list.map((question) => [question.source, question.sessionId, question.answers.length])).toEqual([
+      ["child", "child", 0],
+    ]);
+  });
+
+  test("the pager keeps the question shown, else the one that took its place", () => {
+    const q = (id: string) => ({ id }) as never;
+    expect(keepShown([q("a"), q("b"), q("c")], "b", ["a", "b", "c"])).toBe(1);
+    expect(keepShown([q("a"), q("c")], "b", ["a", "b", "c"])).toBe(1);
+    expect(keepShown([q("a"), q("b")], "c", ["a", "b", "c"])).toBe(1);
+    expect(keepShown([q("x")], undefined, [])).toBe(0);
+  });
+
+  test("a list that draws the same keeps its identity, so a streamed chunk never redraws the hat", () => {
+    const ask = tagged();
+    const one = hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] });
+    const two = hatQuestions({ sessionId: "chat", rows: [ask, row("thinking")], sessions: [], asks: [] });
+    expect(one).not.toBe(two);
+    expect(sameHatQuestions(one, two)).toBe(true);
+    expect(sameHatQuestions(one, [])).toBe(false);
+  });
+});

@@ -610,6 +610,9 @@ import { callNative } from "./callNative";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
+import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
+import { hatQuestions, sameHatQuestions, type HatQuestion } from "./question/hatModel";
+import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
 import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
@@ -1033,6 +1036,38 @@ const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_COMMANDS: readonly BackgroundCommand[] = [];
 const NO_AGENTS: readonly Subagent[] = [];
+const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
+
+/// Declines the chat's own waiting question for a reply the person typed instead (the composer's
+/// send). Never rejects: a decline that failed leaves the question waiting, and the reply still goes.
+function withdrawForTypedReply(permission: AcpmuxPermission | undefined): Promise<unknown> {
+  const question = permission?.question;
+  const sent = question && isPending(question) ? declineReply(question) : undefined;
+  return sent ? callNative("chat.permission", replyParams(sent)).catch(() => undefined) : Promise.resolve();
+}
+
+/// What the hat's buttons do (question/HatQuestions.tsx). The chat's own question is answered as its
+/// card answers it; a tagged ask as the person's reply, as its card's buttons send; a started chat's
+/// opens that chat, the only place it can be answered.
+const hatActions = (focusComposer: () => void): HatQuestionActions => ({
+  answer: (question, answer) => {
+    if (question.source === "nextStep") return answerThrough(callNative)(answer.label);
+    const asked = question.question;
+    const item = asked?.items[0];
+    if (question.source !== "own" || !asked || !item) return Promise.reject(new Error("unanswerable"));
+    const sent = questionReply(asked, { selections: { [item.id]: selection([answer.id]) } });
+    return callNative("chat.permission", replyParams(sent));
+  },
+  type: () => focusComposer(),
+  showCard: () => {
+    const card = document.querySelector<HTMLElement>(".acpmux-asks-stack .acpmux-question");
+    card?.scrollIntoView({ block: "nearest" });
+    card?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+  },
+  open: (question) => {
+    if (question.sessionId) void callNative("chat.asks.open", { sessionId: question.sessionId }).catch(() => undefined);
+  },
+});
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
@@ -2626,6 +2661,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hatPlan = sameEntries(hatPlanKept.current, hatPlanSource)
     ? hatPlanKept.current
     : (hatPlanKept.current = hatPlanSource);
+  // The questions waiting on the person, in the composer hat (question/hatModel.ts): this chat's
+  // own, the tagged ask its last turn ended on, and those of the chats it started. The list keeps its
+  // identity while it draws the same, so a streamed chunk never redraws the hat.
+  const hatQuestionsKept = useRef<readonly HatQuestion[]>(NO_HAT_QUESTIONS);
+  const hatQuestionsRead = useMemo(
+    () =>
+      childRows || quick
+        ? NO_HAT_QUESTIONS
+        : hatQuestions({
+            ...(shownSessionId ? { sessionId: shownSessionId } : {}),
+            ...(individualPermission ? { permission: individualPermission } : {}),
+            rows: turnRowsShown,
+            sessions: snapshot.sessions,
+            asks: snapshot.asks ?? [],
+          }),
+    [childRows, quick, shownSessionId, individualPermission, turnRowsShown, snapshot.sessions, snapshot.asks],
+  );
+  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
+    ? hatQuestionsKept.current
+    : (hatQuestionsKept.current = hatQuestionsRead);
+  // A question the hat answers in one click draws there alone: its card under the hat would ask it
+  // twice. One that needs more (several questions, several picks, previews) keeps its card, which
+  // the hat points to.
+  const hatTakesAsk = hatQuestionList.some(
+    (question) =>
+      question.source === "own" &&
+      question.answers.length > 0 &&
+      question.permission?.permissionId === individualPermission?.permissionId,
+  );
+  const cardPermission = hatTakesAsk ? undefined : individualPermission;
+  const hatQuestionActions = useMemo(() => hatActions(() => composerHandle.current?.focus()), []);
   // Without the hat, the earlier list's copy pins under the running turn, over its live line.
   const pinnedEarlier = useMemo<AcpmuxRow | undefined>(
     () =>
@@ -9219,7 +9285,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hasBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     hasPermissionGroups ||
-    individualPermission ||
+    cardPermission ||
     secret ||
     toolCards.length > 0,
   );
@@ -9328,7 +9394,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
-      {(individualPermission || secret || toolCards.length > 0) && (
+      {(cardPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -9339,10 +9405,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ).catch(() => undefined)
             }
           />
-          {individualPermission && (
+          {cardPermission && (
             <PermissionAsk
-              key={individualPermission.permissionId}
-              permission={individualPermission}
+              key={cardPermission.permissionId}
+              permission={cardPermission}
               shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
               waiting={snapshot.permissionsWaiting}
               harness={snapshot.summary?.harness}
@@ -9350,7 +9416,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               focusComposer={() => composerHandle.current?.focus()}
               shownChat={shownChat}
               alwaysAtSource={chatOnPeer(snapshot)}
-              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
+              onDraft={(open) => setDraftAsk(open ? cardPermission : undefined)}
             />
           )}
           {secret && (
@@ -9619,6 +9685,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           running or recently ended subagent, background command and started chat, one card each. */}
         {/* Tucked away (chatDisplay.ts TRAY_TUCKED_KEY), the hat leaves only its pull tab at the
             composer's top middle (subagents/TrayPullTab.tsx). */}
+        {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
+        {hatQuestionList.length > 0 && (
+          <HatQuestions key={shownSessionId} questions={hatQuestionList} actions={hatQuestionActions} />
+        )}
         {trayPlacement === "tray" &&
           (trayTucked && trayNode ? (
             <TrayPullTab
@@ -9776,28 +9846,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 }
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
-                callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }).then(
-                  () => {
-                    rememberStart();
-                    promptLanded.current();
-                  },
-                  (error: unknown) => {
-                    cancelOpenInWindow();
-                    if (keptInChat(error) || isTrustRefusal(error)) return;
-                    // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
-                    if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                    const giveBack = () => (composerHandle.current ?? holder)?.restore(text, attachments);
-                    if (!lostPrompt(error)) return giveBack();
-                    // The connection went before acpmux took it (an acpmux restart or update): the host
-                    // sends it again on the next connection, where the chat shows it. Only one that never
-                    // shows comes back, saying why (lostPrompt.ts).
-                    void resentAfterLoss(error, connectedClients, sentOn).then((shown) => {
-                      if (shown) return promptLanded.current();
-                      giveBack();
-                      directClient.current?.notice(failedSendText(error, false, attachments));
-                    });
-                  },
-                );
+                // A typed reply while the chat's own question waits answers it in the chat: the
+                // question is declined first, so the agent reads the reply instead of waiting on it
+                // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
+                void withdrawForTypedReply(individualPermission)
+                  .then(() => callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }))
+                  .then(
+                    () => {
+                      rememberStart();
+                      promptLanded.current();
+                    },
+                    (error: unknown) => {
+                      cancelOpenInWindow();
+                      if (keptInChat(error) || isTrustRefusal(error)) return;
+                      // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                      if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                      const giveBack = () => (composerHandle.current ?? holder)?.restore(text, attachments);
+                      if (!lostPrompt(error)) return giveBack();
+                      // The connection went before acpmux took it (an acpmux restart or update): the host
+                      // sends it again on the next connection, where the chat shows it. Only one that never
+                      // shows comes back, saying why (lostPrompt.ts).
+                      void resentAfterLoss(error, connectedClients, sentOn).then((shown) => {
+                        if (shown) return promptLanded.current();
+                        giveBack();
+                        directClient.current?.notice(failedSendText(error, false, attachments));
+                      });
+                    },
+                  );
                 return true;
               }
               // A new chat's prompt leaves the composer at once as a queued row, and what is sent

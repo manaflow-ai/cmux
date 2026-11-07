@@ -33,6 +33,8 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   const DECLINED = "0190a000-0000-7000-8000-0000000000d3";
   const LIVE = "0190a000-0000-7000-8000-0000000000d4";
   const LAG = "0190a000-0000-7000-8000-0000000000d5";
+  const IN_CHAT = "0190a000-0000-7000-8000-0000000000d6";
+  const TYPED = "0190a000-0000-7000-8000-0000000000d7";
   const START = Date.now() - 90_000;
   const PROMPT = "Which auth method should the API use?";
   const update = (update: Record<string, unknown>) => ({
@@ -115,6 +117,14 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
       ...ended("I'll pick one myself.", "completed"),
     ]),
     [LIVE]: log(LIVE, asked),
+    [TYPED]: log(TYPED, asked),
+    // The person typed a reply instead of picking: the composer declined the question, then sent it.
+    [IN_CHAT]: log(IN_CHAT, [
+      ...asked,
+      decision({ outcome: "selected", optionId: "reject_once" }),
+      ["mux", "user_message", { text: "Passkeys, and keep API keys for the CLI", steer: true }],
+      ...ended("Passkeys it is, with API keys for the CLI.", "completed"),
+    ]),
     // The ask, its answer and the reply's first words reach the pane only through a resync.
     [LAG]: log(LAG, asked.slice(0, 3)),
   };
@@ -130,12 +140,32 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     title: "Auth",
     harness: "claude",
     family: "claude",
-    status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
+    status: sessionId === LIVE || sessionId === LAG || sessionId === TYPED ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
 
+  /// What the pane asked of acpmux, in order: the hat's answers and the composer's sends.
+  const calls: { method: string; params: Record<string, any> }[] = [];
+  let heard: (() => void) | undefined;
+  /// Resolves once a call names `method` (fails after 10 s).
+  const called = (method: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no ${method}`)), 10_000);
+      const check = () => {
+        if (!calls.some((call) => call.method === method)) return;
+        clearTimeout(timer);
+        heard = undefined;
+        resolve();
+      };
+      heard = check;
+      check();
+    });
   function reply(method: string, params: Record<string, any> = {}): unknown {
+    if (method === "_acpmux/permission_respond" || method === "session/prompt") {
+      calls.push({ method, params });
+      heard?.();
+    }
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -243,13 +273,49 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await declined.close();
   });
 
-  test("answered live, the card goes and the record takes its place", async () => {
+  // Leo, 2026-11-07: "what happens if they respond to it in another way, right?"
+  test("a question the person answered by typing a reply says so", async () => {
+    const page = await open(IN_CHAT, "Passkeys it is");
+    await page.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`]);
+    await page.close();
+  });
+
+  // The composer hat (question/HatQuestions.tsx): a click answers the question as its card would; a
+  // reply typed instead declines it first, so the agent reads the reply rather than waiting on it.
+  test("the hat answers with a click, and a typed reply declines the question before it goes", async () => {
+    const page = await open(TYPED, "Add auth to the API");
+    const hat = page.locator(".acpmux-hat-questions");
+    await hat.getByText(PROMPT).waitFor({ timeout: 5_000 });
+    // The card under the hat does not ask it a second time.
+    expect(await page.locator(".acpmux-asks-stack .acpmux-question").count()).toBe(0);
+    calls.length = 0;
+    await page.locator(".acpmux-composer .ProseMirror").first().click();
+    await page.keyboard.type("Passkeys, and keep API keys for the CLI");
+    await page.keyboard.press("Enter");
+    await called("session/prompt");
+    expect(calls.map((call) => call.method)).toEqual(["_acpmux/permission_respond", "session/prompt"]);
+    expect(calls[0]!.params).toMatchObject({ permissionId: "perm-ask", optionId: "reject_once" });
+    expect(calls[0]!.params.answers).toBeUndefined();
+    calls.length = 0;
+    await hat.locator(".acpmux-hat-questions__answer", { hasText: "Passkeys" }).click();
+    await called("_acpmux/permission_respond");
+    expect(calls[0]).toMatchObject({
+      method: "_acpmux/permission_respond",
+      params: { permissionId: "perm-ask", optionId: "allow_once", answers: { [PROMPT]: "Passkeys" } },
+    });
+    await page.close();
+  });
+
+  test("answered live, the hat's answers go and the record takes their place", async () => {
     const page = await open(LIVE, "Add auth to the API");
-    await page.getByRole("radio", { name: /OAuth 2\.0/ }).waitFor({ timeout: 5_000 });
+    // A single choice of three is answered in the composer hat, with one click (question/HatQuestions.tsx).
+    const hatAnswer = page.locator(".acpmux-hat-questions__answer", { hasText: "OAuth 2.0" });
+    await hatAnswer.waitFor({ timeout: 5_000 });
     expect(await records(page)).toEqual([]);
     push(answer);
     await page.locator(".acpmux-question-answered").first().waitFor({ timeout: 5_000 });
-    expect(await page.getByRole("radio", { name: /OAuth 2\.0/ }).count()).toBe(0);
+    await page.locator(".acpmux-hat-questions").waitFor({ state: "detached", timeout: 5_000 });
     expect(await records(page)).toEqual([`Answered ${PROMPT} OAuth 2.0`]);
     // The work after the answer draws below its record, never in the row above it.
     push([
