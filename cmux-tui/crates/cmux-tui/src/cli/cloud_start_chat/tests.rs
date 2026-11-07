@@ -2116,3 +2116,46 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
             .all(|ran| ran[..4] == strings(&["cloud", "exec", "--target", "machine:vm-1"]))
     );
 }
+
+/// `cmux chat send SESSION --wait` with its deadline gone before the send sends nothing, and the command to ask
+/// again is that send to that session, never a `start-chat` (which would start another session): with no time
+/// at all, and when the upload of a big prompt took the rest of it (the seventh review of #37159).
+#[test]
+fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send_again() {
+    let asked = |prompt: String, secs: u64| Request {
+        prompt: Some(prompt),
+        agent: String::new(),
+        cwd: None,
+        login: None,
+        environment: None,
+        machine: Machine::Target("vm-1".into()),
+        wait: true,
+        timeout: Duration::from_secs(secs),
+    };
+    let big = big_prompt(200 * 1024);
+    let piece = exec_out(&format!("@@size {}\n", big.len()));
+    let cases = [
+        ("no time at all", asked("hi".into(), 0), vec![]),
+        ("the upload took the rest", asked(big, 3), vec![piece]),
+    ];
+    for (case, request, answers) in cases {
+        let uploads = answers.len();
+        let mut fake = Fake::new(answers);
+        let Outcome::Failed { error, exit } = send_to(&mut fake, &request, "vm-1", "sess-1") else {
+            panic!("{case}: {:?}", fake.ran)
+        };
+        assert_eq!(
+            (error["code"].as_str(), exit),
+            (Some("cloud.start_pending"), 75),
+            "{case}: {error}"
+        );
+        assert_eq!(fake.ran.len(), uploads, "{case}: no send: {:?}", fake.ran);
+        let again = error["details"]["again"].as_str().unwrap_or_default();
+        assert!(again.starts_with("cmux chat send sess-1 --on vm:vm-1 "), "{case}: {again}");
+        assert!(again.contains("--wait") && !again.contains("start-chat"), "{case}: {again}");
+        assert!(
+            !again.contains("hi") && !again.contains("naïve"),
+            "{case}: the prompt stays out: {again}"
+        );
+    }
+}
