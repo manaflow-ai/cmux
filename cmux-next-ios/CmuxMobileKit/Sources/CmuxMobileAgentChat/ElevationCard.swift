@@ -14,6 +14,9 @@ public struct ElevationCard: View {
     let sending: Bool
     let answer: (String?) -> Void
     @State private var password = ""
+    /// What the last Approve sent, until its answer: a send that fails (the card is still here
+    /// when `sending` ends) puts it back so the person need not type it again, as the Mac card does.
+    @State private var sent: String?
     @FocusState private var focused: Bool
 
     public init(ask: AgentElevationAsk, agentName: String, sending: Bool, answer: @escaping (String?) -> Void) {
@@ -57,6 +60,11 @@ public struct ElevationCard: View {
                 .disabled(password.isEmpty || sending)
             }
         }
+        .onChange(of: sending) { was, now in
+            guard was, !now else { return }
+            if password.isEmpty, let sent { password = sent }
+            sent = nil
+        }
     }
 
     private var note: String {
@@ -67,10 +75,11 @@ public struct ElevationCard: View {
 
     private func approve() {
         guard !password.isEmpty, !sending else { return }
-        let sent = password
+        let value = password
+        sent = value
         password = ""
         focused = false
-        answer(sent)
+        answer(value)
     }
 }
 #endif

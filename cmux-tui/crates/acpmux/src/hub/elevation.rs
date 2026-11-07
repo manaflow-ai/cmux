@@ -109,6 +109,16 @@ fn names_this_host(host: &str) -> bool {
         || short(host) == short(&label)
 }
 
+/// Whether `c` reads on the card as itself. Control characters, bidi overrides and isolates and
+/// invisible format characters could make the command a person approves read differently from
+/// the argv sudo runs, so a request holding one is refused.
+fn shows_as_is(c: char) -> bool {
+    !c.is_control()
+        && !matches!(c,
+            '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+}
+
 /// Checks the request's fields. `host` must name this machine: sudo runs where the daemon runs.
 pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
     let argv = params.get("argv").and_then(Value::as_array).ok_or_else(|| {
@@ -120,9 +130,10 @@ pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
     let argv: Vec<String> = argv
         .iter()
         .map(|a| match a.as_str() {
-            Some(s) if !s.contains('\0') && s.len() <= MAX_ARG_BYTES => Ok(s.to_owned()),
+            Some(s) if s.chars().all(shows_as_is) && s.len() <= MAX_ARG_BYTES => Ok(s.to_owned()),
             _ => Err(RpcError::invalid_params(format!(
-                "each argv entry is a string of at most {MAX_ARG_BYTES} bytes, without NUL"
+                "each argv entry is a string of at most {MAX_ARG_BYTES} bytes, without control, \
+                 bidi or invisible characters"
             ))),
         })
         .collect::<Result<_, _>>()?;
@@ -130,6 +141,11 @@ pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
         return Err(RpcError::invalid_params("argv[0] must name the command, not an option"));
     }
     let reason = params.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if !reason.chars().all(shows_as_is) {
+        return Err(RpcError::invalid_params(
+            "reason must be plain text, without control, bidi or invisible characters",
+        ));
+    }
     if reason.is_empty() {
         return Err(RpcError::invalid_params("reason is required: one sentence the card shows"));
     }
