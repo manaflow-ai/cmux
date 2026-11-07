@@ -422,7 +422,15 @@ export const PreviewCard = React.forwardRef<
       onBlur={onBlur}
     >
       {prompt !== undefined && from !== undefined && (
-        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+        <div className="acpmux-minimap__from">
+          {/* One sender the turn records reads as its session (senderIdentity.ts); a run of several,
+              or a sender no session list or id names, keeps "From <name>". */}
+          {metadata?.sender && metadata.sender.name === from ? (
+            <PreviewSender sender={metadata.sender} fallback={t("minimap.from", { name: from })} />
+          ) : (
+            t("minimap.from", { name: from })
+          )}
+        </div>
       )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
@@ -430,8 +438,6 @@ export const PreviewCard = React.forwardRef<
             <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
           ) : (
             <span className="acpmux-minimap__prompt">
-              {/* An incoming prompt already names its sender on the from line above. */}
-              {metadata?.sender && from === undefined && <PreviewSender sender={metadata.sender} />}
               {prompt}
             </span>
           )}
@@ -530,12 +536,13 @@ export const PreviewCard = React.forwardRef<
   );
 });
 
-function PreviewSender({ sender }: { sender: NonNullable<MinimapTurnMetadata["sender"]> }) {
+function PreviewSender({
+  sender,
+  fallback,
+}: {
+  sender: NonNullable<MinimapTurnMetadata["sender"]>;
+  fallback: string;
+}) {
   const identity = useSenderIdentity(sender, React.useContext(PromptMarksSession));
-  return (
-    <>
-      <SenderIdentityLabel identity={identity} />
-      {" · "}
-    </>
-  );
+  return identity.known ? <SenderIdentityLabel identity={identity} /> : <>{fallback}</>;
 }

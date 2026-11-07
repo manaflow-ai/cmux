@@ -115,6 +115,7 @@ test("the minimap reads the same current-session relationship as the transcript"
             center: 0,
             viewportHeight: 700,
             prompt: "Review ready.",
+            from: "syntax-check",
             reply: [],
             metadata: { at: 1, links: [], sender: { name: "syntax-check", sessionId: "child" } },
             onPointerLeave: () => {},

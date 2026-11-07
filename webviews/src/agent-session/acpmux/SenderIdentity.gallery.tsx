@@ -55,7 +55,7 @@ export default componentEntry<{ treatment: Treatment }>({
             `
             .sender-identity-fixture > p { margin: 0 0 12px; }
             .sender-identity-fixture .acpmux-minimap__card { left: 0; top: 0; }
-            .sender-identity-fixture[data-treatment=separate-line] .acpmux-minimap__prompt .acpmux-sender { display: flex; }
+            .sender-identity-fixture[data-treatment=separate-line] .acpmux-minimap__from .acpmux-sender { display: flex; }
           `,
           ),
           createElement(
@@ -87,6 +87,7 @@ export default componentEntry<{ treatment: Treatment }>({
             railLeft: 0,
             prompt: "Ready for review.\n- Markdown and long paths remain readable.",
             reply: [{ kind: "paragraph", spans: [{ text: "Thanks. I will land the reviewed change.", bold: false }] }],
+            ...(treatment !== "plain-preview" && { from: sender.name }),
             metadata: { at: 1793116800000, links: [], ...(treatment !== "plain-preview" && { sender }) },
             onPointerLeave: () => {},
           }),
