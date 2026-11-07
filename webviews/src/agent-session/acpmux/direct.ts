@@ -4470,11 +4470,29 @@ export class AcpmuxDirectClient {
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
   /// call `toolCallId` started or all of it (Claude Code's `background_tasks`). acpmux answers
   /// `{backgrounded}` and refuses another harness's chat; a Claude that never answers fails it
-  /// after 10 s.
+  /// after 10 s. The request's own deadline only marks it waiting (#35206), so the 10 s is this
+  /// call's: the notice says the work still runs, and a late answer settles the request alone.
   backgroundWork(toolCallId?: string): Promise<unknown> {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
-    return this.request("_acpmux/process/background", params, 10_000);
+    const request = this.request("_acpmux/process/background", params, 10_000);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(Object.assign(new Error(translate("error.timedOut")), { code: "native.timed_out", origin: "native" })),
+        10_000,
+      );
+      request.then(
+        (answer) => {
+          clearTimeout(timer);
+          resolve(answer);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   /// Reads every listed chat's usage now and lays it over the list and the chat's own summary
