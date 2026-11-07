@@ -166,10 +166,11 @@ html[data-cmux-page="machines"] body {
   gap: var(--ds-space-2);
   padding: var(--ds-space-4);
   border-radius: var(--ds-radius-control);
-  background: var(--page-elevated);
   border: var(--cmux-hairline) solid var(--page-separator);
   color: var(--page-text);
 }
+/* The shared glass (ui-glass), never a solid fill; Reduce Transparency makes it solid. */
+.machines-dialog.ui-glass { background: var(--glass-tint); }
 .machines-dialog-title {
   margin: 0;
   font: inherit;

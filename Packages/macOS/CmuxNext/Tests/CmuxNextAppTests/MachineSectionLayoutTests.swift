@@ -170,6 +170,11 @@ import Testing
         let store = fake.store()
         await store.refresh()
         let provider = Self.provider(box, joined: store)
+        // A hidden section removes nothing, even on a click.
+        await #expect(throws: PageError.self) {
+            try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: Self.context)
+        }
+        provider.setShown(true)
         let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
         await #expect(throws: PageError.self) {
             try await provider.call(MachineSectionPageProvider.removeOp, params: ["row": "joined:m_1"], context: scripted)

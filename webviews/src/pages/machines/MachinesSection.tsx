@@ -86,7 +86,7 @@ function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Str
         if (!open) store.cancelRemove();
       }}
       label={strings.format("machines.joined.removeTitle", row.name)}
-      className="machines-dialog"
+      className="ui-glass ui-glass-floats machines-dialog"
       initialFocus={confirm}
     >
       <form

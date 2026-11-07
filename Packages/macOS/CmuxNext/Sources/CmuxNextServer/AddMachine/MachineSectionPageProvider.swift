@@ -122,7 +122,8 @@ public final class MachineSectionPageProvider: PageProvider {
             return .object([:])
         case Self.removeOp:
             try Self.requireGesture(context)
-            // Only a joined machine the section shows; the page names its row, never a machine id.
+            // Only a joined machine the section shows, while it shows; the page names its row, never a machine id.
+            guard isShown else { throw PageError.invalidParams("the Machines section is hidden") }
             guard let id = params["row"]?.stringValue, let machine = dependencies.rows().first(where: { $0.id == id })?.joined,
                   let joined = dependencies.joined() else {
                 throw PageError.invalidParams("row is not a joined machine of the section")

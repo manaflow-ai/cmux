@@ -642,6 +642,12 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
                     );
                 }
             }
+            if !flags.has("yes") {
+                println!("Removing {machine_id} will:\n  - leave the machine list");
+                if !confirm("Remove it?")? {
+                    bail!("not removed (pass --yes to remove without asking)");
+                }
+            }
             removed::add(machine_id)?;
             record("device.removed", json!({"device": key, "done": ["leave the machine list"]}));
             if flags.has("json") {
