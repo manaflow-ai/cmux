@@ -625,6 +625,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
@@ -1166,21 +1167,11 @@ function DefaultComposerChips({
     start();
     return callNative("chat.mode", { modeId });
   };
-  const heldMode = useRef<{ modeId: string; settle(run: () => Promise<unknown>): void }>(undefined);
-  useEffect(() => {
-    const held = heldMode.current;
-    if (!held || window.cmuxAcpmuxActions?.["chat.mode"] === undefined) return;
-    heldMode.current = undefined;
-    held.settle(() => pickMode(held.modeId));
-  });
+  // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
+  // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
   const onMode = (modeId: string): Promise<unknown> => {
     if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
-    return new Promise((resolve, reject) => {
-      // A newer pick replaces a held one; the older one's promise settles as applied, its chip
-      // already showing the newer mode.
-      heldMode.current?.settle(() => Promise.resolve());
-      heldMode.current = { modeId, settle: (run) => void run().then(resolve, reject) };
-    });
+    return holdModePick(modeId, pickMode);
   };
   const picker = usePickerCatalog(
     snapshot.catalog,
@@ -7793,6 +7784,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return sendPrompt(params);
         };
         notifyDraftActionsChanged();
+        // A New Tab permission pick made before this connect runs now, whether or not its chips
+        // are still mounted (heldModePick.ts).
+        flushHeldModePick();
         harnessSwitch.setHandlers({
           restore: (text, attachments) => {
             // A failed New Tab start never surrendered this draft. Restoring it into the future
