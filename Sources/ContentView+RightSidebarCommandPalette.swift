@@ -131,6 +131,8 @@ extension ContentView {
             return .triggerFlash
         case "palette.openChief":
             return .openChief
+        case "palette.findTmuxWindow":
+            return .findTmuxWindow
         default:
             return nil
         }
