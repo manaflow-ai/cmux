@@ -98,9 +98,17 @@ export function attributesOf(element: Element): SnapshotAttributes {
   return out;
 }
 
-/// Whether `snapshot` was drawn for the document as it is now: the same viewport, and the theme the
-/// host gives the page now (its key, which the host's `__snapshot/chat.js` set). Colors, fonts and
-/// the look all come with the theme; markup laid out at another size would draw at the wrong places.
+/// How much taller or shorter the viewport may be than the one a copy was drawn at. The copy is the
+/// page's own markup under its own rules, so it lays out at the new height as the live page will
+/// (the composer stays at the bottom, the transcript keeps its scroll offset); a window restored a
+/// tab row shorter than it was written (28 px on the fleet's chat-open restore) drew nothing before.
+/// Rows are placed for the width, so the width must match.
+export const SNAPSHOT_HEIGHT_SLACK = 64;
+
+/// Whether `snapshot` was drawn for the document as it is now: the same width and a height within
+/// ``SNAPSHOT_HEIGHT_SLACK``, and the theme the host gives the page now (its key, which the host's
+/// `__snapshot/chat.js` set). Colors, fonts and the look all come with the theme; rows laid out for
+/// another width would draw at the wrong places.
 export function fitsDocument(snapshot: ChatSnapshot, doc: Document): boolean {
   return misfit(snapshot, doc) === undefined;
 }
@@ -111,7 +119,9 @@ export function misfit(snapshot: ChatSnapshot, doc: Document): string | undefine
   if (!view) return "no-window";
   const size = `${Math.round(view.innerWidth)}x${Math.round(view.innerHeight)}`;
   const drawn = `${Math.round(snapshot.width)}x${Math.round(snapshot.height)}`;
-  if (size !== drawn) return `size ${size}, drawn at ${drawn}`;
+  const widthFits = Math.round(view.innerWidth) === Math.round(snapshot.width);
+  const heightFits = Math.abs(view.innerHeight - snapshot.height) <= SNAPSHOT_HEIGHT_SLACK;
+  if (!widthFits || !heightFits) return `size ${size}, drawn at ${drawn}`;
   if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme) return "theme";
   return undefined;
 }

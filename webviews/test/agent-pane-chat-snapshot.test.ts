@@ -340,4 +340,22 @@ requestAnimationFrame(() => {
     expect(text).not.toContain("@keyframes never");
     await context.close();
   });
+
+  test("a copy drawn a tab row taller still draws, laid out at the new height", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const shorter = await browser.newContext({ viewport: { width: 800, height: 572 } });
+    const page = await shorter.newPage();
+    await relaunched(page, before.snapshot);
+    const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, number[] | boolean>;
+    expect(atBundle.shown).toBe(true);
+    // The header stays where it was; the composer sits at the new bottom, as the live page's does.
+    expect(atBundle.header).toEqual(before.header as number[]);
+    expect((atBundle.composer as number[])[1]).toBe((before.composer as number[])[1]! - 28);
+    const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, number[]>;
+    expect(afterSwap.composer).toEqual(atBundle.composer as number[]);
+    expect(afterSwap.header).toEqual(atBundle.header as number[]);
+    await context.close();
+    await shorter.close();
+  });
 });
