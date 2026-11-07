@@ -256,10 +256,13 @@ import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summa
 import {
   type DoneLineCache,
   finishedTrayItems,
+  type TrayItem,
+  trayItemKey,
   trayItems,
   useSubagentTray,
   withSubagentLines,
 } from "./subagents/runningTray";
+import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
@@ -4885,11 +4888,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
     [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
   );
-  // What ended, behind the tray's bounded status cards; never in its count.
-  const trayFinished = useMemo(
-    () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
-    [subagentTray, trayAgents, childSessions],
+  // What ended stays in the hat a while as done, failed or stopped, then goes (subagents/trayLinger.ts;
+  // Leo, 2026-11-07: "it's probably better to let them expire after a while. But the key point: after
+  // a while. Okay, they, like, disappear instantly"): the subagents and started chats that ended, and
+  // the background commands that ended (the registry's, with their exit and end, and the transcript's).
+  // Never in the header's running count. A new list only when what ended changes, never per token.
+  const endedCommandList = useMemo(
+    () =>
+      subagentTray
+        ? backgroundCommands(processRegistry.processes, transcriptTasks, processRegistry.listed).filter(
+            (command) => command.state !== "running",
+          )
+        : NO_COMMANDS,
+    [subagentTray, processRegistry, transcriptTasks],
   );
+  const endedCommandsKey = endedCommandList
+    .map((task) =>
+      [
+        task.id,
+        task.state,
+        task.command,
+        task.description ?? "",
+        task.startedAt ?? "",
+        task.endedAt ?? "",
+        task.toolCallId ?? "",
+        task.subagent ?? "",
+      ].join("\u0000"),
+    )
+    .join("\u0001");
+  const endedCommandItems = useMemo((): TrayItem[] => {
+    const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
+    return endedCommandList.map((command) => {
+      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
+      return { kind: "command", id: command.id, command, ...(owner ? { owner } : {}) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
+  }, [endedCommandsKey, trayAgents]);
+  const endedTray = useMemo(
+    () => (subagentTray ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)] : []),
+    [subagentTray, endedCommandItems, trayAgents, childSessions],
+  );
+  const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
+  const lingerEnded = useMemo(
+    () => endedTray.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
+    [endedTray],
+  );
+  // The hat is open or under the pointer: nothing expires until it lets go (SubagentTray.tsx `onHold`).
+  const [hatHeld, setHatHeld] = useState(false);
+  // On the session's clock, as the ends are stamped (a peer's may run behind or ahead of this one).
+  const lingerClock = useMemo(() => ({ offsetMs: snapshot.clockOffsetMs ?? 0 }), [snapshot.clockOffsetMs]);
+  const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld, lingerClock);
+  const trayFinished = useMemo(() => lingeringTrayItems(endedTray, lingering), [endedTray, lingering]);
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   // Its output apart from what it read, when every call carried the split; held by its numbers, as
@@ -5256,6 +5305,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
             tuckSide={trayHandle}
+            onHold={setHatHeld}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
