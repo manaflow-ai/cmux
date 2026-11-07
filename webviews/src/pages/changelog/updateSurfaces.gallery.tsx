@@ -314,6 +314,7 @@ export default componentEntry<Props>({
   covers: [
     "pages/changelog/UpdateSurfaces.tsx#UpdatedCard",
     "pages/changelog/UpdateSurfaces.tsx#UpdateReadyHighlights",
+    "pages/changelog/UpdatedCardPreview.tsx#UpdatedCardPreview",
   ],
   load: async () => UpdateSurfacesGallery,
   styles: async () => {

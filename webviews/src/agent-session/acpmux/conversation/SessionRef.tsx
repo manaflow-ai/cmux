@@ -29,7 +29,7 @@ import {
   type SessionRefTarget,
 } from "./sessionRefs";
 import { openSessionAttributes } from "./menuParts";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { useSessionHover } from "../started/useSessionHover";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
