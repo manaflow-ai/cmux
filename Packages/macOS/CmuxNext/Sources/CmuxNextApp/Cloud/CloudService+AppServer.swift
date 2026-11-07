@@ -103,10 +103,9 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
-    /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
-    /// (the dialog then offers only a new one).
-    func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
-        guard let answer = try? await appOps("cloud.environment.list", .object([:]), nil, .script) else { return [] }
+    /// The team's Cloud environments; throws when the list fails (`cloud new-machine --environment NAME` refuses it).
+    func appServerEnvironmentOptions() async throws -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
+        let answer = try await appOps("cloud.environment.list", .object([:]), nil, .script)
         return (answer["environments"]?.arrayValue ?? []).compactMap { value in
             guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
             return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)

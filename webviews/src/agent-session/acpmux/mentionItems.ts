@@ -5,7 +5,7 @@
 // of their title (titleMatch).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
-import { mentionText } from "./MentionMenu";
+import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 
 export type MentionItem =
