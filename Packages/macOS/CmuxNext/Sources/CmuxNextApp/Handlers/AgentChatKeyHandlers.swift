@@ -43,8 +43,7 @@ enum AgentChatKeyHandlers {
             .bindArchive(into: registry) { invocation in
                 chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
             }
-        // Capture… (capture-bar-DESIGN.md): the focused chat's bar, else the chat the window shows. Its Pane
-        // shot is the pane focused at the press, held weakly, raw for a person's run (ScreenshotHandlers.shown).
+        // Capture… (capture-bar-DESIGN.md): the focused chat's bar, else the window's; Pane is the pane at the press.
         registry.bindEffect("capture.open", effect: { invocation in
             let pane = context.scope(invocation).pane
             guard let view = pane?.currentTabKey.flatMap({ context.services.agentTabs.existingView($0) })

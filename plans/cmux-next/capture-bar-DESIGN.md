@@ -59,7 +59,9 @@ Only the pane whose page started a recording may stop it and take its movie; ano
 `capture.record.stop` answers `{cancelled}`. A collected movie of a chat on this Mac moves into
 that chat's Chat Uploads folder, so a draft or a sent message keeps its video past a relaunch, as
 long as the chat's other uploads. A recording stops by itself after 5 minutes (`maxSeconds`), when
-the window closes, or when the app quits, and its stream and writer are released then. A recording
+the window closes, or when the app quits, and its stream and writer are released then. A quit
+waits for it before the composers are saved: the movie is finalized, kept in its chat's Chat
+Uploads folder and put on the clipboard, since no page collects it any more. A recording
 that is never collected is deleted with the temporary folder, after a day.
 
 ## Not in this step

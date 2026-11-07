@@ -22,6 +22,13 @@ import CmuxNextSettings
                      scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])
     }
 
+    /// The quit, before the chats' composers are saved: a recording still running, or one not
+    /// collected, is finished and kept, since no page collects it any more
+    /// (``AgentPaneRecorder/finishForQuit()``).
+    public static func finishForQuit() async {
+        await AgentPaneRecorder.shared.finishForQuit()
+    }
+
     /// The chat `window` shows when the focused pane is no chat: of the agent chats on screen in
     /// it, the largest. Walks only views on screen (a hidden subtree is skipped, and a chat's own
     /// subviews are not entered), so its cost follows what the window shows, not how many chats

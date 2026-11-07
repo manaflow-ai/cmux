@@ -175,6 +175,33 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
+    /// The quit (QuitCoordinator awaits it before the composers are saved and the engines stop):
+    /// the running recording and every one not collected end, their movies are finalized and moved
+    /// into their chat's Chat Uploads folder, and their files go on the clipboard, so a quit never
+    /// loses a clip. The stream's stop is under ``AgentPaneRecording/callLimit``.
+    func finishForQuit() async {
+        var pending = leftovers.map { (recording: $0.recording, session: $0.session, model: $0.model) }
+        leftovers = []
+        if let running = current {
+            pending.append((running, recordingSession, recordingModel))
+            current = nil
+            removeObservers()
+        }
+        var kept: [NSURL] = []
+        for item in pending {
+            guard let made = await item.recording.finish() else { continue }
+            let movie = URL(fileURLWithPath: made.path)
+            let upload = (item.model?.chatUploadFolders ?? ChatUploadFolders.standard)?.freshUpload(session: item.session)
+            let moved = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+                upload.flatMap { Self.keep(movie, in: $0) }
+            }.value
+            kept.append((moved ?? movie) as NSURL)
+        }
+        guard !kept.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(kept)
+    }
+
     /// Discards the leftovers whose pane is gone (nobody can collect them any more) and those
     /// waiting over a day, as the sweep would (a pane that missed the end event never asks).
     private func dropOrphans() {
