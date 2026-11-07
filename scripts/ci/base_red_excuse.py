@@ -1613,7 +1613,46 @@ PACKAGE_JOBS = {
                   "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"),
     },
 }
-SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_URL_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?(?:url|id):\s*"')
+SWIFT_PACKAGE_TOKEN = re.compile(r"\.package\b")
+
+
+def swift_without_comments(text: str) -> str | None:
+    """TEXT with its Swift comments (`//` to the line end, `/* */` nested as Swift nests them) blanked, plain string
+    literals kept whole (a url's `//` is not a comment); None when it has a raw (`#"`), multiline or interpolated
+    (`\\(`) literal, which this reader does not parse: an interpolation's own quotes would end the literal early."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text.startswith('"""', i) or text.startswith('#"', i):
+            return None
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] not in '"\n':
+                if text.startswith("\\(", j):
+                    return None
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            out.append(" ")
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            out.append(" ")
+            i = j
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -1621,7 +1660,7 @@ CARGO_MANIFESTS = 200  # a bound on the manifests one resolution reads
 
 
 def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
-    """{crate name: its directory} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
+    """{directory: its crate's name} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
     then each path dependency (a `path`, or `workspace = true` resolved in the crate's own workspace root, the nearest
     ancestor manifest with a [workspace]), read from the manifests at SHA, never from a declaration. Raises Refused
     when a manifest cannot be read or parsed, a member is a glob, or a path crate in LOCK resolves to no directory."""
@@ -1664,7 +1703,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     if any(not isinstance(member, str) or any(c in member for c in "*?[") for member in members):
         raise Refused(f"{root}/Cargo.toml names its members by a glob")
     queue = [posixpath.normpath(posixpath.join(root, member)) for member in members] + [root]
-    crates: dict[str, str] = {}
+    crates: dict[str, str] = {}  # by directory: two path crates may share a name (an aliased dependency)
     seen: set[str] = set()
     while queue:
         where = queue.pop()
@@ -1676,7 +1715,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         found = manifest(where, True) or {}
         package = found.get("package")
         if isinstance(package, dict) and isinstance(package.get("name"), str):
-            crates[package["name"]] = where
+            crates[where] = package["name"]
         home, workspace = workspace_of(where)
         shared = workspace.get("dependencies") if isinstance(workspace.get("dependencies"), dict) else {}
         tables = [found.get(name) for name in CARGO_DEPENDENCY_TABLES]
@@ -1700,7 +1739,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     except (Refused, tomllib.TOMLDecodeError) as why:
         raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
     if missing := sorted({str(crate.get("name")) for crate in locked if isinstance(crate, dict)
-                          and "source" not in crate} - crates.keys()):
+                          and "source" not in crate} - set(crates.values())):
         raise Refused(f"{lock} has path crates its manifests do not reach: {', '.join(missing)}")
     return crates
 
@@ -1723,13 +1762,25 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
             manifest = source_text(repo, sha, f"{where}/Package.swift", github)
         except Refused as why:
             raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
-        for found in SWIFT_PATH_PACKAGE.finditer(manifest):
+        # Read with its comments blanked. Every `.package` token is then a path dependency read below or a url (or
+        # registry id) one: any other spelling (a variable path, a raw or multiline literal) could reach a package
+        # this rule cannot see, so it refuses.
+        code = swift_without_comments(manifest)
+        if code is None:
+            raise Refused(f"{where}/Package.swift has a raw, multiline or interpolated string literal, which this rule "
+                          "does not read")
+        known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE) for found in pattern.finditer(code)}
+        if unread := [found.start() for found in SWIFT_PACKAGE_TOKEN.finditer(code) if found.start() not in known]:
+            line = code.count("\n", 0, unread[0]) + 1
+            raise Refused(f"{where}/Package.swift:{line} declares a package dependency in a form this rule does not "
+                          "read; it could reach a package outside the declared reads")
+        for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
             if path.startswith(".."):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
-    for crate, where in sorted(crates.items()):
+    for where, crate in sorted(crates.items()):
         if not any(touches(where + "/Cargo.toml", read) for read in reads + GUARD_READS_DEFAULT):
             raise Refused(f"its Rust crate {crate} at {where} is outside its declared reads (PACKAGE_JOBS)")
     return reads
@@ -1743,7 +1794,7 @@ def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    by_step = step_lines(job, head_log)
+    by_step = step_lines(job, head_log, only=steps)
     if by_step is None:
         raise Refused("its log's lines cannot each be told to one step")
     failed: set[str] = set()
@@ -2019,10 +2070,13 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str) -> dict[str, list[str]] | None:
+def step_lines(job: dict, head_log: str, only: set[str] | None = None) -> dict[str, list[str]] | None:
     """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
-    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines."""
-    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines. With
+    ONLY, a line is placed among those steps' windows alone (a failed step's last second is also the first of the
+    steps after it, which ran no test)."""
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"
+                and (only is None or step.get("name") in only)]
     names = [step.get("name") for step in metadata]
     if len(set(names)) != len(names):
         return None
