@@ -33,14 +33,24 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// `host_update.rs`). `daemon run` takes its listen address from `--listen`
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
-/// refused.
+/// refused. A unit whose daemon is not running (`$p` empty, a stopped or
+/// disabled unit) is read from its file and drop-ins instead: the last
+/// `ExecStart=` and every `Environment=` assignment, `%h` as the home. One
+/// that quotes or escapes a value, or reads an `EnvironmentFile=`, is refused:
+/// a value read wrong would move the daemon to another home.
 const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
 refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
 fail() { [ -z "$t" ] || rm -rf "$t"; exit 1; }
 unwritten() { refuse writeFailed "the files for moving the daemon from $u to acpmux.service could not be written (is the disk full?): free space, then run this again"; }
 [ -f "$d/$u" ] || refuse unitElsewhere "the daemon of ~/.acpmux runs under $u, whose unit file is not in $d: move it to acpmux.service by hand"
 t=$(mktemp -d) && mkdir "$t/d" || unwritten
-envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
+pe=/proc/$p/environ; pa=/proc/$p/cmdline
+if [ -z "$p" ]; then pe=$t/environ; pa=$t/cmdline
+! cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | grep -q '^EnvironmentFile=\|^Environment=.*["'\''\\]' || refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand"
+cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr ' ' '\n' | sed "s|%h|$HOME|g" | tr '\n' '\000' > "$pe" || unwritten
+cat "$d/$u" "$d/$u.d/"*.conf 2>/dev/null | sed -n 's/^ExecStart=[-@:+!]*//p' | grep . | tail -1 | sed "s|%h|$HOME|g" | tr ' ' '\000' > "$pa" || unwritten
+fi
+envof() { tr '\000' '\n' < "$pe" 2>/dev/null | sed -n "s/^$1=//p" | tail -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env" || unwritten; }
 h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
 if [ -n "$h" ] && [ "$h" != "$dh" ]; then carry ACPMUX_HOME "$h"; fi
@@ -56,7 +66,7 @@ while read -r x; do
 case "$k" in --listen) l=$x; k=; continue;; --log) k=; continue;; esac
 case "$x" in --listen|--log) k=$x;; --listen=*) l=${x#--listen=};; --log=*|'') ;; *) refuse unitArgs "$u runs the daemon with $x, which acpmux.service does not pass: move it by hand";; esac
 done <<ACPMUX_ARGS
-$(tr '\000' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed '1,/^run$/d')
+$(tr '\000' '\n' < "$pa" 2>/dev/null | sed '1,/^run$/d')
 ACPMUX_ARGS
 if [ -n "$l" ] && ! grep -q "\"listen\": *\"$l\"" "${h:-$HOME/.acpmux}/config.json" 2>/dev/null; then refuse listenConflict "$u runs the daemon with --listen $l, which is not the websocket.listen of its config.json, and acpmux.service reads the address only from there: set it to $l, then run this again"; fi
 "#;
@@ -128,7 +138,7 @@ systemctl --user daemon-reload && systemctl --user enable --now "$u"
 "#;
 
 /// Moves a daemon that runs under a hand-written acpmux unit (`$u` from
-/// [`super::DAEMON_UNIT`]) to `acpmux.service`, keeping its agents; nothing for any
+/// [`super::daemon_unit`]) to `acpmux.service`, keeping its agents; nothing for any
 /// other daemon. `dry` (the probe before an update) only checks the plan.
 /// It refuses (exit 3, [`REFUSED`]) before changing anything; once it
 /// changed something it prints [`MIGRATING`] and ends the script, with
