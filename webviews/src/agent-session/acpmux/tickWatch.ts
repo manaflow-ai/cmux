@@ -80,13 +80,12 @@ export function tickWatch(options: { stop?: boolean; nominal_ms?: number } = {})
   let frame = 0;
   let top = offset.get!.call(scroller) as number;
   const channel = new MessageChannel();
-  let frameStart = 0;
-  channel.port1.onmessage = () => current.work.push(performance.now() - frameStart);
+  // Each message carries its own frame's start: a late one is never timed from a newer frame.
+  channel.port1.onmessage = (event: MessageEvent<number>) => current.work.push(performance.now() - event.data);
   const tick = (time: number) => {
     current.timestamps.push(time);
-    frameStart = time;
     // Runs after this frame's rendering update: the frame's work.
-    channel.port2.postMessage(0);
+    channel.port2.postMessage(time);
     const next = offset.get!.call(scroller) as number;
     if (Math.abs(next - top) >= 0.5) current.moved += 1;
     top = next;

@@ -171,26 +171,29 @@ def gesture(target, total, events, phased, errors):
     refused event's error goes into `errors`."""
     weights = [(1 - index / events) ** 2 for index in range(events)]
     whole = sum(weights)
+    start = time.monotonic()
     for index, weight in enumerate(weights):
+        # Paced from the gesture's start, so a slow call does not stretch the spacing.
+        time.sleep(max(0.0, start + index * 0.008 - time.monotonic()))  # test harness: input pacing
         params = dict(target, action="scroll", dy=total * weight / whole, hover=index == 0)
         if phased:
             params["phase"] = "began" if index == 0 else "ended" if index == events - 1 else "changed"
         sent = rpc("debug.mouse", params)
         if isinstance(sent, dict) and sent.get("error"):
             errors.append(str(sent["error"])[:200])
-        time.sleep(0.008)  # test harness: input pacing, a trackpad's event rate
     time.sleep(0.4)  # test harness: the scroll comes to rest before the next one
 
 
 def scroll_ticks(rows):
     """The page's frames while native scroll ticks and flicks move a `rows`-row chat, per input kind."""
     seeded = pane("seed_rows", count=rows, timeout=60)
+    seed_error = seeded.get("error") if isinstance(seeded, dict) else "no seed reply"
     time.sleep(3)  # test harness: the seeded transcript lays out
     engine = pane("engine")
     target = {"target": "page", "pane": engine.get("pane")} if engine.get("engine") == "cef" else {"pane": engine.get("pane")}
     out = {"rows": rows, "seed": seeded}
     for kind, phased in (("trackpad", True), ("wheel", False)):
-        errors = []
+        errors = [f"seed_rows {rows}: {seed_error}"[:200]] if seed_error else []
         started = pane("tick_watch")
         if not started.get("started"):
             errors.append(f"tick_watch start: {started.get('error') or started}"[:200])
