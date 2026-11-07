@@ -63,7 +63,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxSocketOwner.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxStatusClient.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageFlickerLog.swift": {"count": 1, "reason": "safe: the flicker diagnostics log rotates at this size; it holds page timings, never a message or file the person sends"},
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCapture.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCapture.swift": {"count": 1, "reason": "safe: the size a capture is scaled toward; one still over it goes as written and the page saves that original to the chat, nothing is refused"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDiffTurn.swift": {"count": 1, "reason": "safe: the most patch text the diff tab holds in memory; a turn whose patch is longer still shows in full in the page's own Last turn view, nothing the person sends is refused"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitReviewThreads.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneGitStage.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

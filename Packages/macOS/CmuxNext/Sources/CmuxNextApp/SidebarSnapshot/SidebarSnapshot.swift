@@ -3,10 +3,9 @@ import CmuxNextSidebar
 import Foundation
 
 /// One window's sidebar as it last looked, saved so the next launch draws
-/// it in the first frame (snapshot-first launch): sections, groups and the
-/// title and icon of each row, plus the space (profile) bar. Live-only
-/// detail (status lines, activity, unread counts, cwd) is never saved; it
-/// arrives with the daemon. Rows read back as `SidebarRowState.stale`.
+/// it in the first frame (snapshot-first launch): sections, groups, each row's title, icon and what sets
+/// its height and Done fold (`SidebarWorkspaceSnapshot`), plus the space (profile) bar. Other live detail
+/// (activity, unread counts, agent state) arrives with the daemon. Rows read back as `SidebarRowState.stale`.
 nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     var sections: [Section]
     var profiles: [Profile]
