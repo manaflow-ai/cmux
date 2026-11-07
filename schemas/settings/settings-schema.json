@@ -1893,6 +1893,16 @@
             }
           },
           {
+            "key" : "settings.group.usageRecording",
+            "rows" : [
+              "diagnostics.usageRecording"
+            ],
+            "title" : {
+              "key" : "settings.group.usageRecording",
+              "text" : "Usage Recording"
+            }
+          },
+          {
             "key" : "settings.group.sshLinks",
             "rows" : [
               "ssh.linkAllowedHosts"
@@ -99546,6 +99556,144 @@
       "title" : {
         "key" : "settings.diagnostics.hangReports",
         "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.usageRecording",
+        "text" : "Usage Recording"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.usageRecording.help",
+        "text" : "Keeps a local record of how you use cmux: whether you are in a terminal, a browser or an agent chat, which commands run and whether from a key, a click or the CLI, how long they take, and counts of open windows, panes and tabs. It never includes file names, web addresses, titles, terminal or chat text, or anything you type. The record stays on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.usageRecording",
+      "keywords" : [
+        "usage",
+        "analytics",
+        "statistics",
+        "diagnostics",
+        "telemetry",
+        "privacy",
+        "record",
+        "patterns"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "usageRecording"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.usageRecording.summary",
+        "text" : "Stays on this Mac. No file names, text or addresses."
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:diagnostics.usageRecording"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.diagnostics.usageRecording",
+        "text" : "Record Usage on This Mac"
       },
       "validation" : "portable"
     },

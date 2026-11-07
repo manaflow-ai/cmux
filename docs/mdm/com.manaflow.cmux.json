@@ -2183,6 +2183,12 @@
       "title" : "Send Hang Reports",
       "type" : "boolean"
     },
+    "diagnostics.usageRecording" : {
+      "default" : false,
+      "description" : "Keeps a local record of how you use cmux: whether you are in a terminal, a browser or an agent chat, which commands run and whether from a key, a click or the CLI, how long they take, and counts of open windows, panes and tabs. It never includes file names, web addresses, titles, terminal or chat text, or anything you type. The record stays on this Mac.",
+      "title" : "Record Usage on This Mac",
+      "type" : "boolean"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",
