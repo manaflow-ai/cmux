@@ -90,6 +90,32 @@ struct OffscreenWorkWaitsForLandingTests {
         #expect(publisher.builds == builds + 1)
     }
 
+    /// A barrier read (an action's settle, `after: "sync"`) that arrives after the publish was put off gets the snapshot
+    /// built for it in the motion, not at the landing: a long divider drag would time it out.
+    @Test func aBarrierReadAfterADeferredPublishIsServedDuringTheMotion() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let router = ControlRouter(identity: ControlIdentity(version: "test", build: "1", bundleID: nil, tag: nil, processID: 0),
+                                   executor: Executor(), configuration: .init(requestDeadline: .seconds(30)), frameSource: SoonFrames())
+        let publisher = ControlSnapshotPublisher(router: router, services: services, frames: SoonFrames(), notifications: NotificationCenter())
+        let layout = Layout()
+        publisher.layouts = { [layout] }
+        publisher.start()
+        defer { publisher.stop() }
+        for _ in 0..<8 { await Task.yield() }
+        let builds = publisher.builds
+        let generation = router.snapshots.current.generation
+
+        layout.isInLayoutMotion = true
+        publisher.invalidate()
+        for _ in 0..<4 { await Task.yield() }
+        #expect(publisher.builds == builds && router.snapshots.isStale, "the publish was not put off")
+        let served = await router.snapshots.snapshot(where: { $0.generation > generation }, deadline: .now + .seconds(5))
+        #expect(served != nil, "the barrier read waited for the landing")
+        #expect(publisher.builds == builds + 1, "\(publisher.builds - builds) builds for the barrier read (want 1)")
+        #expect(layout.isInLayoutMotion, "the motion ended before the read was served")
+    }
+
     @Test func theNewTabSparesWarmDuringAMotionWaitsForItsLanding() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
