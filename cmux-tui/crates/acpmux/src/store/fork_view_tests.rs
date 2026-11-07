@@ -331,7 +331,18 @@ fn a_chat_whose_folder_a_move_replaces_leaves_its_forks_their_history() {
     let dir = tempfile::tempdir().unwrap().keep();
     let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4);
     assert!(view.reference("fork").is_some());
+    let fence = fence_history(&view, "chat").unwrap();
     folder_to_replace(&view, "chat").unwrap().expect("the chat's folder");
+    // A fork asked for while the folder is replaced is refused, and taken once it is in place
+    // (review of #37020 at c840d41).
+    let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
+    assert!(
+        view.reserve_reference("late", &reference).is_err(),
+        "a fork read the folder being replaced"
+    );
+    drop(fence);
+    view.reserve_reference("late", &reference).unwrap();
+    view.forget_reference("late");
     assert!(view.reference("fork").is_none(), "the fork still reads the folder being replaced");
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));

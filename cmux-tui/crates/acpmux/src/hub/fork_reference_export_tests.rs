@@ -73,3 +73,41 @@ async fn an_exported_fork_by_reference_keeps_its_history_on_the_other_machine() 
     assert_eq!(imported.meta().history_kept_through, Some(through));
     assert_eq!(texts(&here, &imported.id), ["from the chat", "the fork's own"]);
 }
+
+/// A delete refused because a fork of the chat is still being made leaves the chat as it was: not
+/// marked purged, still listed, and what it writes after is kept (review of #37020 at c840d41: the
+/// refusal came after `purged`, and the chat's later records went nowhere).
+#[tokio::test]
+async fn a_delete_refused_for_a_fork_being_made_leaves_the_chat_usable() {
+    let hub = memory_hub();
+    hub.store.save(&meta("chat", None)).unwrap();
+    let chat = hub.make_session(meta("chat", None));
+    hub.append(&chat, "mux", "user_message", json!({"text": "before"}));
+    let reference =
+        crate::store::HistoryRef { session: "chat".into(), through_seq: chat.meta().last_seq };
+    // A fork reserved and not saved yet.
+    hub.store.reserve_reference("fork", &reference).unwrap();
+    assert!(hub.kill(&chat, true).await.is_err(), "the chat went before its fork held the history");
+    assert!(!chat.purged.load(Ordering::SeqCst), "the chat was marked purged");
+    assert!(hub.sessions.lock().unwrap().contains_key("chat"));
+    hub.append(&chat, "mux", "user_message", json!({"text": "after"}));
+    assert_eq!(texts(&hub, "chat"), ["before", "after"]);
+    // Once the fork is saved, the delete goes, and the fork keeps the history.
+    hub.store.save(&meta("fork", Some(reference))).unwrap();
+    hub.kill(&chat, true).await.unwrap();
+    assert!(hub.store.load("chat").unwrap().is_none());
+    assert_eq!(texts(&hub, "fork"), ["before"]);
+}
+
+/// While a chat's delete holds its fence, a new fork of it is refused, not left reading a chat
+/// that is going (review of #37020 at c840d41).
+#[tokio::test]
+async fn a_fork_asked_while_its_chat_is_fenced_is_refused() {
+    let hub = memory_hub();
+    hub.store.save(&meta("chat", None)).unwrap();
+    let reference = crate::store::HistoryRef { session: "chat".into(), through_seq: 0 };
+    let fence = crate::store::fence_history(hub.store.as_ref(), "chat").unwrap();
+    assert!(hub.store.reserve_reference("fork", &reference).is_err());
+    drop(fence);
+    hub.store.reserve_reference("fork", &reference).unwrap();
+}
