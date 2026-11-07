@@ -26,9 +26,35 @@ struct CloudTreeMachineDetailLayoutTests {
         guard case .machineDetailTabs(let tabs) = tabsRow.kind else { Issue.record("not a tab row"); return }
         #expect(tabs.tabs == [.ports, .terminals, .displays, .resources])
         #expect(tabs.selected == nil)
+        #expect(tabs.countLabel(for: .ports) == "?")
         #expect(tabs.count(for: .terminals) == 2)
         #expect(tabs.count(for: .displays) == 0)
         #expect(tabs.count(for: .resources) == nil)
+    }
+
+    @Test("A closed Ports tab changes its marker to the discovered count")
+    func closedPortsTabReflectsDiscovery() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        var snapshot = fixture.snapshot()
+        snapshot.machines[0].portDiscoveryState = .available
+        let port = CmuxTuiSnapshotParser.portBrowser(
+            machine: fixture.machine, port: 3000, directURL: "http://10.0.0.7:3000"
+        )
+        snapshot.resources.append(port)
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        )
+        let machine = try Self.machine(in: CloudTreeMachineDetailLayout().present(nodes))
+        let tabsRow = try #require(machine.children.first { $0.structureTag == "machineDetailTabs" })
+        guard case .machineDetailTabs(let tabs) = tabsRow.kind else {
+            Issue.record("not a tab row")
+            return
+        }
+        #expect(tabs.selected == nil)
+        #expect(tabs.count(for: .ports) == 1)
+        #expect(tabs.countLabel(for: .ports) == "1")
     }
 
     @Test("Opening Displays shows New Display, then the pool's rows, and refreshes the machine")

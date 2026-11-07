@@ -23,4 +23,33 @@ extension CmuxTuiSurfaceProvider {
         }
         update(summary: next)
     }
+
+    /// Runs one port-only rescan once the scan cache expires. A request made
+    /// while one is pending or running runs once more after it, so a burst
+    /// costs at most one scan per cache lifetime and stops when requests do.
+    /// `followUp` also owes that one more scan, for a change that can come
+    /// before the server it started is listening.
+    func schedulePortRescan(followUp: Bool = false) {
+        guard portDiscovery.mayScan else { return }
+        guard portRescan == nil else {
+            portRescanOwed = true
+            return
+        }
+        portRescanOwed = followUp
+        let lifecycle = currentLifecycleGeneration
+        let delay = portDiscovery.rescanDelay(at: Date.now) ?? 0
+        portRescan = Task { [weak self, attachmentClock] in
+            if delay > 0 {
+                do { try await attachmentClock.sleep(for: .seconds(delay)) } catch { return }
+            }
+            guard let self, self.isCurrentLifecycleGeneration(lifecycle) else { return }
+            await self.rescanPorts()
+            guard self.isCurrentLifecycleGeneration(lifecycle) else { return }
+            self.portRescan = nil
+            if self.portRescanOwed {
+                self.portRescanOwed = false
+                self.schedulePortRescan()
+            }
+        }
+    }
 }

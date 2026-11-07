@@ -89,7 +89,11 @@ struct CloudTreeMachineDetailLayout {
         }
         let tabs = CloudTreeMachineDetailTab.allCases.filter { pools[$0] != nil }
         if !tabs.isEmpty {
-            let row = tabRow(machine: machine, tabs: tabs, pools: pools)
+            let portDiscoveryState: CloudPortDiscoveryState? = {
+                guard case .machine(_, let info) = node.kind else { return nil }
+                return info?.portDiscoveryState
+            }()
+            let row = tabRow(machine: machine, tabs: tabs, pools: pools, portDiscoveryState: portDiscoveryState)
             row.children = row.children.map { Self.reuse($0, from: made) }
             rows.append(Self.reuse(row, from: made))
         }
@@ -111,7 +115,8 @@ struct CloudTreeMachineDetailLayout {
     private func tabRow(
         machine: SurfaceMachineID,
         tabs: [CloudTreeMachineDetailTab],
-        pools: [CloudTreeMachineDetailTab: CloudTreeNode]
+        pools: [CloudTreeMachineDetailTab: CloudTreeNode],
+        portDiscoveryState: CloudPortDiscoveryState?
     ) -> CloudTreeNode {
         let selected = selection[machine].flatMap { tabs.contains($0) ? $0 : nil }
         var counts: [CloudTreeMachineDetailTab: Int] = [:]
@@ -124,7 +129,10 @@ struct CloudTreeMachineDetailLayout {
         if let displays = pools[.displays], case .displaysPool(_, let count, _) = displays.kind {
             counts[.displays] = count
         }
-        let payload = CloudTreeMachineDetailTabs(machine: machine, tabs: tabs, counts: counts, selected: selected)
+        let payload = CloudTreeMachineDetailTabs(
+            machine: machine, tabs: tabs, counts: counts,
+            selected: selected, portDiscoveryState: portDiscoveryState
+        )
         let open = selected.flatMap { pools[$0] }
         var children = open?.children ?? []
         if selected == .terminals, let terminals = open {

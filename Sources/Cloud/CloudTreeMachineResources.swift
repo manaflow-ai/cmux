@@ -14,8 +14,8 @@ extension CloudTreeNode.Kind {
         }
     }
 
-    /// Port, resource, and terminal inventories start closed so discovery and
-    /// remote scans happen only after the person explicitly opens that group.
+    /// Port, resource, and terminal inventories start closed so their rows stay
+    /// out of the summary; visible expanded machines still warm port discovery.
     /// Workspaces and Displays start closed too, so opening a machine shows a
     /// short summary first and each part opens on request.
     var isExpandedByDefault: Bool {
