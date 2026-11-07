@@ -323,7 +323,8 @@ pub const PEER_PHONE: &str = "phone:";
 /// removes this Mac's phones on a peer by it, and never another Mac's.
 pub fn peer_phone_prefix(mac_device: &str) -> String {
     use sha2::Digest;
-    format!("{PEER_PHONE}{}:", hex(&sha2::Sha256::digest(mac_device.as_bytes())[..6]))
+    let digest = sha2::Sha256::digest(mac_device.as_bytes());
+    format!("{PEER_PHONE}{}:", hex(digest.get(..6).unwrap_or_default()))
 }
 
 /// The id a paired phone has in a peer's enrolled Macs ([`peer_phone_prefix`], then the phone's

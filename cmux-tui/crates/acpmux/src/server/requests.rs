@@ -1232,8 +1232,10 @@ async fn dispatch_request_with_identity(
             // With this Mac's paired phones' public keys, which `host approvals enroll` also
             // enrolls on a peer, so a phone may allow once there too.
             let mut view = hub.person.macs.view(&params);
-            view["thisMacPhones"] = json!(hub.person.approvers.peer_entries());
-            view["thisMacPhonePrefix"] = json!(hub.person.approvers.peer_prefix());
+            if let Some(fields) = view.as_object_mut() {
+                fields.insert("thisMacPhones".into(), json!(hub.person.approvers.peer_entries()));
+                fields.insert("thisMacPhonePrefix".into(), json!(hub.person.approvers.peer_prefix()));
+            }
             Ok(view)
         }
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {

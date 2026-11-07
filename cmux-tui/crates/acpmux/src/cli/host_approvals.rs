@@ -147,7 +147,7 @@ pub(crate) async fn unenroll_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
     // This Mac's phones there go with it: every id under its prefix. Nothing changes until the
     // list is read, so an unenroll never leaves a phone of this Mac allowing there unsaid.
     let listed = match ssh("host approvals") {
-        Ok(r) if r.ok => serde_json::from_str::<Value>(&r.stdout).ok().filter(|v| v["macs"].is_array()),
+        Ok(r) if r.ok => serde_json::from_str::<Value>(&r.stdout).ok().filter(|v| v.get("macs").is_some_and(Value::is_array)),
         _ => None,
     };
     let Some(listed) = listed else {
@@ -156,10 +156,7 @@ pub(crate) async fn unenroll_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
             format!("could not read {host}'s enrolled Macs: nothing was unenrolled"),
         );
     };
-    let there: Vec<&str> = listed["macs"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let there: Vec<&str> = macs(&listed)
         .map(|m| text(m, "id"))
         .filter(|m| crate::hub::approvers::valid_id(m))
         .collect();
@@ -197,6 +194,11 @@ pub(crate) async fn unenroll_with(io: &impl Io, t: &PeerTarget<'_>) -> StepResul
 
 fn text<'v>(v: &'v Value, key: &str) -> &'v str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+/// The entries of a `host approvals` listing (`{"macs": [...]}`); none when it has no list.
+fn macs(listed: &Value) -> impl Iterator<Item = &Value> {
+    listed.get("macs").and_then(Value::as_array).into_iter().flatten()
 }
 
 fn listed(macs: &[Approver]) -> Vec<Value> {
@@ -412,14 +414,15 @@ struct PhonePlan {
 
 impl PhonePlan {
     fn of(view: &Value, listed: &Value) -> Self {
-        let phones: Vec<Value> = view["thisMacPhones"]
-            .as_array()
+        let phones: Vec<Value> = view
+            .get("thisMacPhones")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter(|p| crate::hub::approvers::parse_approvers(std::slice::from_ref(*p)).is_ok())
             .cloned()
             .collect();
-        let there: Vec<&Value> = listed["macs"].as_array().into_iter().flatten().collect();
+        let there: Vec<&Value> = macs(listed).collect();
         let add = phones
             .iter()
             .filter(|p| {
