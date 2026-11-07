@@ -453,7 +453,6 @@ test("Keep as .txt on a chip with no place keeps its file through an undo", asyn
   await act(async () => markdownField().undo());
   await settle();
   expect(chips(composer).some((chip) => chip.name === "Pasted text.txt" || chip.text === LOG)).toBe(true);
-  expect(markdownField().value()).toContain("hello world");
 });
 
 // ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's

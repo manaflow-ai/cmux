@@ -72,6 +72,9 @@ export function useInlineAttachments(options: Options) {
   const placed = useRef(new Set<string>());
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
+  /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
+  /// `keepAsFile`): never placed in the text, so no undo there can take one out.
+  const stripOnly = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
@@ -84,6 +87,7 @@ export function useInlineAttachments(options: Options) {
     removed.current.clear();
     placed.current.clear();
     cancelled.current.clear();
+    stripOnly.current.clear();
     sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
@@ -142,10 +146,15 @@ export function useInlineAttachments(options: Options) {
 
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
-    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
-    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined) {
+    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`). `strip`:
+    /// they stay in the strip.
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined, strip = false) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
+      if (strip) {
+        for (const id of ids) stripOnly.current.add(id);
+        return;
+      }
       if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
       // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
@@ -155,7 +164,9 @@ export function useInlineAttachments(options: Options) {
       const { attachments, field, placing } = live.current;
       if (!placing()) return;
       const marks = new Set(placedIn(field.current?.value() ?? seen.current));
-      const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
+      const fresh = attachments.filter(
+        (chip) => !marks.has(chip.id) && !removed.current.has(chip.id) && !stripOnly.current.has(chip.id),
+      );
       if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
