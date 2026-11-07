@@ -11,8 +11,18 @@ pub(crate) fn int(value: &Value) -> Option<i64> {
     if let Some(int) = value.as_i64() {
         return Some(int);
     }
-    let float = value.as_f64()?;
-    (float.fract() == 0.0 && float.abs() < 9.0e15).then_some(float as i64)
+    whole(value.as_f64()?)
+}
+
+/// `float` as an integer when it is one exactly (as Swift's `Int(exactly:)`), within 2^53.
+pub(crate) fn whole(float: f64) -> Option<i64> {
+    if float.fract() != 0.0 || float.abs() >= 9.0e15 {
+        return None;
+    }
+    // Whole and within 2^53: the cast is exact.
+    #[expect(clippy::cast_possible_truncation, reason = "checked whole and within 2^53 above")]
+    let int = float as i64;
+    Some(int)
 }
 
 /// A present, non-null field (`None` for absent and null alike, as `decodeIfPresent`).

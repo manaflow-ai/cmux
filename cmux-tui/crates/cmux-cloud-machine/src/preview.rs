@@ -10,8 +10,7 @@ pub fn browser_url(url: &str, path: &str) -> Option<String> {
     if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return None;
     }
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     if authority.contains('@') {
         return None;
     }

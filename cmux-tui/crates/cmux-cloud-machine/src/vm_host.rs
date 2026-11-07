@@ -49,8 +49,8 @@ pub fn command(on: Option<bool>) -> String {
 
 /// The JSON object that starts at the text's first `{`, if the rest is one.
 fn object_in(text: &str) -> Option<Value> {
-    let start = text.find('{')?;
-    serde_json::from_str::<Value>(&text[start..]).ok().filter(Value::is_object)
+    let (_, after) = text.split_once('{')?;
+    serde_json::from_str::<Value>(&format!("{{{after}")).ok().filter(Value::is_object)
 }
 
 /// The state in a successful exec's output (acpmux prints one JSON object, pretty), or None.

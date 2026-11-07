@@ -113,7 +113,7 @@ fn upgrade_url(object: &Map<String, Value>) -> Option<String> {
         return None;
     }
     let rest = text.strip_prefix("https://")?;
-    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     let host = host_port.split_once(':').map_or(host_port, |(host, _)| host);
     (host == "cmux.com" || host.ends_with(".cmux.com")).then(|| text.to_owned())

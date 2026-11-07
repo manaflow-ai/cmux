@@ -618,8 +618,7 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
     machine.idle_pause_minutes = fields.get("idlePauseMinutes").and_then(int).or_else(|| {
         let policy = first(fields, &["idle_policy", "idlePolicy"])?.as_object()?;
-        let minutes = policy.get("idle_seconds")?.as_f64()? / 60.0;
-        (minutes.fract() == 0.0).then_some(minutes as i64)
+        crate::json::whole(policy.get("idle_seconds")?.as_f64()? / 60.0)
     });
     machine.idle_pause = fields.get("idlePause").and_then(IdlePauseDiagnostics::read);
     // Why cmux paused the machine by itself: `idle` and the cost backstop `no_report` are both its
