@@ -56,10 +56,6 @@ extension AgentPaneView {
     func quietForKeep() {
         model.shell.terminateAll()
         model.readAloud?.stop(owner: model)
-        // task-owner: one held-prompt release per kept page; ends when the page answered or the ask's limit passed
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await AgentPaneWakeState.releaseHeldPrompts(in: self)
-        }
+        releaseHeldPrompts { _ in } // the page is kept, not closed
     }
 }
