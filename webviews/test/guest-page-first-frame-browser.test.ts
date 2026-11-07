@@ -61,6 +61,7 @@ await requireBrowserLane("guest-page-first-frame-browser.test.ts", async () => {
             const dock = document.querySelector(".guest-live__dock");
             if (!dock) return;
             observer.disconnect();
+            // raf-read: the layout the first frame with the dock paints, before any later commit moves it.
             requestAnimationFrame(() => (marks.first = dock.getBoundingClientRect()));
           }).observe(document, { childList: true, subtree: true });
         },
