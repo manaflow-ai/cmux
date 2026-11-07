@@ -76,7 +76,7 @@ final class AppOnboardingServices: OnboardingServices {
             hold?.release()
             throw error
         }
-        owner.browserImportOffer.importFinished(summary)
+        owner.browserImportOffer.importFinished(summary.counts)
         await owner.historySync.reconcile()
         ImportedTabsOpener.open(summary, services: services)
         if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }

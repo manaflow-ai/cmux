@@ -13,7 +13,10 @@ const source = readFileSync(
   process.env.CMUX_TEST_DRAWN_SOURCE ?? new URL("../src/agent-session/acpmux/VirtualTranscript.tsx", import.meta.url),
   "utf8",
 );
-const comparison = source.slice(source.indexOf("function sameDrawn("), source.indexOf("/// RowFrame redraws"));
+// sameDrawn and changesDrawn, up to the end of changesDrawn's body.
+const comparisonStart = source.indexOf("function sameDrawn(");
+const comparisonEnd = source.indexOf("\n}\n", source.indexOf("function changesDrawn(")) + 3;
+const comparison = source.slice(comparisonStart, comparisonEnd);
 // flushDrawn alone, up to its own `}, []);`: other callbacks (reportRow, placeRowNow) sit between it and
 // the observer and need the pane's other refs.
 const flushStart = source.indexOf("  const flushDrawn = useCallback(");

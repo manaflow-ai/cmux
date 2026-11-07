@@ -180,6 +180,7 @@ export interface AcpmuxRequests {
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: SecretSubmitParams; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
+  "_acpmux/elevation_request": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
@@ -501,6 +502,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: true },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/elevation_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
