@@ -39,7 +39,7 @@ extension TabCell {
         }
         // The form of every sample, chosen for the whole path before any is laid out: each part
         // changes at most once between what shows now and the rest form at the end.
-        let forms: [TabChromeVisibility?] = TabChromeVisibility.path(
+        let forms: [TabChromeVisibility?] = closingVisibility != nil ? keys.map { _ in nil } : TabChromeVisibility.path(
             widths: keys.map { CGFloat($0) / scale },
             from: shownForm(shownNow),
             isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: item.isClosable,

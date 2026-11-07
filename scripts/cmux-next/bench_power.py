@@ -203,8 +203,12 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         last = counters(pid)
         if first is None or last is None:
             continue
-        entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0})
+        entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0,
+                                        "footprint_unread": 0})
         entry["count"] += 1
+        # A live process never has no footprint: a 0 is a failed read, so the sum is partial (see
+        # measure_processes) and says how many it is missing.
+        entry["footprint_unread"] += 0 if last[3] else 1
         entry["mw"] += (last[0] - first[0]) / 1e6 / elapsed
         entry["cpu_pct"] += 100 * (last[1] - first[1]) / 1e9 / elapsed
         entry["wakeups_per_s"] += (last[2] - first[2]) / elapsed
@@ -213,13 +217,15 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
         for key in ("mw", "cpu_pct", "wakeups_per_s", "footprint_mb"):
             entry[key] = round(entry[key], 3)
     total = {key: round(sum(e[key] for e in kinds.values()), 3) for key in ("mw", "cpu_pct", "wakeups_per_s", "footprint_mb")}
+    total["footprint_unread"] = sum(e["footprint_unread"] for e in kinds.values())
     result = {"label": label, "seconds": round(elapsed, 1), "total": total,
               "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["mw"])), "powermetrics": pm_result}
     for kind, entry in result["kinds"].items():
         print(f"PERF-POWER {label} kind={kind} n={entry['count']} mw={entry['mw']} cpu_pct={entry['cpu_pct']} "
-              f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
+              f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)} "
+              f"footprint_unread={entry['footprint_unread']}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
-          f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+          f"footprint_mb={round(total['footprint_mb'], 1)} footprint_unread={total['footprint_unread']} powermetrics={json.dumps(pm_result)}", flush=True)
     app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
     if sampler:
         sampler.wait(timeout=60)
@@ -444,9 +450,10 @@ METRICS = (("cpu_pct", "CPU % (avg)"), ("cpu_p95_pct", "CPU % (p95 of 1 s)"), ("
 
 def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
     """Performance-table rows (metric | before | after | delta | harness) for two `loaded` results
-    (or one: after and delta empty). Roles in `before` order, the total first."""
-    def cell(value):
-        return "" if value is None else f"{value:g}"
+    (or one: after and delta empty). Roles in `before` order, the total first. A role's footprint
+    with unread processes is a partial sum: it shows "(N unread)" and no delta on either side."""
+    def cell(value, unread=0):
+        return "" if value is None else f"{value:g}" + (f" ({unread} unread)" if unread else "")
     rows = ["| metric | before | after | delta | harness |", "| --- | --- | --- | --- | --- |"]
     roles = list(before["roles"]) + [role for role in (after or {}).get("roles", {}) if role not in before["roles"]]
     for role in roles:
@@ -455,10 +462,16 @@ def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
             new = after["roles"].get(role, {}).get(key) if after else None
             if old is None and new is None:
                 continue
+            unread_key = "footprint_unread" if key == "footprint_mb" else None
+            old_unread = (before["roles"].get(role, {}).get(unread_key) or 0) if unread_key else 0
+            new_unread = (after["roles"].get(role, {}).get(unread_key) or 0) if unread_key and after else 0
             delta = ""
             if old is not None and new is not None:
-                delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
-            rows.append(f"| {role}: {title} | {cell(old)} | {cell(new)} | {delta} | {harness} |")
+                if old_unread or new_unread:
+                    delta = "unknown (incomplete read)"
+                else:
+                    delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
+            rows.append(f"| {role}: {title} | {cell(old, old_unread)} | {cell(new, new_unread)} | {delta} | {harness} |")
     return rows
 
 
@@ -497,6 +510,10 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
     PASS when no process averages above `budget` CPU %, else OVER with every process above it."""
     def num(value, digits=2):
         return "" if value is None else f"{value:.{digits}f}"
+
+    def footprint_cell(value):
+        # measure_processes keeps a failed footprint read as None: say so, not a blank that reads as none.
+        return "unread" if value is None else num(value, 1)
     rows = ["| process | pid | CPU % avg | CPU % p95 | wakeups/s | main thread CPU % | footprint MB | over budget |",
             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     over = []
@@ -513,7 +530,7 @@ def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
             over.append({"pid": proc["pid"], "role": proc["role"], "cpu_pct": proc["cpu_pct"]})
         rows.append(f"| {role} | {proc['pid']} | {num(proc['cpu_pct'])} | {num(proc.get('cpu_p95_pct'))} | "
                     f"{num(proc.get('wakeups_per_s'), 1)} | {num(proc.get('main_thread_pct'))} | "
-                    f"{num(proc.get('footprint_mb'), 1)} | {'OVER' if flag else ''} |")
+                    f"{footprint_cell(proc.get('footprint_mb'))} | {'OVER' if flag else ''} |")
     busiest = max(result["processes"], key=lambda row: row["cpu_pct"], default=None)
     # No process measured (a zero-second window, or every process gone) is no evidence: never PASS.
     verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS" if busiest else "UNMEASURED", "over": over,

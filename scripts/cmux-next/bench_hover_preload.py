@@ -16,7 +16,10 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
               and how many moves left their row hovered. Only rows the pointer really hovers are swept
               (each is checked once first); the sweep is reported invalid when the swept pages did not
               all freeze or hibernate first. --profile DIR records a Time Profiler trace over the sweep
-              and prints the app's heaviest main-thread frames (PERF-HOVER-PROFILE).
+              and prints the app's heaviest main-thread frames (PERF-HOVER-PROFILE). --stalls MS launches the
+              app with its main-thread watchdog at MS (CMUX_NEXT_HANG_THRESHOLD_MS) and prints the stack sampled
+              in each main-thread turn over MS during the sweep, the app's own frames named by atos
+              (PERF-HOVER-STALL), and the frames most stalls share (PERF-HOVER-STALLS): no Instruments needed.
   (b) click   one workspace with --panes browser panes, hibernated by the timeout. --trials times
               each: "cold" (select it from another workspace, no hover) and "dwell" (the pointer
               rests --dwell-ms on its row, then select). Time to content: from the select until
@@ -29,7 +32,7 @@ per main-actor turn paced by the clock (not one socket round trip, a display fra
 
 Usage (a fleet mini, never a laptop; DEV or bench build):
   bench_hover_preload.py --app BUNDLE [--engine webkit|chromium] [--workspaces 40] [--crossings 200]
-      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json] [--profile DIR]
+      [--hz 120] [--panes 2] [--trials 5] [--dwell-ms 150] [--out FILE.json] [--profile DIR] [--stalls MS]
 Prints PERF-HOVER lines.
 """
 from __future__ import annotations
@@ -41,6 +44,7 @@ import os
 import shutil
 import collections
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -357,6 +361,144 @@ def main_thread_frames(table: str, pid: int, top: int = 30) -> dict:
             "inclusive": [[round(ns / 1e6, 1), name[:160]] for name, ns in inclusive.most_common(top * 2)]}
 
 
+CPU_ARCH = {(0x0100000C, 0): "arm64", (0x0100000C, 1): "arm64", (0x0100000C, 2): "arm64e", (0x01000007, 3): "x86_64"}
+
+
+def macho_slices(path: str) -> list[tuple[str, str | None]]:
+    """(LC_UUID uppercase with dashes, atos arch name or None) of each 64-bit slice of a Mach-O file; [] for any other
+    file. Reads only the headers, so a whole bundle's same-named files are cheap to tell apart."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(8)
+            if len(head) < 8:
+                return []
+            magic = struct.unpack(">I", head[:4])[0]
+            if magic in (0xCAFEBABE, 0xCAFEBABF):  # universal: big-endian table of slices
+                count, wide = struct.unpack(">I", head[4:])[0], magic == 0xCAFEBABF
+                entry = ">iiQQII" if wide else ">iiIII"
+                table = handle.read(struct.calcsize(entry) * min(count, 64))
+                out = []
+                for index in range(len(table) // struct.calcsize(entry)):
+                    cputype, subtype, offset = struct.unpack_from(entry, table, index * struct.calcsize(entry))[:3]
+                    out += [(uuid, CPU_ARCH.get((cputype & 0xFFFFFFFF, subtype & 0xFF)))
+                            for uuid, _ in _thin_slice(handle, offset)]
+                return out
+            return _thin_slice(handle, 0)
+    except OSError:
+        return []
+
+
+def _thin_slice(handle, offset: int) -> list[tuple[str, str | None]]:
+    handle.seek(offset)
+    header = handle.read(32)
+    if len(header) < 32 or struct.unpack("<I", header[:4])[0] != 0xFEEDFACF:  # MH_MAGIC_64, little-endian
+        return []
+    cputype, subtype, _, ncmds, sizeofcmds = struct.unpack("<iiIII", header[4:24])
+    commands = handle.read(min(sizeofcmds, 1 << 20))
+    at = 0
+    for _ in range(ncmds):
+        if at + 8 > len(commands):
+            break
+        cmd, size = struct.unpack_from("<II", commands, at)
+        if cmd == 0x1B and size >= 24 and at + 24 <= len(commands):  # LC_UUID
+            raw = commands[at + 8:at + 24].hex().upper()
+            uuid = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+            return [(uuid, CPU_ARCH.get((cputype & 0xFFFFFFFF, subtype & 0xFF)))]
+        if size < 8:
+            break
+        at += size
+    return []
+
+
+class Atos:
+    """Names a stall frame the app could not (`symbol` null: a stripped or local function) from its image in the
+    bundle and its offset from the image header, with atos: one call per image per stall set. The image is the bundle
+    file whose LC_UUID is the frame's `image_uuid`: a bundle holds more than one file of one name (the app's cmux in
+    Contents/MacOS, the CLI's in Contents/Resources/bin), so a name alone could pick the wrong binary."""
+
+    LOAD = 0x100000000  # any load address: atos takes the slide from it
+
+    def __init__(self, bundle: str):
+        self.files: dict[str, list[str]] = collections.defaultdict(list)
+        for root, _, files in os.walk(os.path.join(bundle, "Contents")):
+            for name in files:
+                self.files[name].append(os.path.join(root, name))
+
+    def binary(self, image: str, uuid: str | None) -> tuple[str, str | None] | None:
+        """(path, arch) of the bundle file of `image` whose slice has `uuid`; None when no file has it (a system
+        image, or a frame with no UUID: never a guess)."""
+        if not uuid:
+            return None
+        wanted = uuid.upper()
+        for path in self.files.get(image, []):
+            for found, arch in macho_slices(path):
+                if found == wanted:
+                    return path, arch
+        return None
+
+    def names(self, wanted: dict[tuple[str, str | None], set[int]]) -> dict[tuple[str, str | None, int], str]:
+        found = {}
+        for (image, uuid), offsets in wanted.items():
+            located, ordered = self.binary(image, uuid), sorted(offsets)
+            if not located or not ordered:
+                continue
+            path, arch = located
+            try:
+                out = subprocess.run(["xcrun", "atos", "-o", path] + (["-arch", arch] if arch else [])
+                                     + ["-l", hex(self.LOAD)] + [hex(self.LOAD + o) for o in ordered],
+                                     capture_output=True, text=True, timeout=120).stdout.splitlines()
+            except (OSError, subprocess.SubprocessError):
+                continue
+            for offset, line in zip(ordered, out):
+                if line and not line.startswith("0x"):
+                    found[(image, uuid, offset)] = line.strip()
+        return found
+
+
+def _lookup(detail: dict, index: int) -> tuple[str, str | None, int] | None:
+    """The (image, uuid, offset) atos names for an unnamed frame: the call for a return address (index > 0)."""
+    if detail.get("symbol") is not None or not detail.get("image") or detail.get("image_offset") is None:
+        return None
+    return detail["image"], detail.get("image_uuid"), int(detail["image_offset"]) - (1 if index else 0)
+
+
+def stall_frames(bench: Bench, bundle: str, report: dict, top: int = 40):
+    """The main-thread turns over --stalls ms during the sweep (debug.hangs): each one's duration, CPU and stack
+    (sampled mid-turn), app frames named by atos, then each frame name with the number of stalls it is in. A record
+    that does not parse is skipped and listed (`skipped`), never the end of the report."""
+    hangs = bench.rpc("debug.hangs", {"limit": 128}, timeout=60)
+    records, skipped = [], []
+    for record in [r for r in hangs.get("records") or [] if isinstance(r, dict) and r.get("kind") == "stall"]:
+        try:
+            details = record.get("frame_details") or []
+            keys = [_lookup(detail, index) for index, detail in enumerate(details)]
+            records.append((record, float(record["duration_ms"]), float(record.get("cpu_ms") or 0),
+                            list(zip(record.get("frames") or [], keys))))
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            skipped.append({"sequence": record.get("sequence"), "error": repr(error)})
+    wanted: dict[tuple[str, str | None], set[int]] = collections.defaultdict(set)
+    for _, _, _, frames in records:
+        for _, key in frames:
+            if key:
+                wanted[key[:2]].add(key[2])
+    named = Atos(bundle).names(wanted)
+    shared: collections.Counter = collections.Counter()
+    stalls = []
+    for _, ms, cpu_ms, frames in records:
+        names = [named.get(key, text) if key else text for text, key in frames]
+        stalls.append({"ms": ms, "cpu_ms": cpu_ms, "frames": names})
+        shared.update(set(names))
+        print(f"PERF-HOVER-STALL ms={ms:.1f} cpu_ms={cpu_ms:.1f} frames={len(names)}", flush=True)
+        for name in names[:48]:
+            print(f"PERF-HOVER-STALL   {name[:200]}", flush=True)
+    report["sweep_stalls"] = {"threshold_ms": hangs.get("threshold_ms"), "count": len(stalls), "stalls": stalls,
+                              "shared": shared.most_common(top), "skipped": skipped}
+    print(f"PERF-HOVER-STALLS threshold_ms={hangs.get('threshold_ms')} count={len(stalls)} skipped={len(skipped)} "
+          f"installed={hangs.get('installed')}", flush=True)
+    for name, count in shared.most_common(top):
+        print(f"PERF-HOVER-STALLS {count:3d}/{len(stalls)}  {name[:200]}", flush=True)
+
+
 def sweep(bench: Bench, args, report: dict, rows: list[str]):
     if len(rows) < 2:
         report["sweep"] = {"error": f"rows={len(rows)}"}
@@ -375,6 +517,8 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
             profile = Profile(bench.pid, args.profile, args.label)
         except Exception as error:  # a profile that cannot start never costs the arm its sweep
             report["sweep_profile"] = {"error": repr(error)}
+    if args.stalls:
+        bench.rpc("debug.hangs", {"clear": True, "limit": 0})
     bench.rpc("debug.frames", {"action": "start"})
     moved = bench.rpc("debug.pointer_sweep", {"path": path, "hz": args.hz}, timeout=90)
     time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
@@ -391,6 +535,12 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
         for kind in ("self", "inclusive"):
             for ms, name in frames_of_profile.get(kind) or []:
                 print(f"PERF-HOVER-PROFILE {kind} {ms:8.1f} ms  {name}", flush=True)
+    if args.stalls:
+        try:
+            stall_frames(bench, args.app, report)
+        except Exception as error:  # a stall read that fails keeps the sweep's numbers, as a failed profile does
+            report["sweep_stalls"] = {"error": repr(error)}
+            print(f"PERF-HOVER-STALLS error={error!r}", flush=True)
     main_ms = [float(v) for v in frames.get("main_ms") or []]
     move_ms = [float(v) for v in moved.get("move_ms") or []]
     after = bench.hibernation()
@@ -525,10 +675,14 @@ def main():
     parser.add_argument("--profile")
     # Refresh rate of a virtual main display made before the launch (a 60 Hz mini measures at 120 Hz); 0: the host's own.
     parser.add_argument("--vdisplay", type=float, default=0)
+    # Milliseconds (4 or more): sample the main thread's stack in every turn over this during the sweep (debug.hangs).
+    parser.add_argument("--stalls", type=float, default=0)
+    # browser.wakeTabsOnHover (hover preload, off by default in the app): 1 turns it on for this launch, 0 leaves it off.
+    parser.add_argument("--wake-on-hover", type=int, default=1, choices=[0, 1])
     args = parser.parse_args()
     phases = set(args.phases.split(","))
     # Hidden pages discard after 0.5 min (a timeout written, so the hover may restore them) and freeze after 5 s.
-    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5}}
+    config = {"browser": {"hibernation": 0.5, "freezeHiddenTabs": 5, "wakeTabsOnHover": bool(args.wake_on_hover)}}
     bundle = os.path.realpath(args.app)
     signal.signal(signal.SIGTERM, bm.interrupted)
     bp.wipe_state(bundle)
@@ -536,7 +690,7 @@ def main():
     if args.vdisplay:
         vdisplay, ready = start_vdisplay(args.vdisplay, tempfile.mkdtemp(prefix="hover-vdisplay-"))
         print(f"PERF-HOVER-VDISPLAY hz={args.vdisplay} {ready}", flush=True)
-    pid, sock, scratch = bm.launch(bundle, config)
+    pid, sock, scratch = bm.launch(bundle, config, {"CMUX_NEXT_HANG_THRESHOLD_MS": str(int(args.stalls))} if args.stalls else None)
     app = bm.App(bundle, sock)
     bench = Bench(sock, app, pid)
     sites = Sites(args.engine)

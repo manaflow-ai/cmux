@@ -40,13 +40,6 @@ export type AgentSessionTheme = {
   /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
-  /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
-  /// acpmux codexToolRuns.ts). Native hosts send their default (true) explicitly; absent keeps it
-  /// on, and false opts out.
-  codexToolRuns?: boolean;
-  /// A running turn's status line as its last row (Debug Settings `agentPane.debug.liveLineBelow`,
-  /// acpmux liveLineBelow.ts). Absent or true draws it there; false keeps it over the turn's work.
-  liveLineBelow?: boolean;
   /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
   /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
   toolRunLook?: string;
@@ -71,8 +64,4 @@ export type AgentSessionTheme = {
   /// Running tray placement; absent keeps the tray above the composer. The alternate is
   /// fixture/Labs-driven until a native setting owns it.
   subagentTrayPlacement?: "tray" | "after-latest-message";
-  /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
-  /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
-  /// the chat overflows.
-  scrollerFade?: boolean;
 };

@@ -15,6 +15,17 @@ struct NewTabRapidPairTests {
     /// The pool with two inert spares parked (they stand in for WebKit's pages; `painted` says which count as drawn).
     final class Rig {
         var made: [AgentPaneView] = []
+        /// Pages the pool took back (a closed New Tab page, a released Cmd-N reservation's).
+        var recycled = 0
+    }
+
+    /// What the pool holds, for a report: its spares (unparked ones are out of the window), the openings that took one
+    /// (`spare` each), the pages it took back, and the daemon's reserved Cmd-N workspace's tab.
+    static func poolState(_ services: AppServices, _ rig: Rig) -> String {
+        let pool = services.newTabSpares
+        return "pool \(pool.spares.count) spares (\(pool.spares.filter { $0.superview == nil }.count) unparked), "
+            + "openings \(pool.openings.map(\.spare)), recycled \(rig.recycled), "
+            + "reserved tab \(services.daemon.store.reservedWorkspace?.tabKey ?? "none")"
     }
 
     /// The pool keeps two spares, which it fills only after one served an open: the rig hands out the launch's spare
@@ -42,10 +53,16 @@ struct NewTabRapidPairTests {
         pool.retarget(window)
         pool.prewarm()
         pool.start()
-        try await PasswordManagerRouteTests.until({ rig.made.count == 1 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count) spares made" })
+        let recycle = services.agentTabs.recycle
+        services.agentTabs.recycle = { [weak rig] view in
+            rig?.recycled += 1
+            return recycle?(view) ?? false
+        }
+        try await PasswordManagerRouteTests.until({ rig.made.count == 1 && pool.spare != nil }, within: .seconds(5),
+                                                  report: { "\(rig.made.count) spares made; \(poolState(services, rig))" })
         let launch = try #require(pool.take(for: window, size: nil)?.view)
         launch.removeFromSuperview()
-        try await PasswordManagerRouteTests.until({ rig.made.count == 3 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count - 1) spares made after the handout" })
+        try await PasswordManagerRouteTests.until({ rig.made.count == 3 && pool.spare != nil }, within: .seconds(5), report: { "\(rig.made.count - 1) spares made after the handout; \(poolState(services, rig))" })
         return rig
     }
 
@@ -189,7 +206,7 @@ struct NewTabRapidPairTests {
             pool.retarget(other)
             // Past the quiet-input warm (750 ms) with no input: still one page.
             try await Task.sleep(for: .seconds(2))
-            #expect(rig.made.count == 1, "the launch made \(rig.made.count) spares before any open")
+            #expect(rig.made.count == 1, "the launch made \(rig.made.count) spares before any open; \(Self.poolState(services, rig))")
             pool.retarget(window)
             NewTabPage.open(in: pane, seed: nil)
             try await PasswordManagerRouteTests.until({ rig.made.count >= 3 }, within: .seconds(5), report: { "\(rig.made.count - 1) spares after the first open" })

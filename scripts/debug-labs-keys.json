@@ -1,7 +1,4 @@
 {
-  "agentPane.debug.codexToolRuns": {"case": "delete", "why": "On by default; deleting the off switch keeps Codex-style runs and drops the old path."},
-  "agentPane.debug.liveLineBelow": {"case": "delete", "why": "On by default; deleting the off switch keeps the live line at the bottom."},
-  "agentPane.debug.scrollerFade": {"case": "delete", "why": "On by default; deleting the off switch keeps the fading scrollbar."},
   "agentPane.debug.subagentTray": {"case": "delete", "why": "On by default; deleting the off switch keeps the subagent tray."},
   "agentPane.debug.needsYouPill": {"case": "keep", "why": "Off because it does not work yet (Leo 10-23: 'default off ... bc it doenstr work rn... we need to fix it'); fix it, then flip."},
   "agentPane.debug.needsYou": {"case": "keep", "why": "Applies only while the Needs you App Store item is installed; it is that item's look, not a gate."},

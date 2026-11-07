@@ -258,7 +258,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if case let .custom(custom) = section.kind { docID = custom.id }
             let blockHeight = docID.flatMap { o.blockHeights[$0] } ?? 0
             if let docID, o.collapsedDocSections.contains(docID) { nodes = [] }
-            let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
+            let emptyDropZone = docID.map(o.emptyDocSections.contains) == true && !filtering
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
@@ -285,7 +285,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // place, so the rows below stay put). Any other gap alone opens right under the block and moves the rows
             // below by exactly `gapShift`.
             let rowsUnderBlock = blockHeight > 0
-                && (!nodes.isEmpty || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
+                && (!nodes.isEmpty || emptyDropZone)
             // An untitled section emptied by a drag has a 0 pt block and its drop zone (or the gap) alone.
             let endsInZone = isDocSection && nodes.isEmpty && (blockHeight == 0 || rowsUnderBlock)
             afterBlock = endsInZone ? 0 : blockHeight > 0 && nodes.isEmpty ? m.rowSpacing : nil
@@ -325,7 +325,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
-                } else if blockHeight == 0 || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true) {
+                } else if blockHeight == 0 || emptyDropZone {
                     // One plain row: Pinned's "Drop here to pin", or an empty list's blank drop target
                     // (classic shows nothing under an empty list, https://github.com/manaflow-ai/cmux/issues/32728).
                     let emptyHeight = m.emptySectionHeight
@@ -506,6 +506,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         )
         layout.rowSpacing = m.rowSpacing
         (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
+        SidebarPerfCounters.add(.layoutRows, rows.count)
         return layout
     }
 }

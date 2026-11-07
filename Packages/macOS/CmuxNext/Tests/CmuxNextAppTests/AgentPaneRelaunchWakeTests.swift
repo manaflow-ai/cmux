@@ -142,7 +142,7 @@ struct AgentPaneRelaunchWakeTests {
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
-        tabs.takeSpare = { spare }
+        tabs.takeSpare = { _ in spare }
         let key = try #require(store.tab(surface: 1)?.id)
         tabs.wakeStates[key] = AgentPaneWakeState(shell: true, shellText: "npm run dev")
 

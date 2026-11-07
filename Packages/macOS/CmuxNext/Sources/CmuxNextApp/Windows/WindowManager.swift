@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
+import CmuxNextCloudUI
 
 /// Opens, restores, closes, and persists windows.
 ///
@@ -318,9 +319,8 @@ final class WindowManager {
         Task {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
             let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
-            services.onboarding.showHistoryAtFirstRun(isFirstRun: isFirstRun)
-            // Agents opens over the history page, so it is the first step the person sees.
-            await services.onboarding.showAgentsAtFirstRun(isFirstRun: isFirstRun)
+            // One step at a time: Agents, then Bring your history once its window closed.
+            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
@@ -405,7 +405,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || controller.root.content is CloudMachineProgressView || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || controller.root.content is CloudProgressHost || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false

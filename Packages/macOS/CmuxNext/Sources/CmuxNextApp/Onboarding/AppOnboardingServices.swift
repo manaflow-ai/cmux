@@ -24,7 +24,7 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
-    /// Folder grants (Debug Settings `browserImport.folderGrant`).
+    /// Folder grants: a browser's profiles are read only after the person picked its folder.
     private let folderAccess = BrowserFolderAccess()
 
     /// None while `browser.import.enabled` is off: nothing reads another browser's folders.

@@ -117,7 +117,7 @@ test("the Projects card lists this Mac's projects, the one used last first, neve
 });
 
 test("the handshake turns the widget view on only with widgets: true", async () => {
-  const { newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   expect(newTabHost({ newTab: { widgets: true } })?.widgets).toBe(true);
   expect(newTabHost({ newTab: { widgets: "yes" } })?.widgets).toBeUndefined();
   expect(newTabHost({ newTab: true })?.widgets).toBeUndefined();

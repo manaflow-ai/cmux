@@ -27,6 +27,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// rounded card the clip, border and ring trace (`LayoutStyle.floatingPanes`).
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
+    /// Whether the content draws its pane's outline and ring (`PaneContentChrome.paneFramesContent`):
+    /// an agent chat does not, and the dividers beside it draw their line instead (`ScreenContentView.showsIdleLine`).
+    var framesContent: Bool { reporter?.paneFramesContent ?? true }
     private var lastWindowFrame: CGRect?
 
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
@@ -335,10 +338,13 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// Draw ahead (cmux-ad m26): the host will be `sizeChange` larger (negative: smaller) at its spring's next refresh. A
     /// key hold's area hands it to its followers (a terminal asks its renderer for that size now); its content's chrome
-    /// does not change size in a spring, so the area changes by the same amount.
+    /// does not change size in a spring, so the area changes by the same amount. In the key's turn (T-KEYS 3) the hold
+    /// has not begun: the press's first refresh begins it (``isOnLayoutSpring``), and the area that hold will hold tells
+    /// the followers it will hand that refresh's size now, so the frame that shows the press has their frames drawn.
     func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
-        guard holdsUntilAfterLanding, let heldArea else { return }
-        heldArea.drawAhead(sizeChange: sizeChange)
+        if holdsUntilAfterLanding, let heldArea { return heldArea.drawAhead(sizeChange: sizeChange) }
+        guard !holdsUntilAfterLanding, !isOnLayoutSpring, let area = (content as? PaneMotionHolding)?.paneMotionHoldArea else { return }
+        area.drawAheadOfHold(sizeChange: sizeChange)
     }
 
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
@@ -377,7 +383,10 @@ final class PaneHostView: NSView, RestingPlacement {
             reporter?.setPaneContentCornerRadius(0)
             clipView.setCornerRadius(radius)
         }
-        chrome.showsContentFrame = framesContent
+        if chrome.showsContentFrame != framesContent {
+            chrome.showsContentFrame = framesContent
+            (superview as? ScreenContentView)?.paneFramingDidChange()
+        }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
     }
 

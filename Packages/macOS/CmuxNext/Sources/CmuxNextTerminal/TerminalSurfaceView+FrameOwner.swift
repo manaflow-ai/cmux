@@ -60,6 +60,17 @@ extension TerminalSurfaceView {
             if self.frame != frame { self.frame = frame }
             return
         }
+        // Read before a size drawn ahead is taken (T-KEYS 3): with nothing shown there is no frame to wait for, and a
+        // size drawn ahead would wait for a pass that only a shown frame needs (KeyResizeKeyTurnSurfaceTests, red at
+        // 81ddc591ed1: the press's grid went after the spring and the surface rested at its first-refresh size).
+        let state = hostFrame(present: false)
+        guard state != GHOSTTY_HOST_FRAME_NONE, state != GHOSTTY_HOST_FRAME_HIDDEN else {
+            // Nothing shown, or nothing drawn while hidden: nothing to keep; the frame that comes fits these bounds.
+            frameOwnership.ahead = nil
+            self.frame = frame
+            if state == GHOSTTY_HOST_FRAME_NONE { framePresenter?.watch(self) }
+            return
+        }
         // The size its spring gave it at the last refresh: Ghostty has drawn it, or draws it now.
         if let ahead = frameOwnership.ahead {
             frameOwnership.ahead = nil
@@ -69,13 +80,6 @@ extension TerminalSurfaceView {
                 presenter.request(self)
                 return
             }
-        }
-        let state = hostFrame(present: false)
-        guard state != GHOSTTY_HOST_FRAME_NONE, state != GHOSTTY_HOST_FRAME_HIDDEN else {
-            // Nothing shown, or nothing drawn while hidden: nothing to keep; the frame that comes fits these bounds.
-            self.frame = frame
-            if state == GHOSTTY_HOST_FRAME_NONE { framePresenter?.watch(self) }
-            return
         }
         requestWantedFrame()
     }

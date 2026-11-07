@@ -71,7 +71,8 @@ const noop = () => {};
 
 test("the bar shows real places only and follows the host's open tabs without losing the typed text", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { NewTabPage, newTabHost } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  const { newTabHost } = await import("../src/agent-session/acpmux/newTabModel");
   const adoption = await import("../src/agent-session/acpmux/newtab/adoption");
   const opened = newTabHost({
     newTab: {

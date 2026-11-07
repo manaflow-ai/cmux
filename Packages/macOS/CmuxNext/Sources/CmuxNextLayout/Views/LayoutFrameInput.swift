@@ -36,6 +36,9 @@ struct LayoutFrameInput {
     /// The pass a screen's presentation waited for in the frame's input, for each screen whose springs did not
     /// present it this frame (a drag moves no spring), before the frame syncs its overlay.
     func presentWaiting() { // perf-hot: 4ms motion-frame
-        for view in root.screenViews.values where view.frameInput.presentationWaiting { view.applyPresentation() }
+        for view in root.screenViews.values where view.frameInput.presentationWaiting {
+            view.frameInput.snapWaitsForContent = false
+            view.applyPresentation()
+        }
     }
 }
