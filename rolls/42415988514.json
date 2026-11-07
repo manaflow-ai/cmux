@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42415988514",
+  "recorded_at": "2026-11-07T21:38:58Z",
+  "reason": "image inputs changed in 838951f55638a0b7e9e6d1b46f511c9554df60df..f14b92412e6a3a55494abe4d9f8ab51d252d0777",
+  "dry_run": false,
+  "cmux_tui": "44c97a12088d47b6fad905a60c921637e5f4885e",
+  "fixes": [
+    {
+      "sha": "f14b92412e6a3a55494abe4d9f8ab51d252d0777",
+      "mergedAt": "2026-11-07T13:27:57-08:00",
+      "subject": "Cloud VM image: the inventory retries a connection the provider cut instead of failing the roll (#38014)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T21:38:58Z",
+    "snapshot_id": "sh-03588461ff6948c5bc2e8b1b6b8c8a56",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42415988514): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9239d6f40169dad2cccdb756694cde907d3e1ad2",
+    "image": "cloud-native-auto-44c97a12-42415988514-1",
+    "revision": "ci-42415988514-1",
+    "at": "2026-11-07T21:38:58Z"
+  },
+  "rolled_back": false
+}
