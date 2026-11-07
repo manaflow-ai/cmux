@@ -624,13 +624,14 @@ export function StatusRow({
         />
       )) : null}
       {fast ? (
-        <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
+        <HintTooltip label={optionTooltip(fast)} action={fast.disabled ? undefined : "toggle-fast"}>
           <button
             type="button"
             aria-label={fast.label}
+            aria-disabled={fast.disabled ? true : undefined}
             disabled={fast.disabled}
-            className={"row-control row-icon-only fast-toggle" + (fast.value ? " active" : "")}
-            onClick={() => onChange(fast.id, !fast.value)}
+            className={"row-control row-icon-only fast-toggle" + (fast.value && !fast.disabled ? " active" : "") + (fast.disabled ? " is-disabled" : "")}
+            onClick={() => { if (!fast.disabled) onChange(fast.id, !fast.value); }}
           >
             <BoltIcon />
           </button>

@@ -1,5 +1,7 @@
 import {
   normalizeProviderOptionStore,
+  persistOptionsSnapshot,
+  readProviderOptionStore,
   readStoredProviderOptions,
   updateStoredProviderOption,
 } from "../src/options-store";
@@ -51,6 +53,16 @@ if (flat.model !== "m1" || flat.effort !== "high" || flat.context !== "1m" || fl
 const read = readStoredProviderOptions("codex", storage);
 if (read.model !== "m1" || read.effort !== "high" || read.permissionMode !== "plan") {
   throw new Error(`read round trip failed: ${JSON.stringify(read)}`);
+}
+
+updateStoredProviderOption("codex", "fastMode", true, options("m1"), storage);
+persistOptionsSnapshot("codex", [
+  ...options("m2").filter((option) => option.id !== "fastMode"),
+  { id: "fastMode", label: "Fast", kind: "toggle", value: false, disabled: true, description: "This model does not support fast mode." },
+], storage);
+const kept = readProviderOptionStore("codex", storage);
+if (kept.models.m1?.fastMode !== true) {
+  throw new Error(`a disabled Fast control must not clear the saved preference, got ${JSON.stringify(kept)}`);
 }
 
 console.log("options store assertions passed");
