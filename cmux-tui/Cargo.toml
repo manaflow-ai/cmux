@@ -236,6 +236,14 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
+# A std/parking_lot guard or RefCell borrow held across `.await` stalls every other locker on the
+# runtime's thread until the task is polled again. 0 findings when enabled; the clippy job's
+# `-D warnings` makes a new one red. Proof: crates/cmux-tui-core/tests/lock_scope_lints.rs.
+await_holding_lock = "warn"
+await_holding_refcell_ref = "warn"
+# Evaluated and dropped for the same lock-held-across-work class (counts on 2026-11-07's tree, all
+# targets): significant_drop_tightening 1742 (and silent on #32326's shape, whose guard is written
+# after the commit), significant_drop_in_scrutinee 195, large_futures 330 (311 in acpmux).
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
