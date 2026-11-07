@@ -35,6 +35,15 @@ fn a_short_verb_takes_a_name_by_position() {
     assert_eq!(cloud_words(&rm, Some("vm_a1")), words(&["--target", "machine:vm_a1", "--confirm"]));
     let targeted = parse(&words(&["vm", "status", "--target", "machine:vm_a1"])).unwrap();
     assert!(targeted.targeted && targeted.named.is_none());
+    // `--target` and its value go to the app as typed, in both spellings.
+    assert_eq!(cloud_words(&targeted, None), words(&["--target", "machine:vm_a1"]));
+    let inline = parse(&words(&["vm", "pause", "--target=machine:vm_a1"])).unwrap();
+    assert!(inline.targeted && inline.named.is_none());
+    assert_eq!(cloud_words(&inline, None), words(&["--target=machine:vm_a1"]));
+    // `cloud` is `vm`'s old name: the quick start's `cmux cloud pause dev` runs the same verb.
+    let old = parse(&words(&["cloud", "pause", "dev"])).unwrap();
+    assert_eq!((old.cloud_verb, old.named.as_deref()), ("pause-machine", Some("dev")));
+    assert_eq!(parse(&words(&["cloud", "list-machines"])), None);
     assert_eq!(parse(&words(&["vm", "ls"])).unwrap().cloud_verb, "list-machines");
     // Not short verbs, help, two names, or another scope: the old paths run.
     assert_eq!(parse(&words(&["vm", "new"])), None);
@@ -64,5 +73,8 @@ fn a_name_is_an_id_or_one_title_and_none_is_the_only_vm() {
     let one = json!({"machines": [{"machine_id": "vm_a1", "title": "dev"}]});
     assert_eq!(resolve(None, &one), Resolved::Id("vm_a1".into()));
     assert_eq!(code(resolve(None, &listed())), "cloud.which_machine");
+    // Several VMs: the next step is a command that runs, not a placeholder.
+    let Resolved::Refused(several) = resolve(None, &listed()) else { panic!("refused") };
+    assert_eq!(several.pointer("/details/next"), Some(&json!("cmux vm ls")));
     assert_eq!(code(resolve(None, &json!({"machines": []}))), "cloud.no_machines");
 }

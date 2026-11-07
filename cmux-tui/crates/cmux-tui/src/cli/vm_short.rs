@@ -2,7 +2,8 @@
 //! (Leo's CLI walkthrough, 2026-11-07, cmuxterm-hq#7487). A VM is named by its id or its one
 //! title, or not at all when you have one VM, instead of `--target machine:ID`. Each runs the
 //! app's Cloud verb (`pause-machine --target machine:ID`, ...), so the app's answers, refusals
-//! and confirmations are unchanged; the long spellings keep working.
+//! and confirmations are unchanged; the long spellings keep working. `cmux cloud`, the old name
+//! of `vm`, takes the same short verbs (no `cloud` verb has one of their names).
 //!
 //! With no cmux app here (CI, a headless agent) nothing changes: `vm pause|resume|rm|fork|ls`
 //! stay the VM API's verbs (vm.rs). A name the app does not list that looks like a VM API id
@@ -47,10 +48,11 @@ pub(super) struct Short {
     pub(super) tail: Vec<String>,
 }
 
-/// `Some` for `vm VERB …` with a short verb, no help flag and at most one name.
+/// `Some` for `vm VERB …` (or `cloud VERB …`) with a short verb, no help flag and at most one
+/// name.
 pub(super) fn parse(command: &[String]) -> Option<Short> {
     let [scope, verb, rest @ ..] = command else { return None };
-    if scope != "vm" {
+    if scope != "vm" && scope != "cloud" {
         return None;
     }
     let cloud_verb = VERBS.iter().find(|(short, _)| short == verb).map(|(_, cloud)| *cloud)?;
@@ -115,7 +117,7 @@ pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
             _ => Resolved::Refused(refusal(
                 "cloud.which_machine",
                 &format!("you have {} Cloud VMs; name one: {}", rows.len(), titles.join(", ")),
-                "cmux vm VERB NAME",
+                LIST,
                 json!({"names": titles}),
             )),
         };
