@@ -1,8 +1,8 @@
 import { type ReactNode } from "react";
-import { pathName, textLinks } from "./paths";
+import { foreignFileIds, pathName, textLinks } from "./paths";
 import { bareFileNames } from "./replyFolders";
 import { githubRefLabel } from "./linkChipsModel";
-import { PathChip, UrlChip, SiblingFileChip } from "./LinkChips";
+import { ForeignFileRef, PathChip, UrlChip, SiblingFileChip } from "./LinkChips";
 
 /// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
 export function linkedText(text: string, key: string): ReactNode[] {
@@ -32,8 +32,32 @@ export function linkedText(text: string, key: string): ReactNode[] {
   return out;
 }
 
+/// `text` with each foreign file id (`foreignFileIds`) as its `ForeignFileRef`, the rest drawn by
+/// `rest`.
+export function withForeignFiles(
+  text: string,
+  key: string,
+  rest: (piece: string, key: string) => ReactNode[],
+): ReactNode[] {
+  const ids = foreignFileIds(text);
+  if (!ids.length) return rest(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  ids.forEach((id, index) => {
+    if (id.start > at) out.push(...rest(text.slice(at, id.start), `${key}-${index}-text`));
+    out.push(<ForeignFileRef key={`${key}-${index}-foreign`} id={id.value} />);
+    at = id.end;
+  });
+  if (at < text.length) out.push(...rest(text.slice(at), `${key}-foreign-tail`));
+  return out;
+}
+
 /// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
 function namedText(text: string, key: string): ReactNode[] {
+  return withForeignFiles(text, key, siblingText);
+}
+
+function siblingText(text: string, key: string): ReactNode[] {
   const names = bareFileNames(text);
   if (!names.length) return [text];
   const out: ReactNode[] = [];

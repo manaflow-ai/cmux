@@ -75,6 +75,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]
