@@ -135,7 +135,12 @@ pub(super) fn change_account(state: &mut State, user: Option<String>, now: i64) 
     }
     state.owner.set_user(user.as_deref().unwrap_or_default());
     state.account = user;
-    state.reports_generation += 1;
+    state.reports_generation = state.reports_generation.wrapping_add(1);
+    // The GitHub poller starts over: no ETag or detail of the old account,
+    // a poll in flight is dropped, and the waiting poller wakes for a pass.
+    state.github.reset();
+    state.github_epoch = state.github_epoch.wrapping_add(1);
+    state.github_generation = state.github_generation.wrapping_add(1);
     events
 }
 

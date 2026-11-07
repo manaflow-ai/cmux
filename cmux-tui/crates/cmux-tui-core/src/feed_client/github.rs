@@ -139,11 +139,15 @@ fn enabled(inner: &Inner) -> bool {
 /// withdrawn on a failure).
 fn poll(inner: &Inner) {
     let mut error = None;
+    let epoch = inner.lock().github_epoch;
     for query in Query::POLLED {
-        if !inner.lock().github_config.enabled || inner.stopped() {
-            return;
-        }
-        let etag = inner.lock().github.etag(query).map(str::to_owned);
+        let etag = {
+            let state = inner.lock();
+            if !state.github_config.enabled || inner.stopped() || state.github_epoch != epoch {
+                return;
+            }
+            state.github.etag(query).map(str::to_owned)
+        };
         let output = match inner.deps.gh.run(&query.gh_args(etag.as_deref())) {
             Ok(output) => output,
             Err(message) => {
@@ -155,6 +159,10 @@ fn poll(inner: &Inner) {
         let now = inner.now();
         let events = {
             let mut state = inner.lock();
+            if state.github_epoch != epoch {
+                // The account changed while gh ran: this answer is the old one's.
+                return;
+            }
             match state.github.apply(query, &response, now) {
                 Ok(effects) => effects_into_owner(&mut state, effects, now),
                 Err(message) => {

@@ -109,6 +109,9 @@ pub(crate) struct State {
     /// Bumped by every configure, refresh and account change: the poller's
     /// wait ends on it.
     pub(crate) github_generation: u64,
+    /// Bumped on every account change: a poll answer read before it is
+    /// dropped, so the old account's rows never come back.
+    pub(crate) github_epoch: u64,
     pub(crate) github_running: bool,
     pub(crate) github_error: Option<String>,
     pub(crate) reports: Reports,
@@ -254,6 +257,7 @@ impl FeedClient {
                 interval_s: cmux_feed_core::client::github::DEFAULT_INTERVAL_S,
             },
             github_generation: 0,
+            github_epoch: 0,
             github_running: false,
             github_error: None,
             reports: Reports::default(),
@@ -581,7 +585,7 @@ impl FeedClient {
         let start = {
             let mut state = self.inner.lock();
             state.github_config = config;
-            state.github_generation += 1;
+            state.github_generation = state.github_generation.wrapping_add(1);
             if !config.enabled {
                 state.github_error = None;
             }
@@ -602,7 +606,7 @@ impl FeedClient {
         if !state.github_config.enabled {
             return false;
         }
-        state.github_generation += 1;
+        state.github_generation = state.github_generation.wrapping_add(1);
         drop(state);
         self.inner.wake.notify_all();
         true
@@ -627,7 +631,7 @@ impl FeedClient {
             Inner::wake_wire(&state);
         }
         if active {
-            state.reports_generation += 1;
+            state.reports_generation = state.reports_generation.wrapping_add(1);
         }
         drop(state);
         self.inner.wake.notify_all();

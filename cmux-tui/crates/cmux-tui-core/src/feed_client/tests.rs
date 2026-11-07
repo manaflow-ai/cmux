@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use cmux_feed_core::client::github::Query;
 use cmux_feed_core::client::{FeedItem, Layout, Poster, Priority, Reject, ViewRequest};
 use serde_json::{Value, json};
 
@@ -339,6 +340,35 @@ fn the_github_poller_posts_with_etags_and_stops_when_turned_off() {
     h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
     wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
     assert!(!h.feed.refresh_github());
+}
+
+#[test]
+fn another_account_starts_the_github_poller_over() {
+    let h = harness(None);
+    h.gh.answers.lock().unwrap().push_back(Ok(search(json!([review_pull()]))));
+    h.feed.configure_github(GitHubConfig { enabled: true, interval_s: 3600 });
+    wait_until("the first pass", || h.gh.calls.lock().unwrap().len() >= 4);
+    wait_until("the review request", || h.feed.list(Some("open"), Some("local"), true).len() == 1);
+    assert!(h.feed.inner.lock().github.etag(Query::POLLED[0]).is_some());
+    let epoch = h.feed.inner.lock().github_epoch;
+    {
+        let mut state = h.feed.inner.lock();
+        super::driver::change_account(&mut state, Some("u2".to_owned()), NOW);
+        assert_eq!(state.github_epoch, epoch.wrapping_add(1));
+        assert!(
+            state.github.etag(Query::POLLED[0]).is_none(),
+            "an ETag of the old account is kept"
+        );
+    }
+    h.feed.inner.wake.notify_all();
+    // The account change wakes the poller for a pass with no old validators.
+    wait_until("the pass for the new account", || h.gh.calls.lock().unwrap().len() >= 8);
+    let calls = h.gh.calls.lock().unwrap().clone();
+    for call in calls.get(4..8).unwrap_or_default() {
+        assert!(!call.iter().any(|arg| arg.starts_with("If-None-Match")), "{call:?}");
+    }
+    h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
+    wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
 }
 
 #[test]
