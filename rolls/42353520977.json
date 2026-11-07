@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42353520977",
+  "recorded_at": "2026-11-07T08:13:03Z",
+  "reason": "cmux-tui fcd2025b1e37 changes the image's cmux-tui (pinned 6b1608c2a6d9)",
+  "dry_run": false,
+  "cmux_tui": "fcd2025b1e37acf61efeb113dc996397bd6602ef",
+  "fixes": [
+    {
+      "sha": "fcd2025b1e37acf61efeb113dc996397bd6602ef",
+      "mergedAt": "2026-11-07T07:45:36Z",
+      "subject": "chore(next): base autofix at f8bca8ba8d99"
+    },
+    {
+      "sha": "2640b9246a9b2c550c6510816299d0deb9e3399f",
+      "mergedAt": "2026-11-07T07:43:09Z",
+      "subject": "Reopen Closed: a right-split agent pane comes back straight in its split (#37511)"
+    },
+    {
+      "sha": "77db0c51368d410db6cfb0767904f804f4644866",
+      "mergedAt": "2026-11-06T23:43:00-08:00",
+      "subject": "perf(acpmux): coalesce peer session notice cache saves (#37022)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:13:03Z",
+    "snapshot_id": "sh-4d62f641a5b74d569ed891711c916eb4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42353520977): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "69ae1ee232e6a7e93a7ce3b2bf266c8d0afb9421",
+    "image": "cloud-native-auto-fcd2025b-42353520977-1",
+    "revision": "ci-42353520977-1",
+    "at": "2026-11-07T08:13:03Z"
+  },
+  "rolled_back": false
+}
