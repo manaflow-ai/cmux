@@ -231,7 +231,10 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
         expect(layout.width).toBeLessThanOrEqual(360);
         expect(layout.contentWidth).toBeLessThanOrEqual(layout.bodyWidth + 1);
         expect(layout.names.length).toBeGreaterThan(4);
-        expect(layout.names.every((name) => name.width > 0 && name.ellipsis === "ellipsis")).toBe(true);
+        // Names wrap inside their column rather than end in an ellipsis: none is cut.
+        expect(
+          layout.names.every((name) => name.width > 0 && name.content <= name.width + 1 && name.ellipsis === "clip"),
+        ).toBe(true);
       } finally {
         await page.close();
       }

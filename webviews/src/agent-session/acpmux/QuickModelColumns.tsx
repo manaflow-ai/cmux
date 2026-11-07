@@ -340,7 +340,9 @@ function Columns({
       const box = frame.getBoundingClientRect();
       if (box.width > width) {
         width = box.width;
-        popup.style.minWidth = `min(${width}px, var(--available-width, calc(100vw - 24px)))`;
+        // A floor beside the sheet's 28.5em, not in place of it: interface or text size grown while
+        // open still grows the menu (quickModelColumns.css).
+        popup.style.setProperty("--acpmux-cols-held-width", `${width}px`);
       }
       if (box.height > height) {
         height = box.height;
