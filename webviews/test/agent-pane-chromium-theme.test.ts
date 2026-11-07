@@ -45,6 +45,9 @@ await requireBrowserLane("agent-pane-chromium-theme.test.ts", async () => {
       port: 0,
       fetch(request) {
         const name = new URL(request.url).pathname.replace(/^\/+/, "") || "index.html";
+        // The page host's per-page script (AgentPageResources): this chat has no drawn copy.
+        if (name === "__snapshot/chat.js")
+          return new Response("self.__cmuxChatSnapshot=null;", { headers: { "Content-Type": "text/javascript" } });
         const file = Bun.file(path.join(pane, path.normalize(name).replace(/^(\.\.(\/|$))+/, "")));
         return new Response(file, { headers: { "Content-Security-Policy": APP_CSP } });
       },

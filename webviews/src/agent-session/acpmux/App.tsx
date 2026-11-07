@@ -629,6 +629,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
@@ -5852,6 +5853,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
+    // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
+    // the next frame, in one step.
+    swapChatSnapshot();
     requestAnimationFrame(() =>
       setTimeout(() => {
         void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
@@ -5860,6 +5864,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }, 0),
     );
   }, [showsWhatItIs, drewKeptTail]);
+  // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
+  // the visible window, written when it goes quiet and when the page hides.
+  const snapshotSession = showsWhatItIs && newTab === undefined && hostError === undefined ? shownSessionId : undefined;
+  useEffect(() => {
+    if (!snapshotSession) return;
+    return watchChatSnapshot(snapshotSession, (params) => callNative("chat.snapshot.put", params));
+  }, [snapshotSession]);
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;

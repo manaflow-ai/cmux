@@ -1,0 +1,112 @@
+import CmuxNextPages
+public import CmuxNextSettings
+public import Foundation
+
+/// What each agent chat's page last drew, as markup: the next document of that chat draws it in its
+/// first frame, before its bundle runs, so a chat after a relaunch shows what it showed instead of
+/// an empty pane and then a split reveal (Leo, 2026-11-07: "we need to make these after-restart
+/// things load a lot faster"). The page writes it (`chat.snapshot.put`,
+/// webviews/src/agent-session/acpmux/chatSnapshot), the page view's resources serve it to the next
+/// document as `__snapshot/chat.js` (``AgentPageResources``), and the page draws and replaces it.
+/// This is storage and serving only; the shape is the page's, kept opaque.
+///
+/// Kept as the chat tails are, beside them (``AgentPaneTailCache``): a disk of its own,
+/// `agent-chat-snapshots` next to `agent-chat-tails`, at most ``chats`` files of ``bytes`` each,
+/// saved and read off the main thread, owned by the app's state files so a quit awaits the saves.
+/// Sign-out clears it with the tails; a chat the page forgets (purged, an attach that failed) is
+/// forgotten here too; an incognito chat's page is never kept (``AgentPageProvider``).
+/// The app has one, the chat tails' (``AgentPaneTailCache/snapshots``), whose lifecycle it shares.
+@MainActor
+public final class AgentPaneChatSnapshots {
+    /// Chats whose copy is kept, as many as their tails.
+    public nonisolated static let chats = AgentPaneTailCache.chats
+    /// Most bytes one copy may take as UTF-8 JSON: four times the page's own 256 KiB bound
+    /// (chatSnapshot/shared.ts), for the reason ``AgentPaneTailCache/bytes`` gives.
+    public nonisolated static let bytes = 1024 * 1024
+    /// The page's global the served script sets (chatSnapshot/shared.ts `SNAPSHOT_GLOBAL`).
+    nonisolated static let global = "__cmuxChatSnapshot"
+    /// The dynamic prefix the document loads it from.
+    nonisolated static let prefix = "__snapshot"
+
+    /// The disk; nil keeps nothing (a test host, the gallery). Unless set, the folder beside the
+    /// tails', made on first use once the app made its state store.
+    public var disk: AgentPaneTailDisk? {
+        get {
+            if let configuredDisk { return configuredDisk }
+            guard let anchors = AgentPaneScrollAnchors.shared else { return nil }
+            let disk = anchors.file.map { file in
+                anchors.files.tails(in: file.deletingLastPathComponent().appending(path: "agent-chat-snapshots")) {
+                    AgentPaneTailDisk(directory: $0, files: Self.chats, bytes: Self.bytes, qos: .userInitiated, accepts: { AgentPaneChatSnapshots.holds($0) })
+                }
+            }
+            configuredDisk = .some(disk)
+            return disk
+        }
+        set { configuredDisk = .some(newValue) }
+    }
+    private var configuredDisk: AgentPaneTailDisk??
+
+    init() {}
+
+    /// Whether `snapshot` is a page copy this keeps: an object with its markup. Its size is the disk's bound.
+    nonisolated static func holds(_ snapshot: JSONValue) -> Bool {
+        guard case .object(let fields) = snapshot, case .string(let html)? = fields["html"], !html.isEmpty,
+              case .number? = fields["v"] else { return false }
+        return true
+    }
+
+    /// Keeps `snapshot` for chat `sessionId`; nil, or one this does not hold, forgets the one kept.
+    public func remember(_ snapshot: JSONValue?, for sessionId: String) {
+        guard AgentPaneTailCache.shared.acceptsTails else { return }
+        let held: JSONValue? = if let snapshot, Self.holds(snapshot) { snapshot } else { nil }
+        disk?.write(held, for: sessionId)
+    }
+
+    /// The copy kept for `sessionId`, read off the main thread; nil when none is, or the lifecycle
+    /// changed while it read (sign-out).
+    public func snapshot(for sessionId: String) async -> JSONValue? {
+        let cache = AgentPaneTailCache.shared
+        guard let disk, cache.acceptsTails else { return nil }
+        let generation = cache.generation
+        let read = await disk.read(sessionId)
+        guard generation == cache.generation, cache.acceptsTails else { return nil }
+        return read
+    }
+
+    /// Forgets every copy (sign-out, with the tails).
+    func clear() {
+        disk?.clear()
+    }
+
+    /// The ops the page sends: `chat.snapshot.put {sessionId, html, ...}` (no `html` forgets it) and
+    /// `chat.snapshot.get {sessionId}`, which answers the kept copy or null.
+    nonisolated static func handles(method: String) -> Bool {
+        method == "chat.snapshot.put" || method == "chat.snapshot.get"
+    }
+
+    /// Answers one op. `allowed` is false for an incognito chat (nothing kept, nothing read), and a
+    /// page from before a sign-out (`pageGeneration`) writes nothing.
+    func reply(_ method: String, params: JSONValue, op: String, allowed: Bool, pageGeneration: UInt64) async throws -> JSONValue {
+        guard case .object(var body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
+        else { throw PageError.invalidParams(op) }
+        guard allowed else { return .null }
+        if method == "chat.snapshot.get" { return await snapshot(for: session) ?? .null }
+        guard pageGeneration == AgentPaneTailCache.shared.generation else { return .null }
+        body["sessionId"] = nil
+        remember(body["html"] == nil ? nil : .object(body), for: session)
+        return .null
+    }
+
+    /// The script the document runs before its bundle: sets the page's global to chat
+    /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept).
+    func script(for sessionId: String?, allowed: Bool) async -> Data {
+        var text = "self.\(Self.global)="
+        if allowed, let sessionId, !sessionId.isEmpty, let kept = await snapshot(for: sessionId) {
+            kept.appendCompactText(to: &text)
+        } else {
+            text += "null"
+        }
+        text += ";"
+        return Data(text.utf8)
+    }
+}

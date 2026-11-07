@@ -212,8 +212,12 @@ public final class AgentPaneView: NSView {
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             provider.tailHost = model.host
             provider.tabKey = { [weak model] in model?.tabKey() }
+            // A chat's drawn copy is kept only outside incognito (``AgentPaneChatSnapshots``).
+            let keepsSnapshots = { @MainActor [weak model] in model?.sendIsIncognito.map { !$0() } ?? false }
+            provider.keepsChatSnapshots = keepsSnapshots
+            let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
             else { return nil }
             self.page = page
             pageEvents = provider

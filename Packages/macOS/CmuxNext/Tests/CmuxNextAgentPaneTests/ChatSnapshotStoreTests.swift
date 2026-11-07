@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct ChatSnapshotStoreTests {
     private static func withDisk(_ body: (AgentPaneTailDisk) async throws -> Void) async rethrows {
-        let store = AgentPaneChatSnapshots.shared
+        let store = AgentPaneTailCache.shared.snapshots
         let cache = AgentPaneTailCache.shared
         cache.resume()
         let disk = AgentPaneTailDisk(directory: FileManager.default.temporaryDirectory.appending(path: "chat-snapshots-\(UUID().uuidString)"),
@@ -30,12 +30,12 @@ struct ChatSnapshotStoreTests {
     private static func put(_ session: String, html: String?, allowed: Bool = true) async throws {
         var params: [String: JSONValue] = ["sessionId": .string(session), "v": .number(1), "width": .number(800)]
         if let html { params["html"] = .string(html) }
-        _ = try await AgentPaneChatSnapshots.shared.reply("chat.snapshot.put", params: .object(params), op: "cmux.agent.chat.snapshot.put",
+        _ = try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.put", params: .object(params), op: "cmux.agent.chat.snapshot.put",
                                                           allowed: allowed, pageGeneration: AgentPaneTailCache.shared.generation)
     }
 
     private static func get(_ session: String, allowed: Bool = true) async throws -> JSONValue {
-        try await AgentPaneChatSnapshots.shared.reply("chat.snapshot.get", params: .object(["sessionId": .string(session)]),
+        try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.get", params: .object(["sessionId": .string(session)]),
                                                       op: "cmux.agent.chat.snapshot.get", allowed: allowed,
                                                       pageGeneration: AgentPaneTailCache.shared.generation)
     }
@@ -114,7 +114,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             AgentPaneTailCache.shared.resume()
             #expect(try await Self.get("s-5") == .null)
-            _ = try await AgentPaneChatSnapshots.shared.reply("chat.snapshot.put",
+            _ = try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.put",
                                                               params: .object(["sessionId": .string("s-5"), "v": .number(1), "html": .string("<main>old</main>")]),
                                                               op: "cmux.agent.chat.snapshot.put", allowed: true, pageGeneration: stale)
             await disk.settled()

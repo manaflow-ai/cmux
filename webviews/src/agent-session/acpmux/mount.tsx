@@ -28,6 +28,11 @@ import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
 import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
+import { reportChatSnapshot } from "./chatSnapshot/live";
+
+// The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
+// page now, before the handshake, instead of keeping its loading state until the rows are read.
+reportChatSnapshot(postNative);
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.

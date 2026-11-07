@@ -104,4 +104,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
+
+    /// Write the chat's drawn copy now: the page was hidden (``AgentPaneChatSnapshots``).
+    public static let chatSnapshotWrite = AgentPageEvent(kind: "chatSnapshot.write")
 }

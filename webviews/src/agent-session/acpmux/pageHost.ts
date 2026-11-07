@@ -28,6 +28,7 @@ import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
 import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
+import { SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -188,6 +189,10 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
+      return;
+    case "chatSnapshot.write":
+      // The tab hides: the chat's drawn copy is written now, before a hidden page freezes.
+      window.dispatchEvent(new Event(SNAPSHOT_WRITE_EVENT));
       return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
