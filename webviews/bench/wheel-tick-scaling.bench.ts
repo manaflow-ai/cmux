@@ -1,0 +1,264 @@
+// l10n-allow-file: bench output labels, not shipped UI.
+// What one mouse-wheel tick costs in a small chat and in a huge one (Leo, 2026-11-07: "I do one tick
+// up, one tick down ... we are proportionally scaling with the amounts of load our app has ... we're
+// not, like, scrolling through a million events' worth of things"). The target: a tick's frames cost
+// the same at any history size, and each fits a 120 Hz frame (8.3 ms).
+//
+// The real pane (`?mock`: the direct client on the in-page mock daemon), one fresh page per size, a chat
+// of TURNS heavy turns seeded through attach (`cmuxAcpmuxDebug.loadSeed`, loadFixture.ts). The reader
+// scrolls a few viewports up into the history and lets older pages land, then sends notched wheel ticks
+// (deltaMode 1, three lines: the notch path of wheelGlide.ts, as a mouse with a notched wheel takes):
+//   single: one tick up, its glide to rest, one tick down, its glide to rest; ROUNDS times;
+//   burst:  eight ticks up 50 ms apart, then eight down (a reader spinning the wheel).
+// Each animation frame from the first tick to the last glide's rest is timed from its start (the rAF
+// timestamp) until the page has rendered it (a posted message runs after the rendering update): the
+// frame's work, which a 120 Hz display needs under 8.3 ms whatever this runner's own refresh is. Also:
+// the first frame that moved after each tick (the tick's response), frames that did not move while a
+// glide was on (a stall), long tasks over 50 ms (Chromium), and the transcript's React and layout time
+// per frame (acpmuxPerf).
+//   bun bench/wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds=6] [engine=chromium|webkit]
+// Prints one line per size and PERF_ROW rows: wheel_tick.<size>.work_ms (p50/p95) and
+// wheel_tick.scaling.work_p95_ratio (the largest size's p95 over the smallest's; 1 is flat).
+/// <reference types="bun" />
+import path from "node:path";
+import { chromium, webkit } from "playwright";
+import { createServer } from "vite";
+import { warmViteServer } from "../test/support/warmDevServer";
+import { perfRow, TARGET_MS } from "./perfRow";
+
+const SIZES = (process.argv[2] ?? "50,500,3000").split(",").map(Number);
+const ROUNDS = Number(process.argv[3] ?? 6);
+const ENGINE = process.argv[4] ?? "chromium";
+if (!SIZES.every((size) => Number.isInteger(size) && size > 0) || !Number.isInteger(ROUNDS) || ROUNDS < 1)
+  throw new Error("usage: wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds>=1] [engine=chromium|webkit]");
+if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`wheel-tick-scaling: unknown engine ${ENGINE}`);
+const BUDGET_120 = 1000 / 120;
+const webviews = path.resolve(import.meta.dir, "..");
+
+type Summary = { p50: number; p95: number; max: number };
+type SizeResult = {
+  turns: number;
+  rows: number;
+  open_ms: number;
+  frames: number;
+  work: Summary;
+  over_120: number;
+  over_60: number;
+  react: Summary;
+  layout: Summary;
+  response_frames: Summary;
+  stalls: number;
+  long_tasks: number;
+  long_task_max: number;
+  ticks: number;
+  heap_mb: number | null;
+  dom_nodes: number;
+};
+
+/// Runs in the page: the ticks and the frame record. Returns the size's result less its open numbers.
+async function tickRun(rounds: number): Promise<Omit<SizeResult, "turns" | "rows" | "open_ms"> | { error: string }> {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return { error: "no transcript" };
+  const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+  const afterRender = () =>
+    new Promise<number>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        resolve(performance.now());
+      };
+      channel.port2.postMessage(0);
+    });
+  const perfUrl = "/src/agent-session/acpmux/perf.ts";
+  type PerfModule = typeof import("../src/agent-session/acpmux/perf");
+  const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
+  const intentUrl = "/src/agent-session/acpmux/conversation/userScroll.ts";
+  type IntentModule = typeof import("../src/agent-session/acpmux/conversation/userScroll");
+  const { userScrollIntent } = (await import(/* @vite-ignore */ intentUrl)) as IntentModule;
+
+  // Into the history as a reader goes there: a few viewports up, then still frames while older pages land.
+  const requested = userScrollIntent(scroller).request();
+  scroller.scrollTop = scroller.scrollHeight;
+  for (let index = 0; index < 20; index += 1) await frame();
+  for (let step = 0; step < 6; step += 1) {
+    if (requested()) scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight);
+    for (let index = 0; index < 20; index += 1) await frame();
+  }
+  for (let index = 0; index < 60; index += 1) await frame();
+
+  const longTasks: number[] = [];
+  let observer: PerformanceObserver | undefined;
+  if (PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
+    observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) longTasks.push(entry.duration);
+    });
+    observer.observe({ type: "longtask" });
+  }
+  acpmuxPerf.enable();
+  acpmuxPerf.resetFrames();
+
+  const work: number[] = [];
+  const responses: number[] = [];
+  let stalls = 0;
+  let ticks = 0;
+  let lastTop = scroller.scrollTop;
+  let frameStart = await frame();
+  /// One frame: times its work, marks it into acpmuxPerf, and says whether the transcript moved.
+  const step = async (): Promise<boolean> => {
+    const done = await afterRender();
+    work.push(done - frameStart);
+    const next = await frame();
+    acpmuxPerf.markFrame(next, false);
+    frameStart = next;
+    const moved = Math.abs(scroller.scrollTop - lastTop) >= 0.5;
+    lastTop = scroller.scrollTop;
+    return moved;
+  };
+  const tick = (lines: number) => {
+    ticks += 1;
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: lines, deltaMode: 1, cancelable: true, bubbles: true, clientX: 10, clientY: 10 }),
+    );
+  };
+  /// After a tick: frames until the first move (the response), then until the glide rests for 6 frames.
+  const ride = async (cap = 240) => {
+    let frames = 0;
+    let moved = false;
+    let still = 0;
+    while (frames < cap) {
+      frames += 1;
+      const now = await step();
+      if (!moved) {
+        if (now) {
+          moved = true;
+          responses.push(frames);
+        }
+        continue;
+      }
+      if (now) {
+        still = 0;
+      } else if ((still += 1) >= 6) {
+        // The frames that sat still before it came to rest were a stall only if it moved again after.
+        return;
+      }
+    }
+  };
+  const glideStalls = (moves: boolean[]) => {
+    // A still frame between two moving frames, inside one glide.
+    for (let index = 1; index < moves.length - 1; index += 1)
+      if (!moves[index] && moves.slice(0, index).includes(true) && moves.slice(index + 1).includes(true)) stalls += 1;
+  };
+
+  for (let round = 0; round < rounds; round += 1) {
+    tick(-3);
+    await ride();
+    tick(3);
+    await ride();
+  }
+  for (const direction of [-3, 3]) {
+    const moves: boolean[] = [];
+    let sent = 0;
+    let next = performance.now();
+    let still = 0;
+    while (sent < 8 || still < 6) {
+      if (sent < 8 && performance.now() >= next) {
+        tick(direction);
+        sent += 1;
+        next += 50;
+      }
+      const moved = await step();
+      moves.push(moved);
+      still = moved ? 0 : still + 1;
+      if (moves.length > 600) break;
+    }
+    glideStalls(moves);
+  }
+  observer?.disconnect();
+  const perf = acpmuxPerf.stats() as {
+    react: { p50_ms: number; p95_ms: number; max_ms: number };
+    layout: { p50_ms: number; p95_ms: number; max_ms: number };
+  };
+  const summary = (values: number[]): Summary => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))] ?? 0;
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+    return { p50: round2(at(0.5)), p95: round2(at(0.95)), max: round2(sorted.at(-1) ?? 0) };
+  };
+  const pick = (value: { p50_ms: number; p95_ms: number; max_ms: number }): Summary => ({
+    p50: value.p50_ms,
+    p95: value.p95_ms,
+    max: value.max_ms,
+  });
+  const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
+  return {
+    frames: work.length,
+    work: summary(work),
+    over_120: work.filter((ms) => ms > 1000 / 120).length,
+    over_60: work.filter((ms) => ms > 1000 / 60).length,
+    react: pick(perf.react),
+    layout: pick(perf.layout),
+    response_frames: summary(responses),
+    stalls,
+    long_tasks: longTasks.length,
+    long_task_max: Math.round(Math.max(0, ...longTasks)),
+    ticks,
+    heap_mb: heap === undefined ? null : Math.round(heap / 1048576),
+    dom_nodes: document.getElementsByTagName("*").length,
+  };
+}
+
+const vite = await createServer({
+  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+  server: { port: 0, host: "127.0.0.1", strictPort: false },
+  logLevel: "error",
+});
+await vite.listen();
+await warmViteServer(vite, "/?mock");
+const browser = await (ENGINE === "webkit" ? webkit : chromium).launch({ headless: true });
+const results: SizeResult[] = [];
+try {
+  const { port } = vite.httpServer!.address() as { port: number };
+  for (const turns of SIZES) {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await page.goto(`http://127.0.0.1:${port}/?mock`);
+    await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+    const seeded = (await page.evaluate(
+      (turns) => (window as unknown as { cmuxAcpmuxDebug: { loadSeed(turns: number): Promise<unknown> } }).cmuxAcpmuxDebug.loadSeed(turns),
+      turns,
+    )) as { error?: string; rows: number; open_ms: number };
+    if (seeded.error) throw new Error(`wheel-tick-scaling: seed ${turns}: ${seeded.error}`);
+    await page.locator(".acpmux-scroll").hover();
+    const run = await page.evaluate(tickRun, ROUNDS);
+    await page.close();
+    if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
+    if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
+      throw new Error(`wheel-tick-scaling: ${turns} turns: the ticks did not move the transcript ${JSON.stringify(run)}`);
+    const result = { turns, rows: seeded.rows, open_ms: seeded.open_ms, ...run };
+    results.push(result);
+    const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
+    console.log(
+      `wheel-tick-scaling ${ENGINE} turns=${turns} rows=${result.rows} frames=${result.frames} ticks=${result.ticks} ` +
+        `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
+        `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
+        `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
+        `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms}`,
+    );
+    perfRow({
+      name: `wheel_tick.${ENGINE}.turns_${turns}.work_ms`,
+      p50: result.work.p50,
+      p95: result.work.p95,
+      target: BUDGET_120,
+    });
+  }
+  const first = results[0]!;
+  const last = results.at(-1)!;
+  if (results.length > 1) {
+    const ratio = Math.round((last.work.p95 / Math.max(0.01, first.work.p95)) * 100) / 100;
+    console.log(`wheel-tick-scaling ${ENGINE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`);
+    perfRow({ name: `wheel_tick.${ENGINE}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
+  }
+  void TARGET_MS;
+} finally {
+  await browser.close();
+  await vite.close();
+}
