@@ -29,6 +29,7 @@ extension AgentPaneView {
 
     private func contentEnded(_ termination: PageTermination) {
         model.sessionInfo.pageLoaded()
+        model.setToastAvoidance(nil)
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
         let retries = crashRetry.ended(self)
@@ -80,8 +81,6 @@ extension AgentPaneView {
     /// working chat before this (user report 2026-10-30): a host route, a retarget or a WebKit
     /// fallback had loaded the page again, and only Reload took the notice away.
     func pageLoadedAgain() {
-        // A new document starts with no toast band: it gets the current one (AgentPaneView+ToastRoom.swift).
-        sendToastRoom(duration: 0, force: true)
         // Every host's load lands here: a start's card is gone with the old document, so its question moves to a dialog.
         model.cloudAsks.pageReloaded()
         // A page that came back before its owed retry ran needs none.

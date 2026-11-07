@@ -1,0 +1,28 @@
+public import AppKit
+public import CmuxNextDesign
+
+/// A toast never covers the composer, and the composer never moves for a toast (Leo, 2026-11-07:
+/// "The composer should never ever rise up because there's some sort of ... tooltip type thing";
+/// earlier, 2026-11-06, a machine toast drawn over his queued prompt). Toasts rest bottom-center over
+/// the window, over this pane's foot, where its bottom stack floats (a question, the tray, queued
+/// prompts, the composer card). The page reports that stack's box (`pane.toastAvoidance`, webviews
+/// toastAvoidance.ts) and the toast host lifts every toast above it, as over Home's message box; the
+/// page's layout never hears of a toast.
+extension AgentPaneView: CmuxToastAvoiding {
+    /// The page's bottom stack in this view's coordinates; empty while the page reports none or is
+    /// held away (a move in progress).
+    public var toastAvoidanceRect: NSRect {
+        guard !holdsPageAway, let box = model.toastAvoidance else { return .zero }
+        return Self.sessionInfoOverlayRect(box, page: page?.frame ?? webView.frame,
+                                           zoom: max(0.25, CGFloat(uiPointerPageZoom)), flipped: isFlipped)
+    }
+
+    /// The stack or the pane moved: the window's shown toasts move clear of where it is now. Says
+    /// nothing when its window rect is unchanged, so a layout pass with no move costs no toast work.
+    func toastAvoidanceMoved() {
+        let rect = window == nil ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
+        guard rect != lastToastAvoidance else { return }
+        lastToastAvoidance = rect
+        if let window { CmuxToastAvoidance.avoidanceChanged(in: window) }
+    }
+}
