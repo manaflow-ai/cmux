@@ -106,7 +106,16 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
     assert_eq!(check, json!({"isTeam": false, "transient": true}));
     let (_, claims) = call(c"cloud_identity_token", &json!({"token": "opaque"}));
-    assert_eq!(claims, json!({"user": null, "expiresAt": null}));
+    assert_eq!(claims, json!({"user": null, "expiresAt": null, "team": null}));
+    // No asked and no active team: the install token's own team is the one to mint for.
+    let (_, team) = call(
+        c"cloud_identity_mint_team",
+        &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": null, "stackProjectId": "p"}),
+    );
+    assert_eq!(team["team"], Value::Null);
+    let (_, own) = call(c"cloud_identity_token", &json!({"token": "e30.eyJzdWIiOiJ1IiwiZXhwIjoxOTAwMDAwNjAwLCJ0ZWFtIjoidGVhbV9hYWFhYWFhYWFhYWFhYWFhYWFhYSJ9.c2ln"}));
+    assert_eq!(own["team"], "team_aaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
     assert!(key["account"].as_str().unwrap().starts_with("install-key-"));
     let (_, share) = call(

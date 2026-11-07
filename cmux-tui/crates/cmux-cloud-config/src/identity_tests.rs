@@ -64,10 +64,19 @@ fn claims_are_read_from_the_token() {
     let token = format!("eyJhbGciOiJFUzI1NiJ9.{payload}.c2ln");
     assert_eq!(
         claims(&token),
-        Claims { user: Some("user_1".to_owned()), expires_at: Some(1_900_000_600.0) }
+        Claims {
+            user: Some("user_1".to_owned()),
+            expires_at: Some(1_900_000_600.0),
+            team: Some(TEAM.to_owned()),
+        }
     );
+    // An install token with no team claim names no team, so `cmux auth token` with no asked and
+    // no active team answers no_team.
+    let personal = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(r#"{"exp":1900000600,"sub":"user_1","team":""}"#);
+    assert_eq!(claims(&format!("a.{personal}.c")).team, None);
     assert_eq!(claims("not-a-jwt"), Claims::default());
-    let empty = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"","exp":-1}"#);
+    let empty = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"","exp":-1,"team":""}"#);
     assert_eq!(claims(&format!("a.{empty}.c")), Claims::default());
 }
 

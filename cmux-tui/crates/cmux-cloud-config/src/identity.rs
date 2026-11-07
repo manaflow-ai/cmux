@@ -78,6 +78,9 @@ pub struct Claims {
     pub user: Option<String>,
     /// The token's `exp` in seconds since 1970, when finite and positive.
     pub expires_at: Option<f64>,
+    /// The token's `team` (the backend team it was minted for), when non-empty: with no asked and
+    /// no active team, `cmux auth token` mints for the install token's own team.
+    pub team: Option<String>,
 }
 
 /// The claims of a three-part JWT; none of a token that is not one.
@@ -105,6 +108,11 @@ pub fn claims(token: &str) -> Claims {
             .get("exp")
             .and_then(serde_json::Value::as_f64)
             .filter(|v| v.is_finite() && *v > 0.0),
+        team: payload
+            .get("team")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
     }
 }
 
