@@ -53,6 +53,9 @@ struct AgentPaneDictationHandoff {
         up.post(tap: .cghidEventTap)
         return true
     }
+    /// Ends cmux's own dictation wherever it runs (another pane's included), keeping its words: the
+    /// microphone goes to the app the mic hands off to, never to two listeners at once.
+    var stopOwnDictation: () -> Void = { DictationMicrophone.shared.stopListening() }
     /// macOS Dictation, in the composer that has the keyboard.
     var systemDictation: () -> Void = { _ = NSApp.tryToPerform(AgentPaneDictationKey.action, with: nil) }
 
@@ -84,12 +87,14 @@ struct AgentPaneDictationHandoff {
         switch setting.dictationSource {
         case .cmux: return .ownDictation
         case .macos:
+            stopOwnDictation()
             systemDictation()
             return nil
         default: break
         }
         guard let app = Self.app(setting.dictationSource) else { return .ownDictation }
         guard installed(app) != nil else { return .notInstalled }
+        stopOwnDictation()
         let text = setting.dictationShortcut.isEmpty ? app.shortcut : setting.dictationShortcut
         guard let chord = AgentPaneDictationShortcut(text), let keyCode = Self.keyCode(chord.key) else { return .badShortcut }
         guard mayPost() else { return .noAccessibility }
