@@ -1045,7 +1045,7 @@ fn a_cut_off_or_malformed_2xx_proxy_answer_is_a_failure_not_a_null_body() {
     let (empty, _seen) = fake(|_| (200, String::new()));
     let req = Request { route: RouteChoice::Proxy, ..request(&empty, dir.path(), Op::Remove) };
     let (_, answer) = go(&req, T0);
-    assert_eq!((answer.status, answer.body.clone()), (200, Value::Null), "an empty 2xx stays one");
+    assert_eq!((answer.status, answer.body), (200, Value::Null), "an empty 2xx stays one");
 
     let (refused, _seen) = fake(|_| (502, "<html>bad gateway</html>".into()));
     let req = Request { route: RouteChoice::Proxy, ..request(&refused, dir.path(), Op::Stat) };

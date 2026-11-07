@@ -1212,7 +1212,7 @@ fn a_local_stack_that_is_not_running_is_no_backend_for_a_worker_machine_io() {
 
 #[test]
 fn a_preview_call_ends_at_its_own_30_second_deadline() {
-    assert_eq!(super::previews::PREVIEW_TIMEOUT, Duration::from_secs(30));
+    assert_eq!(previews::PREVIEW_TIMEOUT, Duration::from_secs(30));
     // A server that takes each request and never answers.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
