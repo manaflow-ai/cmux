@@ -1754,7 +1754,7 @@ def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    by_step = step_lines(job, head_log)
+    by_step = step_lines(job, head_log, only=steps)
     if by_step is None:
         raise Refused("its log's lines cannot each be told to one step")
     failed: set[str] = set()
@@ -2030,10 +2030,13 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str) -> dict[str, list[str]] | None:
+def step_lines(job: dict, head_log: str, only: set[str] | None = None) -> dict[str, list[str]] | None:
     """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
-    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines."""
-    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines. With
+    ONLY, a line is placed among those steps' windows alone (a failed step's last second is also the first of the
+    steps after it, which ran no test)."""
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"
+                and (only is None or step.get("name") in only)]
     names = [step.get("name") for step in metadata]
     if len(set(names)) != len(names):
         return None

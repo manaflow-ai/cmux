@@ -2985,6 +2985,26 @@ class PackageFixedOnBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/cmux-wg is outside its declared"):
             self.judge(KitFixedOnBaseGitHub(files=files))
 
+    def test_a_live_job_log_is_split_by_its_failed_steps_windows(self):
+        # The live job-log endpoint has timestamps, not step names, and the failed step's last second is the first of
+        # the post steps after it (cmux#36988 at d8cb4c44, job 128332980232): the test lines are still its own.
+        github = KitFixedOnBaseGitHub()
+        github.jobs[1]["steps"] = [
+            {"name": "Build CmuxMobileLinkFFI.xcframework", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:02:21Z", "completed_at": "2026-11-07T07:06:53Z"},
+            {"name": KIT_STEP, "status": "completed", "conclusion": "failure",
+             "started_at": "2026-11-07T07:06:53Z", "completed_at": "2026-11-07T07:08:54Z"},
+            {"name": "xcodebuild test (iOS simulator)", "status": "completed", "conclusion": "skipped",
+             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:54Z"},
+            {"name": "Post Run actions/checkout", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:55Z"}]
+        github.logs[1] = "\n".join([
+            "2026-11-07T07:06:53.1000000Z ##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit",
+            "2026-11-07T07:08:54.5717620Z " + KIT_TEST,
+            "2026-11-07T07:08:54.5718210Z ✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue.",
+            "2026-11-07T07:08:54.9000000Z ##[error]Process completed with exit code 1."])
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(github))
+
     def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
         # A comment inside the call hides the path from the reader: refused, never skipped (review of ce36494d, F1).
         files = dict(KIT_FILES)
