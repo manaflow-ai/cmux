@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42420305732",
+  "recorded_at": "2026-11-07T22:29:45Z",
+  "reason": "cmux-tui 46ce1fc1652c changes the image's cmux-tui (pinned a5b605724265)",
+  "dry_run": false,
+  "cmux_tui": "46ce1fc1652cc3c6f4ead2ce12f8954c9531d397",
+  "fixes": [
+    {
+      "sha": "46ce1fc1652cc3c6f4ead2ce12f8954c9531d397",
+      "mergedAt": "2026-11-07T14:08:01-08:00",
+      "subject": "acpmux: agents ask to run one command as root; the person approves with a password on a card (Mac and phone) (#37949)"
+    },
+    {
+      "sha": "29d9e35af4fb63803bfe7a96f41b3444da1b549a",
+      "mergedAt": "2026-11-07T21:59:38Z",
+      "subject": "acpmux: find a dead peer link in seconds and redial it at once (#38015)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T22:29:45Z",
+    "snapshot_id": "sh-12b119fbd3d440018babe22a9fa16db1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42420305732): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "01924112c0afaa98bcb0ae6e35f7be5cf9cbb0e2",
+    "image": "cloud-native-auto-46ce1fc1-42420305732-1",
+    "revision": "ci-42420305732-1",
+    "at": "2026-11-07T22:29:45Z"
+  },
+  "rolled_back": false
+}
