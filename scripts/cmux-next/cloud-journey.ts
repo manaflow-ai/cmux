@@ -774,6 +774,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let gatewayMachine: string | null = null;
   // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
   let gatewayModeBefore: string | null = null;
+  let gatewayMachineBefore: string | null = null;
   let gatewayApi: Api | null = null;
   let localGateway: ReturnType<typeof spawn> | null = null;
   let localGatewayDir: string | null = null;
@@ -802,8 +803,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     cleaned = true;
     if (gatewayModeBefore && gatewayApi) {
       const before = gatewayModeBefore;
+      const beforeMachine = gatewayMachineBefore;
       await J.step("team gateway mode restored (cleanup)", async () => {
-        const r = await gatewayApi!.raw("PUT", "/v1/cloud/inference-gateway", { mode: before, machine: null });
+        const r = await gatewayApi!.raw("PUT", "/v1/cloud/inference-gateway", { mode: before, machine: beforeMachine });
         if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
         return { value: null, detail: before };
       }).catch(() => undefined);
@@ -895,9 +897,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
         if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
         const before = String(g.body?.gateway?.mode ?? "off");
+        const beforeMachine = typeof g.body?.gateway?.machine === "string" ? g.body.gateway.machine : null;
         const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "gateway", machine: null });
         if (r.status !== 200) throw new Error(`PUT HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
         gatewayModeBefore = before;
+        gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }

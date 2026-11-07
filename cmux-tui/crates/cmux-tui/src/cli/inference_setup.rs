@@ -153,6 +153,12 @@ pub(super) fn parse(
             _ => return Err(format!("unexpected argument {arg}")),
         }
     }
+    // The team goes into the gateway machine's command line (make_gateway), so it is an id and nothing else.
+    if team.as_deref().is_some_and(|t| {
+        t.is_empty() || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    }) {
+        return Err("--team must be a team id (letters, digits, _ and -)".into());
+    }
     let machine = machine.ok_or("--machine names the Cloud machine (vm_...)")?;
     if !valid_machine(&machine) {
         return Err("--machine must be a machine id (vm_ and 20 letters or digits)".into());
@@ -249,14 +255,24 @@ impl Machine<'_> {
         };
         let (_, answer) = perform(&self.http, &request, now_ms).await;
         if !(200..300).contains(&answer.status) {
-            let message = answer.body["error"]["message"].as_str().unwrap_or("no answer");
+            // Only the error's code: its message is the server's (or a proxy's) text and could echo a credential.
+            let code: String = answer
+                .body
+                .pointer("/error/code")
+                .and_then(Value::as_str)
+                .unwrap_or("no answer")
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c))
+                .take(80)
+                .collect();
             return Err(format!(
-                "the machine did not run the step (HTTP {}: {message})",
+                "the machine did not run the step (HTTP {}: {code})",
                 answer.status
             ));
         }
-        let code = answer.body["exitCode"].as_i64().unwrap_or(-1);
-        Ok((code, answer.body["stdout"].as_str().unwrap_or_default().to_owned()))
+        let code = answer.body.get("exitCode").and_then(Value::as_i64).unwrap_or(-1);
+        let stdout = answer.body.get("stdout").and_then(Value::as_str).unwrap_or_default();
+        Ok((code, stdout.to_owned()))
     }
 }
 
@@ -291,13 +307,55 @@ async fn setup(options: &Options) -> Result<(), String> {
 
 /// Names `gw.machine` as the team's gateway machine and starts `cmux inference gateway` there, in front of the
 /// person's own proxy, on the machine's own short-lived token (cmux-host `gateway_token.rs`). Then waits for it.
+/// On any failure after the naming, the team's earlier mode and machine come back and the gateway machine's opt-in
+/// marker goes, so no machine is left routed to a gateway that never came up.
 async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), String> {
+    let before = gateway_state(machine).await?;
+    let before_mode = before.get("mode").and_then(Value::as_str).unwrap_or("off").to_owned();
+    let before_machine = before.get("machine").and_then(Value::as_str).map(str::to_owned);
+    put_gateway(machine, "gateway", Some(&gw.machine)).await?;
+    let started = start_gateway(machine, gw).await;
+    if started.is_err() {
+        let undo = "p=\"$HOME/.cache/cmux/inference-gateway.pid\"; [ -f \"$p\" ] && kill \"$(cat \"$p\")\" 2>/dev/null; \
+                    rm -f \"$HOME/.config/cmux/inference-gateway/enabled\" \"$p\"";
+        let _ = machine.exec_on(&gw.machine, undo, 30_000).await;
+        if put_gateway(machine, &before_mode, before_machine.as_deref()).await.is_err() {
+            say(&format!(
+                "Could not set the team's gateway back to {before_mode}; run `cmux inference setup` again."
+            ));
+        }
+    }
+    started
+}
+
+/// The team's gateway state (`gateway` in GET /v1/cloud/inference-gateway).
+async fn gateway_state(machine: &Machine<'_>) -> Result<Value, String> {
+    let o = machine.options;
+    let mut request = machine
+        .http
+        .get(format!("{}/v1/cloud/inference-gateway", o.api))
+        .bearer_auth(&machine.token);
+    if let Some(team) = &o.team {
+        request = request.header("x-cmux-team", team);
+    }
+    let v: Value = request
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|_| "the cmux API did not answer".to_owned())?
+        .json()
+        .await
+        .map_err(|_| "the cmux API's answer was not JSON".to_owned())?;
+    Ok(v.get("gateway").cloned().unwrap_or(Value::Null))
+}
+
+async fn put_gateway(machine: &Machine<'_>, mode: &str, gw: Option<&str>) -> Result<(), String> {
     let o = machine.options;
     let mut request = machine
         .http
         .put(format!("{}/v1/cloud/inference-gateway", o.api))
         .bearer_auth(&machine.token)
-        .json(&serde_json::json!({"mode": "gateway", "machine": gw.machine}));
+        .json(&serde_json::json!({"mode": mode, "machine": gw}));
     if let Some(team) = &o.team {
         request = request.header("x-cmux-team", team);
     }
@@ -309,12 +367,21 @@ async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), 
         .status();
     if !status.is_success() {
         return Err(format!(
-            "the cmux API refused to name the gateway machine (HTTP {})",
+            "the cmux API refused to set the team's gateway (HTTP {})",
             status.as_u16()
         ));
     }
-    let key =
+    Ok(())
+}
+
+async fn start_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), String> {
+    let o = machine.options;
+    let mut key =
         gw.key_file.as_deref().map(|k| format!(" --upstream-key-file '{k}'")).unwrap_or_default();
+    // The gateway serves the team setup named, not the token's default one (an id: parse).
+    if let Some(team) = &o.team {
+        key.push_str(&format!(" --team '{team}'"));
+    }
     // The values were checked to hold no quote or space (parse).
     let start = format!(
         "set -e; d=\"$HOME/.config/cmux/inference-gateway\"; mkdir -p \"$d\" \"$HOME/.cache/cmux\"; chmod 700 \"$d\"; \
@@ -340,17 +407,7 @@ async fn make_gateway(machine: &Machine<'_>, gw: &GatewayMachine) -> Result<(), 
     // Wait until the gateway's socket is up.
     for _ in 0..30 {
         tokio::time::sleep(Duration::from_secs(2)).await;
-        let mut request = machine
-            .http
-            .get(format!("{}/v1/cloud/inference-gateway", o.api))
-            .bearer_auth(&machine.token);
-        if let Some(team) = &o.team {
-            request = request.header("x-cmux-team", team);
-        }
-        if let Ok(r) = request.timeout(Duration::from_secs(20)).send().await
-            && let Ok(v) = r.json::<Value>().await
-            && v["gateway"]["online"] == true
-        {
+        if gateway_state(machine).await.is_ok_and(|g| g.get("online") == Some(&Value::Bool(true))) {
             return Ok(());
         }
     }
@@ -385,14 +442,14 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
         .json()
         .await
         .map_err(|_| "the cmux API's answer was not JSON".to_owned())?;
-    let gw = &state["gateway"];
-    if gw["mode"] != "gateway" {
+    let field = |name: &str| state.get("gateway").and_then(|g| g.get(name));
+    if field("mode").and_then(Value::as_str) != Some("gateway") {
         return Err("this team is not in gateway mode (PUT /v1/cloud/inference-gateway {\"mode\":\"gateway\"})".into());
     }
-    if gw["online"] != true {
+    if field("online").and_then(Value::as_bool) != Some(true) {
         return Err("no `cmux inference gateway` is online for this team".into());
     }
-    let kind = gw["kind"].as_str().unwrap_or("unknown");
+    let kind = field("kind").and_then(Value::as_str).unwrap_or("unknown");
     // The machine's own call: the edge steers it to the gateway, which answers from the person's proxy or login.
     let probe = format!(
         "curl -sS -o /dev/null -w '%{{http_code}}' --max-time 60 -H 'authorization: Bearer {PLACEHOLDER}' \

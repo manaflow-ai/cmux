@@ -27,8 +27,9 @@ on:
 permissions:
   contents: read
 
+# One run at a time: every run sets the test team's gateway mode, so two would steer each other's chats.
 concurrency:
-  group: gateway-e2e-${{ github.run_id }}
+  group: gateway-e2e
   cancel-in-progress: false
 
 jobs:

@@ -16,7 +16,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use super::client::{CloudClient, Http};
@@ -27,6 +27,9 @@ pub const TOKEN_DIR: &str = "/run/cmux/inference-gateway";
 pub const TOKEN_FILE: &str = "/run/cmux/inference-gateway/token";
 /// How often the thread looks at the marker and renews the token (the token cache renews a minute before expiry).
 const EVERY: Duration = Duration::from_secs(60);
+
+/// The newest thread's generation: a thread replaced on a rebind never removes the file its successor keeps.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// The marker the person's setup makes in the work user's home.
 pub fn marker(home: &Path) -> PathBuf {
@@ -52,11 +55,13 @@ impl GatewayToken {
     ) -> std::io::Result<GatewayToken> {
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
+        let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        let newest = move || GENERATION.load(Ordering::SeqCst) == generation;
         std::thread::Builder::new().name("cmux-host-gateway-token".to_owned()).spawn(
             move || {
                 let marker = marker(Path::new(WORK_HOME));
                 let mut wrote = false;
-                while !stopping.load(Ordering::SeqCst) {
+                while !stopping.load(Ordering::SeqCst) && newest() {
                     // symlink_metadata: the marker is checked, never followed.
                     if fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file()) {
                         match client
@@ -71,7 +76,7 @@ impl GatewayToken {
                             }
                             Err(e) => log(&format!("inference gateway token: {e}")),
                         }
-                    } else if wrote || Path::new(TOKEN_FILE).exists() {
+                    } else if newest() && (wrote || Path::new(TOKEN_FILE).exists()) {
                         let _ = fs::remove_file(TOKEN_FILE);
                         wrote = false;
                     }
@@ -83,7 +88,9 @@ impl GatewayToken {
                         std::thread::sleep(Duration::from_secs(1));
                     }
                 }
-                let _ = fs::remove_file(TOKEN_FILE);
+                if newest() {
+                    let _ = fs::remove_file(TOKEN_FILE);
+                }
             },
         )?;
         Ok(GatewayToken { stop })
