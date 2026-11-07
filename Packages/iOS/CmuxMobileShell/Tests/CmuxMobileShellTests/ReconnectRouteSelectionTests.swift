@@ -1071,4 +1071,87 @@ import Testing
         #expect(store.foregroundMacDeviceID == nil)
         #expect(factory.attemptedKinds() == [.tailscale])
     }
+
+    /// A foreground recovery keeps the retained Mac selected when its Iroh
+    /// route fails. Promoting another saved Mac would replace the user's
+    /// workspace and close its mounted terminals during a transient outage.
+    @Test func failingRetainedIrohDoesNotPromoteAnotherSavedMac() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "other-mac",
+            instanceTag: "default",
+            displayName: "Other Mac"
+        )
+        let selectedRoute = try CmxAttachRoute(
+            id: "iroh-selected",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let otherRoute = try CmxAttachRoute(
+            id: "iroh-other",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "b", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "selected-mac",
+            displayName: "Selected Mac",
+            routes: [selectedRoute],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "other-mac",
+            displayName: "Other Mac",
+            routes: [otherRoute],
+            instanceTag: "default",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now.addingTimeInterval(1)
+        )
+        let factory = ForegroundSelectionRouteFactory(
+            router: router,
+            failingRouteIDs: [selectedRoute.id]
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "retained-iroh-selection-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        store.foregroundMacDeviceID = "selected-mac"
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(store.connectionState == .disconnected)
+        #expect(store.foregroundMacDeviceID == nil)
+        #expect(factory.attemptedRouteIDs() == [selectedRoute.id])
+    }
 }
