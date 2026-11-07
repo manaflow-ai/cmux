@@ -320,9 +320,9 @@ final class HomePictureViewer: NSView {
         compare.frame = area
         let topBar = HomePictureViewerTopBar(
             width: bounds.width,
-            titleWidth: titleLabel.stringValue.isEmpty ? 0 : titleLabel.intrinsicContentSize.width.rounded(.up),
+            titleWidth: naturalWidth(titleLabel),
             center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
-            counterWidth: counterLabel.stringValue.isEmpty ? 0 : counterLabel.intrinsicContentSize.width.rounded(.up),
+            counterWidth: naturalWidth(counterLabel),
             avoiding: topBarObstacles)
         titleLabel.frame = topBar.title
         rowSwitch.frame = topBar.center
@@ -346,6 +346,13 @@ final class HomePictureViewer: NSView {
         if let textField {
             textField.frame.size.width = max(160, min(320, bounds.width - textField.frame.minX - 20))
         }
+    }
+
+    /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
+    /// intrinsic width: a truncating label's follows its current frame, so a short frame kept it short ("Ligh…After").
+    private func naturalWidth(_ label: NSTextField) -> CGFloat {
+        guard !label.stringValue.isEmpty else { return 0 }
+        return max(label.cell?.cellSize.width ?? 0, label.attributedStringValue.size().width + 4).rounded(.up)
     }
 
     /// Controls the pane floats over the viewer's top bar, in the viewer's coordinates: visible views drawn above
