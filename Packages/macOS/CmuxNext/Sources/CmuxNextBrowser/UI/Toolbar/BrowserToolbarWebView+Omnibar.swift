@@ -33,6 +33,15 @@ extension BrowserToolbarWebView {
     }
 
     /// Gives the web view the keys and tells the page where the focus came from.
+    /// A file dropped from Finder (`AddressBarView+Drop`: `.fileURL` on the pasteboard, as its URL
+    /// string, Chromium's `CONVERT_FILENAMES`): the field takes the keys and the text, all selected;
+    /// nothing loads until Enter. The page's own drops (text, links) never reach here.
+    func acceptFileDrop(_ url: URL) {
+        guard !isReadOnly, url.isFileURL else { return }
+        giveKeys(source: "programmatic")
+        send(BrowserToolbarHostEvent.dropped(url.absoluteString))
+    }
+
     func giveKeys(source: String) {
         allowsKeys = true
         focusPending = !status.isEditing

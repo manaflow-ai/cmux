@@ -303,6 +303,42 @@ struct BrowserToolbarWireTests {
         #expect(OmniboxPopupCommand.revision(["type": "pick", "index": 0, "revision": 4]) == 4)
     }
 
+    /// The card stays in its pane (AddressBarView clipped it to `cardPane`): in a short split it
+    /// is cut to the room under the bar (above it, upward), and the page scrolls the rows within.
+    @Test func theSuggestionCardStaysInItsPane() {
+        let pane = NSRect(x: 100, y: 300, width: 600, height: 200)
+        let bar = NSRect(x: 110, y: 440, width: 580, height: 28)
+        #expect(OmniboxCardPlacement.maxCardHeight(bar: bar, upward: false, clip: pane) == 140)
+        #expect(OmniboxCardPlacement.cardHeight(400, limit: 140) == 140)
+        #expect(OmniboxCardPlacement.cardHeight(90, limit: 140) == 90, "a short card keeps its height")
+        #expect(OmniboxCardPlacement.cardHeight(400, limit: nil) == 400)
+        // A bottom row opens upward: the room above the bar.
+        let bottomBar = NSRect(x: 110, y: 304, width: 580, height: 28)
+        #expect(OmniboxCardPlacement.maxCardHeight(bar: bottomBar, upward: true, clip: pane) == 168)
+        // No room at all still shows a row.
+        #expect(OmniboxCardPlacement.maxCardHeight(bar: NSRect(x: 0, y: 300, width: 10, height: 28), upward: false, clip: pane)
+            == OmniboxCardPlacement.minimumHeight)
+        #expect(OmniboxCardPlacement.maxCardHeight(bar: bar, upward: false, clip: nil) == nil)
+        // The screen's visible frame cuts a pane that reaches past it.
+        let screen = NSRect(x: 0, y: 350, width: 1440, height: 900)
+        #expect(OmniboxCardPlacement.clip(pane: pane, screen: screen) == NSRect(x: 100, y: 350, width: 600, height: 150))
+        #expect(OmniboxCardPlacement.clip(pane: pane, screen: nil) == pane)
+    }
+
+    /// A Finder file dropped on the row (WebKit hides its path from the page): the field takes the
+    /// keys and the file's URL, as AddressBarView's drop did; a read-only row takes nothing.
+    @Test func aFinderFileDropReachesTheField() throws {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.acceptFileDrop(URL(fileURLWithPath: "/Users/me/My Notes.html"))
+        let events = try #require(bar.wireState()["events"] as? [[String: Any]]).compactMap { $0["event"] as? [String: Any] }
+        #expect(events.map { $0["kind"] as? String } == ["focus", "dropped"])
+        #expect(events.last?["text"] as? String == "file:///Users/me/My%20Notes.html")
+        let readOnly = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        readOnly.isReadOnly = true
+        readOnly.acceptFileDrop(URL(fileURLWithPath: "/tmp/a.txt"))
+        #expect((readOnly.wireState()["events"] as? [Any])?.isEmpty == true)
+    }
+
     @Test func aButtonsStateHasThePagesShape() throws {
         let state = BrowserToolbarPolicy.state(.overflow, BrowserToolbarFacts(engine: .cef, hostsDevTools: true))
         let wire = state.wire(.overflow, pressed: true)

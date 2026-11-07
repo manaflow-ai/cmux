@@ -178,6 +178,10 @@ public final class BrowserToolbarWebView: NSView {
         made.acceptsKeyFocus = { [weak self] in self?.allowsKeys ?? false }
         made.onResignedKeys = { [weak self] in self?.keysResigned() }
         made.contextMenuEditor = { [weak self] menu in self?.editContextMenu(menu) }
+        // A Finder file reaches the page with no path: the host takes it and hands the page its URL.
+        (made as? BrowserChromeWebHost)?.fileDrop = PageFileDrop(
+            accepts: { [weak self] url in url.isFileURL && self?.isReadOnly == false },
+            open: { [weak self] url in self?.acceptFileDrop(url) })
         let view = made.view
         view.translatesAutoresizingMaskIntoConstraints = true
         view.autoresizingMask = [.width, .height]
@@ -358,8 +362,27 @@ public final class BrowserToolbarWebView: NSView {
             if view.superview !== self { addSubview(view) }
             if view.frame != rect { view.frame = rect }
         }
-        if status.isPopupOpen { popup.follow(bar: omnibarRectInScreen) }
+        followLayout()
         onLayout?(report)
+    }
+
+    /// Keeps an open card on the bar after the row, its pane or the window moved or resized: the
+    /// page's layout reports skip rects that did not move in the web view, so the native layout
+    /// passes call this too (this view's, the browser chrome's and the omnibar row's `layout()`).
+    func followLayout() {
+        guard status.isPopupOpen, popup.isVisible else { return }
+        popup.follow(bar: omnibarRectInScreen, clip: cardClipInScreen)
+    }
+
+    /// What the card stays inside, on screen: the pane the row belongs to (the browser chrome or a
+    /// page tab's row, the nearest `ToolbarEdgeHosting` view), else the window's content, within the screen.
+    var cardClipInScreen: NSRect? {
+        guard let window else { return nil }
+        var pane: NSView? = superview
+        while let view = pane, !(view is any ToolbarEdgeHosting) { pane = view.superview }
+        guard let view = pane ?? window.contentView else { return nil }
+        let rect = window.convertToScreen(view.convert(view.bounds, to: nil))
+        return OmniboxCardPlacement.clip(pane: rect, screen: window.screen?.visibleFrame)
     }
 
     /// The omnibar's rect on screen (the card hangs under it).
@@ -378,13 +401,14 @@ public final class BrowserToolbarWebView: NSView {
 
     private func showPopup(_ rows: [BrowserSuggestion], highlighted: Int?, upward: Bool) {
         guard !rows.isEmpty, let window, let bar = omnibarRectInScreen else { return popup.dismiss() }
-        popup.show(rows, highlighted: highlighted, upward: upward, bar: bar, in: window, themeOf: self)
+        popup.show(rows, highlighted: highlighted, upward: upward, bar: bar, clip: cardClipInScreen, in: window, themeOf: self)
     }
 
     public override func layout() {
         super.layout()
         // The bar's top depends on the row's height at the bottom of a pane.
         if toolbarOpensUpward { setNeedsPush() }
+        followLayout()
     }
 
     public override func viewDidChangeBackingProperties() {

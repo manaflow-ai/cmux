@@ -379,6 +379,8 @@ public final class BrowserChromeView: NSView {
         super.layout()
         // Auto Layout may defer a page bar's glass two levels down on its first show (its hole in the page would be empty).
         for view in pageBars.shown.map(\.bar) { view.layoutSubtreeIfNeeded() }
+        // The pane resized or moved the row on screen: an open suggestion card follows it.
+        addressBar.followLayout()
         updateOcclusion()
         fitLinkStatus()
         syncPageOverlays()

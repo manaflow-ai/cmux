@@ -66,6 +66,12 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         set { page.contextMenuEditor = newValue }
     }
 
+    /// Files dragged from Finder that the owner takes itself (WebKit hides their paths from the page).
+    public var fileDrop: PageFileDrop? {
+        get { page.fileDrop }
+        set { page.fileDrop = newValue }
+    }
+
     public func close() {
         provider.onMessage = nil
         page.removeFromSuperview()
