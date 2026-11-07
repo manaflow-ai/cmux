@@ -121,7 +121,7 @@ async function settle(): Promise<void> {
   ]);
 }
 
-function synthetic(element: Element, kind: string): void {
+export function syntheticPointer(element: Element, kind: string): void {
   const { x, y } = (() => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -501,7 +501,7 @@ export async function runPlay(
     if (window.top?.cmuxGalleryInput) element.scrollIntoView({ block: "nearest", inline: "nearest" });
     await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
-      else synthetic(element, kind);
+      else syntheticPointer(element, kind);
     }).then(record);
   };
   const gesture = async (
