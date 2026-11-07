@@ -27,7 +27,7 @@ import { Markdown } from "./Markdown";
 import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
-import { textLinks } from "../chips/paths";
+import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
@@ -282,7 +282,7 @@ export function PromptTyped({
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
-  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{shown}</span>;
+  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
@@ -298,6 +298,17 @@ export function PromptTyped({
       )}
     </span>
   );
+}
+
+/// A huge prompt's drawn text (#29840): one literal text node but for provider file ids, each its
+/// `ForeignFileRef`. One scan over the drawn text; past `MAX_PLAIN_FOREIGN_IDS` ids it stays one
+/// text node, so a prompt of ids alone never draws a node per id.
+const MAX_PLAIN_FOREIGN_IDS = 64;
+
+function plainWithForeignFiles(text: string): ReactNode {
+  const ids = foreignFileIds(text, MAX_PLAIN_FOREIGN_IDS);
+  if (!ids.length || ids.length > MAX_PLAIN_FOREIGN_IDS) return text;
+  return withForeignFiles(text, "f", (piece) => [piece], ids);
 }
 
 /// Literal prompt text with each bare web address a link (UrlChip, as in a reply) and each cmux app

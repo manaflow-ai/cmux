@@ -12,7 +12,7 @@ import {
   orderedByMarks,
 } from "../attachments";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
+import { FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
@@ -25,6 +25,8 @@ import {
   type PendingAttachment,
 } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
@@ -138,12 +140,13 @@ export function useInlineAttachments(options: Options) {
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
     /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
-    place(chips: readonly PendingAttachment[], _kind: DroppedKind) {
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
       if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
-      if (!field.current?.insertInline(ids)) for (const id of ids) placed.current.delete(id);
+      // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
+      if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
     },
     ready() {
       const { attachments, field, placing } = live.current;
@@ -323,6 +326,11 @@ const InlineChip = memo(function InlineChip({
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  const look = usePasteLoadingLook();
+  /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
+  /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
+  const loaded = useRef(false);
+  if (pending && !pending.failed) loaded.current = true;
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -340,8 +348,9 @@ const InlineChip = memo(function InlineChip({
   if (!attachment)
     return (
       <span
-        className="acpmux-md-inline-chip"
+        className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
+        {...(pending!.failed ? {} : { "data-paste-look": look })}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
@@ -361,10 +370,17 @@ const InlineChip = memo(function InlineChip({
               onRetry={() => onRetry(id)}
             />
           </>
-        ) : pending!.progress === undefined ? (
-          <Spinner loading size={14} className="acpmux-md-inline-spinner" />
         ) : (
-          <UploadProgress value={pending!.progress} name={name} size={14} />
+          <PasteLoadingMark
+            look={look}
+            size={14}
+            className="acpmux-md-inline-spinner"
+            upload={
+              pending!.progress === undefined ? undefined : (
+                <UploadProgress value={pending!.progress} name={name} size={14} />
+              )
+            }
+          />
         )}
         {remove}
       </span>
@@ -413,7 +429,12 @@ const InlineChip = memo(function InlineChip({
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
   // (an image that cannot be drawn) as it does there.
   return (
-    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
+    <span
+      className="acpmux-md-inline-chip"
+      data-state="ready"
+      data-chip="strip"
+      {...(loaded.current ? { "data-loaded": "" } : {})}
+    >
       <AttachmentChip
         attachment={attachment}
         codex={codex}

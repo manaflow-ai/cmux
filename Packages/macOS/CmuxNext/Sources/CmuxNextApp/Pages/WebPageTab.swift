@@ -96,17 +96,16 @@ extension WebPageTab {
             provider.onShown = { [weak services] url, content in (services?.pages.provider(.github) as? WebPageTab)?.onShown?(url, content) }
             return page
         }
+        LinkRouter.shared.gitHubPage = { GitHubLink.clickOpensPage($0, routing: LinkRouter.shared.routing()) }
+        LinkRouter.shared.openGitHubPage = { [weak services] url, source in services.flatMap { s in s.linkOpener.source(tab: source).flatMap { openGitHub(url, from: $0, services: s, explicit: true) } } ?? false }
         services.pages.register(tab)
         return tab
     }
 
-    /// Opens `url` in the GitHub page when it is a pull request link the native page shows
-    /// (``GitHubLink``), the switch is on and the link rule sends it to a cmux tab; nil leaves it to
-    /// its web page. `source`: the chat's pane.
-    static func openGitHub(_ url: URL, from source: PaneController, services: AppServices) -> Bool? {
-        guard GitHubViewerTunables.nativePullRequests.value, let link = GitHubLink(url),
-              LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
-              source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+    /// Opens `url` in the GitHub page when ``GitHubLink/page(for:routing:explicit:native:)`` takes it (`explicit`: a chat link
+    /// menu's row, whatever `browser.openPullRequestsInGitHubPage`); nil leaves it to its web page. `source`: the chat's pane.
+    static func openGitHub(_ url: URL, from source: PaneController, services: AppServices, explicit: Bool = false) -> Bool? {
+        guard let link = GitHubLink.page(for: url, routing: LinkRouter.shared.routing(), explicit: explicit), source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
         if link.files {
             // A pull request's Files tab (Session Info's View diff): its diff beside the chat, else that web page.
             GitHubPageProvider.openFiles(link, openDiff: { [weak source, weak services] text in
