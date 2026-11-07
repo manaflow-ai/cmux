@@ -105,7 +105,7 @@ final class AddMachineCardPanel: NSPanel {
     }
 }
 
-/// Hosts ``AddMachineView`` on the server surfaces' material (``ServerHostView``): Liquid Glass on
+/// Hosts ``AddMachineView`` on the server cards' material: Liquid Glass on
 /// macOS 26, a tinted blur before, opaque under Reduce Transparency, colors resolved in this view's
 /// theme scope and again on every theme change.
 @MainActor
