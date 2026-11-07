@@ -86,7 +86,7 @@ impl MachineSecrets {
     }
 
     /// Tests: another clock, and another cap on the nonces one window holds.
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
     fn with_clock(mut self, clock: Clock, max_live: usize) -> Self {
         self.clock = clock;
         self.max_live = max_live;

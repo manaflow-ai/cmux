@@ -200,6 +200,7 @@ pub(crate) fn machine_source() -> Option<UsageSource> {
 /// This machine's Cloud id alone (`CMUX_VM_ID` from the same places as
 /// [`machine_source`], the bound instance id last), with or without a
 /// coderouter origin: the id `secrets-v1` items are sealed for.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn machine_vm_id() -> Option<String> {
     let etc = crate::agent_start_host::cloud_etc();
     let files = [

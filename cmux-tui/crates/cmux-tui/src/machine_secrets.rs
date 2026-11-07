@@ -6,6 +6,8 @@ use cmux_remote::workspace::WorkspaceService;
 /// id) it also answers `secrets-v1`: items sealed to this daemon's static key
 /// for this machine, written under `$HOME`.
 /// Its taken nonces are kept under `state_dir`, the daemon's state folder.
+/// Only Linux writes them, so elsewhere the daemon never advertises it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn daemon_workspace_service(
     auth: &cmux_remote::identity::AuthDatabase,
     state_dir: &std::path::Path,
@@ -23,4 +25,12 @@ pub(crate) fn daemon_workspace_service(
         }
         _ => WorkspaceService::new(),
     }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub(crate) fn daemon_workspace_service(
+    _: &cmux_remote::identity::AuthDatabase,
+    _: &std::path::Path,
+) -> WorkspaceService {
+    WorkspaceService::new()
 }
