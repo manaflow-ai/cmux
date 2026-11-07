@@ -231,6 +231,7 @@ export interface AcpmuxRequests {
   "_acpmux/presets": { params: unknown; result: unknown };
   "_acpmux/models": { params: ModelsParams; result: unknown };
   "_acpmux/directories": { params: unknown; result: unknown };
+  "_acpmux/browse": { params: unknown; result: unknown };
   "_acpmux/route/list": { params: RouteListParams; result: unknown };
   "_acpmux/route/show": { params: unknown; result: unknown };
   "_acpmux/route/add": { params: unknown; result: unknown };
@@ -554,6 +555,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/presets", kind: "request", acp: false, typed: false },
   { name: "_acpmux/models", kind: "request", acp: false, typed: true },
   { name: "_acpmux/directories", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/browse", kind: "request", acp: false, typed: false },
   { name: "_acpmux/route/list", kind: "request", acp: false, typed: true },
   { name: "_acpmux/route/show", kind: "request", acp: false, typed: false },
   { name: "_acpmux/route/add", kind: "request", acp: false, typed: false },
