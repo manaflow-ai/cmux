@@ -447,7 +447,7 @@ final class GroupHeaderRowView: SidebarRowView {
     private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
                                  _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette), glass: Bool? = nil) -> GroupBackground {
         GroupBackground(tint: tint, strength: strength, glass: glass ?? (backgroundStyle == .glass),
-                        palette: look.palette, wallpaper: BackdropImageStore.shared.desktop.tint, tokens: tokens)
+                        palette: look.palette, wallpaper: DesignSettings.shared.groupWallpaperTint, tokens: tokens)
     }
 
     /// Paints `background` on the bar, with its hover and drop steps over it and glass's rim.

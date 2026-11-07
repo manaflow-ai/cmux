@@ -98,7 +98,7 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     @MainActor public func lineColor(palette: GroupPalette) -> NSColor { lineRGB(palette: palette).nsColor }
 
     /// The desktop picture's color the wallpaper palette follows; nil before it is sampled.
-    @MainActor static var wallpaper: WallpaperTint? { BackdropImageStore.shared.desktop.tint }
+    @MainActor static var wallpaper: WallpaperTint? { DesignSettings.shared.groupWallpaperTint }
 
     /// The solid header bar and its ink (`headerChip`); a palette other than vibrant washes its color into the
     /// sidebar, as a custom color's chip does.
