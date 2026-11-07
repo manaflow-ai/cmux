@@ -77,11 +77,11 @@ pub(crate) async fn run(
 pub(crate) async fn within<E, R>(
     deadline: tokio::time::Instant,
     path: String,
-    sent: impl std::future::Future<Output = Result<Value, E>>,
+    sent: impl Future<Output = Result<Value, E>>,
     refusal: impl FnOnce(E) -> R,
 ) -> Result<Value, Failure>
 where
-    R: std::future::Future<Output = Failure>,
+    R: Future<Output = Failure>,
 {
     let timed_out = || Failure::TimedOut(path.clone());
     match tokio::time::timeout_at(deadline, sent).await {
