@@ -502,6 +502,23 @@ async fn move_to_a_fresh_machine(fault: Fault) {
                 .map(|e| json!([e["seq"], e["kind"], e["at"], e["msg"]["promptId"]]))
                 .collect();
             eprintln!("A saw of the prompts: {saw:?}");
+            let old: Vec<_> = journal(&b, &id)
+                .iter()
+                .filter(|e| e["seq"].as_u64() > Some(16))
+                .map(|e| {
+                    let text = e["msg"].to_string();
+                    json!([
+                        e["seq"],
+                        e["kind"],
+                        e["at"],
+                        e["msg"]["promptId"],
+                        &text[..text.len().min(80)]
+                    ])
+                })
+                .collect();
+            for e in old {
+                eprintln!("B OLD {e}");
+            }
             // B2's log files as they are on its disk, each line's seq and kind.
             let mut dirs = vec![snapshot.clone()];
             while let Some(dir) = dirs.pop() {
