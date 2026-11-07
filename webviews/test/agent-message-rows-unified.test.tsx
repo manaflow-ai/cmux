@@ -145,6 +145,20 @@ test("an older acpmux's sender with only the suffix (no record) is marked unveri
   expect(message.unverified).toBe(true);
 });
 
+test("an older record whose broker label names a suffixed sender keeps its marker, the name bare", async () => {
+  // An older acpmux's `acpmux send` at a shell: no provenance and no sender record, so only the
+  // label's suffix says acpmux could not verify it.
+  const whole = relayed("Matrix run 14 is green.", "56d7d1c5", `gcp-codex-swarm-05/cloud-start-matrix ${SUFFIX}`);
+  const prompt = incomingPrompt(whole, { client: "acpmux-cli#1@gcp-codex-swarm-05" });
+  if (prompt?.kind !== "message") throw new Error("not a received message");
+  expect(prompt.message.name).toBe("gcp-codex-swarm-05/cloud-start-matrix");
+  expect(prompt.message.unverified).toBe(true);
+  const container = await render(<IncomingMessageLine id="m-old-label" message={prompt.message} onOpen={() => undefined} />);
+  expect(container.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
+  expect(container.innerHTML).not.toContain("self-declared");
+});
+
 test("a broker label naming a suffixed sender still unwraps, and a head cut short reads as nothing", () => {
   const whole = relayed("Matrix run 14 is green.", "56d7d1c5", `gcp-codex-swarm-05/cloud-start-matrix ${SUFFIX}`);
   const envelope = relayEnvelope(whole);
