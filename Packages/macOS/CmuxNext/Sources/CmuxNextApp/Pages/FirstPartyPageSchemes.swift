@@ -54,7 +54,7 @@ enum FirstPartyPageSchemes {
     /// and the app's other `cmux.` pages, so each can show in Chromium (`PageEnginePolicy` still
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
-        .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
+        .agent, .onboarding, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .groupEditor, .passwords, .editor,
         .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage,
         .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines, .tasks,
     ]
