@@ -118,7 +118,8 @@ const CASES: [command: string, label: string][] = [
   ["make -j8 2>&1 | tail -20", "Ran make -j8"],
   // A write to a file stays on the line: only /dev/null and fd copies are plumbing.
   ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh > /tmp/lint.log"],
-  ["pwd && git status --short", "Ran pwd …"],
+  // `pwd`, `ls`, `echo` only report: the step after them names the command (shellSteps.ts).
+  ["pwd && git status --short", "Checked git status"],
   ["jq '.strings | length' Localizable.xcstrings", "Ran jq '.strings | length' Localizable.xcstrings"],
   // A subcommand the table does not know reads as its line.
   ["git rev-parse HEAD", "Ran git rev-parse HEAD"],

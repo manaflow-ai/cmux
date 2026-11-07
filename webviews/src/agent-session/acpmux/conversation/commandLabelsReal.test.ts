@@ -112,7 +112,10 @@ const CASES: [command: string, label: string][] = [
   ],
   [ALS, "Ran a Python script on als.json"],
   [`python3 <<EOF\nprint(sum(range(10)))\nEOF`, "Ran a Python script"],
-  [`python3 - << "PY"\nimport json\nprint(json.load(open("data/items.json"))[0])\nPY`, "Ran a Python script on items.json"],
+  [
+    `python3 - << "PY"\nimport json\nprint(json.load(open("data/items.json"))[0])\nPY`,
+    "Ran a Python script on items.json",
+  ],
   [`cd webviews && python3 - <<-EOF\n\timport re\n\tprint(re.findall("x", "xx"))\n\tEOF`, "Ran a Python script"],
   [
     `node - <<'NODE'\ntry { const {chromium}=require('/home/USER/wt/node_modules/playwright'); console.log('yes'); } catch(e){ console.log(String(e)); }\nNODE`,
