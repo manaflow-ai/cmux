@@ -119,4 +119,36 @@ struct DividerPressKeepsPageKeyTests {
         #expect(rig.keyRequests() == 0)
         #expect(handle.frame.midX - lineBefore > 30, "the drag moved the divider \(handle.frame.midX - lineBefore) pt of 60")
     }
+
+    /// The sidebar's resize edge is a splitter too: its press while the page holds the key moves no key and drags.
+    @Test func aSidebarEdgePressWhileThePageHoldsTheKeyMovesNoKey() throws {
+        let sidebarTests = SidebarResizeAbovePageTests()
+        let (window, root) = sidebarTests.root()
+        let page = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        page.isReleasedWhenClosed = false
+        window.addChildWindow(page, ordered: .above)
+        defer {
+            window.removeChildWindow(page)
+            page.close()
+            window.close()
+        }
+        window.presses.appKeyState = { [weak page, weak window] in
+            AppKeyState(keyWindow: page, mainWindow: window, isActive: true, isModal: false)
+        }
+        var keyRequests = 0
+        window.presses.makeKey = { _ in keyRequests += 1 }
+        let handle = try sidebarTests.handle(in: root)
+        let band = handle.convert(handle.bounds, to: nil)
+        let start = CGPoint(x: band.midX, y: band.midY)
+        let widthBefore = root.sidebar.model.width
+        func send(_ type: NSEvent.EventType, _ point: CGPoint) {
+            window.sendEvent(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+        }
+        send(.leftMouseDown, start)
+        send(.leftMouseDragged, CGPoint(x: start.x + 40, y: start.y))
+        send(.leftMouseUp, CGPoint(x: start.x + 40, y: start.y))
+        #expect(keyRequests == 0, "the sidebar edge press asked to make the window key \(keyRequests)x")
+        #expect(root.sidebar.model.width > widthBefore + 20, "the drag resized the sidebar: \(widthBefore) -> \(root.sidebar.model.width)")
+    }
 }
