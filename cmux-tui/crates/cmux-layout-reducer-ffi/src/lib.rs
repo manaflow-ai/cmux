@@ -18,6 +18,7 @@
 //! kept for an app pinned before `cloud_harness_login` read them itself),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
+//! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
 //! checks, decisions, result fields and answer text),
@@ -26,6 +27,8 @@
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
+//! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
+//! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -54,6 +57,8 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_machine;
+mod cloud_move;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
@@ -406,9 +411,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
             }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
+            }
+            operation if cloud_machine::handles(operation) => {
+                cloud_machine::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

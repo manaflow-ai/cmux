@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower and the Cloud action handlers' rules"
+description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower, NEXT Cloud's machine record and rules, and the Cloud action handlers' rules"
 
 [workspace]
 
@@ -17,6 +17,7 @@ crate-type = ["staticlib", "rlib"]
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
 cmux-cloud-config = { path = "../cmux-cloud-config" }
 cmux-cloud-handlers = { path = "../cmux-cloud-handlers" }
+cmux-cloud-machine = { path = "../cmux-cloud-machine" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
 cmux-focus-core = { path = "../cmux-focus-core" }
