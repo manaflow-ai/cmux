@@ -9,6 +9,7 @@ import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
+import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
@@ -41,6 +42,9 @@ export type AcpmuxDebug = {
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  /// The transcript's frames while real wheel input scrolls it (tickWatch.ts): starts a watch, or with
+  /// `stop` ends it and returns its frames, work, wheel events and the page's own offset writes.
+  tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
@@ -275,6 +279,8 @@ export function createAcpmuxDebug(
     },
 
     flingStats,
+
+    tickWatch,
 
     perfStats(options = {}) {
       acpmuxPerf.enable();

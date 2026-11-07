@@ -21,7 +21,8 @@ import WebKit
 /// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
 /// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `tick_watch` (frames while real wheel input
+/// scrolls the transcript, tickWatch.ts: starts a watch; `stop` ends it and returns it; `nominal_ms`), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
@@ -58,7 +59,7 @@ enum DebugAgentPane {
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
-        "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
+        "perf_stats": "perfStats", "tick_watch": "tickWatch", "typing_stats": "typingStats", "reset_typing": "resetTyping",
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
@@ -226,7 +227,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])
