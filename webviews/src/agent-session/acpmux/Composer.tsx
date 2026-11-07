@@ -146,6 +146,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { noteSendOrigins } from "./conversation/sendMorph";
 import {
   emojiMatches,
   emojiTrigger,
@@ -1602,6 +1603,8 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
+    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
+    noteSendOrigins(sent);
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";

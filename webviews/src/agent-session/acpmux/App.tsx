@@ -3064,6 +3064,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     for (const key of keys) openFold(key);
   });
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
+  // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
+  // straight onto the pane's main element, never pane state: the button comes and goes as the reader
+  // scrolls, and a pane render per scroll would draw Session Info and the rest again.
+  const paneMain = useRef<HTMLDivElement | null>(null);
+  const jumpLatestShown = useRef(false);
+  const jumpLatestUnderInspector = useRef(false);
+  const markJumpLatest = useCallback(() => {
+    paneMain.current?.toggleAttribute("data-jump-latest", jumpLatestShown.current && !jumpLatestUnderInspector.current);
+  }, []);
+  const setJumpLatestShown = useCallback(
+    (shown: boolean) => {
+      jumpLatestShown.current = shown;
+      markJumpLatest();
+    },
+    [markJumpLatest],
+  );
+  const setPaneMain = useCallback(
+    (element: HTMLDivElement | null) => {
+      paneMain.current = element;
+      markJumpLatest();
+    },
+    [markJumpLatest],
+  );
   // The ··· menu's Text & Width popover (ChatDisplaySettings.tsx), anchored to the menu button.
   const [displayAnchor, setDisplayAnchor] = useState<HTMLElement | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -3076,6 +3100,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     inspectorOpenRef.current = false;
     setInspectorOpen(false);
   }, []);
+  useLayoutEffect(() => {
+    jumpLatestUnderInspector.current = inspectorOpen;
+    markJumpLatest();
+  }, [inspectorOpen, markJumpLatest]);
   useLayoutEffect(() => {
     if (inspectorOpen || !inspectorOpener.current) return;
     inspectorOpener.current.focus();
@@ -9456,6 +9484,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             working={snapshot.isWorking}
                                                             // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                             jumpButton={!quick}
+                                                            onJumpShownChange={quick ? undefined : setJumpLatestShown}
                                                             needsYou={needsYou.pill}
                                                             focusComposer={() => composerHandle.current?.focus()}
                                                             // Quick Chat's panel stacks its composer below the transcript.
@@ -10788,6 +10817,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
           // into the transcript, and restyle the composer each time.
           data-asks={hasBottomAsk ? "" : undefined}
+          // data-jump-latest: Jump to latest is up (hidden under the inspector), set by setJumpLatestShown.
+          ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
