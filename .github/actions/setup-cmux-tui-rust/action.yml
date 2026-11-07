@@ -14,16 +14,23 @@ runs:
     # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
     # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
     # install below.
+    #
+    # ~/.cargo/bin goes in front of the zig an earlier step installed (setup-zig
+    # for ghostty-next), so keep-job-zig-first.sh puts that zig back in front.
     - name: Ensure rustup is available
       shell: bash
+      env:
+        KEEP_JOB_ZIG_FIRST: ${{ github.action_path }}/../../../scripts/ci/keep-job-zig-first.sh
       run: |
         set -euo pipefail
+        job_zig="$(command -v zig || true)"
         export PATH="$HOME/.cargo/bin:$PATH"
         if ! command -v rustup >/dev/null 2>&1; then
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
         fi
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        bash "$KEEP_JOB_ZIG_FIRST" "$job_zig" >/dev/null
         "$HOME/.cargo/bin/rustup" --version || rustup --version
     - name: Install pinned Rust toolchain
       shell: bash
