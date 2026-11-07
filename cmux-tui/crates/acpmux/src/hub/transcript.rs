@@ -5,42 +5,40 @@ use super::*;
 
 const KINDS: &[&str] = &["user_message", "agent_message_chunk", "compaction_summary"];
 
+/// The most characters a replay into an agent session carries (a refused resume's whole
+/// transcript, an older agent session's missed turns).
+pub(super) const REPLAY_CHARS: usize = 24_000;
+
 impl Hub {
     /// Build a plain-text transcript from the log for rehydration. After a
     /// compaction it is the latest compaction summary and the messages since,
     /// and only those messages are cut to fit `max_chars`.
     pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
         let mut transcript = TranscriptBuilder::new(max_chars);
-        self.store
-            .scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
-                match e.kind.as_str() {
-                    "user_message" => {
-                        transcript.user(e.msg.get("text").and_then(Value::as_str));
-                    }
-                    "agent_message_chunk" => {
-                        if let Some(text) = e
-                            .msg
-                            .get("params")
-                            .filter(|p| !crate::subagents::is_subagents(p))
-                            .and_then(|p| p.pointer("/update/content/text"))
-                            .and_then(Value::as_str)
-                        {
-                            transcript.agent_chunk(text);
-                        }
-                    }
-                    "compaction_summary" => {
-                        if let Some(text) =
-                            e.msg.pointer("/params/update/text").and_then(Value::as_str)
-                        {
-                            transcript.compaction_summary(text);
-                        }
-                    }
-                    _ => {}
-                }
-                true
-            })
-            .ok()?;
+        self.store.scan_kinds(&session.id, KINDS, &mut |e| transcript.read(&e)).ok()?;
         transcript.finish()
+    }
+
+    /// The turns the agent's own session lacks (`SessionMeta::agent_behind_seq`), as the block
+    /// its next prompt starts with, and the mark goes: the transcript of the records past that
+    /// seq, within `max_chars` as [`Self::transcript`]. None when there is no mark, or nothing
+    /// past it to tell.
+    pub(super) fn catch_up(&self, session: &Session, max_chars: usize) -> Option<Value> {
+        let after =
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq.take()?;
+        self.save_meta(session);
+        let mut transcript = TranscriptBuilder::new(max_chars);
+        let read = self.store.scan(&session.id, after, &mut |e| {
+            if KINDS.contains(&e.kind.as_str()) {
+                transcript.read(&e);
+            }
+            true
+        });
+        read.ok()?;
+        let text = transcript.finish()?;
+        Some(
+            json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored the turns this agent session did not see (it resumed from an older copy of itself); tool state was not restored\">\n{text}\n</restored_transcript>\n")}),
+        )
     }
 }
 
@@ -52,6 +50,31 @@ struct TranscriptBuilder {
 }
 
 impl TranscriptBuilder {
+    /// One record of the log, of [`KINDS`]; always goes on.
+    fn read(&mut self, e: &EventRecord) -> bool {
+        match e.kind.as_str() {
+            "user_message" => self.user(e.msg.get("text").and_then(Value::as_str)),
+            "agent_message_chunk" => {
+                if let Some(text) = e
+                    .msg
+                    .get("params")
+                    .filter(|p| !crate::subagents::is_subagents(p))
+                    .and_then(|p| p.pointer("/update/content/text"))
+                    .and_then(Value::as_str)
+                {
+                    self.agent_chunk(text);
+                }
+            }
+            "compaction_summary" => {
+                if let Some(text) = e.msg.pointer("/params/update/text").and_then(Value::as_str) {
+                    self.compaction_summary(text);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn new(max_chars: usize) -> Self {
         Self {
             max_chars,
