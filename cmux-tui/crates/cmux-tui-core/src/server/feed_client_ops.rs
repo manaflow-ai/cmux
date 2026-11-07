@@ -19,6 +19,7 @@ use super::Mux;
 use crate::feed_client::{
     FeedClient, FeedDeps, FeedError, FeedEvent, GitHubConfig, Mailbox, ProcessGh,
 };
+use crate::request_origin::RequestOrigin;
 use crate::resource::ResourceError;
 
 /// A routed op's answer: now, or from a thread of its own.
@@ -36,12 +37,18 @@ fn invalid(field: &str, reason: &str) -> ResourceError {
     ResourceError::validation_invalid(Some(field), reason)
 }
 
-fn failure(operation: &str, error: FeedError) -> ResourceError {
+/// `origin.forbidden` with the connection's derived origin (the catalog's required `derived`).
+fn forbidden(derived: RequestOrigin, message: &str, reason: &str) -> ResourceError {
+    crate::request_origin::forbidden(
+        message,
+        json!({"derived": derived.wire_name(), "reason": reason}),
+    )
+}
+
+fn failure(derived: RequestOrigin, operation: &str, error: FeedError) -> ResourceError {
     match error {
         FeedError::Invalid(reason) => ResourceError::validation_invalid(Some("params"), reason),
-        FeedError::Forbidden(reason) => {
-            crate::request_origin::forbidden(reason, json!({"reason": "app_connection_only"}))
-        }
+        FeedError::Forbidden(reason) => forbidden(derived, reason, "app_connection_only"),
         FeedError::Unavailable(reason) => {
             ResourceError::operation_failed(operation, reason, json!({"code": "feed.unavailable"}))
         }
@@ -61,6 +68,7 @@ fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, ResourceError> {
 
 /// One routed `feed.*` request.
 pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value) -> Answer {
+    let derived = super::origin_gate::derived_origin(mux, client);
     let feed = mux.feed_client().clone();
     let app = || {
         if matches!(
@@ -70,6 +78,7 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
             Ok(())
         } else {
             Err(failure(
+                derived,
                 operation,
                 FeedError::Forbidden("this feed op needs the verified cmux app connection"),
             ))
@@ -78,9 +87,10 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
     // Every feed op, reads too: only the app's own process (its main connection or its Feed
     // page relay) reads the person's feed; an agent or script on the socket is refused.
     if !super::origin_gate::app_process(mux, client) {
-        return Answer::Now(Err(crate::request_origin::forbidden(
+        return Answer::Now(Err(forbidden(
+            derived,
             "the feed is read only by the cmux app",
-            json!({"reason": "app_process_only"}),
+            "app_process_only",
         )));
     }
     let op = operation.to_owned();
@@ -125,10 +135,10 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
                 Err(error) => return now(Err(error)),
             };
             match feed.intent(&key, &params) {
-                Err(error) => now(Err(failure(operation, error))),
+                Err(error) => now(Err(failure(derived, operation, error))),
                 Ok(reply) => Answer::Later(Box::new(move || match reply.wait() {
                     Some(Ok(())) => Ok(json!({"settled": true})),
-                    Some(Err(reject)) => Err(failure(&op, FeedError::Rejected(reject))),
+                    Some(Err(reject)) => Err(failure(derived, &op, FeedError::Rejected(reject))),
                     // Still pending and shown; its settle line ends it.
                     None => Ok(json!({"settled": false})),
                 })),
@@ -159,9 +169,9 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
             Ok(json!({"enabled": config.enabled, "interval_s": config.interval_s}))
         })),
         "feed.github.refresh" => now(Ok(json!({"enabled": feed.refresh_github()}))),
-        "feed.github.find_work" => {
-            Answer::Later(Box::new(move || feed.find_work().map_err(|error| failure(&op, error))))
-        }
+        "feed.github.find_work" => Answer::Later(Box::new(move || {
+            feed.find_work().map_err(|error| failure(derived, &op, error))
+        })),
         "feed.reports.read" => now(Ok(feed.reports())),
         "feed.reports.reply" => {
             let fields = (|| {
@@ -330,7 +340,8 @@ mod tests {
 
     use crate::SurfaceOptions;
     use crate::server::origin_gate::{
-        app_process, set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
+        app_process, set_page_for_test, set_peer_key_for_test, set_role_for_test,
+        set_verified_app_for_test,
     };
     use crate::server::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
 
@@ -372,5 +383,50 @@ mod tests {
         set_role_for_test(&mux, socket, "main");
         set_verified_app_for_test(&mux, socket, true);
         assert!(!app_process(&mux, socket), "not the local socket");
+    }
+
+    /// The relay path end to end (page_router::try_handle): the app's own Feed page relay reads
+    /// the view, a relay of another process gets the refusal, and neither waits.
+    #[test]
+    fn the_apps_feed_relay_reads_and_another_relay_is_refused() {
+        let mux = Mux::new_for_test("feed-relay-gate", SurfaceOptions::default());
+        let app = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, app, "main");
+        set_verified_app_for_test(&mux, app, true);
+        let read = |client: u64| {
+            let outbound = Arc::new(BoundedOutbound::default());
+            let writer =
+                MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+            let request = serde_json::json!({"protocol": "cmux.protocol/2", "type": "request",
+                "id": "r1", "operation": "feed.view.read", "params": {"layout": "list"}});
+            let (done, wait) = std::sync::mpsc::channel();
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                let handled = crate::server::page_router::try_handle(
+                    &mux,
+                    client,
+                    &request.to_string(),
+                    &writer,
+                );
+                let _ = done.send(handled);
+            });
+            assert_eq!(
+                wait.recv_timeout(std::time::Duration::from_secs(10)).expect("answered in time"),
+                Some(true)
+            );
+            let reply: serde_json::Value =
+                serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
+            reply
+        };
+        let own = connection(&mux, ClientTransport::Unix, "pid:1");
+        set_role_for_test(&mux, own, "page_relay");
+        set_page_for_test(&mux, own, "feed");
+        let reply = read(own);
+        assert!(reply["error"].is_null(), "{reply}");
+        let other = connection(&mux, ClientTransport::Unix, "pid:2");
+        set_role_for_test(&mux, other, "page_relay");
+        set_page_for_test(&mux, other, "feed");
+        let reply = read(other);
+        assert_eq!(reply["error"]["details"]["reason"], "app_process_only", "{reply}");
     }
 }

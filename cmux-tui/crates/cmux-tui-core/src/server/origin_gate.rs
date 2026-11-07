@@ -288,6 +288,12 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
 /// connection, as `origin.confirmation.issue` pairs them). The Feed's reads carry the person's
 /// whole feed, Reports basket and GitHub results, so an agent or a script on the same socket
 /// reads none of them (feed.md: a non-user principal sees only its own items).
+/// The connection's derived origin (agent when unregistered), for a refusal's `derived`.
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
+}
+
 pub(super) fn app_process(mux: &Mux, client: u64) -> bool {
     if mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER {
         return false;
@@ -655,6 +661,10 @@ mod test_hooks {
     /// What accept sets for a connection from the bundled cmux-mobile-host.
     pub(in crate::server) fn set_mobile_host_peer_for_test(mux: &Arc<Mux>, client: u64) {
         with_origin(mux, client, |origin| origin.mobile_host = true);
+    }
+
+    pub(in crate::server) fn set_page_for_test(mux: &Arc<Mux>, client: u64, page: &str) {
+        with_origin(mux, client, |origin| origin.page = Some(page.to_string()));
     }
 
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
