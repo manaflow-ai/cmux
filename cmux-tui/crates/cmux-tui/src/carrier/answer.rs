@@ -7,6 +7,10 @@
 //! asks for a grant naming that key as well as the Connect ticket; an empty
 //! body asks for a ticket only. A grant is single-use, so each
 //! connect attempt asks again. Tickets and grants are never logged.
+//!
+//! The first connect can skip that ask: a create's (or spare claim's) answer
+//! carries the same value as `carrier` (cmux-platform #946), handed to the
+//! dial as [`Prefetched`].
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -317,5 +321,36 @@ impl TicketCache {
         *self.held.lock().unwrap_or_else(PoisonError::into_inner) =
             Some((answer.ticket, answer.expires_at));
         Ok(ticket)
+    }
+}
+
+/// A carrier answer handed over ahead of the first connect: the `carrier` of
+/// a create's or spare claim's answer (`dial --answer-fd`, or serve's
+/// `{"carrier_answer":…}` stdin line). One connect attempt takes it; every
+/// later attempt asks the platform as before.
+#[derive(Default)]
+pub(super) struct Prefetched(Mutex<Option<CarrierAnswer>>);
+
+impl Prefetched {
+    pub(super) fn new(answer: Option<CarrierAnswer>) -> Self {
+        Self(Mutex::new(answer))
+    }
+
+    /// Holds `answer` for the next attempt, in place of any held one.
+    pub(super) fn put(&self, answer: CarrierAnswer) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(answer);
+    }
+
+    /// The held answer, once, while its ticket is good for at least the
+    /// ticket margin at `now` (Unix seconds) and it has a grant. A stale or
+    /// grantless one is dropped, and the attempt asks the platform.
+    pub(super) fn take(&self, now: u64) -> Option<CarrierAnswer> {
+        let answer = self.0.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
+    }
+
+    /// [`Self::take`] at the current time.
+    pub(super) fn take_now(&self) -> Option<CarrierAnswer> {
+        self.take(now_unix())
     }
 }

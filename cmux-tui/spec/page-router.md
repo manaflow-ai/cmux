@@ -98,6 +98,18 @@ map each one to its owner, so the same v2 envelope works on every host:
 | `agent_session` | `agent_session.trust` (the folder trust of a chat of this machine, `agent-session-trust` in commands.md; Unix socket only) | `agent_session.trust.get` | `agent_session.trust.set` (page `agent`: `gesture`) |
 | `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
 | `bookmarks` | `bookmarks.tree` (the bookmark tree of each browser profile in the home session, `bookmarks-v1`; `server/bookmarks_routed.rs`) | `bookmarks.list`, `bookmarks.search`, `bookmarks.rank`, `bookmarks.export` | `bookmarks.apply` (page `bookmarks`: `gesture`); `bookmarks.import_html`, `bookmarks.import_source` (the app only) |
+| `tasks` | `tasks.local` (the local Tasks owner, `cmux-tasks serve`, over its Unix socket; the daemon relays and keeps no copy) | `tasks.snapshot` | `tasks.create`, `tasks.update`, `tasks.move`, `tasks.archive`, `tasks.delegate` (page `tasks`: `gesture`) |
+
+The Tasks page (plans/cmux-next/tasks.md): `tasks.snapshot {}` answers the owner's subscribe
+snapshot as the local person sees it (`{seq, me, settings, statuses, labels, projects, tasks,
+sessions}`). `tasks.<verb> {...}` runs the owner op `task.<verb>` with the request's idempotency key
+and origin `user` and answers `{result, seq}`, `seq` being the owner's committed sequence after the
+request: the page keeps its optimistic copy of the intent until its mirror reaches `seq`. The first
+snapshot also starts the daemon's subscription on the owner, so every later commit reaches the page
+as `tasks-changed {change: Event}`; `tasks-changed {lost: true}` says the owner link ended and the
+page reads the snapshot again. With no owner running every call is `operation.failed` with
+`extra.code` `tasks.owner_unreachable`; an owner refusal carries `tasks.<code>` (`not_found`,
+`invalid`, `conflict`, `forbidden`, `usage`, ...). The daemon never starts the owner.
 
 The installed-app panels (cx-hnmbt.13): `apps.grants.get {app}` answers `{app, sandboxed, scopes:
 [{scope, reason, risk, optional, granted}]}` for an installed app (`apps.not_installed` otherwise);

@@ -82,6 +82,7 @@ enum FirstPartyPageSchemes {
         .passwords,
         .settings,
         .stats,
+        .tasks,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.

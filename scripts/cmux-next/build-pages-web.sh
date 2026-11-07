@@ -50,6 +50,7 @@ mobile-pairing
 passwords
 settings
 stats
+tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES page-info"

@@ -18152,6 +18152,268 @@
         }
       }
     },
+    "settings.browser.openPullRequestsInGitHubPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Pull Requests in cmux GitHub Page"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح طلبات السحب في صفحة GitHub في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori pull requestove na cmux GitHub stranici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn pull requests på cmux' GitHub-side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull Requests auf der GitHub-Seite von cmux öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir pull requests en la página de GitHub de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les pull requests dans la page GitHub de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri le pull request nella pagina GitHub di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プルリクエストを cmux の GitHub ページで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក pull request នៅក្នុងទំព័រ GitHub របស់ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "풀 리퀘스트를 cmux GitHub 페이지에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne pull requests på cmux sin GitHub-side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj pull requesty na stronie GitHub w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir pull requests na página do GitHub do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать pull request на странице GitHub в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด pull request ในหน้า GitHub ของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request'leri cmux GitHub sayfasında aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати pull request на сторінці GitHub у cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở pull request trong trang GitHub của cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux GitHub 页面中打开拉取请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux GitHub 頁面中開啟拉取請求"
+          }
+        }
+      }
+    },
+    "settings.browser.openPullRequestsInGitHubPage.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح رابط طلب سحب GitHub الذي تنقر عليه في محادثة وكيل صفحة GitHub الخاصة بـ cmux. عند الإيقاف، يفتح github.com في علامة تبويب متصفح cmux. انقر بزر الماوس الأيمن على الرابط لفتحه بالطريقة الأخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link na GitHub pull request koji kliknete u agent chatu otvara cmux-ovu GitHub stranicu. Kada je isključeno, otvara github.com u kartici cmux preglednika. Desnim klikom na link otvorite ga na drugi način."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et link til en GitHub-pull request, du klikker på i en agentchat, åbner cmux' egen GitHub-side. Når det er slået fra, åbner det github.com i en cmux-browserfane. Højreklik på linket for at åbne det på den anden måde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein GitHub-Pull-Request-Link, den du in einem Agent-Chat anklickst, öffnet die eigene GitHub-Seite von cmux. Wenn aus, öffnet er github.com in einem cmux-Browser-Tab. Klicke mit der rechten Maustaste auf den Link, um ihn auf die andere Art zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un enlace a una pull request de GitHub en el que haces clic en un chat de agente abre la página de GitHub propia de cmux. Si está desactivado, abre github.com en una pestaña del navegador de cmux. Haz clic derecho en el enlace para abrirlo de la otra forma."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un lien de pull request GitHub cliqué dans un chat d'agent ouvre la page GitHub de cmux. Désactivé, il ouvre github.com dans un onglet du navigateur cmux. Faites un clic droit sur le lien pour l'ouvrir de l'autre façon."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un link a una pull request GitHub cliccato in una chat dell'agente apre la pagina GitHub di cmux. Se disattivato, apre github.com in una scheda del browser cmux. Fai clic destro sul link per aprirlo nell'altro modo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントチャットでクリックした GitHub のプルリクエストのリンクは、cmux 独自の GitHub ページで開きます。オフにすると、cmux ブラウザのタブで github.com を開きます。リンクを右クリックすると、もう一方の方法で開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណ pull request របស់ GitHub ដែលអ្នកចុចនៅក្នុងការជជែកជាមួយភ្នាក់ងារ បើកទំព័រ GitHub ផ្ទាល់របស់ cmux។ នៅពេលបិទ វាបើក github.com នៅក្នុងផ្ទាំងកម្មវិធីរុករក cmux។ ចុចកណ្ដុរស្ដាំលើតំណ ដើម្បីបើកវាតាមវិធីផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅에서 클릭한 GitHub 풀 리퀘스트 링크는 cmux 자체 GitHub 페이지에서 열립니다. 끄면 cmux 브라우저 탭에서 github.com을 엽니다. 링크를 오른쪽 클릭하면 다른 방식으로 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lenke til en GitHub-pull request du klikker på i en agentchat, åpner cmux sin egen GitHub-side. Når det er av, åpner den github.com i en cmux-nettleserfane. Høyreklikk på lenken for å åpne den på den andre måten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link do pull requesta GitHub kliknięty w czacie agenta otwiera własną stronę GitHub w cmux. Po wyłączeniu otwiera github.com w karcie przeglądarki cmux. Kliknij link prawym przyciskiem, aby otworzyć go w drugi sposób."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um link de pull request do GitHub clicado em um chat de agente abre a página do GitHub do próprio cmux. Desativado, abre o github.com em uma aba do navegador do cmux. Clique com o botão direito no link para abri-lo do outro jeito."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылка на pull request GitHub, нажатая в чате агента, открывает собственную страницу GitHub в cmux. Если выключено, открывается github.com во вкладке браузера cmux. Нажмите на ссылку правой кнопкой, чтобы открыть её другим способом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ pull request ของ GitHub ที่คุณคลิกในแชทเอเจนต์จะเปิดหน้า GitHub ของ cmux เอง เมื่อปิด จะเปิด github.com ในแท็บเบราว์เซอร์ cmux คลิกขวาที่ลิงก์เพื่อเปิดอีกแบบหนึ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan sohbetinde tıkladığınız GitHub pull request bağlantısı cmux'un kendi GitHub sayfasını açar. Kapalıyken github.com'u bir cmux tarayıcı sekmesinde açar. Diğer şekilde açmak için bağlantıya sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання на pull request GitHub, натиснуте в чаті агента, відкриває власну сторінку GitHub у cmux. Якщо вимкнено, відкривається github.com у вкладці браузера cmux. Клацніть посилання правою кнопкою, щоб відкрити його іншим способом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết pull request GitHub bạn nhấp trong cuộc trò chuyện với agent sẽ mở trang GitHub riêng của cmux. Khi tắt, liên kết mở github.com trong một tab trình duyệt cmux. Nhấp chuột phải vào liên kết để mở theo cách còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在代理聊天中点击的 GitHub 拉取请求链接会打开 cmux 自己的 GitHub 页面。关闭后，会在 cmux 浏览器标签页中打开 github.com。右键点按链接可用另一种方式打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在代理聊天中點按的 GitHub 拉取請求連結會開啟 cmux 自己的 GitHub 頁面。關閉後，會在 cmux 瀏覽器分頁中開啟 github.com。按右鍵點按連結可用另一種方式開啟。"
+          }
+        }
+      }
+    },
     "settings.browser.openLinks": {
       "extractionState": "manual",
       "localizations": {
