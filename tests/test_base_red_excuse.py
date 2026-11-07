@@ -1,13 +1,16 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
 import contextlib
 import copy
+import re
 import io
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -2002,6 +2005,288 @@ class StaleBasePass(unittest.TestCase):
             self.judge()
 
 
+WEB_SHARD = "web / Web tests (1/4)"
+PUSHED_BASE_SHA = "e" * 40
+
+
+class WebShardBaseGitHub(FakeGitHub):
+    """cmux#37667 (2026-11-07): the head's ci.yml run 10 (workflow 7) failed 'web / Web tests (1/4)'. ci.yml runs on
+    pull requests only; its one feat-cmux-next run, 20, is an old dispatch at BASE_SHA, behind the PR's merge-base
+    NEW_BASE_SHA. On base pushes the same ci-web.yml runs from cmux-next-web.yml: its run 40 at PUSHED_BASE_SHA, after
+    the merge-base, has its own verdict for the shard."""
+
+    def __init__(self, name=WEB_SHARD):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = name
+        self.jobs[2]["conclusion"] = "success"
+        self.jobs[4] = dict(failed_job(4, 40, PUSHED_BASE_SHA, name))
+        self.logs[4] = self.logs[2]
+        self.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                           "created_at": "2026-10-06T10:00:00Z"}]
+        self.pushed_runs = [{"id": 41, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "cancelled", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T10:30:00Z"},
+                            {"id": 40, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                             "conclusion": "failure", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T10:00:00Z"},
+                            {"id": 42, "event": "pull_request", "head_branch": "feat-cmux-next",
+                             "status": "completed", "conclusion": "success", "head_sha": PUSHED_BASE_SHA,
+                             "created_at": "2026-11-07T11:00:00Z"}]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{BASE_SHA}" in route:
+            return {"status": "behind"}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if "/actions/workflows/cmux-next-web.yml/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.pushed_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "CI", "path": ".github/workflows/ci.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class WebShardBaseVerdict(unittest.TestCase):
+    """A ci.yml web shard is judged against the base runs of cmux-next-web.yml (BASE_WORKFLOW_FOR) when ci.yml has no
+    feat-cmux-next verdict at or after the PR's merge-base."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_a_web_shard_red_on_the_pushed_base_after_the_merge_base_is_a_base_red(self):
+        text = self.judge(WebShardBaseGitHub())
+        self.assertIn(f"excused '{WEB_SHARD}'", text)
+        self.assertIn("run 40", text)
+
+    def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
+        gh = WebShardBaseGitHub()
+        gh.jobs[4].update(conclusion="success",
+                          steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 40"):
+            self.judge(gh)
+
+    def test_a_pushed_base_verdict_before_the_merge_base_does_not_decide(self):
+        # cmux-next web's red tested a commit behind the merge-base too: the stale ci.yml pass still refuses.
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+                return {"status": "behind"}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet: "
+                                    "the newest, a pass in run 20"):
+            self.judge(gh)
+
+    def test_a_pull_request_run_of_the_base_caller_is_never_base_evidence(self):
+        gh = WebShardBaseGitHub()
+        gh.pushed_runs = [run for run in gh.pushed_runs if run["event"] == "pull_request"]
+        gh.jobs[4]["run_id"] = 42
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base"):
+            self.judge(gh)
+
+    def test_a_ci_yml_job_outside_the_web_caller_reads_only_ci_yml(self):
+        gh = WebShardBaseGitHub(name=SWIFT)
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_a_pr_into_main_never_reads_cmux_next_web(self):
+        # cmux-next web runs on pushes to feat-cmux-next only; a dispatch of it on `main` is no evidence for main.
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            route = route.replace("branch=main", "branch=feat-cmux-next").replace("/compare/main...",
+                                                                               "/compare/feat-cmux-next...")
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
+            excuse.judge(REPO, "main", HEAD, [10], gh)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
+
+    def test_a_run_with_no_workflow_path_reads_only_its_own_workflow(self):
+        gh = WebShardBaseGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+
+    def test_each_base_caller_runs_the_same_called_job_on_base_pushes(self):
+        yaml = excuse.yaml_module()
+        self.assertTrue(excuse.BASE_WORKFLOW_FOR)
+        for (branch, pr_file, job_id), base_file in excuse.BASE_WORKFLOW_FOR.items():
+            pr = yaml.safe_load((excuse.WORKFLOWS / pr_file).read_text())
+            pushed = yaml.safe_load((excuse.WORKFLOWS / base_file).read_text())
+            pr_job, pushed_job = pr["jobs"][job_id], pushed["jobs"][job_id]
+            # The same reusable workflow, so the same job names under the same '<id> / ' prefix.
+            self.assertTrue(str(pr_job.get("uses", "")).startswith("./.github/workflows/"), pr_job)
+            self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
+            for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
+                self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
+            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
+            pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
+            self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
+
+
+SIGNED_HOST = "signed host admission"
+SIGNED_HOST_FILE = "nightly-next-cua-signed-host.yml"
+
+
+class SignedHostGitHub(FakeGitHub):
+    """cmux#37855 at 960fd459 (2026-11-07): the head's run 10 of nightly-next-cua-signed-host.yml (workflow 7) failed
+    'signed host admission'. The workflow runs on pull requests and a schedule, and a schedule fires only from the
+    default branch, so feat-cmux-next had no run of it at all."""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = SIGNED_HOST
+        self.base_runs = []
+        self.dispatched: list[tuple[str, str, str]] = []
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10"):
+            self.routes.append(route)
+            return {"id": 10, "workflow_id": 7, "name": "nightly-next Computer Use signed host",
+                    "path": f".github/workflows/{SIGNED_HOST_FILE}"}
+        return super().json(route, paginate=paginate)
+
+    def dispatch(self, repo, workflow, ref):
+        self.dispatched.append((repo, workflow, ref))
+        return 77
+
+
+class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
+    """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
+    the check after it completes compares against it as any base run."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_no_base_run_dispatches_once_on_the_base_tip(self):
+        gh = SignedHostGitHub()
+        with self.assertRaisesRegex(excuse.Refused, f"no feat-cmux-next run of its workflow has a verdict.*"
+                                    f"dispatched {SIGNED_HOST_FILE} run 77 on the feat-cmux-next tip"):
+            self.judge(gh)
+        self.assertEqual(gh.dispatched, [(REPO, SIGNED_HOST_FILE, "feat-cmux-next")])
+
+    def test_a_running_dispatch_is_waited_on_not_repeated(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 77, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "in_progress", "conclusion": None, "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T14:50:00Z"}]
+        with self.assertRaisesRegex(excuse.Refused, "its feat-cmux-next dispatch run 77 is in_progress"):
+            self.judge(gh)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_recent_dispatch_with_no_verdict_is_not_repeated_within_the_hour(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 77, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T14:50:00Z"}]
+        now = excuse.datetime.fromisoformat("2026-11-07T15:10:00+00:00")
+        with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+            clock.now.return_value = now
+            with self.assertRaisesRegex(excuse.Refused, "dispatch run 77 gave no verdict for it; "
+                                        "the next dispatch starts after 15:50Z"):
+                self.judge(gh)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_an_old_dispatch_with_no_verdict_dispatches_again(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 70, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-06T10:00:00Z"}]
+        with self.assertRaisesRegex(excuse.Refused, "dispatched .* run 77"):
+            self.judge(gh)
+        self.assertEqual(len(gh.dispatched), 1)
+
+    def test_a_host_that_cannot_dispatch_says_so_and_still_refuses(self):
+        gh = SignedHostGitHub()
+
+        def refuse(repo, workflow, ref):
+            raise excuse.Refused("lane-gh: the broker refuses POST")
+
+        gh.dispatch = refuse
+        with self.assertRaisesRegex(excuse.Refused, "could start from this host .*broker refuses POST"):
+            self.judge(gh)
+
+    def test_the_same_red_on_the_dispatched_base_run_is_excused(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        self.assertIn(f"excused '{SIGNED_HOST}'", self.judge(gh))
+        self.assertEqual(gh.dispatched, [])
+
+    def test_the_checks_own_fail_line_is_matched_against_the_base(self):
+        # cmux#37855's head and base run 42383535506: the check's FAIL line, then only the generic exit annotation.
+        said = ("FAIL: signed app pid {} never kept an accepted host connection to "
+                "/var/folders/_2/149jf1ds4_gft1x2_v7b_75m0000gn/T/cmux-cua/61f287448cbb61ce/cua.sock")
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        gh.logs[1] = log(SIGNED_HOST, TEST_STEP, said.format(1387), "##[error]Process completed with exit code 1.")
+        gh.logs[2] = log(SIGNED_HOST, TEST_STEP, said.format(2201), "##[error]Process completed with exit code 1.")
+        self.assertIn(f"excused '{SIGNED_HOST}'", self.judge(gh))
+        gh.logs[2] = log(SIGNED_HOST, TEST_STEP, "FAIL: unsigned peer was not refused by /tmp/x.sock: 'accepted'",
+                         "##[error]Process completed with exit code 1.")
+        with self.assertRaises(excuse.Refused):
+            self.judge(gh)
+
+    def test_a_fail_line_is_no_error_line_for_another_job(self):
+        job = failed_job(1, 10, HEAD, name=SWIFT)
+        self.assertEqual(excuse.signature(job, log(SWIFT, TEST_STEP, "FAIL: something"))[2], set())
+
+    def test_a_crash_is_never_excused_even_when_the_base_dispatch_fails(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        gh.logs[1] = log(SIGNED_HOST, TEST_STEP, "Fatal error: Unexpectedly found nil", "##[error]Process completed")
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge(gh)
+
+    def test_a_workflow_outside_base_dispatch_never_dispatches(self):
+        gh = SignedHostGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7, "path": ".github/workflows/ci.yml"}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(gh)
+        self.assertNotIn("dispatch", str(refused.exception).split("tip suite runs)")[-1])
+        self.assertEqual(gh.dispatched, [])
+
+    def test_each_base_dispatch_workflow_can_be_dispatched(self):
+        yaml = excuse.yaml_module()
+        for branch, file in excuse.BASE_DISPATCH:
+            workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
+            triggers = workflow.get(True, workflow.get("on")) or {}
+            self.assertIn("workflow_dispatch", triggers, file)
+
+
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
@@ -2901,6 +3186,238 @@ class FixedOnBaseGitHub(FakeGitHub):
         return super().json(route, paginate=paginate)
 
 
+KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+KIT_STEP = "swift test (macOS)"
+KIT_TEST = ("✘ Test silentDropDetectionBenchmark() recorded an issue at LinkRecoveryTests.swift:145:9: "
+            "Expectation failed: (elapsed → 13.4 seconds) <= 6.0 seconds")
+KIT_CRATES = ("cmux-mobile-link", "cmux-wg", "cmux-transport")
+KIT_LOCK = "\n".join(f'[[package]]\nname = "{name}"\nversion = "0.1.0"\n' for name in KIT_CRATES) + (
+    '[[package]]\nname = "tokio"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n')
+KIT_FILES = {
+    "cmux-next-ios/CmuxMobileKit/Package.swift": '.package(path: "../../Packages/Shared/CmuxGhosttyKit"),\n'
+                                                 '.package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),',
+    "Packages/Shared/CmuxGhosttyKit/Package.swift": '.package(name: "CmuxTabsKit", path: "../../iOS/CmuxTabsKit")',
+    "Packages/iOS/CmuxTabsKit/Package.swift": "",
+    "vendor/stack-auth-swift-sdk-prerelease/Package.swift": "",
+    "cmux-next-ios/rust/Cargo.lock": KIT_LOCK,
+    "cmux-next-ios/rust/Cargo.toml": '[workspace]\nmembers = ["crates/cmux-mobile-link"]\n'
+                                     '[workspace.dependencies]\ncmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }\n',
+    "cmux-next-ios/rust/crates/cmux-mobile-link/Cargo.toml": '[package]\nname = "cmux-mobile-link"\n'
+                                                             '[dependencies]\ncmux-wg.workspace = true\n',
+    "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/cmux-wg"]\n[workspace.dependencies]\ntokio = "1"\n'
+                           'cmux-transport = { path = "crates/cmux-transport" }\n',
+    "cmux-tui/crates/cmux-wg/Cargo.toml": '[package]\nname = "cmux-wg"\n[dependencies]\ntokio.workspace = true\n'
+                                          'cmux-transport.workspace = true\n',
+    "cmux-tui/crates/cmux-transport/Cargo.toml": '[package]\nname = "cmux-transport"\n',
+}
+
+
+class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
+    """CmuxMobileKit's job red on the head (cmux#36988 at d286aa2f); the newest base run passes it."""
+
+    def __init__(self, changed=("cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+                                "cmux-next-ios/verify/parity-mac.md", "webviews/src/App.tsx"), files=None):
+        super().__init__(changed=changed)
+        self.jobs = {1: failed_job(1, 10, HEAD, name=KIT, step=KIT_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=KIT, step=KIT_STEP), conclusion="success")}
+        self.logs = {1: log(KIT, KIT_STEP, KIT_TEST, "✘ Test silentDropDetectionBenchmark() failed after 13.4 "
+                            "seconds with 1 issue.", "##[error]Process completed with exit code 1."), 2: ""}
+        self.files = dict(KIT_FILES if files is None else files)
+
+    def blob(self, repo, ref, path):
+        assert ref == HEAD, ref
+        if path not in self.files:
+            raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+        return self.files[path]
+
+
+class PackageFixedOnBase(unittest.TestCase):
+    """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_package_red_the_pr_cannot_reach_is_excused_once_the_base_passes_it(self):
+        text = self.judge(KitFixedOnBaseGitHub())
+        self.assertIn(f"excused '{KIT}': fixed on base (passes at {BASE_SHA[:12]}", text)
+        self.assertIn("silentDropDetectionBenchmark()", text)
+
+    def test_a_pr_that_touches_a_package_read_is_not_excused(self):
+        for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift",
+                     "cmux-next-ios/rust/Cargo.lock", "Packages/Shared/CmuxAuthRuntime/Sources/A.swift",
+                     "cmux-tui/crates/cmux-wg/src/lib.rs", "cmux-tui/Cargo.toml", "schemas/remote-tab/client.json",
+                     "scripts/ci/select-ci-xcode.sh", ".github/workflows/cmux-next-ios-kit.yml",
+                     "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json"):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "reads paths the PR changes"):
+                self.judge(KitFixedOnBaseGitHub(changed=(path,)))
+
+    def test_a_swift_package_outside_the_declared_reads_is_refused(self):
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(path: "../../macOS/CmuxNext")'
+        with self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext is outside its declared reads"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_path_crate_outside_the_declared_reads_is_refused(self):
+        # An older head whose cmux-wg resolves elsewhere: the name is declared, the directory is not (review F1).
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/Cargo.toml"] = files["cmux-next-ios/rust/Cargo.toml"].replace(
+            "../../cmux-tui/crates/cmux-wg", "../../Packages/macOS/cmux-wg")
+        del files["cmux-tui/crates/cmux-wg/Cargo.toml"]
+        files["Packages/macOS/cmux-wg/Cargo.toml"] = ('[package]\nname = "cmux-wg"\n[dependencies]\n'
+                                                     'cmux-transport = { path = "../../../cmux-tui/crates/cmux-transport" }\n')
+        with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/cmux-wg is outside its declared"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_live_job_log_is_split_by_its_failed_steps_windows(self):
+        # The live job-log endpoint has timestamps, not step names, and the failed step's last second is the first of
+        # the post steps after it (cmux#36988 at d8cb4c44, job 128332980232): the test lines are still its own.
+        github = KitFixedOnBaseGitHub()
+        github.jobs[1]["steps"] = [
+            {"name": "Build CmuxMobileLinkFFI.xcframework", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:02:21Z", "completed_at": "2026-11-07T07:06:53Z"},
+            {"name": KIT_STEP, "status": "completed", "conclusion": "failure",
+             "started_at": "2026-11-07T07:06:53Z", "completed_at": "2026-11-07T07:08:54Z"},
+            {"name": "xcodebuild test (iOS simulator)", "status": "completed", "conclusion": "skipped",
+             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:54Z"},
+            {"name": "Post Run actions/checkout", "status": "completed", "conclusion": "success",
+             "started_at": "2026-11-07T07:08:54Z", "completed_at": "2026-11-07T07:08:55Z"}]
+        github.logs[1] = "\n".join([
+            "2026-11-07T07:06:53.1000000Z ##[group]Run swift test --package-path cmux-next-ios/CmuxMobileKit",
+            "2026-11-07T07:08:54.5717620Z " + KIT_TEST,
+            "2026-11-07T07:08:54.5718210Z ✘ Test silentDropDetectionBenchmark() failed after 16.970 seconds with 1 issue.",
+            "2026-11-07T07:08:54.9000000Z ##[error]Process completed with exit code 1."])
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(github))
+
+    def test_a_swift_path_package_behind_comments_is_still_followed(self):
+        # Comments inside or before the call no longer hide the path (reviews of ce36494d and d13a3060, F1).
+        for manifest in ('.package(/* the Mac */ path: "../../macOS/CmuxNext")',
+                         '.package /* the Mac */ (path: "../../macOS/CmuxNext")',
+                         '.package(\n    // the Mac\n    path: "../../macOS/CmuxNext"\n)'):
+            files = dict(KIT_FILES)
+            files["Packages/iOS/CmuxTabsKit/Package.swift"] = manifest
+            with self.subTest(manifest=manifest), \
+                    self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext is outside its declared reads"):
+                self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_commented_out_dependency_is_not_followed(self):
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '// .package(path: "../../macOS/CmuxNext"),\n/* .package(x) */'
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(KitFixedOnBaseGitHub(files=files)))
+
+    def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
+        for manifest, said in (('.package(path: macPath)', "Package.swift:1 declares a package dependency"),
+                               ('.package(path: #"../../macOS/CmuxNext"#)', "raw, multiline or interpolated"),
+                               # An interpolation's quote would end the literal early and a `/*` in it would then
+                               # blank the rest, the next dependency with it (review of 4a2a357a, F1).
+                               ('let note = "\\(String("/*"))"\n.package(path: "../../macOS/CmuxNext")',
+                                "raw, multiline or interpolated")):
+            files = dict(KIT_FILES)
+            files["Packages/iOS/CmuxTabsKit/Package.swift"] = manifest
+            with self.subTest(manifest=manifest), self.assertRaisesRegex(excuse.Refused, said):
+                self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_url_package_is_read_as_one(self):
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(url: "https://github.com/a/b", from: "1.0.0")'
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(KitFixedOnBaseGitHub(files=files)))
+
+    def test_every_directory_of_a_shared_crate_name_is_checked(self):
+        # Two path crates named cmux-wg (an aliased dependency): the undeclared one is not hidden by the declared one
+        # (review of ce36494d, F2).
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/crates/cmux-mobile-link/Cargo.toml"] += (
+            'old-wg = { package = "cmux-wg", path = "../../../../Packages/macOS/old-wg" }\n')
+        files["Packages/macOS/old-wg/Cargo.toml"] = '[package]\nname = "cmux-wg"\n'
+        with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/old-wg is outside its declared"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_locked_path_crate_no_manifest_reaches_is_refused(self):
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/Cargo.lock"] = KIT_LOCK + '[[package]]\nname = "cmux-agent-pane-policy"\n'
+        with self.assertRaisesRegex(excuse.Refused, "path crates its manifests do not reach: cmux-agent-pane-policy"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_glob_member_is_refused(self):
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/Cargo.toml"] = '[workspace]\nmembers = ["crates/*"]\n'
+        with self.assertRaisesRegex(excuse.Refused, "names its members by a glob"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_test_step_without_a_failing_test_of_its_own_is_not_excused(self):
+        # One step's failing test never covers another test step's compile error (review F2).
+        github = KitFixedOnBaseGitHub()
+        sim = "xcodebuild test (iOS simulator)"
+        github.jobs[1]["steps"].append({"name": sim, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + log(KIT, sim, "error: cannot find 'LinkTestClock' in scope",
+                                    "##[error]Process completed with exit code 65.")
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"step '{sim}' names no failing test of its own")):
+            self.judge(github)
+
+    def test_an_unreadable_manifest_is_refused(self):
+        for path in ("cmux-next-ios/rust/Cargo.lock", "Packages/iOS/CmuxTabsKit/Package.swift",
+                     "cmux-tui/crates/cmux-wg/Cargo.toml"):
+            files = {key: value for key, value in KIT_FILES.items() if key != path}
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, f"{path} could not be read"):
+                self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_failed_build_step_is_not_excused(self):
+        github = KitFixedOnBaseGitHub()
+        github.jobs[1]["steps"][1]["conclusion"] = "failure"
+        github.logs[1] += "\n" + log(KIT, "Build package and tests", "error: no such module 'CmuxMobileLive'")
+        with self.assertRaisesRegex(excuse.Refused, "'Build package and tests' is not one of the job's test steps"):
+            self.judge(github)
+
+    def test_a_crash_in_a_package_job_is_never_excused(self):
+        github = KitFixedOnBaseGitHub()
+        github.logs[1] += "\n" + log(KIT, KIT_STEP, "error: Exited with unexpected signal code 11")
+        with self.assertRaisesRegex(excuse.Refused, "crash"):
+            self.judge(github)
+
+    def test_a_base_pass_not_after_the_merge_base_is_not_excused(self):
+        github = KitFixedOnBaseGitHub()
+        github.status = "identical"
+        with self.assertRaisesRegex(excuse.Refused, "not after the merge-base"):
+            self.judge(github)
+
+    def test_the_declared_reads_cover_the_tree(self):
+        # The Rust crates the manifests reach (cargo_crates, as the classifier resolves them at a head) and every file
+        # their sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/), read from this checkout the way
+        # cargo_test_verdict reads a crate's inputs.
+        package = excuse.PACKAGE_JOBS[KIT]
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        reads = package["reads"] + excuse.GUARD_READS_DEFAULT
+        github = KitFixedOnBaseGitHub(files={})
+
+        def checkout(repo, ref, path):
+            if not (ROOT / path).is_file():
+                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+            return (ROOT / path).read_text()
+        github.blob = checkout
+        crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
+        self.assertIn("cmux-tui/crates/cmux-wg", crates)
+        self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        for crate in crates:
+            dirs, files = cargo.crate_inputs(ROOT, crate)
+            for path in [f"{d}/Cargo.toml" for d in dirs] + files:
+                with self.subTest(path=path):
+                    self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
+        # A repository path its Swift names in a string literal (a test reading a shared spec from the root at run
+        # time, which no manifest shows): every one that exists must be a declared read.
+        literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
+        for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
+            for source in sorted((ROOT / root).rglob("*.swift")):
+                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
+                    continue  # the job runs the kit's own tests; the packages it reaches build only their sources
+                for found in literal.finditer(source.read_text(errors="replace")):
+                    path = found.group(1)
+                    if (ROOT / path).is_file():
+                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                            self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
+        self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
+
+
 class FixedOnBase(unittest.TestCase):
     """A guard test red on a head whose merge-base predates the base fix (#27584, #27918, #27905, #27775)."""
 
@@ -3762,12 +4279,83 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             log(self.JOB, self.ROLLUP, f"##[error]red check: {self.PIN}", *extra,
                 "##[error]Process completed with exit code 1.")])
 
+    class GitHub(FakeGitHub):
+        """Also answers the published base pin rule's reads: Package.swift at the head (blob), where the pinned source
+        sits against the base (compare) and the head's commit statuses (compile_pass_at)."""
+
+        def __init__(self, case):
+            super().__init__()
+            self.case = case
+
+        def blob(self, repo, ref, path):
+            self.case.assertEqual((repo, ref), (REPO, HEAD))
+            self.case.assertIn(path, (excuse.FFI_PIN_MANIFEST, excuse.FFI_PIN_FILE))
+            text = self.case.pin_file if path == excuse.FFI_PIN_FILE else self.case.manifest
+            if text is None:
+                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+            return text
+
+        def json(self, route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
+                return {"status": self.case.compare}
+            if route.endswith(f"/commits/{HEAD}/status"):
+                return {"statuses": copy.deepcopy(self.case.statuses)}
+            return super().json(route, paginate=paginate)
+
+    STEP_B_PIN = "1f63d516ecfc798e40d2d031ebfcbb8eb1637e48"
+
     def setUp(self):
-        self.gh = FakeGitHub()
+        self.gh = self.GitHub(self)
         self.gh.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.ROLLUP),
                         2: dict(failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.ROLLUP), conclusion="success")}
         self.gh.logs = {1: self.pin_log(), 2: ""}
         self.graphql: list[list[str]] = []
+        # The published base pin rule's inputs, by default all of it but the compile pass.
+        self.pin_at_head(self.STEP_B_PIN)
+        self.compare, self.statuses = "behind", []
+        self.releases: list[str] = []
+        self.sums = None  # SHA256SUMS: by default the pinned checksum's archive entry
+        published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
+        published.start()
+        self.addCleanup(published.stop)
+
+    CHECKSUM = "2" * 64
+
+    @staticmethod
+    def target(sha, repo=REPO, checksum=CHECKSUM, host="github.com"):
+        return ("let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                f"    url: \"https://{host}/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                "CCmuxAppFFI.xcframework.zip\",\n"
+                f"    checksum: \"{checksum}\"\n)\n")
+
+    def pin_at_head(self, sha, repo=REPO):
+        self.pinned, self.source = sha, sha
+        self.manifest = ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
+                         + self.target(sha, repo))
+        self.pin_file = None  # the template form: the head has no app-ffi-pin.json
+
+    # cmux#37645's form: app-ffi-pin.json, and Package.swift holding only its loader block (app_ffi_pin.loader).
+    JSON_MANIFEST = ("// swift-tools-version: 6.2\n\nimport Foundation\nimport PackageDescription\n\n"
+                     "// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + excuse.app_ffi_pin.loader(CHECKSUM)
+                     + "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+
+    def json_pin_at_head(self, sha, checksum=CHECKSUM, manifest=None):
+        self.pinned, self.source = sha, sha
+        self.pin_file = excuse.app_ffi_pin.render_pin_file(sha, checksum)
+        self.manifest = self.JSON_MANIFEST if manifest is None else manifest
+
+    def release_file(self, repo, tag, name):
+        self.releases.append(tag)
+        if self.source is None:
+            return None
+        if name == "SOURCE_SHA":
+            return self.source + "\n"
+        assert name == "SHA256SUMS", name
+        return self.sums if self.sums is not None else (f"{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip\n"
+                                                        f"{'9' * 64}  CCmuxAppFFI.xcframework.zip.sha256\n")
+
+    def compiled(self):
+        self.statuses = [{"context": "cmux-next/compile", "state": "success"}]
 
     def pr_files(self, *paths, changed=None, page=100, base_oids=()):
         self.gh.run = pr_graphql(self, self.graphql, paths, number=37292, changed=changed, page=page,
@@ -3829,6 +4417,265 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files("docs/ci/app-ffi-release.md")
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
             self.judge()
+
+    # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
+    # app compile passed at its head against that pin.
+    STEP_B = ("Packages/macOS/CmuxNext/Package.swift",
+              "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarClient.swift")
+
+    def test_a_step_b_pin_on_the_base_that_compiled_is_excused(self):
+        # cmux#37428 at 872fe1e7: Swift and a pin of cmux-app-ffi-1f63d516, which other PRs' Rust has since passed.
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
+            f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
+        self.assertEqual(self.releases, [f"cmux-app-ffi-{self.STEP_B_PIN}"] * 2)
+
+    def test_a_re_pin_alone_on_the_base_that_compiled_is_excused(self):
+        # cmux#37353: the re-pin bot's Package.swift-only PR, a few FFI commits behind the base tip.
+        self.pr_files("Packages/macOS/CmuxNext/Package.swift")
+        self.compiled()
+        self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_a_json_pin_on_the_base_that_compiled_is_excused(self):
+        # cmux#37645 moves the pin to app-ffi-pin.json; this classifier runs from the base, so it reads that form
+        # before the PR lands. Changing the pin file moves the pin, so only the published base pin rule can excuse it.
+        self.json_pin_at_head(self.STEP_B_PIN)
+        self.pr_files(excuse.FFI_PIN_FILE, excuse.FFI_PIN_MANIFEST, "scripts/ci/app_ffi_pin.py")
+        self.compiled()
+        self.assertEqual(self.judge(), [
+            f"excused '{self.JOB}': only '{self.PIN}' is red (\"error: the app FFI sources changed since the pinned "
+            f"source\"), and #37292 pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc, "
+            f"which is on feat-cmux-next, and the cmux-next/compile status compiled {HEAD} against that pin and passed"])
+        self.pr_files(excuse.FFI_PIN_FILE)
+        self.assertIn("pins cmux-app-ffi-1f63d516", self.judge()[0])
+
+    def test_a_json_pin_off_its_rules_is_refused(self):
+        line = f"// app-ffi-pin-checksum: {self.CHECKSUM}\n"
+        loader = excuse.app_ffi_pin.LOADER
+        for pin_file, manifest, why in (
+                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace(", ", ",  "), None,
+                 "is not in its one format"),
+                (excuse.app_ffi_pin.render_pin_file(self.STEP_B_PIN, self.CHECKSUM).replace("manaflow-ai/", "x/"),
+                 None, "url is not"),
+                (None, self.JSON_MANIFEST.replace(line, f"// app-ffi-pin-checksum: {'4' * 64}\n"),
+                 "is not Packages/macOS/CmuxNext/app-ffi-pin.json's checksum"),
+                (None, self.JSON_MANIFEST.replace(line, ""), "lines, not one"),
+                (None, self.JSON_MANIFEST.replace(loader, loader.replace("url: appFFIPin.url,", "url: appFFIPin.checksum,")),
+                 "does not hold the one fixed"),
+                (None, self.JSON_MANIFEST + self.target(self.STEP_B_PIN), "has 'releases/download/'"),
+                (None, self.JSON_MANIFEST + "enum Foundation { }\n", "names a pin loader symbol outside the loader")):
+            with self.subTest(why=why):
+                self.setUp()
+                self.json_pin_at_head(self.STEP_B_PIN, manifest=manifest)
+                if pin_file is not None:
+                    self.pin_file = pin_file
+                self.pr_files(excuse.FFI_PIN_FILE)
+                self.compiled()
+                with self.assertRaisesRegex(excuse.Refused, why):
+                    self.judge()
+                self.assertEqual(self.releases, [])
+
+    def test_a_template_manifest_beside_a_pin_file_is_refused(self):
+        # A head with app-ffi-pin.json is read in the JSON form only: its Package.swift's own pin does not count.
+        self.json_pin_at_head(self.STEP_B_PIN, manifest=self.manifest)
+        self.pr_files(excuse.FFI_PIN_FILE)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 'releases/download/'|lines, not one"):
+            self.judge()
+
+    def test_swift_alone_against_the_base_pin_that_compiled_is_excused(self):
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
+
+    def test_a_step_b_pin_with_no_compile_pass_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift: a PR that moves "
+                                    "the pin must pin a release built from its own sources; nor is its pin a "
+                                    f"published base release it compiled against: no app compile check passed at "
+                                    f"{HEAD}"):
+            self.judge()
+        self.statuses = [{"context": "cmux-next/compile", "state": "failure"}]
+        with self.assertRaisesRegex(excuse.Refused, "no app compile check passed"):
+            self.judge()
+
+    def test_a_pin_not_on_the_base_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        for status in ("ahead", "diverged"):
+            with self.subTest(status=status):
+                self.compare = status
+                with self.assertRaisesRegex(excuse.Refused, f"the pinned release's source 1f63d516ecfc is not an "
+                                            f"ancestor of feat-cmux-next \\(it is {status}\\)"):
+                    self.judge()
+
+    def test_an_unpublished_pin_is_refused_naming_it(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, f"cmux-app-ffi-{self.STEP_B_PIN} is not published"):
+            self.judge()
+        self.source = "0" * 40
+        with self.assertRaisesRegex(excuse.Refused, "records SOURCE_SHA '0000000000"):
+            self.judge()
+
+    def test_a_pin_of_another_repository_is_refused(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.pin_at_head(self.STEP_B_PIN, repo="someone/cmux")
+        with self.assertRaisesRegex(excuse.Refused, "is not the canonical CCmuxAppFFI pin line"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
+    def test_a_step_b_pin_beside_another_red_is_judged_as_before(self):
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+
+    def test_a_step_a_change_reads_nothing_for_the_published_base_pin(self):
+        # Step A merges are never held by the published base pin rule: they never ask it.
+        self.pr_files(*self.RUST)
+        self.source = None
+        self.assertIn("a step-A Rust change", self.judge()[0])
+        self.assertEqual(self.releases, [])
+
+    def test_the_release_files_are_read_anonymously_and_a_404_is_unpublished(self):
+        import io
+        import urllib.error
+        # setUp replaced the reader in `excuse`; a fresh copy of the module has the real one.
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        urls = []
+
+        def answer(code):
+            def urlopen(url, timeout):
+                urls.append((url, timeout))
+                if code == 200:
+                    return io.BytesIO(f"{self.STEP_B_PIN}\n".encode())
+                raise urllib.error.HTTPError(url, code, "x", {}, None)
+            return urlopen
+
+        tag = f"cmux-app-ffi-{self.STEP_B_PIN}"
+        with unittest.mock.patch("urllib.request.urlopen", answer(200)):
+            self.assertEqual(module.ffi_release_file(REPO, tag, "SOURCE_SHA"), f"{self.STEP_B_PIN}\n")
+        self.assertEqual(urls, [(f"https://github.com/{REPO}/releases/download/{tag}/SOURCE_SHA", 30)])
+        with unittest.mock.patch("urllib.request.urlopen", answer(404)):
+            self.assertIsNone(module.ffi_release_file(REPO, tag, "SHA256SUMS"))
+        with unittest.mock.patch("urllib.request.urlopen", answer(502)), \
+                self.assertRaisesRegex(module.Refused, "HTTP 502; the pinned release could not be read"):
+            module.ffi_release_file(REPO, tag, "SOURCE_SHA")
+
+    # The pin is app_ffi_pin.py's canonical block (2026-11-07, after five lexer holes): raw text, nothing skipped. Each
+    # attack the lexer once missed now refuses on a forbidden construct, a count, or a line off the template, and no
+    # release is read for it.
+    DIVERGED = "d" * 40
+    NOT_CANONICAL = "is not the canonical CCmuxAppFFI pin line"
+
+    def refused_with(self, manifest, pattern):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = manifest
+        with self.assertRaisesRegex(excuse.Refused, pattern):
+            self.judge()
+
+    def refused_unread(self, manifest, pattern):
+        self.refused_with(manifest, pattern)
+        self.assertEqual(self.releases, [])
+
+    def inline(self, sha):
+        return self.target(sha).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
+
+    def test_a_published_target_in_a_comment_beside_a_diverged_one_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        self.refused_unread("".join(f"// {line}\n" for line in published.splitlines()) + self.target(self.DIVERGED),
+                            "has 2 'binaryTarget', not one")
+        self.refused_unread("/* an old pin:\n" + published + "*/\n" + self.target(self.DIVERGED),
+                            "line 1 has '/\\*'")
+
+    def test_a_pin_in_any_string_or_regex_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        for opening, closing, token in (('"""\n', '"""', '\'"""\''), ('#"', '"#', "'#\"'"), ("#/", "/#", "'#/'"),
+                                        ("#" * 64 + '"', '"' + "#" * 64, "'#\"'"),
+                                        ("#" * 200 + '"x"' + "#" * 63 + "\n", '"' + "#" * 200, "'#\"'")):
+            with self.subTest(opening=opening[:8]):
+                self.refused_unread(f"let s = {opening}{published}{closing}\nlet ffiName = \"CCmuxAppFFI\"\n"
+                                    + self.target(self.DIVERGED).replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                                    f"has {re.escape(token)}, which no canonical pin file has")
+
+    def test_an_interpolation_or_conditional_compilation_is_refused(self):
+        self.refused_unread(f'let s = "\\(Target.self/* ) " */{self.inline(self.STEP_B_PIN)})"\n',
+                            "has '/\\*'")
+        self.refused_unread(f'let s = "\\(Target.self{self.inline(self.STEP_B_PIN)})"\n',
+                            "line 1 is not the canonical CCmuxAppFFI pin line")
+        self.refused_unread("#if false\n" + self.target(self.STEP_B_PIN) + "#endif\n" + self.target(self.DIVERGED),
+                            "has '#if'")
+
+    def test_a_target_off_the_template_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
+               "CCmuxAppFFI.xcframework.zip")
+        for manifest in (
+                published.replace('name: "CCmuxAppFFI"', "name: ffiName"),
+                published.replace('name: "CCmuxAppFFI"', 'name: "CCmux" + "AppFFI"'),
+                published.replace('name: "CCmuxAppFFI"', 'name: "\\(prefix)AppFFI"'),
+                published.replace('url: "https', 'url: "" + "https'),
+                published.replace("    checksum:", '    path: "x",\n    checksum:'),
+                published.replace("    name:", "  name:"),
+                published.replace("let appFFI: Target = ", "let other: Target = "),
+                f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n',
+                self.target(self.STEP_B_PIN, host="github.com.evil.example"),
+                self.target(self.STEP_B_PIN, repo="someone/cmux")):
+            with self.subTest(manifest=manifest[:90]):
+                self.refused_unread(manifest, self.NOT_CANONICAL)
+
+    def test_a_second_target_or_declaration_is_refused(self):
+        published = self.target(self.STEP_B_PIN)
+        self.refused_unread(published + published.replace("let appFFI", "let b"), "has 2 'binaryTarget', not one")
+        self.refused_unread("let x = 1\n", "has 0 'binaryTarget', not one")
+        self.refused_unread(published + '.target(name: "CCmuxAppFFI", path: "Shim"),\n',
+                            "line 6 names CCmuxAppFFI or appFFI outside the canonical pin")
+        self.refused_unread(published + "let f = [appFFI].first!\n", "names CCmuxAppFFI or appFFI outside")
+
+    def test_the_fixed_reference_shapes_pass(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = ("// CmuxNextCloud -> CCmuxAppFFI (Stack auth)\n" + self.target(self.STEP_B_PIN)
+                         + '        .target(\n            dependencies: ["CmuxNextDesign", .product(name: "A", package: '
+                         '"B"), "CCmuxAppFFI"],\n            dependencies: [\n                "CCmuxAppFFI",\n'
+                         "            ]\n    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+        self.assertEqual(len(self.judge()), 1)
+
+    def test_a_checksum_that_is_not_the_releases_archive_entry_is_refused(self):
+        self.sums = f"{'3' * 64}  CCmuxAppFFI.xcframework.zip\n{self.CHECKSUM}  CCmuxAppFFI.xcframework.zip.sha256\n"
+        self.refused_with(self.manifest, "the pinned checksum 222222222222 is not cmux-app-ffi-1f63d516ecfc798e40d2d031e"
+                                         "bfcbb8eb1637e48's SHA256SUMS entry")
+
+    def test_a_published_pin_beside_another_red_is_judged_as_before_and_an_unpublished_one_refused(self):
+        # Review of 6e7159aa (F1): beside another red, a published base pin leaves the job to the base comparison
+        # (None from the rule). An unpublished one still refuses: the comparison could set the pin error aside beside
+        # a red the base shares (review of d5c11dd8), so it must not return None.
+        self.gh.logs[1] = self.pin_log("##[error]red check: Localized strings are complete")
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 20"):
+            self.judge()
+        self.source = None
+        with self.assertRaisesRegex(excuse.Refused, "nor is its pin a published base release"):
+            self.judge()
+
+    def test_the_real_manifest_reads_its_one_pin(self):
+        # This checkout's Package.swift (the base it branched from) is canonical.
+        text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
+        pin, checksum, why = excuse.ffi_binary_target(text, REPO)
+        self.assertEqual(why, "")
+        self.assertRegex(pin, r"^[0-9a-f]{40}$")
+        self.assertIn(f"cmux-app-ffi-{pin}/CCmuxAppFFI.xcframework.zip", text)
+        self.assertIn(f'checksum: "{checksum}"', text)
 
     def test_a_crash_exit_beside_the_pin_red_is_never_excused(self):
         # Review F1 (9cac2029): the rule asks only after test_reds.read found no crash or cut-short run.

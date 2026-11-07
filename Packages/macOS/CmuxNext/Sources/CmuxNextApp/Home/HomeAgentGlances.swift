@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextTabs
 import CmuxNextSidebar

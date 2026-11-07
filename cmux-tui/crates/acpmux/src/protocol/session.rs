@@ -113,6 +113,13 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub spawn_tool_call_id: Option<String>,
+    /// Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+    /// session?}`, decided by the daemon from the connection, never from a request value.
+    /// Null for a fork, a moved-in session and one saved before it existed; absent from a
+    /// peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub created_by: Option<crate::store::CreatedBy>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
@@ -677,14 +684,16 @@ pub struct RetrySummary {
 }
 
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
-/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
-/// agent process died mid-turn.
+/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+/// agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+/// is compacted, then continued at once).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
     Capacity,
     Transport,
     AgentExited,
+    Context,
 }
 
 impl RetryReason {
@@ -694,6 +703,7 @@ impl RetryReason {
             "capacity" => Some(Self::Capacity),
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
+            "context" => Some(Self::Context),
             _ => None,
         }
     }
@@ -703,6 +713,7 @@ impl RetryReason {
             Self::Capacity => "capacity",
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
+            Self::Context => "context",
         }
     }
 }
