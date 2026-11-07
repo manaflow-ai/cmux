@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Draws every cmux dialog with the overlay page's React dialog (webviews/src/pages/overlay/dialog):
 /// the shared center's `CmuxDialogOverlayHost` gets it at the composition root. Each shown dialog gets a warm overlay page view
@@ -40,6 +41,26 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         pool.provider(of: shown.page)?.resetFocus(dialog)
     }
 
+    /// The page draws the card in its own turn, and a page claimed before the spare loaded draws later
+    /// still: the view waits in `window` (the key window for an app dialog), invisible and never hit, until
+    /// the card is laid out and painted, or ``drawDeadline`` passes, so the host fades in a drawn card.
+    public func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) {
+        guard let shown = views[ObjectIdentifier(dialog)], let provider = pool.provider(of: shown.page),
+              let content = (window ?? NSApp.keyWindow ?? NSApp.mainWindow)?.contentView else { return ready() }
+        let parking = OverlayDialogParking(frame: shown.container.frame)
+        content.addSubview(parking, positioned: .below, relativeTo: nil)
+        parking.addSubview(shown.container)
+        let wait = OverlayDialogDrawWait(container: shown.container, parking: parking, ready: ready)
+        provider.whenCardLaidOut(dialog) { [weak page = shown.page] in
+            guard let page else { return wait.finish() }
+            page.whenPainted { wait.finish() }
+        }
+        wait.deadline.schedule(after: Self.drawDeadline) { @MainActor in wait.finish() }
+    }
+
+    /// The longest a dialog waits for its card: past it the host shows the dialog as it is.
+    static let drawDeadline: Duration = .milliseconds(400)
+
     public func detach(_ dialog: CmuxDialogPresentation) {
         guard let (container, page) = views.removeValue(forKey: ObjectIdentifier(dialog)) else { return }
         // The card keeps what it shows through the overlay host's fade; it takes no more presses.
@@ -73,6 +94,10 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     /// The dialog ended: the page keeps drawing it while it fades, and its presses go nowhere.
     func retire() {
+        // A dialog that ended before its card was drawn: its wait ends now.
+        let waiters = cardLaidOut
+        cardLaidOut = []
+        waiters.forEach { $0() }
         dialog = nil
         container = nil
     }
@@ -89,6 +114,14 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     /// Bumped by each value the host sets (automation's `setValue`), so the page takes the host's values,
     /// a secure field's too, over what the person typed.
     private var valuesSerial = 0
+
+    /// Who waits for the shown dialog's first card layout (``OverlayDialogDrawing/whenDrawn(_:in:_:)``).
+    private var cardLaidOut: [() -> Void] = []
+
+    func whenCardLaidOut(_ dialog: CmuxDialogPresentation, _ body: @escaping () -> Void) {
+        guard dialog === self.dialog else { return body() }
+        if dialog.cardRect != nil { body() } else { cardLaidOut.append(body) }
+    }
 
     func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {
         guard dialog === self.dialog else { return }
@@ -125,6 +158,9 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             let rect = CGRect(x: x, y: (dialog.view?.isFlipped ?? false) ? y : height - y - h, width: w, height: h)
             dialog.cardRect = rect
             container?.placeCard(rect)
+            let waiters = cardLaidOut
+            cardLaidOut = []
+            waiters.forEach { $0() }
         default:
             throw PageError.unknownOp(op)
         }
@@ -293,5 +329,49 @@ final class OverlayDialogView: NSView {
         offScreen = nil
         page.removeFromSuperview()
         release()
+    }
+}
+
+/// Where a dialog's view waits for its card to draw: in the window, so the page lays out and paints at
+/// its size, but transparent, inaccessible and never hit.
+final class OverlayDialogParking: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        alphaValue = 0
+        setAccessibilityElement(false)
+        setAccessibilityHidden(true)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var acceptsFirstResponder: Bool { false }
+    override func accessibilityChildren() -> [Any]? { [] }
+}
+
+/// One dialog's wait for its card (``OverlayDialogDrawing/whenDrawn(_:in:_:)``): ends once, at the card
+/// or the deadline, whichever comes first.
+@MainActor
+final class OverlayDialogDrawWait {
+    let deadline = DemandTimer(owner: "OverlayDialogDrawing.draw")
+    private let container: NSView
+    private let parking: NSView
+    private var ready: (() -> Void)?
+
+    init(container: NSView, parking: NSView, ready: @escaping () -> Void) {
+        self.container = container
+        self.parking = parking
+        self.ready = ready
+    }
+
+    func finish() {
+        guard let ready else { return }
+        self.ready = nil
+        deadline.cancel()
+        ready()
+        // The host moved the view to its overlay; a dialog that ended while waiting leaves with it.
+        if container.superview === parking { container.removeFromSuperview() }
+        parking.removeFromSuperview()
     }
 }

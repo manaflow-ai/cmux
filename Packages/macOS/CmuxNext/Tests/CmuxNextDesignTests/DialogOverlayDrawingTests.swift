@@ -78,4 +78,30 @@ import Testing
         #expect(CmuxDialogOverlayHost.appRegion(holding: CGRect(x: 0, y: 0, width: 380, height: 200))
             == CmuxDialogOverlayHost.appRegion)
     }
+
+    /// Review 7 of #37296 (F2): the host faded the dialog in while its page was still loading, so an
+    /// early dialog showed an empty card that drew late. The host now waits for its drawing to say the
+    /// card is drawn.
+    @Test func theHostShowsADialogOnlyOnceItsCardIsDrawn() {
+        @MainActor final class LateDrawing: CmuxDialogDrawing {
+            var ready: (() -> Void)?
+            func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? { NSView() }
+            func focus(_ dialog: CmuxDialogPresentation) {}
+            func detach(_ dialog: CmuxDialogPresentation) {}
+            func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) {
+                self.ready = ready
+            }
+        }
+        let drawing = LateDrawing()
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true }))
+        let (window, _) = Self.window()
+        defer { window.close() }
+        let id = center.present(CmuxDialogSpec(title: "Rename", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
+        defer { center.dismiss(id) }
+        let view = center.dialog(id)?.view
+        #expect(view != nil)
+        #expect(view?.superview == nil)
+        drawing.ready?()
+        #expect(view?.superview != nil)
+    }
 }

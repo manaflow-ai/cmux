@@ -187,7 +187,7 @@ test("shown again after a tab switch, the focus goes back to the first text fiel
   expect(dom!.window.document.activeElement).toBe(field);
 });
 
-test("a host update keeps the secure text the person typed, which never goes out on an edit", async () => {
+test("a host update keeps the secure text the person typed, and each edit gives it to the host", async () => {
   const login: DialogState = {
     ...quit,
     layout: "standard",
@@ -201,7 +201,8 @@ test("a host update keeps the secure text the person typed, which never goes out
     setter.call(field, "hunter2");
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
-  expect(edits.at(-1)).toEqual({});
+  // The host answers its own keys and automation's presses with what it has (review 7 of #37296).
+  expect(edits.at(-1)).toEqual({ password: "hunter2" });
   // A key the host answered moves the focus: a new state, with the host's own (empty) values.
   await act(async () => {
     root!.render(

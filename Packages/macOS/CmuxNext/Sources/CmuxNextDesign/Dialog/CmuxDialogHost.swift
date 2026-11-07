@@ -20,6 +20,13 @@ public protocol CmuxDialogDrawing: AnyObject {
     func focus(_ dialog: CmuxDialogPresentation)
     /// `dialog` ended: its view may draw the next one.
     func detach(_ dialog: CmuxDialogPresentation)
+    /// Runs `ready` once `dialog`'s view has drawn its card in `window` (nil: the app host), so the
+    /// host fades in a drawn card, never an empty or late one; at once by default.
+    func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void)
+}
+
+public extension CmuxDialogDrawing {
+    func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) { ready() }
 }
 
 /// Dialogs on the R84 overlay host: a window-scope dialog is a dimming
@@ -38,6 +45,9 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         let scope: CmuxDialogWeakScope
         let scopeGone: () -> Void
         var handle: OverlayHandle?
+        /// The drawing drew the card (``CmuxDialogDrawing/whenDrawn(_:in:_:)``); until then nothing shows.
+        var drawn = false
+        var waitingForDraw = false
         var watcher: CmuxDialogScopeWatcher?
 
         init(dialog: CmuxDialogPresentation, scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
@@ -142,6 +152,17 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         let options = Self.options(for: scope)
         view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion(holding: entry.dialog.cardRect))
         entry.dialog.view = view
+        if !entry.drawn, let drawing {
+            guard !entry.waitingForDraw else { return }
+            entry.waitingForDraw = true
+            drawing.whenDrawn(entry.dialog, in: scope.window) { [weak self, weak entry] in
+                guard let self, let entry, entry.waitingForDraw, self.shown[ObjectIdentifier(entry.dialog)] === entry else { return }
+                entry.waitingForDraw = false
+                entry.drawn = true
+                self.sync(entry)
+            }
+            return
+        }
         let handle = host.present(view, options: options)
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone

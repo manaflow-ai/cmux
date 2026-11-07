@@ -20,11 +20,11 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  // A secure field's text goes to the host only with the press, never on each key.
+  // The secure fields: what the person typed there stays over a host update that lags the edit.
   const secure = new Set(dialog.fields.flatMap((field) => (field.kind === "text" && field.secure ? [field.id] : [])));
   // The values the person typed win over the host's until the host sends a new dialog or sets a value.
-  // The host has a secure field's text only when it set it, so its other updates (a focus move, a
-  // re-show) keep what was typed.
+  // A host update that is not a set value (a focus move, a re-show) keeps the secure text typed, even
+  // one sent before the host had the edit.
   const [values, setValues] = useState(dialog.values);
   const serial = dialog.valuesSerial ?? 0;
   const [hostValues, setHostValues] = useState({ id: dialog.id, serial, values: dialog.values });
@@ -39,7 +39,9 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
   const edit = (id: string, value: DialogValue) => {
     const next = { ...values, [id]: value };
     setValues(next);
-    onEdit(Object.fromEntries(Object.entries(next).filter(([key]) => !secure.has(key))));
+    // Every value, a secure field's too: the host answers keys and automation presses with what it
+    // has, as it read the native fields before.
+    onEdit(next);
   };
   const press = (button: string) => onPress(button, values);
 
