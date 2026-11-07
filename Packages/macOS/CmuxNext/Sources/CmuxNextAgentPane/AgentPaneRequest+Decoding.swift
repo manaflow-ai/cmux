@@ -521,7 +521,9 @@ extension AgentPaneRequest {
                 self = .btwInline(question: question, sessionId: sessionId)
             } else { self = .unsupported(method) }
         case "chat.sideChat":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .sideChat(id, splitRight: params?["split"] as? String == "right")
+            } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).

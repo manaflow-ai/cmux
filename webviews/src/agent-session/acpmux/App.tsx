@@ -7765,7 +7765,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // turn going on; `prompt` goes to the side chat once the app opened it (#38042).
           // Resolves once the side chat is open, not when its prompt's turn ends; rejects when no
           // side chat opened (the composer keeps `/side <prompt>` and says why).
-          "chat.side": async ({ throughSeq, live, prompt }) => {
+          // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
+          // column's placement, AgentSidePanes).
+          "chat.side": async ({ throughSeq, live, prompt, splitRight }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
             const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
@@ -7773,7 +7775,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             try {
               // acpmux marks it the chat's side chat; the app only opens it beside the chat.
               await client.markSide(sessionId, chat);
-              await postNative("chat.sideChat", { sessionId });
+              await postNative("chat.sideChat", { sessionId, ...(splitRight === true ? { split: "right" } : {}) });
             } catch (error) {
               client.takeBackSide(sessionId);
               throw error;
@@ -8403,12 +8405,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const target = forkToTarget(snapshot);
       if (!target) return t("notice.forkNothingYet");
       const prompt = args?.trim();
-      return callNative("chat.side", { ...target, ...(prompt ? { prompt } : {}) }).catch((error: unknown) => {
-        const reason = errorMessage(error);
-        throw new CmuxCommandRefused(
-          reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
-        );
-      });
+      return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
+        (error: unknown) => {
+          const reason = errorMessage(error);
+          throw new CmuxCommandRefused(
+            reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+          );
+        },
+      );
     }
     if (command.action === "fork") {
       ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));

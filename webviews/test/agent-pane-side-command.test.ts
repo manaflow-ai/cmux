@@ -4,8 +4,8 @@
 // JSON-RPC over a WebSocket to a stand-in acpmux daemon whose chat has a turn running.
 //
 // - `/side <prompt>` mid-turn forks the chat as it is now (`acp.session.fork` with `live`), has
-//   acpmux tag the fork the chat's side chat (`_acpmux/side`), asks the app to open it beside the
-//   chat (`chat.sideChat`), then sends the prompt to the fork. The chat itself gets no prompt, no
+//   acpmux tag the fork the chat's side chat (`_acpmux/side`), asks the app to open it as a split
+//   right of the chat (`chat.sideChat` with `split: "right"`), then sends the prompt to the fork. The chat itself gets no prompt, no
 //   steer and no cancel, and its turn keeps streaming.
 // - A bare `/side` opens the side chat and prompts nothing.
 // - An idle chat forks through its latest turn (`throughSeq`), not live.
@@ -237,7 +237,7 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       await firstPrompt();
       expect(forks).toEqual([{ sessionId: MAIN, live: true }]);
       expect(sides).toEqual([{ sessionId: FORK, chat: MAIN }]);
-      expect(await sideChats(page)).toEqual([{ sessionId: FORK }]);
+      expect(await sideChats(page)).toEqual([{ sessionId: FORK, split: "right" }]);
       expect(prompts.map((prompt) => prompt.sessionId)).toEqual([FORK]);
       expect(JSON.stringify(prompts[0]?.prompt)).toContain(PROMPT);
       expect(cancels).toEqual([]);
@@ -254,6 +254,7 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       const page = await openChat(MAIN);
       await type(page, "/side");
       await sideChatOpened(page);
+      expect(await sideChats(page)).toEqual([{ sessionId: FORK, split: "right" }]);
       expect(forks).toEqual([{ sessionId: MAIN, live: true }]);
       expect(sides).toEqual([{ sessionId: FORK, chat: MAIN }]);
       expect(await composerText(page)).toBe("");
