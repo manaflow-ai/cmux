@@ -1133,7 +1133,9 @@ impl Store {
         let Some(held) = c.records.as_mut() else { return };
         for r in records {
             let Some(seq) = seq_of(&r) else { continue };
-            if crate::hub::open_delivery::of_a_prompt(&r) {
+            // One the copy holds as it is already came before (a page again): a write told it,
+            // or will.
+            if crate::hub::open_delivery::of_a_prompt(&r) && held.get(&seq) != Some(&r) {
                 c.fresh.insert(seq);
             }
             let bytes = record_bytes(&r);
