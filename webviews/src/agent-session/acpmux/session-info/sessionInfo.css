@@ -411,6 +411,9 @@
   color: var(--agent-muted);
   cursor: grab;
   opacity: 0;
+  /* Hidden, it takes no press: a click on the head's count (under it) folds the section. It takes the
+     pointer only while it shows (below). */
+  pointer-events: none;
   /* Faint while shown, as the reference's; full on the grip itself (below). */
   --acpmux-session-info-grip-shown: 0.7;
   touch-action: none;
@@ -448,6 +451,7 @@
 .acpmux-session-info-section__handle:focus-visible,
 .acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
   opacity: var(--acpmux-session-info-grip-shown);
+  pointer-events: auto;
 }
 .acpmux-session-info-section__handle:hover,
 .acpmux-session-info-section__handle:focus-visible,
