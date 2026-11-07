@@ -21,7 +21,10 @@ import MessagesLabHome
 /// so the palette, the CLI and the page change the same things. It keeps no model of its own.
 ///
 /// Calls (each `cmux.home.messages.<op>`; outcomes are `{kind, …}` as sheets/model.ts reads them):
-/// - `selected {conversation | null}`: the page's open conversation (sync actions read it).
+/// - `selected {conversation | null, message?, composing?}`: the page's open conversation (sync
+///   actions read it); `composing`: New Message shows, which the default selection leaves alone.
+/// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts, kept in
+///   HomeStore's draft cache (as the native composer kept them) across reconnects and launches.
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
 /// - `contacts {}` -> `{contacts, inviteTeam, pendingInvites}` (the addresses invited into a DM who have not joined).
@@ -34,18 +37,29 @@ import MessagesLabHome
 ///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`.
 /// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
 /// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
-/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op).
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op),
+/// `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq).
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
+    static let prefixes = ["selected", "drafts.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
     private(set) var shown: ConversationID?
-    var onShown: (@MainActor (ConversationID?) -> Void)?
+    /// New Message shows on the page (it reports no conversation then).
+    private(set) var composing = false
+    /// The page said what it shows at least once (its inbox is read).
+    private(set) var reported = false
+    /// The page's report changed what it shows (its first report too).
+    var onShown: (@MainActor (ConversationID?, Bool) -> Void)?
+    /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
+    var hidden: @MainActor () -> [ConversationID: Seq] = { [:] }
+    private lazy var hiddenStream = HomePageStream(initial: .object(["hidden": .object([:])]))
+    /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
+    static let maxDraftLength = 200_000
     private var previewProvider: HomeLinkPreviewProvider?
     /// The page's streams; an observed one reads only while it has a listener.
     private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
@@ -79,14 +93,24 @@ final class HomeMessagesHostProvider: PageProvider {
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
-            if id != shown {
-                shown = id
-                onShown?(id)
-                panelsStream.restart()
-                chiefPlace.restart()
-                needsYouStream.restart()
-                firstRun?.restart()
+            let composing = id == nil && fields["composing"]?.boolValue == true
+            guard !reported || id != shown || composing != self.composing else { return .null }
+            let moved = id != shown
+            (reported, shown, self.composing) = (true, id, composing)
+            onShown?(id, composing)
+            if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
+            return .null
+        case "drafts.load":
+            let store = home.homeStore
+            let drafts = store.rows.reduce(into: [String: JSONValue]()) { out, row in
+                if let text = store.draft(for: row.id), !text.isEmpty { out[row.id.rawValue] = .string(text) }
             }
+            return .object(["drafts": .object(drafts)])
+        case "drafts.save":
+            let id = try conversation(fields)
+            let text = fields["text"]?.stringValue ?? ""
+            guard text.count <= Self.maxDraftLength else { throw PageError.invalidParams("text is longer than a draft keeps") }
+            home.homeStore.setDraft(text, for: id)
             return .null
         case "requests.list":
             await home.requests.reload()
@@ -206,6 +230,9 @@ final class HomeMessagesHostProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         switch stream {
         case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "hidden":
+            hiddenStream.publish(Self.json(hidden: hidden()))
+            return hiddenStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
@@ -283,6 +310,13 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     // MARK: Streams
+
+    /// The deleted conversations changed: the page's list reads them again.
+    func publishHidden() { hiddenStream.publish(Self.json(hidden: hidden())) }
+
+    static func json(hidden: [ConversationID: Seq]) -> JSONValue {
+        .object(["hidden": .object(hidden.reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
+    }
 
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }

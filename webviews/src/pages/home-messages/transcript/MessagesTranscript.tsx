@@ -30,6 +30,7 @@ import type { HomeAttachment, HomeMessage } from "../../home-channels/types";
 import { useTimelineWindow } from "../../home-channels/useTimelineWindow";
 import type { Strings } from "../../shared/i18n";
 import { WEB_SWAP_KEPT_SCROLL } from "../../shared/webSwap";
+import type { AttachmentDrafts } from "./attachmentDrafts";
 import { bubbleStyle, type BubbleLook, type ChatColors } from "./colors";
 import { historyEntries } from "./history";
 import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
@@ -70,6 +71,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
   attachments?: AttachmentService;
   dictation?: DictationCall;
+  /** The page's files per conversation (they outlive this conversation's composer); absent: the composer's own. */
+  attachmentDrafts?: AttachmentDrafts;
   initialDraft?: string;
   onDraftChange?(text: string): void;
   /** The Chief answers now: the composer's emoji button is Stop (`onStop`). */
@@ -369,6 +372,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           {...(props.onStop ? { onStop: props.onStop } : {})}
           continueAvailable={props.continueAvailable === true}
           {...(props.onContinue ? { onContinue: props.onContinue } : {})}
+          {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

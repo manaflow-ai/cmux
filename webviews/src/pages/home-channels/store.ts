@@ -210,6 +210,10 @@ export class HomeChannelsStore {
     carry.entries = this.snapshot.pending;
   }
 
+  /** Which conversation a read of the inbox opens when none is open: the Chief DM first, else the
+   * newest (the Channels page). The Messages page sets its own: the app picks its default there. */
+  pickDefault: (conversations: readonly HomeConversation[]) => string | undefined = defaultSelection;
+
   getSnapshot = (): HomeSnapshot => this.snapshot;
 
   subscribe = (listener: () => void): (() => void) => {
@@ -415,7 +419,7 @@ export class HomeChannelsStore {
       const selected =
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
-          : defaultSelection(inbox.conversations);
+          : this.pickDefault(inbox.conversations);
       this.set({
         me: inbox.me,
         conversations,

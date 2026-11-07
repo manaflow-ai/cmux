@@ -23,7 +23,8 @@ import { DaemonGate, type DaemonSource, type HostCredential } from "../home-chan
 import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
 import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
-import { noMessagesHost, pageMessagesHost } from "./host";
+import { noMessagesHost, pageDraftKeeper, pageMessagesHost } from "./host";
+import { MessagesNav } from "./nav";
 import { singleConversation } from "./single";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
@@ -67,6 +68,11 @@ export function mountMessagesPage(
   const single = singleConversation(location.hash);
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
+  // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
+  const nav = new MessagesNav(client ? pageDraftKeeper(client) : undefined);
+  void nav.loadDrafts();
+  // The page's whole life: what was typed in the last pause is kept before the document ends.
+  window.addEventListener("pagehide", () => nav.flushDrafts());
   const messages = client ? pageMessagesHost(client) : noMessagesHost;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
@@ -79,6 +85,7 @@ export function mountMessagesPage(
             messages={messages}
             strings={strings}
             carry={carry}
+            nav={nav}
             detail={detail}
             {...(single ? { single } : {})}
           />
@@ -96,6 +103,7 @@ function DaemonMessages({
   messages,
   strings,
   carry,
+  nav,
   detail,
   single,
 }: {
@@ -105,10 +113,17 @@ function DaemonMessages({
   messages: MessagesHost;
   strings: Strings;
   carry: PendingCarry;
+  nav: MessagesNav;
   detail: MessagesDetail;
   single?: string;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
+  const [store] = useState(() => {
+    const made = new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host);
+    // In the app the app opens the default conversation (its preferred Chief), on the first load
+    // as later; a reconnect reopens what showed.
+    if (host) made.pickDefault = (conversations) => nav.restorable(conversations);
+    return made;
+  });
   return (
     <MessagesApp
       store={store}
@@ -116,6 +131,7 @@ function DaemonMessages({
       host={host}
       messages={messages}
       detail={detail}
+      nav={nav}
       widthStorage={globalThis.localStorage ?? null}
       {...(single ? { single } : {})}
     />

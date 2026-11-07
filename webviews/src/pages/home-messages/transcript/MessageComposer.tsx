@@ -15,13 +15,15 @@
 // - While the Chief answers (`working`), the emoji button is Stop (ChatController+Stop.swift): a
 //   click stops the Chief's turn, Option-click stops all its agents. After a Stop, while nothing
 //   runs, it is Continue (`continueAvailable`): a click asks the Chief to go on with the turn.
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+// - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
+//   showing leaves them, uploads and all, and coming back finds them in the tray.
+import { useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
 import { DictationNotice } from "../../../agent-session/acpmux/DictationNotice";
 import { useDictation } from "../../../agent-session/acpmux/dictation";
 import type { EmojiTable } from "../../../icon-picker/emojiData";
-import { AttachmentTray, type PendingAttachment } from "../../home-channels/AttachmentViews";
+import { AttachmentTray } from "../../home-channels/AttachmentViews";
 import { attachmentClass, attachmentType, type AttachmentService } from "../../home-channels/attachmentService";
 import { EmojiPicker, loadEmoji } from "../../home-channels/EmojiPicker";
 import { HomeIcon } from "../../home-channels/icons";
@@ -30,6 +32,7 @@ import type { Strings } from "../../shared/i18n";
 import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { quoteMarkdown } from "../../home-channels/quoteSelection";
 import type { ComposerTarget } from "../composerHandoff";
+import { AttachmentDrafts } from "./attachmentDrafts";
 import { ComposerHistory, historyTakesArrow } from "./history";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
 
@@ -65,6 +68,9 @@ export interface MessageComposerProps {
   /** A stopped Chief turn may go on: the emoji button is Continue. */
   continueAvailable?: boolean;
   onContinue?(): void;
+  /** Where the files are kept per conversation (the page's); absent: this composer's own, which
+   * end with it. */
+  drafts?: AttachmentDrafts;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -85,17 +91,22 @@ export function MessageComposer({
   onStop,
   continueAvailable = false,
   onContinue,
+  drafts: kept,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialText);
-  const [files, setFiles] = useState<readonly PendingAttachment[]>([]);
+  // The page's drafts when it keeps them, else this composer's own (their uploads end with it).
+  const [own] = useState(() => (kept ? undefined : new AttachmentDrafts()));
+  const drafts = kept ?? own!;
+  useEffect(() => () => own?.abortAll(), [own]);
+  const tray = attachments?.conversation ?? "";
+  const files = useSyncExternalStore(drafts.subscribe, () => drafts.files(tray));
+  const hold = useSyncExternalStore(drafts.subscribe, drafts.holdReason);
   const [notice, setNotice] = useState<Notice | undefined>();
   const [emoji, setEmoji] = useState<{ anchor: Element; table?: EmojiTable } | undefined>();
   const editor = useRef<PromptEditorHandle | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
-  const uploads = useRef(new Map<string, AbortController>());
-  const nextFile = useRef(1);
   /** The files each hand-off group added, by group (a design card's files go back together). */
   const groups = useRef(new Map<string, string[]>());
   const [browse] = useState(() => new ComposerHistory());
@@ -103,17 +114,15 @@ export function MessageComposer({
   const ready = files.filter((item) => item.part).map((item) => item.part as HomeAttachment);
   const uploading = files.some((item) => !item.part && !item.error);
   const empty = !value.trim() && ready.length === 0;
-  // WEB-SWAP: staged files live only in this composer (an upload aborts on unmount), so a web
-  // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
-  useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
+  // WEB-SWAP: staged files live only in this page (in any conversation's tray), so a web update's
+  // reload waits for them to be sent or removed (pages/shared/webSwap.ts).
+  useWebSwapHold(hold);
   const canSend = sendEnabled && !empty && !uploading;
-
-  const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
-    setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
 
   const addFiles = (list: Iterable<File>, group?: string) => {
     if (!attachments) return;
-    const added: PendingAttachment[] = [];
+    const { service, conversation } = attachments;
+    const added: string[] = [];
     for (const file of list) {
       const problem = intakeProblem(file, t("home.composer.attach.pasted"));
       if (problem) {
@@ -121,39 +130,29 @@ export function MessageComposer({
         setNotice({ text: strings.format(key, problem.name), alert: true });
         continue;
       }
-      const id = `f${nextFile.current++}`;
-      added.push({ id, file, progress: { sent: 0, total: file.size } });
+      const id = drafts.add(
+        conversation,
+        file,
+        (signal, progress) => service.upload(conversation, file, progress, signal),
+        t("home.composer.attach.failed"),
+      );
+      added.push(id);
       // A small local picture while it uploads (a data URL: any page policy).
       if (attachmentClass(attachmentType(file) ?? "") === "image" && file.size <= 8_000_000) {
         const reader = new FileReader();
-        reader.onload = () => typeof reader.result === "string" && patchFile(id, { thumb: reader.result });
+        reader.onload = () =>
+          typeof reader.result === "string" && drafts.patch(conversation, id, { thumb: reader.result });
         reader.readAsDataURL(file);
       }
-      const controller = new AbortController();
-      uploads.current.set(id, controller);
-      attachments.service
-        .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
-        .then(
-          (part) => patchFile(id, { part }),
-          () => {
-            if (!controller.signal.aborted) patchFile(id, { error: t("home.composer.attach.failed") });
-          },
-        )
-        .finally(() => uploads.current.delete(id));
     }
-    if (added.length) setFiles((current) => [...current, ...added]);
-    if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added.map((item) => item.id)]);
+    if (group) groups.current.set(group, [...(groups.current.get(group) ?? []), ...added]);
   };
-  const removeFile = (id: string) => {
-    uploads.current.get(id)?.abort();
-    setFiles((current) => current.filter((item) => item.id !== id));
-  };
+  const removeFile = (id: string) => drafts.remove(tray, id);
   const removeGroup = (group: string): boolean => {
     const ids = groups.current.get(group);
     groups.current.delete(group);
     if (!ids?.length) return false;
-    for (const id of ids) uploads.current.get(id)?.abort();
-    setFiles((current) => current.filter((item) => !ids.includes(item.id)));
+    for (const id of ids) drafts.remove(tray, id);
     return true;
   };
   // Quote in Reply: the quote goes after what is typed, with a line for the reply, and typing goes on there.
@@ -167,13 +166,6 @@ export function MessageComposer({
     setText(value ? `${value.replace(/\s+$/, "")}\n\n${markdown}` : markdown);
     return true;
   };
-  // Every upload ends with the composer (another conversation makes a new one).
-  useEffect(() => {
-    const live = uploads.current;
-    return () => {
-      for (const controller of live.values()) controller.abort();
-    };
-  }, []);
 
   const setText = (text: string) => {
     setValue(text);
@@ -188,12 +180,11 @@ export function MessageComposer({
     }
     if (uploading || (!markdown.trim() && ready.length === 0)) return;
     const sending = ready;
-    const sentItems = files.filter((item) => item.part && sending.includes(item.part));
     browse.end();
     setNotice(undefined);
     setText("");
     editor.current?.reset("");
-    if (sending.length) setFiles((current) => current.filter((item) => !item.part || !sending.includes(item.part)));
+    const sentItems = sending.length ? drafts.take(tray, sending) : [];
     // Refused before it was logged: the text comes back to an empty field and the files to the tray.
     const giveBack = () => {
       setValue((current) => {
@@ -201,11 +192,7 @@ export function MessageComposer({
         onDraftChange?.(markdown);
         return markdown;
       });
-      if (sentItems.length)
-        setFiles((current) => [
-          ...sentItems.filter((item) => !current.some((kept) => kept.id === item.id)),
-          ...current,
-        ]);
+      if (sentItems.length) drafts.giveBack(tray, sentItems);
       setNotice({ text: t("home.send.refused.generic"), alert: true });
     };
     void onSend(markdown, sending.length ? sending : undefined).then((taken) => {

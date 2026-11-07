@@ -90,6 +90,30 @@ enum HomeDefaultConversation {
         return next
     }
 
+    /// What the page does when it says what it shows (`cmux.home.messages.selected`): nothing shown
+    /// (its first read of the inbox, a conversation that left the list) opens the default
+    /// conversation, which it then follows; New Message (`composing`) is the person's page and stays,
+    /// as does a conversation they opened. One rule for the first load and every later one.
+    static func afterShown(_ shown: ConversationID?, composing: Bool, followed: String?,
+                           rows: [InboxRow], home: HomeService) -> ChiefFollowUp {
+        guard !composing else { return ChiefFollowUp(open: nil, followed: followed) }
+        guard let shown else {
+            guard let first = defaultConversation(rows: rows, home: home) else { return ChiefFollowUp(open: nil, followed: followed) }
+            return ChiefFollowUp(open: first, followed: first.rawValue)
+        }
+        return ChiefFollowUp(open: nil, followed: shown.rawValue == followed ? followed : nil)
+    }
+
+    /// The page left `id` while it showed it (Delete Conversation from List): its neighbor in the
+    /// list shows, else the default conversation. A neighbor the Engine row excludes (a cloud Chief
+    /// under This Mac) is not one: the default conversation decides instead. nil: nothing else to show.
+    static func replacement(leaving id: ConversationID, next: ConversationID?, rows: [InboxRow], home: HomeService) -> ConversationID? {
+        let excluded = home.excludedChiefConversations
+        let neighbor = next.flatMap { $0 == id || excluded.contains($0.rawValue) ? nil : $0 }
+        let fallback = neighbor ?? defaultConversation(rows: rows.filter { $0.id != id }, home: home)
+        return fallback == id ? nil : fallback
+    }
+
     /// The preferred Chief's conversation, unless Archive Chief hid it (``HomeArchivedChiefs/openable(_:listed:)``).
     static func chief(_ home: HomeService) -> String? {
         HomeArchivedChiefs(home.directory.archivedChiefs, me: home.homeStore.me?.id)

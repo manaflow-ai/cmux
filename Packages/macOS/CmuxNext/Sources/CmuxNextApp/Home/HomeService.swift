@@ -187,6 +187,9 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    /// Bumped when a Home list source deletes conversations from the list or lists them all again:
+    /// every Messages page's source reads this account's deleted set again.
+    var hiddenRevision = 0
     /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
     /// The Chat Colors… panel (one for the app): the React page in a floating panel.

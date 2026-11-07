@@ -20,8 +20,10 @@
 // The page command `quoteSelection` (the app's selection menu, Quote in Reply) quotes the selected
 // message text in the composer, as `home.messages.quoteSelection` does.
 //
-// Page → host: `cmux.home.messages.selected {conversation: string | null, message?}` on every
-// change of the shown conversation (fire and forget): the host keeps it for its sync actions.
+// Page → host: `cmux.home.messages.selected {conversation: string | null, message?, composing?}` on
+// every change of the shown conversation once the inbox is read (fire and forget): the host keeps it
+// for its sync actions. `conversation: null` alone means nothing shows, so the host opens its
+// default conversation; with `composing: true` New Message shows, which the host leaves alone.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { CURRENT_SELECTION_OP, type HomeSelection } from "../home-channels/hostSelection";
 import { MOVE_CONVERSATION_OP } from "../home-channels/hostMove";
@@ -184,9 +186,25 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
   };
 }
 
+/** What the page tells the host of what it shows (``SELECTED_OP``). */
+export function selectedPayload(shown: HomeSelection | null, composing: boolean): Record<string, unknown> {
+  const conversation = composing ? null : (shown?.conversation ?? null);
+  return {
+    conversation,
+    ...(conversation && shown?.message ? { message: shown.message } : {}),
+    ...(composing ? { composing: true } : {}),
+  };
+}
+
 /** Serves the commands while the page is mounted, with the latest committed context, and tells the
- * host each change of the shown conversation. */
-export function usePageCommands(host: PageClient | null, context: PageCommandContext, shown: HomeSelection | null) {
+ * host each change of the shown conversation, from when its inbox is read (`ready`): before that
+ * "nothing shows" would only mean "not loaded yet". */
+export function usePageCommands(
+  host: PageClient | null,
+  context: PageCommandContext,
+  shown: HomeSelection | null,
+  { composing, ready }: { composing: boolean; ready: boolean },
+) {
   const latest = useRef(context);
   useLayoutEffect(() => {
     latest.current = context;
@@ -198,9 +216,24 @@ export function usePageCommands(host: PageClient | null, context: PageCommandCon
   const conversation = shown?.conversation ?? null;
   const message = shown?.message;
   useEffect(() => {
-    if (!host) return;
-    void host
-      .call(SELECTED_OP, { conversation, ...(conversation && message ? { message } : {}) })
-      .catch(() => undefined);
-  }, [host, conversation, message]);
+    if (!host || !ready) return;
+    const selection = conversation ? { conversation, ...(message ? { message } : {}) } : null;
+    void host.call(SELECTED_OP, selectedPayload(selection, composing)).catch(() => undefined);
+  }, [host, ready, conversation, message, composing]);
+}
+
+/** The page got the keyboard (the pane or tab took focus and the app gave it the page's web view,
+ * `InternalPageView.focusTarget`): the message box takes it, as the native Home's primary input
+ * did, unless something in the page already holds it (a field, a sheet). Returns the stop. */
+export function followPageFocus(
+  target: Pick<Window, "addEventListener" | "removeEventListener">,
+  doc: Pick<Document, "activeElement" | "body">,
+  nav: Pick<MessagesNav, "focus">,
+): () => void {
+  const focused = () => {
+    const active = doc.activeElement;
+    if (!active || active === doc.body) nav.focus();
+  };
+  target.addEventListener("focus", focused);
+  return () => target.removeEventListener("focus", focused);
 }

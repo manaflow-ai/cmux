@@ -1,57 +1,45 @@
+public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextHomeModel
 public import CmuxNextSettings
 import AppKit
-import CmuxHomeCore
 import CmuxNextDesign
 import MessagesLabHome
 
-// The Messages page's wire shapes of the Home models (sheets/wire.ts, sheets/model.ts,
-// cards/links/linkPreview.ts and detail/detailHost.ts read them); the app's
-// HomeMessagesHostProvider answers with them.
-
-extension HomeRequestAnswer {
-    /// The page's word for an answer (`requests.answer`): accept, decline or block.
-    public init?(pageValue text: String) {
-        switch text {
-        case "accept": self = .accept
-        case "decline": self = .decline
-        case "block": self = .block
-        default: return nil
-        }
-    }
-}
+// The Messages page's wire (`webviews/src/pages/home-messages`): the Home model values its host
+// (the App's `HomeMessagesHostProvider`) sends, in the shapes the page parses (sheets/wire.ts,
+// detail/detailHost.ts, cards/links/linkPreview.ts). Values only: no view, no service.
 
 extension HomeMessageRequest {
+    /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
-        let request = self
-        var fields: [String: JSONValue] = ["conversation": .string(request.conversation.rawValue), "inviter": .string(request.inviter),
-                                           "isGroup": .bool(request.isGroup), "preview": .string(request.preview), "trusted": .bool(request.trusted)]
-        if let title = request.title { fields["title"] = .string(title) }
+        var fields: [String: JSONValue] = ["conversation": .string(conversation.rawValue), "inviter": .string(inviter),
+                                           "isGroup": .bool(isGroup), "preview": .string(preview), "trusted": .bool(trusted)]
+        if let title { fields["title"] = .string(title) }
         return .object(fields)
     }
 }
 
 extension HomeContact {
+    /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
-        let contact = self
-        let source = switch contact.source {
+        let source = switch self.source {
         case .team: "team"
         case .connection: "connection"
         case .agent: "agent"
         }
-        return .object(["id": .string(contact.id.rawValue), "name": .string(contact.name), "source": .string(source)])
+        return .object(["id": .string(id.rawValue), "name": .string(name), "source": .string(source)])
     }
 }
 
 extension HomeGroupInfo {
+    /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
-        let info = self
         var fields: [String: JSONValue] = [
-            "conversation": .string(info.conversation.rawValue), "isGroup": .bool(info.isGroup), "title": .string(info.title),
-            "displayTitle": .string(info.displayTitle), "canMute": .bool(info.canMute), "muted": .bool(info.muted),
-            "canAddPeople": .bool(info.canAddPeople), "canRename": .bool(info.canRename),
-            "members": .array(info.members.map { member in
+            "conversation": .string(conversation.rawValue), "isGroup": .bool(isGroup), "title": .string(title),
+            "displayTitle": .string(displayTitle), "canMute": .bool(canMute), "muted": .bool(muted),
+            "canAddPeople": .bool(canAddPeople), "canRename": .bool(canRename),
+            "members": .array(members.map { member in
                 var fields: [String: JSONValue] = ["id": .string(member.id.rawValue), "name": .string(member.name), "isMe": .bool(member.isMe),
                                                    "isAgent": .bool(member.isAgent), "isInvited": .bool(member.isInvited)]
                 switch member.role {
@@ -64,26 +52,27 @@ extension HomeGroupInfo {
                 return .object(fields)
             }),
         ]
-        if let count = info.memberCount { fields["memberCount"] = .number(Double(count)) }
-        if let replies = info.chiefReplies { fields["chiefReplies"] = .string(replies.rawValue) }
+        if let count = memberCount { fields["memberCount"] = .number(Double(count)) }
+        if let replies = chiefReplies { fields["chiefReplies"] = .string(replies.rawValue) }
         return .object(fields)
     }
 }
 
 extension HomeTeamSeatImpact {
+    /// As the Messages page reads it (sheets/model.ts).
     public var pageJSON: JSONValue {
         switch self {
-        case .paidSeat(let members): return .object(["kind": .string("paidSeat"), "members": .number(Double(members))])
-        case .capped(let members, let limit): return .object(["kind": .string("capped"), "members": .number(Double(members)), "limit": .number(Double(limit))])
-        case .free(let members): return .object(["kind": .string("free"), "members": .number(Double(members))])
-        case .unknown: return .object(["kind": .string("unknown")])
-        case .notAllowed: return .object(["kind": .string("notAllowed")])
+        case .paidSeat(let members): .object(["kind": .string("paidSeat"), "members": .number(Double(members))])
+        case .capped(let members, let limit): .object(["kind": .string("capped"), "members": .number(Double(members)), "limit": .number(Double(limit))])
+        case .free(let members): .object(["kind": .string("free"), "members": .number(Double(members))])
+        case .unknown: .object(["kind": .string("unknown")])
+        case .notAllowed: .object(["kind": .string("notAllowed")])
         }
     }
 }
 
 extension HomeComposeOutcome {
-    /// `{outcome: {kind, …}}`, as sheets/model.ts reads it.
+    /// `{outcome: {kind, …}}`, as the Messages page's sheets read it (sheets/model.ts).
     public var pageOutcome: JSONValue {
         let value: JSONValue = switch self {
         case .opened(let id): .object(["kind": .string("opened"), "conversation": .string(id.rawValue)])
@@ -100,7 +89,7 @@ extension HomeComposeOutcome {
 }
 
 extension HomeGroupOutcome {
-    /// `{outcome: {kind, …}}`, as sheets/model.ts reads it.
+    /// `{outcome: {kind, …}}`, as the Messages page's sheets read it (sheets/model.ts).
     public var pageOutcome: JSONValue {
         let value: JSONValue = switch self {
         case .done: .object(["kind": .string("done")])
@@ -127,13 +116,25 @@ extension HomeGroupOutcome {
 }
 
 extension HomeBubbleColors {
+    /// As the Messages page reads it (detail/detailHost.ts).
     public var pageJSON: JSONValue {
-        let colors = self
         var fields: [String: JSONValue] = [:]
-        for (role, color) in [("sent", colors.sent), ("sentText", colors.sentText), ("received", colors.received), ("receivedText", colors.receivedText)] {
+        for (role, color) in [("sent", sent), ("sentText", sentText), ("received", received), ("receivedText", receivedText)] {
             if let color { fields[role] = .string(String(color.hex.prefix(7))) }
         }
         return .object(fields)
+    }
+}
+
+extension HomeRequestAnswer {
+    /// The page's word for an answer (`requests.answer`): accept, decline or block.
+    public init?(pageValue text: String) {
+        switch text {
+        case "accept": self = .accept
+        case "decline": self = .decline
+        case "block": self = .block
+        default: return nil
+        }
     }
 }
 
