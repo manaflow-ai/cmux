@@ -708,7 +708,9 @@ impl World {
                 }
                 od::Step::Release => {
                     self.note(format!("{} released", d.id));
-                    self.released.insert(d.prompt_id().to_owned());
+                    if self.rules == Rules::Now {
+                        self.released.insert(d.prompt_id().to_owned());
+                    }
                     self.outbox.update(&d.id, od::release);
                 }
                 od::Step::Lost => {
