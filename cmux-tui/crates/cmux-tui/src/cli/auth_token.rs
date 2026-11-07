@@ -42,8 +42,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     })
 }
 
-/// `args` with a top-level `login` or `logout` spelled as the app's verb (`cloud sign-in`,
-/// `cloud sign-out`); `None` for any other command.
+/// `args` with a top-level `login` or `logout` spelled as `vm sign-in` or `vm sign-out`, which
+/// `vm::cloud_alias` then runs as the app's Cloud verb; `None` for any other command.
 pub(super) fn account_alias(args: &[String]) -> Option<Vec<String>> {
     let index = (0..args.len()).find(|&end| {
         args.get(..=end)
@@ -56,7 +56,7 @@ pub(super) fn account_alias(args: &[String]) -> Option<Vec<String>> {
         _ => return None,
     };
     let mut rewritten = args.get(..index)?.to_vec();
-    rewritten.extend(["cloud".to_owned(), verb.to_owned()]);
+    rewritten.extend(["vm".to_owned(), verb.to_owned()]);
     rewritten.extend(args.get(index + 1..)?.iter().cloned());
     Some(rewritten)
 }

@@ -91,18 +91,19 @@ fn usage_is_localized_and_names_the_export_form() {
     }
 }
 
-/// `cmux login` and `cmux logout` are the app's `cloud sign-in` and `cloud sign-out`, after
-/// the same global options; nothing else is rewritten.
+/// `cmux login` and `cmux logout` are `vm sign-in` and `vm sign-out` (the app's Cloud verbs),
+/// after the same global options; nothing else is rewritten.
 #[test]
 fn login_and_logout_are_the_apps_sign_in_verbs() {
     let alias = |words: &[&str]| account_alias(&args(words));
-    assert_eq!(alias(&["login"]), Some(args(&["cloud", "sign-in"])));
-    assert_eq!(alias(&["--json", "logout"]), Some(args(&["--json", "cloud", "sign-out"])));
+    assert_eq!(alias(&["login"]), Some(args(&["vm", "sign-in"])));
+    assert_eq!(alias(&["--json", "logout"]), Some(args(&["--json", "vm", "sign-out"])));
     assert_eq!(
         alias(&["--socket", "/s", "login", "--json"]),
-        Some(args(&["--socket", "/s", "cloud", "sign-in", "--json"]))
+        Some(args(&["--socket", "/s", "vm", "sign-in", "--json"]))
     );
     assert_eq!(alias(&["cloud", "sign-in"]), None);
+    assert_eq!(alias(&["vm", "sign-in"]), None);
     assert_eq!(alias(&["codex", "login"]), None);
     assert_eq!(alias(&["chat", "--", "login"]), None);
     assert_eq!(alias(&[]), None);
