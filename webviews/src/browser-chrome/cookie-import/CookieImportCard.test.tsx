@@ -93,7 +93,7 @@ test("the answers are one row: the link first, then Not Now and Import as matche
 test("every answer reaches the host; Import carries Keep in sync, on by default", () => {
   const answers: CookieImportCommand[] = [];
   const doc = render(<CookieImportCard model={model} onChoice={(choice) => answers.push(choice)} glass={false} />);
-  for (const button of doc.querySelectorAll(".ci-row button")) act(() => button.click());
+  for (const button of doc.querySelectorAll<HTMLElement>(".ci-row button")) act(() => button.click());
   expect(answers).toEqual([{ type: "never" }, { type: "notNow" }, { type: "import", keepInSync: true }]);
 });
 
