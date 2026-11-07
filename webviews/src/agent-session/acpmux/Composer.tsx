@@ -1,4 +1,6 @@
 import { acpmuxPerf } from "./perf";
+import { useStableHandlers } from "./stableHandlers";
+import { chatPlace } from "./chatMachine";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -32,13 +34,13 @@ import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { ArrowUpIcon, BuildIcon, ContextRing, PlanIcon, ReturnIcon, StopIcon } from "./ComposerPickers";
+import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { newSlotMemory, SendSlotGlyph, type SlotMemory } from "./composer/SendSlotGlyph";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
-import { Spinner } from "./conversation/icons";
 import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import {
   hasOtherChats,
@@ -119,6 +121,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { markPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -142,6 +145,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { noteSendOrigins } from "./conversation/sendMorph";
 import {
   emojiMatches,
   emojiTrigger,
@@ -467,6 +471,14 @@ type Props = {
   onOpenContext?(): void;
 };
 
+/// The composer, drawn again only when a prop it is handed changes: its event handlers hold their
+/// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
+/// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
+/// change (a tool call, a row added) leaves it be.
+export function Composer(props: Props) {
+  return <MemoComposer {...useStableHandlers(props)} />;
+}
+
 /// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a
 /// round Send button at the right, which turns into Stop while a turn runs and
@@ -474,7 +486,7 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({
+function ComposerFrame({
   snapshot,
   headerCwd,
   chips: Chips,
@@ -666,6 +678,7 @@ export function Composer({
   const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
+  const slotMemory = useRef<SlotMemory | undefined>(undefined);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
@@ -678,9 +691,7 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
-    useComposerSettings();
+  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter } = useComposerSettings();
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -729,8 +740,8 @@ export function Composer({
     attach,
     attachLater,
   } = useAttachmentIntake({
-    place: (chips) => {
-      if (!shell) box.current?.place(chips);
+    place: (chips, kind) => {
+      if (!shell) box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -1584,8 +1595,13 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = placed.attachments;
-    const taken = onSend(placed.text, sent, steer, kept);
+    // Each paste still in the text as pasted goes as a pasted block, never as typed words
+    // (composer/pasteMarks.ts); a slash command's text stays the command.
+    const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sent = marked.attachments;
+    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
+    noteSendOrigins(sent);
+    const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -2019,7 +2035,6 @@ export function Composer({
   const escapeStop = useEscapeStop({
     stoppable: running && !stopping,
     session: sessionId,
-    double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
     onStop: stopTurn,
   });
@@ -2282,6 +2297,9 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
+  // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
+  // keys its lists on the name this gives, not on this object.
+  const route = chatPlace(snapshot);
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
@@ -2315,6 +2333,7 @@ export function Composer({
         })
       }
       localName={localName}
+      route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
     />
@@ -2327,6 +2346,11 @@ export function Composer({
   const stopLabel = t(
     stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
   );
+  // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
+  // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
+  // once, so its glyphs draw at once.
+  slotMemory.current ??= newSlotMemory(sessionId);
+  const morphMemory = onOpenInWindow ? undefined : slotMemory.current;
   const stopButton = running ? (
     <button
       key="stop"
@@ -2341,7 +2365,7 @@ export function Composer({
       onClick={stopTurn}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      {stopping ? <Spinner loading size={14} /> : <StopIcon />}
+      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
     </button>
   ) : null;
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
@@ -2384,7 +2408,7 @@ export function Composer({
                     )
         }
       >
-        {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
+        <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
       </button>
     ) : null;
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
@@ -2748,6 +2772,8 @@ export function Composer({
     </form>
   );
 }
+
+const MemoComposer = React.memo(ComposerFrame);
 
 /// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.

@@ -57,6 +57,10 @@ export type IncomingMessage = {
   fromPerson?: true;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// What the sender's chat is asked for by when there is no `sessionId` (inboxNotice.ts
+  /// `senderKey`): acpmux's record of who sent it, never `name`, which may carry a note for the
+  /// reader. Absent: `name`.
+  lookup?: string;
   /// Who the sender is to this chat, for a sub-session family's message.
   relation?: IncomingRelation;
   /// The Chief whose turn sent it (acpmux `fromChief`, its participant id): the line shows that
@@ -282,6 +286,14 @@ export function unsigned(text: string, name: string): string {
 /// (`acpmux-cli#…@big-red`, or `acpmux-peer#…@big-red` when it came through a peer, server/requests.rs).
 export function cliHost(client: unknown): string | undefined {
   return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
+}
+
+/// A `user_message`'s `agentText` (acpmux hub/session.rs `typed_agent_text`): part of the person's
+/// typed text reads as another agent's output, `{from?, signals}`. Anything else is none.
+export function recordedAgentText(value: unknown): { from?: string } | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const from = (value as { from?: unknown }).from;
+  return typeof from === "string" && from.trim() ? { from: from.trim().slice(0, 64) } : {};
 }
 
 /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).

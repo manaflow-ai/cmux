@@ -303,6 +303,24 @@ export class AcpmuxPerf {
     this.renders.clear();
   }
 
+  /// Rows unmounted in the commit now running: a row mounted again in the same commit was remounted
+  /// in place (its key or its type changed), which redraws it from nothing.
+  private unmountedNow = new Set<string>();
+
+  /** A transcript row mounted (`mount:<id>`); one unmounted in this same commit counts `remount:<id>`. */
+  rowMounted(id: string): void {
+    if (!this.enabled) return;
+    this.render(`mount:${id}`);
+    if (this.unmountedNow.has(id)) this.render(`remount:${id}`);
+  }
+
+  /** A transcript row unmounted; the set clears once the commit's synchronous work ends. */
+  rowUnmounted(id: string): void {
+    if (!this.enabled) return;
+    if (this.unmountedNow.size === 0) queueMicrotask(() => this.unmountedNow.clear());
+    this.unmountedNow.add(id);
+  }
+
   span(name: string, ms: number): void {
     if (!this.enabled) return;
     this.spansSinceMark.set(name, (this.spansSinceMark.get(name) ?? 0) + ms);

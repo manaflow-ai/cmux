@@ -119,6 +119,7 @@ final class GroupHeaderRowView: SidebarRowView {
     var onUnpin: (() -> Void)?
 
     override var interactiveSubviews: [NSView] { [addButton, moreButton, pinButton] }
+    override var hoverPaintedControls: [NSView] { [addButton, moreButton, pinButton] }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -132,6 +133,8 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         dot.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
         [glyph, name, count, pin, chevron, activitySlot, badge, machineMark, machineWords, addButton, moreButton, pinButton].forEach(addSubview)
+        // Hidden until a hover first shows them; from then on a hover sets their opacity only (`setHoverPainted`).
+        [addButton, moreButton, pinButton].forEach { $0.isHidden = true }
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
@@ -490,11 +493,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // The more button sits left of the chevron.
         moreButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
-        // focus or while the editor is open. Hidden (not only clear): a click
-        // there collapses the group, and VoiceOver uses the header's custom
-        // actions. Lawrence 2026-10-20: no empty slots; the trailing items close
-        // up, so the spinner sits by the chevron at rest and moves aside for
-        // the buttons.
+        // focus or while the editor is open. Cleared by paint (HOVER COMMIT 2: a
+        // crossing changes no view tree): a clear one takes no click (a click
+        // there collapses the group), leaves the accessibility tree (VoiceOver
+        // uses the header's custom actions) and shows no tooltip. Lawrence
+        // 2026-10-20: no empty slots; the trailing items close up, so the
+        // spinner sits by the chevron at rest and moves aside for the buttons.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
         // A loading spinner takes the column back when the hover ends: the controls clear at once, so it never draws
         // beside them as they fade (Leo 2026-10-28: "just don't show the spinner" while hovering).
@@ -503,18 +507,18 @@ final class GroupHeaderRowView: SidebarRowView {
         // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
         // only); focus, the editor and Reduce Motion show them at once.
         let fades = fadesNextHover && !onColumn
-        setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = columns.trailingFrame(index: 2, centerY: b.midY, side: control)
         // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
         // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
         let offersAdd = onAdd != nil
-        setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // A pinned group's Unpin sits left of the + (of the more when there is no +).
         let offersUnpin = pinned && onUnpin != nil
         pinButton.frame = columns.trailingFrame(index: offersAdd ? 3 : 2, centerY: b.midY, side: control)
-        setHoverShown(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
+        setHoverPainted(pinButton, offersUnpin && showsActions, fades: fades, token: .hoverReveal)
         pinButton.setAccessibilityElement(offersUnpin && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
         // column every row's dot and spinner share (a296). Leo 2026-10-28: "If you're hovering over a

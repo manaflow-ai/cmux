@@ -5,7 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::Worker;
+use super::{Backoff, Worker, bind_retry_wait};
 use crate::cloud::wire::{AGENT_SOCKET, DAEMON_INFO_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT};
 use crate::config::Paths;
 
@@ -263,4 +263,14 @@ fn the_desktop_capability_follows_the_images_socket_unit() {
     std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
     std::fs::write(&unit, "[Socket]\n").unwrap();
     assert_eq!(caps(), ["fs-v1", DESKTOP_CAPABILITY]);
+}
+
+#[test]
+fn a_bind_the_network_change_failed_retries_at_once_and_keeps_its_backoff() {
+    let mut backoff = Backoff::new(2_000, 600_000);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    // The backoff did not grow: the first ordinary failure still waits about its 2 s base.
+    let ordinary = bind_retry_wait(&mut backoff, false);
+    assert!((1_000..=4_000).contains(&ordinary), "first ordinary wait {ordinary} ms");
 }

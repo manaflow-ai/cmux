@@ -18,6 +18,20 @@ enum ChiefPetStrings {
         String(localized: "chiefPet.reply.messageChief", defaultValue: "Message Chief", table: "ChiefPet", bundle: .module)
     }
 
+    /// The reply box's placeholder for the chat the mini shows (Show in Mini).
+    static func message(_ title: String) -> String {
+        String(localized: "chiefPet.reply.message", defaultValue: "Message \(title)", table: "ChiefPet", bundle: .module)
+    }
+
+    /// The latest reply line's control: unfolds the whole reply, and folds it again.
+    static var showMore: String {
+        String(localized: "chiefPet.reply.showMore", defaultValue: "Show More", table: "ChiefPet", bundle: .module)
+    }
+
+    static var showLess: String {
+        String(localized: "chiefPet.reply.showLess", defaultValue: "Show Less", table: "ChiefPet", bundle: .module)
+    }
+
     static func reply(to title: String) -> String {
         String(localized: "chiefPet.reply.replyTo", defaultValue: "Reply to \(title)", table: "ChiefPet", bundle: .module)
     }
@@ -86,4 +100,17 @@ extension ChiefAvatarUploads {
     public static var yoursTitle: String { ChiefPetStrings.uploadYours }
     public static var removeTitle: String { ChiefPetStrings.uploadRemove }
     public static var dropHint: String { ChiefPetStrings.uploadDropHint }
+}
+
+/// Show in Mini's text (`ChiefPetMini`, which lives in another module).
+extension ChiefPetSubject {
+    /// The refusal when Show in Mini runs with no agent chat focused.
+    public static var needsAgentChatTitle: String {
+        String(localized: "chiefPet.mini.needsAgentChat", defaultValue: "Show in Mini works in agent chats. Focus one first.", table: "ChiefPet", bundle: .module)
+    }
+
+    /// Show in Mini's palette title while the mini already shows the focused chat.
+    public static var showChiefTitle: String {
+        String(localized: "chiefPet.mini.showChief", defaultValue: "Show Chief in Mini", table: "ChiefPet", bundle: .module)
+    }
 }
