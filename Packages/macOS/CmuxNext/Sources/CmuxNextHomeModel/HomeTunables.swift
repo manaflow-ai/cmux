@@ -1,6 +1,4 @@
-public import CmuxNextDesign
-import MessagesLabHome
-import MessagesLabSidebar
+public import CmuxNextDesignTokens
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
 /// RC never activate the store, so they keep the defaults: the flight
@@ -87,14 +85,6 @@ public nonisolated enum HomeTurnProgressChoice: String, Sendable, CaseIterable, 
         case .narrated: "Steps, thought and step now"
         case .steps: "Steps and step now"
         case .line: "One line (step now)"
-        }
-    }
-
-    var style: HomeTurnProgressStyle {
-        switch self {
-        case .narrated: .narrated
-        case .steps: .steps
-        case .line: .line
         }
     }
 }

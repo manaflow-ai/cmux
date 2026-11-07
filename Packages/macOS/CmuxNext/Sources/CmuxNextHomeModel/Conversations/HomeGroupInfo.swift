@@ -49,13 +49,13 @@ public struct HomeGroupInfo: Hashable, Sendable {
 
     /// The header for `count` members; nil gives the plain "Members".
     public static func membersHeader(count: Int?) -> String {
-        membersHeader(count: count, bundle: HomeConversationStrings.bundle, locale: .current)
+        membersHeader(count: count, bundle: HomeModelStrings.bundle, locale: .current)
     }
 
     /// ``membersHeader(count:)`` read from `bundle` in `locale`; a test passes one language's
     /// table (`en.lproj`) and its locale, so the result does not depend on the runner's language.
     static func membersHeader(count: Int?, bundle: Bundle, locale: Locale) -> String {
-        guard let count else { return HomeConversationStrings.infoMembers(bundle: bundle, locale: locale) }
-        return HomeConversationStrings.infoMemberCount(count, bundle: bundle, locale: locale)
+        guard let count else { return HomeModelStrings.infoMembers(bundle: bundle, locale: locale) }
+        return HomeModelStrings.infoMemberCount(count, bundle: bundle, locale: locale)
     }
 }
