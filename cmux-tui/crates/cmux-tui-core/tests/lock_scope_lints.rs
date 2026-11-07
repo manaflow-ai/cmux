@@ -5,9 +5,9 @@
 //! Each `*_pre_fix` function is a held-across-await shape reduced to std: the async form of
 //! #32326 (TUL-F7), where a status commit held the session lock 452 ms across its registry write
 //! and a person's key waited. Its `expect` is the proof: if the lint stopped firing on that shape
-//! (a clippy upgrade, the lint dropped from the workspace table), `unfulfilled_lint_expectations`
-//! turns the clippy run red (plain rustc does not judge clippy's expectations). The `*_fixed`
-//! twins are the shapes after the fix and must stay clean.
+//! (a clippy upgrade or rename), `unfulfilled_lint_expectations` turns the clippy run red (plain
+//! rustc does not judge clippy's expectations). The `*_fixed` twins are the shapes after the fix
+//! and must stay clean.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
