@@ -1057,14 +1057,21 @@ FFI_TARGET_NAME = "CCmuxAppFFI"
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
 
+def swift_hashes(text: str, i: int) -> int:
+    """How many `#` start at I in TEXT, every one counted (no window): a raw string's delimiter can be any length."""
+    j = i
+    while j < len(text) and text[j] == "#":
+        j += 1
+    return j - i
+
+
 def swift_string_end(text: str, i: int) -> tuple[int, str | None]:
-    """Where the Swift string literal starting at I ends (one past its closing delimiter, or the text's end, or the
-    line's end for an unterminated single-line one), and its text when it is one plain `"..."` literal: no `#` raw
-    delimiter, not multiline, no escape and no interpolation. Raw (`#"..."#`, any number of `#`), multiline (three quotes), escaped and
-    interpolated literals (with any strings nested in their `\\(...)`) are skipped whole and have no plain text."""
-    n, hashes = len(text), 0
-    while i + hashes < n and text[i + hashes] == "#":
-        hashes += 1
+    """Where the Swift string literal starting at I ends (one past its closing delimiter; the line's end for an
+    unterminated plain one; the text's end for an unterminated raw or multiline one), and its text when it is one
+    plain `"..."` literal: no `#` raw delimiter, not multiline, no escape and no interpolation. Raw (`#"..."#`, any
+    number of `#`), multiline (three quotes), escaped and interpolated literals (with any strings nested in their
+    `\\(...)`) are skipped whole and have no plain text."""
+    n, hashes = len(text), swift_hashes(text, i)
     quote = i + hashes
     multiline = text.startswith('"""', quote)
     close = ('"""' if multiline else '"') + "#" * hashes
@@ -1074,15 +1081,19 @@ def swift_string_end(text: str, i: int) -> tuple[int, str | None]:
         if text.startswith(close, j):
             plain = text[quote + 1:j] if not (hashes or multiline or escaped) else None
             return j + len(close), plain
-        if text[j] == "\n" and not multiline:
-            return j, None
+        if text[j] == "\n" and not multiline and not hashes:
+            return j, None  # an unterminated raw one runs to the text's end instead, so it hides what follows
         if text.startswith(escape, j):
             escaped, j = True, j + len(escape)
             if j < n and text[j] == "(":
                 depth, j = 1, j + 1
                 while j < n and depth:
-                    if text[j] == '"' or (text[j] == "#" and re.match(r'#+"', text[j:j + 64])):
+                    run = swift_hashes(text, j)
+                    if text.startswith('"', j + run):
                         j = swift_string_end(text, j)[0]
+                        continue
+                    if run:  # a `#` run with no quote after it is no string, and no part of it starts one
+                        j += run
                         continue
                     depth += {"(": 1, ")": -1}.get(text[j], 0)
                     j += 1
@@ -1105,7 +1116,10 @@ def swift_code(text: str) -> tuple[str, dict[int, tuple[int, str | None]]]:
                 out[k] = fill
 
     while i < n:
-        if text[i] == '"' or (text[i] == "#" and re.match(r'#+"', text[i:i + 64])):
+        run = swift_hashes(text, i)
+        if run and not text.startswith('"', i + run):
+            i += run  # a `#` run with no quote after it (`#if`, `#file`) is no string, and no part of it starts one
+        elif text.startswith('"', i + run):
             end, plain = swift_string_end(text, i)
             literals[i] = (end, plain)
             blank(i, end, "_")  # a literal still reads as one value word, never as code

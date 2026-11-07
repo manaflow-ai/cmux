@@ -4068,6 +4068,28 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
         self.assertEqual(self.releases, [])
 
+    def test_a_long_raw_delimiter_hides_a_fake_pin_behind_a_shorter_inner_one(self):
+        # Review of hq#7514 at 724855c8 (F1, P1): every leading `#` counts, so a 64- or 200-hash raw string is not
+        # read from a later hash as a shorter one that the inner `"` + 63 hashes would close.
+        for hashes in (64, 65, 200):
+            with self.subTest(hashes=hashes):
+                fake = ("let s = " + "#" * hashes + '"x"' + "#" * 63 + "\n" + self.target(self.STEP_B_PIN)
+                        + "let t = " + "#" * 63 + '"y"' + "#" * hashes + "\n")
+                self.refused_with(fake, "Package.swift has 0 CCmuxAppFFI binary targets")
+                self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
+        self.assertEqual(self.releases, [])
+
+    def test_an_unterminated_raw_string_hides_everything_after_it(self):
+        self.refused_with('let s = ##"never closed"#\n' + self.target(self.STEP_B_PIN),
+                          "Package.swift has 0 CCmuxAppFFI binary targets")
+        self.assertEqual(self.releases, [])
+
+    def test_a_hash_run_with_no_quote_is_no_string(self):
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        self.manifest = "#if os(macOS)\nlet f = #file\n" + "#" * 300 + "\n#endif\n" + self.target(self.STEP_B_PIN)
+        self.assertEqual(len(self.judge()), 1)
+
     def test_a_raw_string_beside_the_real_target_is_skipped_whole(self):
         # A raw string's `"` is no terminator: the real target after it is read, and it is the diverged one.
         manifest = 'let s = #"a " quote, and .binaryTarget(name: "CCmuxAppFFI"... "#\n' + self.target(self.DIVERGED)
