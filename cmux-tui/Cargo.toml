@@ -292,6 +292,8 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-tasks = { path = "crates/cmux-tasks" }
+cmux-tasks-core = { path = "crates/cmux-tasks-core" }
 cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
