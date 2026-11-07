@@ -174,7 +174,8 @@
   border-radius: 6px;
 }
 
-.stash-row:hover {
+/* The row lights for its own click target only: hovering the row's × lights the × alone. */
+.stash-row:hover:not(:has(.stash-row-delete:hover)) {
   background: var(--page-hover);
 }
 
