@@ -525,7 +525,7 @@ button.cv-thumb:focus-visible {
 .cv-foreign-file__icon {
   width: 0.85em;
   height: 0.85em;
-  margin-right: 3px;
+  margin-right: 4px;
   vertical-align: -0.1em;
 }
 .cv-foreign-file__id {
