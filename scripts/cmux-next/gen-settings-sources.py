@@ -324,6 +324,17 @@ SECTIONS = [
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
     },
     {
+        "source": "schemas/settings/source/notifications.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Notifications.generated.swift",
+        "type": "NotificationSettingsSchema",
+        "lists": {"dismissal": ("dismissalDescriptors", "NotificationPreferences"),
+                  "banners": ("bannerDescriptors", "NotificationPreferences"),
+                  "feedMirror": ("feedMirrorDescriptors", None),
+                  "attention": ("attentionDescriptors", "AttentionSettings"),
+                  "mutedWorkspaces": ("mutedWorkspacesDescriptors", "NotificationPreferences"),
+                  "sounds": ("soundDescriptors", "NotificationSoundPreferences")},
+    },
+    {
         "source": "schemas/settings/source/browser.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Browser.generated.swift",
         "type": "BrowserSettingsSchema",

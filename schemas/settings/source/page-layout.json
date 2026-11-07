@@ -329,7 +329,7 @@
           "note": "A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.",
           "groups": [
             {"group": "settings.group.banners"},
-            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (NotificationSoundSettingsSchema); its per-level maps stay off the page."},
+            {"group": "settings.group.sounds", "note": "Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page."},
             {"group": "settings.group.dismissal"},
             {"group": "settings.group.attention"},
             {"group": "settings.group.feedMirror"},
