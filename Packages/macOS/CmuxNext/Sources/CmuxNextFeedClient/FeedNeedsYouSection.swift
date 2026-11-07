@@ -65,8 +65,8 @@ package final class FeedNeedsYouSection: NSView {
                 reading = Task { [weak host] in
                     for await _ in feed.changes() {
                         guard let view = try? await feed.view(.needsYou), !Task.isCancelled, let host else { continue }
-                        // Not loaded or not connected: keep what shows; an empty answer then is not "nothing waits".
-                        guard view.isLive else { continue }
+                        // Not settled: keep what shows; an empty answer then is not "nothing waits".
+                        guard view.isSettled else { continue }
                         show(waiting: view.items(in: "needs_you").count, in: host, makePage: makePage)
                     }
                 }

@@ -28,7 +28,7 @@ enum FeedNeedsYouPhone {
     /// before the Feed loads, or while it is unreachable, would close every request on the phone and
     /// clear its delivered push.
     static func current(_ view: FeedDaemonView) -> [MobileHostNeedsYouRequest]? {
-        guard view.isLive else { return nil }
+        guard view.isSettled else { return nil }
         return requests(view.items(in: "needs_you"))
     }
 

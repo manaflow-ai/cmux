@@ -215,27 +215,41 @@ fn pump(
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
-            // A frame read after the lease changed is the old lease's: dropped.
-            WireRecv::Text(_) if cloud.lease_generation() != generation => {
-                return Ended::NewLease;
-            }
             WireRecv::Text(text) => {
-                if apply(inner, &text) {
-                    *backoff = Duration::from_secs(1);
+                match apply(inner, &text, || cloud.lease_generation() == generation) {
+                    Applied::Live => *backoff = Duration::from_secs(1),
+                    Applied::Frame => {}
+                    Applied::OldLease => return Ended::NewLease,
                 }
             }
         }
     }
 }
 
-/// One frame into the stream and the mirror; true for a snapshot (the
-/// stream is live: the backoff starts over).
-fn apply(inner: &Inner, text: &str) -> bool {
+/// What one frame did.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Applied {
+    /// A snapshot: the stream is live, the backoff starts over.
+    Live,
+    Frame,
+    /// The lease changed since the socket opened: the frame is the old
+    /// lease's and is dropped.
+    OldLease,
+}
+
+/// One frame into the stream and the mirror. `current` says whether the
+/// socket's lease is still the lease; it is asked under the feed lock, so a
+/// frame never lands after `FeedClient::lease_changed` took the old
+/// account's state away (that bumps the lease first, then takes the lock).
+pub(super) fn apply(inner: &Inner, text: &str, current: impl Fn() -> bool) -> Applied {
     let now = inner.now();
     let mut live = false;
     let mut account_moved = false;
     let events = {
         let mut state = inner.lock();
+        if !current() {
+            return Applied::OldLease;
+        }
         let mut events = Vec::new();
         let mut actions: std::collections::VecDeque<CloudAction> =
             state.stream.on_text(text).into();
@@ -284,5 +298,5 @@ fn apply(inner: &Inner, text: &str) -> bool {
         inner.wake.notify_all();
     }
     inner.emit(events);
-    live
+    if live { Applied::Live } else { Applied::Frame }
 }

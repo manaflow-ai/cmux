@@ -597,17 +597,23 @@ impl FeedClient {
     /// `feed.github.configure`.
     pub fn configure_github(&self, config: GitHubConfig) -> GitHubConfig {
         self.ensure_started();
-        let start = {
+        let (start, shown) = {
             let mut state = self.inner.lock();
+            // The view shows `github.enabled`: a reader re-reads on a change of it.
+            let shown = (state.github_config.enabled != config.enabled).then(|| FeedEvent::View {
+                revision: state.mirror.revision(),
+                changed: Vec::new(),
+            });
             state.github_config = config;
             state.github_generation = state.github_generation.wrapping_add(1);
             state.github_epoch = state.github_epoch.wrapping_add(1);
             if !config.enabled {
                 state.github_error = None;
             }
-            config.enabled && !state.github_running
+            (config.enabled && !state.github_running, shown)
         };
         self.inner.wake.notify_all();
+        self.inner.emit(shown.into_iter().collect());
         if start {
             github::start(&self.inner);
         }

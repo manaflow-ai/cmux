@@ -47,5 +47,9 @@ struct FeedNeedsYouPhoneTests {
         #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":false,"connection":{"state":"connecting"},"groups":[]}"#)) == nil)
         #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":true,"connection":{"state":"offline"},"groups":[]}"#)) == nil)
         #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":true,"connection":{"state":"connected"},"groups":[]}"#)) == [])
+        // Offline once loaded: the mirror kept the cloud requests and the local ones stay live, so changes still go.
+        #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":true,"connection":{"state":"disconnected","reason":"offline"},"groups":[]}"#)) == [])
+        #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":false,"connection":{"state":"disconnected","reason":"offline"},"groups":[]}"#)) == nil)
+        #expect(FeedNeedsYouPhone.current(try view(#"{"loaded":false,"connection":{"state":"disconnected","reason":"signed_out"},"groups":[]}"#)) == [])
     }
 }

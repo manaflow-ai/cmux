@@ -36,6 +36,14 @@ package nonisolated struct FeedDaemonItem: Decodable, Sendable, Equatable {
                 package var approval: Approval?
             }
             package var input: Input?
+
+            enum CodingKeys: String, CodingKey { case input }
+
+            /// An approve's `input` is any JSON value (a tool's own input): only an object with an
+            /// `approval` is read, anything else is absent.
+            package init(from decoder: any Decoder) throws {
+                input = try? decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(Input.self, forKey: .input)
+            }
         }
         package var url: String?
         package var browserTab: String?
@@ -43,6 +51,15 @@ package nonisolated struct FeedDaemonItem: Decodable, Sendable, Equatable {
         enum CodingKeys: String, CodingKey {
             case url, action
             case browserTab = "browser_tab"
+        }
+
+        /// A kind's prompt can be any JSON: the fields the glue reads are read where they have
+        /// their type, and a prompt of another shape is an empty one, never a failed item.
+        package init(from decoder: any Decoder) throws {
+            guard let container = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+            url = try? container.decodeIfPresent(String.self, forKey: .url)
+            browserTab = try? container.decodeIfPresent(String.self, forKey: .browserTab)
+            action = try? container.decodeIfPresent(Action.self, forKey: .action)
         }
     }
 
@@ -80,7 +97,7 @@ package nonisolated struct FeedDaemonItem: Decodable, Sendable, Equatable {
         enum CodingKeys: String, CodingKey { case value, by, device }
 
         package init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guard let container = try? decoder.container(keyedBy: CodingKeys.self) else { return }
             value = try? container.decodeIfPresent(Value.self, forKey: .value) // a custom kind's value may be no object
             by = try? container.decodeIfPresent(String.self, forKey: .by)
             device = try? container.decodeIfPresent(String.self, forKey: .device)

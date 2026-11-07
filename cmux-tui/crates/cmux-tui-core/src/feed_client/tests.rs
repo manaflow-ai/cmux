@@ -458,6 +458,23 @@ fn a_lease_of_another_person_forgets_the_old_account_before_it_connects() {
 }
 
 #[test]
+fn a_frame_of_an_old_lease_is_dropped_under_the_feed_lock() {
+    let h = harness(None);
+    let welcome = json!({"t": "welcome", "principal": {"user": "user_a"}}).to_string();
+    // The lease moved after the receive returned: nothing of the frame lands.
+    assert_eq!(
+        super::driver::apply(&h.feed.inner, &welcome, || false),
+        super::driver::Applied::OldLease
+    );
+    assert_eq!(h.feed.inner.lock().account, None);
+    assert_eq!(
+        super::driver::apply(&h.feed.inner, &welcome, || true),
+        super::driver::Applied::Frame
+    );
+    assert_eq!(h.feed.inner.lock().account.as_deref(), Some("user_a"));
+}
+
+#[test]
 fn the_reports_mailbox_is_the_lease_s_stack_user() {
     let backend = Arc::new(FakeBackend::default());
     let cloud = CloudConversations::new(backend);
