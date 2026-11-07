@@ -120,6 +120,9 @@ struct HomeMessagesR6NewMessageTests {
     @Test func conversationInfoRefusesAnUnknownConversation() {
         let services = HomeChiefDefaultTests.services()
         HomeMessagesPageRulesTests.kept.append(services)
+        // The app binds its handlers at launch (AppActions.bind); bare AppServices has none, and an
+        // unbound action refuses nothing a test can read.
+        AppActions.bind(services)
         let reason = services.registry.capturingRefusal {
             _ = services.registry.perform("home.conversationInfo",
                                           invocation: ActionInvocation(arguments: ["conversation": .string("conv_nowhere")], origin: .user))
