@@ -3,7 +3,8 @@ package import Foundation
 /// The strings of the Home models (Localizable.xcstrings): the Chief tags, the group and invite
 /// outcomes, group info's members header and roles, Leave Group's question, and the first-run
 /// Switching card's lines. The views' own strings stay in their target.
-package enum HomeModelStrings {
+package struct HomeModelStrings {
+    package init() {}
     /// The bundle of this module's catalog, so a test can read one language's table (`fr.lproj`).
     package static var bundle: Bundle { .module }
     /// The main Chief's tag in the list.
