@@ -118,6 +118,73 @@ struct DividerPressKeepsPageKeyTests {
         #expect(rig.keyRequests() == 0)
     }
 
+    /// A divider that leaves the window mid-drag (a socket or an agent closes its pane) keeps its press: the rest of the
+    /// drags, force-click stages and the release stay with the router until the release. AppKit never got the press
+    /// (the router took it), so its mouse-down view is an earlier press's view (a terminal); a drag or a release that
+    /// fell through to `super.sendEvent` would reach that view with no mouseDown (a selection start, a mouse report).
+    @Test func aDividerThatLeavesMidDragKeepsItsPressUntilTheRelease() throws {
+        let rig = Rig()
+        defer { rig.close() }
+        let window = rig.probe.window
+        let handle = try #require(rig.probe.screen.dividerViews[.split("x")])
+        let start = rig.probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+        rig.send(.leftMouseDown, start)
+        #expect(window.presses.willSend(rig.probe.event(.leftMouseDragged, CGPoint(x: start.x + 10, y: start.y)), in: window),
+                "the router did not take the drag of its own press")
+        handle.removeFromSuperview()
+        let lateDrag = rig.probe.event(.leftMouseDragged, CGPoint(x: start.x + 20, y: start.y))
+        #expect(window.presses.willSend(lateDrag, in: window), "a drag after the divider left fell through to AppKit's stale mouse-down view")
+        let release = rig.probe.event(.leftMouseUp, CGPoint(x: start.x + 20, y: start.y))
+        #expect(window.presses.willSend(release, in: window), "the release after the divider left fell through to AppKit's stale mouse-down view")
+        // After the release the router holds nothing: the next drag (of an AppKit press) goes to AppKit.
+        #expect(!window.presses.willSend(rig.probe.event(.leftMouseDragged, start), in: window), "the router kept a press after its release")
+        #expect(rig.keyRequests() == 0)
+    }
+
+    /// Only a page window keeps the key through a divider press. A key-capable child panel (the group-editor bubble, the
+    /// screenshot section overlay) dismisses when it loses the key; a divider press closes it as before: the window
+    /// is made key first (`FirstClickPolicy`), and AppKit gets the press.
+    @Test func aDividerPressWhileAChildPanelHoldsTheKeyMakesTheWindowKey() throws {
+        let rig = Rig()
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        rig.probe.window.addChildWindow(panel, ordered: .above)
+        defer {
+            rig.probe.window.removeChildWindow(panel)
+            panel.close()
+            rig.close()
+        }
+        rig.probe.window.presses.appKeyState = { [weak panel, weak window = rig.probe.window] in
+            AppKeyState(keyWindow: panel, mainWindow: window, isActive: true, isModal: false)
+        }
+        let handle = try #require(rig.probe.screen.dividerViews[.split("x")])
+        let start = rig.probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+        let routed = rig.probe.window.presses.willSend(rig.probe.event(.leftMouseDown, start), in: rig.probe.window)
+        #expect(!routed, "the router took a divider press while a child panel held the key: the panel keeps the key")
+        #expect(rig.keyRequests() == 1, "a divider press with a child panel key made \(rig.keyRequests()) key requests (want 1)")
+    }
+
+    /// A window a page opens over itself (DevTools, a page popup: a page window's child) keeps the key too.
+    @Test func aDividerPressWhileAPagesOwnChildHoldsTheKeyMovesNoKey() throws {
+        let rig = Rig()
+        let popup = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless], backing: .buffered, defer: true)
+        popup.isReleasedWhenClosed = false
+        rig.page.addChildWindow(popup, ordered: .above)
+        defer {
+            rig.page.removeChildWindow(popup)
+            popup.close()
+            rig.close()
+        }
+        rig.probe.window.presses.appKeyState = { [weak popup, weak window = rig.probe.window] in
+            AppKeyState(keyWindow: popup, mainWindow: window, isActive: true, isModal: false)
+        }
+        let handle = try #require(rig.probe.screen.dividerViews[.split("x")])
+        let start = rig.probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+        rig.send(.leftMouseDown, start)
+        rig.send(.leftMouseUp, start)
+        #expect(rig.keyRequests() == 0, "a divider press with the page's popup key made \(rig.keyRequests()) key requests")
+    }
+
     /// The sidebar's resize edge is a splitter too: its press while the page holds the key moves no key and drags.
     @Test func aSidebarEdgePressWhileThePageHoldsTheKeyMovesNoKey() throws {
         let sidebarTests = SidebarResizeAbovePageTests()
