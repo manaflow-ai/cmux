@@ -17,10 +17,11 @@ extension PaneController {
     }
 
     /// Duplicate Tab on an agent tab: the same session. A chat on another Mac's acpmux is refused.
-    func duplicateAgentTab(_ key: String) {
+    /// `then` places it (``NewTabSlot``).
+    func duplicateAgentTab(_ key: String, then: (@MainActor (String) -> Void)? = nil) {
         let tabs = services.agentTabs
         guard tabs.lookup(key)?.record.host == tabs.localHost else { return services.registry.refuse(RefusalStrings.agentTabOtherHost) }
-        openAgentTab(session: tabs.session(of: key))
+        openAgentTab(session: tabs.session(of: key), then: then)
     }
 
     /// An agent chat tab in this pane on the workspace store, shown and selected at once
