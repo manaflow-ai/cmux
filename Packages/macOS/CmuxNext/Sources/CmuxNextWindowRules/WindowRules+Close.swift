@@ -150,16 +150,23 @@ extension WindowRules {
         let asked = closeReads(tabs, warnings)
         if asked.answered { return asked.reads }
         guard warnings.warnTab || warnings.warnAgent else { return nil }
-        let live = tabs.enumerated().filter { $0.element.kind == "pty" && !$0.element.dead }.map(\.offset)
-        return live.isEmpty ? nil : Reads(agents: [], others: live)
+        let live = tabs.enumerated().filter { $0.element.kind == "pty" && !$0.element.dead }
+        guard !live.isEmpty else { return nil }
+        // As the rule reads them: a working agent is its own question; only the program warning reads the rest.
+        let agents = live.filter(\.element.agentAtWork).map(\.element.agent)
+        let others = warnings.warnTab ? live.filter { !$0.element.agentAtWork }.map(\.offset) : []
+        return Reads(agents: agents, others: others)
     }
 
-    /// `closeWarning`, failing closed: when the FFI does not answer, the close asks by `titles` (the
-    /// terminals it read) instead of closing at once.
+    /// `closeWarning`, failing closed: when the FFI does not answer, a working agent asks (with
+    /// `warnAgent`), else the close asks by `titles` (the terminals it read, with `warnTab`) instead of
+    /// closing at once.
     public func closeWarningFailingClosed(agents: [String?], answers: [TerminalAnswer], unansweredAsks: Bool,
                                           _ warnings: Warnings, titles: [String]) -> Warning? {
         let decided = closeWarning(agents: agents, answers: answers, unansweredAsks: unansweredAsks, warnings)
         if decided.answered { return decided.warning }
-        return titles.isEmpty ? nil : .programs([], unanswered: titles)
+        // Each warning still obeys its own setting.
+        if warnings.warnAgent, let agent = agents.first { return .agent(agent) }
+        return warnings.warnTab && !titles.isEmpty ? .programs([], unanswered: titles) : nil
     }
 }
