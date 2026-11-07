@@ -24,6 +24,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
+import { ExpandRow } from "./ExpandRow";
 import { SoftBroken, softBreaks } from "./softBreaks";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { githubRefLabel, UrlChip, withForeignFiles } from "../chips/LinkChips";
@@ -214,16 +215,13 @@ export function PromptText({
             )}
       </div>
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more"
-          aria-expanded={!collapsed}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => showMore(collapsed)}
-        >
-          {t(collapsed ? "message.more" : "message.less")}
-        </button>
+          open={!collapsed}
+          controls={id}
+          onToggle={() => showMore(collapsed)}
+          label={t(collapsed ? "message.more" : "message.less")}
+        />
       )}
     </>
   );
