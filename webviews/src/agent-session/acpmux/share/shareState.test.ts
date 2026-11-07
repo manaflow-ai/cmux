@@ -126,3 +126,33 @@ test("every op names the chat it is for", async () => {
   await client.state().catch(() => undefined);
   expect(seen).toEqual([{ account: "@sam", role: "view", session: "chat-a" }, { session: "chat-a" }]);
 });
+
+test("Restricted re-reads the daemon and ends a viewer link made after the dialog's read", async () => {
+  // Another dialog makes v2 after this dialog read only v1.
+  let live = ["v1", "v2"];
+  const revoked: string[] = [];
+  const client = shareClient("chat", async (op, params) => {
+    if (op === "revoke") {
+      revoked.push(params?.shareId as string);
+      live = live.filter((id) => id !== params?.shareId);
+    }
+    if (op === "state") return { shares: live.map((shareId) => ({ ...base, shareId, role: "view" })) };
+    return {};
+  });
+  await client.restrict(shareView([{ ...base, shareId: "v1", role: "view" }]));
+  expect(revoked).toEqual(["v1", "v2"]);
+  expect(live).toEqual([]);
+});
+
+test("a viewer link the daemon made with no room is ended, not left live", async () => {
+  const ops: [string, unknown][] = [];
+  const client = shareClient("chat", async (op, params) => {
+    ops.push([op, params]);
+    return op === "link" ? { shareId: "orphan", url: null } : {};
+  });
+  await expect(client.viewerLink(shareView([]))).rejects.toThrow("share.no_room");
+  expect(ops).toEqual([
+    ["link", { role: "view", session: "chat" }],
+    ["revoke", { shareId: "orphan", session: "chat" }],
+  ]);
+});

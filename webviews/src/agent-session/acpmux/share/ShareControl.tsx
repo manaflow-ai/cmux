@@ -35,6 +35,7 @@ function failure(error: unknown): string {
   if (code === "share.no_room") return translate("share.error.noRoom");
   if (code === "share.needs_sign_in") return translate("share.error.signIn");
   if (code === "gesture_required") return translate("share.error.gesture");
+  if (code === "share.restrict_raced") return translate("share.error.restrictRaced");
   const message = (error as { message?: unknown } | undefined)?.message;
   return typeof message === "string" && message ? message : translate("share.error.generic");
 }

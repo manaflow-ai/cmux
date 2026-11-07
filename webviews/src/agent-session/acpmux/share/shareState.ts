@@ -105,6 +105,10 @@ export function forgetShareLinks(): void {
   madeLinks.clear();
 }
 
+/** Restricted re-reads this many times before it says a link is still live (each round ends every
+ * viewer link it read, so only links made faster than a round trip outlast it). */
+const RESTRICT_ROUNDS = 5;
+
 export function shareClient(sessionId: string, host: ShareCall = nativeShareCall) {
   // Every op names the chat it is for: the host refuses one whose tab shows another chat by now, so
   // a step (a role change's two calls included) never lands on a chat the person did not share.
@@ -126,14 +130,28 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
       const kept = madeLinks.get(sessionId);
       if (kept && view.links.some((share) => share.shareId === kept.shareId)) return kept.url;
       const made = (await call("link", { role: "view" })) as { shareId?: string; url?: string | null } | undefined;
-      if (!made?.shareId || !made.url) throw new Error("share.no_room");
+      if (!made?.shareId || !made.url) {
+        // A share with no room has no link to hand out: end it, so each try does not leave one
+        // live that counts toward the daemon's share limit.
+        if (made?.shareId) await call("revoke", { shareId: made.shareId }).catch(() => undefined);
+        throw new Error("share.no_room");
+      }
       madeLinks.set(sessionId, { shareId: made.shareId, url: made.url });
       return made.url;
     },
-    /** Restricted: every viewer link ends, and its guests leave at once (the daemon's revoke). */
+    /** Restricted: every viewer link ends, and its guests leave at once (the daemon's revoke). The
+     * dialog's view may be stale (another dialog can make a link meanwhile), so it re-reads the
+     * daemon after revoking and ends what it finds, until a read shows no viewer link. */
     async restrict(view: ShareView) {
       madeLinks.delete(sessionId);
-      for (const share of view.links) await call("revoke", { shareId: share.shareId });
+      let links = view.links;
+      for (let round = 0; round < RESTRICT_ROUNDS; round += 1) {
+        for (const share of links) await call("revoke", { shareId: share.shareId });
+        const answer = (await call("state")) as { shares?: ChatShare[] } | undefined;
+        links = shareView(answer?.shares ?? []).links;
+        if (links.length === 0) return;
+      }
+      throw new Error("share.restrict_raced");
     },
     manage: () => call("manage"),
   };
