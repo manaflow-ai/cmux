@@ -369,31 +369,56 @@ impl Hub {
 
 /// `ahead` with the proofs' records (`od::proofs_past`) of each session merged in, by seq: a
 /// session whose copy is not ahead (or went) restores from them alone, after its row's
-/// `lastSeq`. A session with more than one restore takes ([`MAX_RECORDS`]) is not restored and
-/// comes back held (review of #37284 at 91b1343d, F5): its prompts stay held and its open
-/// deliveries open, until they lapse, failing visibly; it is never dropped as clear.
+/// `lastSeq`. Each proof goes whole or not at all: one with a record at a seq where the copy
+/// (or a proof merged before it) holds another record is of another history than the copy, and
+/// giving back the rest of it would bring back a prompt without its end (the move simulation,
+/// round 9); it stays open, and its machine's journal settles it (`od::step`). A session with
+/// more than one restore takes ([`MAX_RECORDS`]) is not restored and comes back held (review
+/// of #37284 at 91b1343d, F5): its prompts stay held and its open deliveries open, until they
+/// lapse, failing visibly; it is never dropped as clear.
 ///
 /// [`MAX_RECORDS`]: crate::hub::journal_restore::MAX_RECORDS
 pub(crate) fn with_proofs(
     mut ahead: Vec<Ahead>,
-    proofs: HashMap<String, Vec<Value>>,
+    proofs: HashMap<String, Vec<Vec<Value>>>,
     rows: &[Row],
 ) -> (Vec<Ahead>, HashSet<String>) {
-    for (session, records) in proofs {
-        if records.is_empty() {
-            continue;
+    for (session, proofs) in proofs {
+        let mut by_seq: BTreeMap<u64, Value> = BTreeMap::new();
+        let at = ahead.iter().position(|(s, ..)| *s == session);
+        if let Some(i) = at {
+            by_seq.extend(ahead[i].3.drain(..).filter_map(|r| Some((seq_of(&r)?, r))));
         }
-        if let Some((_, _, _, held)) = ahead.iter_mut().find(|(s, ..)| *s == session) {
-            let mut by_seq: BTreeMap<u64, Value> =
-                held.drain(..).filter_map(|r| Some((seq_of(&r)?, r))).collect();
+        for records in proofs {
+            let fits = records.iter().all(|r| {
+                seq_of(r).is_some_and(|s| {
+                    by_seq.get(&s).is_none_or(|held| od::same_record(r, Some(held)))
+                })
+            });
+            if !fits {
+                tracing::warn!(
+                    session,
+                    "a proof is of another history than the copy; it is not given back"
+                );
+                continue;
+            }
             for r in records {
                 if let Some(s) = seq_of(&r) {
                     by_seq.entry(s).or_insert(r);
                 }
             }
-            held.extend(by_seq.into_values());
-        } else if let Some((_, generation, last)) = rows.iter().find(|(s, ..)| *s == session) {
-            ahead.push((session, *generation, *last, records));
+        }
+        if by_seq.is_empty() {
+            continue;
+        }
+        let records: Vec<Value> = by_seq.into_values().collect();
+        match at {
+            Some(i) => ahead[i].3 = records,
+            None => {
+                if let Some((_, generation, last)) = rows.iter().find(|(s, ..)| *s == session) {
+                    ahead.push((session, *generation, *last, records));
+                }
+            }
         }
     }
     let mut held = HashSet::new();

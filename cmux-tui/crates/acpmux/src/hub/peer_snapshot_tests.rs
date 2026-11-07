@@ -1388,7 +1388,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     // Its removal from the queue came in its proof before: then all of it goes back.
     od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
-    let back: Vec<u64> = back["m1"].iter().filter_map(seq_of).collect();
+    let back: Vec<u64> = back["m1"].iter().flatten().filter_map(seq_of).collect();
     assert_eq!(back, vec![4, 9]);
 
     // Released only by a later link whose journal holds it, of its generation.
@@ -1444,7 +1444,7 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
     let (_, since) = store.ahead(PEER, rows.clone());
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
     crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
-    back.get("m1").map_or(vec![], |r| r.iter().filter_map(seq_of).collect())
+    back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect())
 }
 
 /// Review of #37284 at 91b1343d, F1: a record of a prompt's life the bound cuts before a write
@@ -1466,7 +1466,7 @@ fn a_restore_past_what_one_takes_stays_held() {
     let rows = vec![("m1".to_owned(), 7, 0), ("m2".to_owned(), 7, 0)];
     let ahead =
         || vec![("m1".to_owned(), 7, 0, recs(1..=max - 10)), ("m2".to_owned(), 7, 0, recs(1..=3))];
-    let proofs = || HashMap::from([("m1".to_owned(), recs(max - 9..=max + 20))]);
+    let proofs = || HashMap::from([("m1".to_owned(), vec![recs(max - 9..=max + 20)])]);
     let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
     assert_eq!(back.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["m2"]);
     assert_eq!(held, HashSet::from(["m1".to_owned()]));
@@ -1475,4 +1475,27 @@ fn a_restore_past_what_one_takes_stays_held() {
     crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
     assert_eq!(back.len(), 1);
     assert!(held.is_empty(), "91b1343d dropped it and held nothing");
+}
+
+/// The move simulation, round 9 (seed 1092): a proof of another history than the copy (its
+/// machine came back on a disk where the prompt's record is the same, and wrote other records
+/// where its end was) goes back whole or not at all: never its `queued` record without its end.
+#[test]
+fn a_proof_of_another_history_than_the_copy_goes_back_not_at_all() {
+    let rows = vec![("m1".to_owned(), 7, 34)];
+    let copy = vec![("m1".to_owned(), 7, 34, recs(42..=56))];
+    let proof = vec![
+        life("m1", 35, "queued", "p0"),
+        life("m1", 53, "user_message", "p0"),
+        life("m1", 55, "turn_result", "p0"),
+    ];
+    let (back, _) =
+        restore::with_proofs(copy.clone(), HashMap::from([("m1".to_owned(), vec![proof])]), &rows);
+    let seqs: Vec<u64> = back[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!(seqs, (42..=56).collect::<Vec<_>>(), "a part of the proof went back");
+    // One that fits goes back with the copy.
+    let proof = vec![life("m1", 35, "queued", "p0"), life("m1", 40, "queue_removed", "p0")];
+    let (back, _) =
+        restore::with_proofs(copy, HashMap::from([("m1".to_owned(), vec![proof])]), &rows);
+    assert_eq!(back[0].3.iter().filter_map(seq_of).take(2).collect::<Vec<_>>(), vec![35, 40]);
 }

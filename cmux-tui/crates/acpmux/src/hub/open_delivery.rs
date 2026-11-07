@@ -164,15 +164,16 @@ pub(crate) fn whole(d: &Delivery, since: &Since) -> bool {
 }
 
 /// What the open deliveries' proofs give back to `peer`'s journals that end before them, by
-/// session: their records past where `rows` (session, generation, `lastSeq`) say each ends, of
-/// the same generation, from proofs that are [`whole`]. A restore sends them with the copy.
+/// session, one list per proof: their records past where `rows` (session, generation,
+/// `lastSeq`) say each ends, of the same generation, from proofs that are [`whole`]. A restore
+/// sends them with the copy, each proof whole or not at all (`restore.rs` `with_proofs`).
 pub(crate) fn proofs_past(
     outbox: &Outbox,
     peer: &str,
     rows: &[(String, u64, u64)],
     since: &Since,
-) -> HashMap<String, Vec<Value>> {
-    let mut out: HashMap<String, BTreeMap<u64, Value>> = HashMap::new();
+) -> HashMap<String, Vec<Vec<Value>>> {
+    let mut out: HashMap<String, Vec<Vec<Value>>> = HashMap::new();
     for d in outbox.open_on_peers() {
         let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { continue };
         let row = rows.iter().find(|(s, g, _)| *s == pin.session && *g == pin.generation);
@@ -180,14 +181,13 @@ pub(crate) fn proofs_past(
         if pin.peer != peer || !whole(&d, since) {
             continue;
         }
-        let past =
-            proof.records.iter().filter_map(|r| Some((seq(r)?, r))).filter(|(s, _)| s > last);
-        let into = out.entry(pin.session.clone()).or_default();
-        for (s, r) in past {
-            into.entry(s).or_insert_with(|| r.clone());
+        let past: Vec<Value> =
+            proof.records.iter().filter(|r| seq(r).is_some_and(|s| s > *last)).cloned().collect();
+        if !past.is_empty() {
+            out.entry(pin.session.clone()).or_default().push(past);
         }
     }
-    out.into_iter().map(|(s, r)| (s, r.into_values().collect())).collect()
+    out
 }
 
 /// What a link's redelivery does with an open delivery ([`step`]).
