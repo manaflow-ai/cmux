@@ -1059,3 +1059,40 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
+
+  # Fetch every stable feed the way Sparkle does, plus this release's own, and
+  # every DMG they list. v0.65.2.2 went out green with 0 assets on the
+  # published release, so every update check failed
+  # (https://github.com/manaflow-ai/cmux/issues/26729). Its own job: the
+  # Homebrew cask gates on build-sign-notarize alone, so a red check here stays
+  # visible without holding the cask. stable-feed-watch.yml checks the default
+  # feeds hourly from main regardless of which branch published them; it does
+  # not check non-latest backports' own tag feeds. Those are covered only by
+  # each tag's release workflow when it includes this job.
+  verify-stable-feed:
+    needs: build-sign-notarize
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # A backport tag (for example v0.62.1 after v0.63.1) never becomes latest,
+      # so it answers only for its own feeds.
+      - name: Verify stable feeds deliver an update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)"
+          scope=()
+          if [ "$latest" != "$GITHUB_REF_NAME" ]; then
+            echo "$GITHUB_REF_NAME is not the latest stable release ($latest); checking only its own feeds"
+            scope=(--tag-only)
+          fi
+          python3 scripts/ci/verify_stable_feed.py --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --settle-seconds 600 "${scope[@]+"${scope[@]}"}"
