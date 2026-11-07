@@ -10,7 +10,8 @@ import React, {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { rowPresence } from "./conversation/rowPresence";
+import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
+import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
@@ -74,7 +75,11 @@ import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotion";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
-import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
+import {
+  transcriptRepositoriesFrom,
+  type RepositoryCache,
+  type RepositoryReading,
+} from "./conversation/transcriptRepositories";
 import {
   newReferenceScopeCache,
   ReferenceScopeContext,
@@ -229,8 +234,11 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
   );
 }
 
+/// Each drawn row's height by id (conversation/layeredMap.ts).
+type DrawnHeights = LayeredMap<DrawnHeight>;
+
 /// Whether `updates` change any drawn height in `current`.
-function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
+function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>): boolean {
   for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
   return false;
 }
@@ -983,8 +991,13 @@ function sameItem(a: unknown, b: unknown): boolean {
   return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
 }
 
-const sameList = (a: readonly unknown[], b: readonly unknown[]) =>
-  a.length === b.length && a.every((item, index) => sameItem(item, b[index]));
+/// One identity compare per row; the field compare only where the objects differ (a few rows).
+function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1)
+    if (a[index] !== b[index] && !sameItem(a[index], b[index])) return false;
+  return true;
+}
 
 /// The transcript, drawn again only when what it is handed changes. The pane renders on every
 /// snapshot, a running command's output update too (its rows feed the header's Preview, Session
@@ -1279,10 +1292,18 @@ function TranscriptView({
   // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
   // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
   const repositoryCache = useRef<RepositoryCache>(new Map());
-  const rowRepositories = useMemo(
-    () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
-    [githubRepository, fallbackRepository, rows],
-  );
+  const repositoryReading = useRef<RepositoryReading | undefined>(undefined);
+  const rowRepositories = useMemo(() => {
+    if (githubRepository) return undefined;
+    const reading = transcriptRepositoriesFrom(
+      rows,
+      fallbackRepository,
+      repositoryCache.current,
+      repositoryReading.current,
+    );
+    repositoryReading.current = reading;
+    return reading.repositories;
+  }, [githubRepository, fallbackRepository, rows]);
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
   // a streaming reply reads only its own row again.
@@ -1579,7 +1600,9 @@ function TranscriptView({
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
   // Rows place by their drawn height once drawn, and by the estimate until then.
-  const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
+  // One entry per row drawn, kept as a layered map: a measured row changes its layer, not a copy of
+  // every row's entry (conversation/layeredMap.ts).
+  const [drawn, setDrawn] = useState(LayeredMap.empty<DrawnHeight>);
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
@@ -1634,6 +1657,8 @@ function TranscriptView({
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
   const enteringRows = useRef(new Set<string>());
+  /// Where the tab stop and the selection's ends were found last (rowPresence `hints`).
+  const presenceHints = useRef<RowPresenceHints>({});
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -1647,7 +1672,13 @@ function TranscriptView({
       return;
     }
     const currentRange = transcriptRangeRef.current;
-    const presence = rowPresence(rows, activeRowRef.current, currentRange?.anchorId, currentRange?.focusId);
+    const presence = rowPresence(
+      rows,
+      activeRowRef.current,
+      currentRange?.anchorId,
+      currentRange?.focusId,
+      presenceHints.current,
+    );
     setActiveRowId((current) => (current && presence.active ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
@@ -1761,7 +1792,7 @@ function TranscriptView({
   const lastPlaced = useRef<
     | {
         rows: readonly AcpmuxRow[];
-        drawn: Map<string, DrawnHeight>;
+        drawn: DrawnHeights;
         layout: PlacedLayout;
         width: number;
         sessionId?: string;
@@ -1783,14 +1814,13 @@ function TranscriptView({
     // An equal report can correct a different height still queued at a lower priority.
     // Compare in the updater, against the state React rebases it onto, not drawnRef.
     setDrawn((current) => {
-      let next: Map<string, DrawnHeight> | undefined;
+      let changes: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
         if (sameDrawn(current.get(id), entry)) continue;
         changedDrawn.current.add(id);
-        next ??= new Map(current);
-        next.set(id, entry);
+        (changes ??= new Map()).set(id, entry);
       }
-      return next ?? current;
+      return changes ? current.with(changes) : current;
     });
   }, []);
   /// Reports the height `target` (a drawn row) lays out at now.
@@ -1899,10 +1929,7 @@ function TranscriptView({
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
-    setDrawn((current) => {
-      if ([...current.keys()].every((id) => ids.has(id))) return current;
-      return new Map([...current].filter(([id]) => ids.has(id)));
-    });
+    setDrawn((current) => current.retain((id) => ids.has(id)));
   }, [rows, queuedTail]);
   useLayoutEffect(() => {
     // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
@@ -1927,14 +1954,13 @@ function TranscriptView({
     if (!incoming.size) return;
     for (const id of incoming) pendingDrawn.current.delete(id);
     setDrawn((current) => {
-      let next: Map<string, DrawnHeight> | undefined;
+      let changes: Map<string, undefined> | undefined;
       for (const id of incoming) {
         if (!current.has(id)) continue;
-        next ??= new Map(current);
-        next.delete(id);
+        (changes ??= new Map()).set(id, undefined);
         changedDrawn.current.add(id);
       }
-      return next ?? current;
+      return changes ? current.with(changes) : current;
     });
   }, [chatLook.minimal]);
   const didOpenAtLatest = useRef(false);
