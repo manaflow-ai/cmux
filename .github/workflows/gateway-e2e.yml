@@ -16,7 +16,7 @@ name: Inference gateway E2E (development)
 # and tokens in memory and hands `cmux inference setup` the install token in a 0600 temporary file.
 # Manual dispatch on feat-cmux-next only.
 #
-# mac: the same chat with the gateway on one of our own Mac runners (the light class cmux-ci uses), which sit on the
+# mac: the same chat with the gateway on one of our own Mac runners (picked by the runner job), which sit on the
 # tailnet, in front of our subscription router (sr) at http://100.89.225.106:31415/v1, which only the tailnet reaches.
 # The gateway holds the job's own install token (its own sign-in, the same stack pair through env only), so no
 # secret is copied, and sr's accounts stay on sr. It runs after the VM job, because both set the test team's gateway
@@ -119,13 +119,132 @@ jobs:
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-  mac:
+  runner:
+    environment: ci-routing-agent
+    # Offers the mac job to the owned Macs, which sit on the tailnet (copied from iroh-release-gate.yml's
+    # placement): an owned pool while CI_PR_POOL_OWNED is 1 and a machine is free now, else nothing, and the
+    # mac job takes Blacksmith macOS, which cannot reach sr; its first step then says so.
     needs: e2e
     if: always() && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
+    # and the owned runners through the routing App's own budget.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # An owned label (glaeda-...) or empty.
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      # Only this repository's own code may run on an owned Mac: a `ref` that
+      # is not the head of one of its branches (resolve-dispatch-ref.yml's
+      # trusted_ref) keeps Blacksmith, as for the side lanes.
+      - name: Checkout pool helper
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # Idle owned runners are read live. Any failure leaves
+        # the token empty and the janitor snapshot decides.
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the macOS pool
+        id: pool
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1'
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          case "$label" in
+            glaeda-*) ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 15 takes the job."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          [ -z "$label" ] || echo "Runner: $label (a re-run takes Blacksmith macOS 15)"
+
+      # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
+      # re-runs a job an owned Mac leaves queued or refuses (attempt 2 takes
+      # Blacksmith); the queue janitor counts the first one against the pool.
+      # Fail-safe: without them the run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.label != '' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  mac:
+    needs: [e2e, runner]
+    # The runner job is only a placement: its failure keeps Blacksmith.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
     environment: cmux-next-vm-image-dev
-    # The light class cmux-ci uses (as cmux-tui-nightly.yml's macOS legs); CI_GATEWAY_E2E_RUNNER may name another
-    # owned pool on the tailnet.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_GATEWAY_E2E_RUNNER || 'glaeda-side-light-xcode-26.6' }}
+    # Attempt 1 takes the runner job's owned label when it named one; a re-run takes Blacksmith macOS.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
     timeout-minutes: 45
     steps:
       - name: Refuse any ref but feat-cmux-next
@@ -144,7 +263,13 @@ jobs:
           submodules: false
 
       - name: Reach sr over the tailnet
-        run: curl -fsS -m 15 -o /dev/null http://100.89.225.106:31415/v1/models
+        env:
+          RUNNER_LABEL: ${{ needs.runner.outputs.label }}
+        run: |
+          if ! curl -fsS -m 15 -o /dev/null http://100.89.225.106:31415/v1/models; then
+            echo "::error::sr is not reachable from this runner (${RUNNER_LABEL:-Blacksmith macOS}); only an owned Mac on the tailnet reaches it. Re-dispatch when an owned Mac is free."
+            exit 1
+          fi
 
       - name: Install this commit's published cmux-tui client
         id: client
