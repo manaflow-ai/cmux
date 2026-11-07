@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42363240366",
+  "recorded_at": "2026-11-07T10:23:11Z",
+  "reason": "cmux-tui 641cf74b82a0 changes the image's cmux-tui (pinned 528c824a8c0e)",
+  "dry_run": false,
+  "cmux_tui": "641cf74b82a0226dd6b3342e739f20f5d68326e9",
+  "fixes": [
+    {
+      "sha": "d29dac13526c9c6be5467aa52bb9b0b362146421",
+      "mergedAt": "2026-11-07T10:02:19Z",
+      "subject": "acpmux: log pressure_digest and host_short on every shadow admission line (#37666)"
+    },
+    {
+      "sha": "7b1d39e1d5102f3316339b82a9724e63fedef4db",
+      "mergedAt": "2026-11-07T10:02:07Z",
+      "subject": "Cloud carrier: cmux carrier dial --service desktop (the desktop over the carrier) (#37220)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T10:23:11Z",
+    "snapshot_id": "sh-ff5dbeff8352483a92837a33bda3d54e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42363240366): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1ff351afbcd00157ee9cd5236740036418385f72",
+    "image": "cloud-native-auto-641cf74b-42363240366-1",
+    "revision": "ci-42363240366-1",
+    "at": "2026-11-07T10:23:11Z"
+  },
+  "rolled_back": false
+}
