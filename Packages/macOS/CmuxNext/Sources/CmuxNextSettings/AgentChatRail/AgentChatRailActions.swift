@@ -3,7 +3,7 @@ import CmuxNextDesign
 import os
 
 /// The palette's cmux.json toggles that are one key each: Show Chat Minimap and Prompt Rail on Right Edge
-/// (``AgentChatRailActionCatalog``; the user, 2026-11-03, msg 20105), and Toggle Match Terminal Background
+/// (``AgentChatRailActionCatalog``; the user, 2026-11-03, msg 20105), and Match Terminal Background
 /// (`palette.toggleMatchTerminalBackground`, `cmux sidebar toggle-match-terminal-background`).
 ///
 /// Each row writes its key through the validated settings path, so Settings and every view that follows
@@ -22,7 +22,7 @@ public final class AgentChatRailActions {
     public static let showMinimap: ActionID = "agentPane.display.showMinimap"
     /// Prompt Rail on Right Edge.
     public static let railOnRight: ActionID = "agentPane.display.railOnRight"
-    /// Toggle Match Terminal Background.
+    /// Match Terminal Background.
     public static let matchTerminalBackground: ActionID = "palette.toggleMatchTerminalBackground"
     static let minimapPath = ["agentPane", "display", "minimap"]
     static let railSidePath = ["agentPane", "display", "rail", "side"]
@@ -56,7 +56,7 @@ public final class AgentChatRailActions {
         toggle(Self.matchTerminalBackground, SidebarSurfaceSetting.configPath, in: registry) { settings in
             .string((SidebarSurfaceSetting.effective(in: settings.snapshot) == .same ? SidebarSurface.separate : .same).rawValue)
         }
-        ActionTargetTitles.setPaletteState(Self.matchTerminalBackground, in: registry) { [settings] in
+        ActionTargetTitles.setPaletteSettingState(Self.matchTerminalBackground, in: registry) { [settings] in
             settings().map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same } ?? false
         }
     }

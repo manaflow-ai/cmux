@@ -92,6 +92,9 @@ public struct Action: Identifiable {
     /// Whether a toggle is on for the focused object, read without refusing
     /// anything; the palette row then shows a check. Nil for a plain row.
     public var paletteState: (@MainActor () -> Bool)?
+    /// Whether `paletteState` is a setting's (a cmux.json key) outside the Settings category, so its
+    /// palette row flips in place like a Settings row (`ActionTargetTitles.setPaletteSettingState`).
+    public var paletteStateIsSetting = false
     /// Why the palette row cannot run for the focused object, read without refusing anything; the
     /// row is then disabled with it. Nil (or nil returned) for a row that runs.
     public var paletteUnavailableReason: (@MainActor () -> String?)?
