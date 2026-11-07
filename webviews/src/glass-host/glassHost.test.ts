@@ -3,14 +3,22 @@
 // refusal and then stays on the page's look, and an attached element follows its own box.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createGlassHost, PHASE_ATTRIBUTE, type GlassHost, type GlassSurfaceState } from "./index";
+import {
+  createGlassHost,
+  PHASE_ATTRIBUTE,
+  type GlassHost,
+  type GlassHostWindow,
+  type GlassSurfaceState,
+} from "./index";
 
 let dom: JSDOM | undefined;
 let host: GlassHost | undefined;
 
-function page(): Window {
+type TestWindow = GlassHostWindow & { Event: typeof Event };
+
+function page(): TestWindow {
   dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
-  return dom.window as unknown as Window;
+  return dom.window as unknown as TestWindow;
 }
 
 const frames = (view: Window, count = 2) =>
@@ -58,8 +66,32 @@ test("a surface the app has not drawn by the deadline falls back and is no longe
   const surface = host.open({ rect: { left: 0, top: 0, right: 50, bottom: 50 } });
   expect(await surface.ready).toBe(false);
   expect(surface.phase).toBe("fallback");
-  surface.setOpacity(0.5);
+  // Nothing about it changed: the fallback alone sends the list without it.
+  await settled();
+  expect(reports.at(-1)).toEqual([]);
+});
+
+test("a directly attached element follows a scroll that moves it and goes when it leaves the document", async () => {
+  const view = page();
+  const doc = view.document;
+  const element = doc.createElement("div");
+  doc.body.append(element);
+  let box = { left: 40, top: 60, right: 240, bottom: 180 };
+  (element as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
+    ({ ...box, width: box.right - box.left, height: box.bottom - box.top, x: box.left, y: box.top }) as DOMRect;
+  const reports: GlassSurfaceState[][] = [];
+  host = createGlassHost({ view, transport: (s) => (reports.push(s), Promise.resolve()) });
+  host.attach(element, { level: "menu" });
+  await frames(view, 5);
+  expect(reports.at(-1)?.[0]).toMatchObject({ level: "menu", top: 60 });
+  // Long after it settled, a scroll moves it with no resize.
+  box = { left: 40, top: 20, right: 240, bottom: 140 };
+  view.dispatchEvent(new view.Event("scroll"));
   await frames(view);
+  expect(reports.at(-1)?.[0]).toMatchObject({ top: 20 });
+  element.remove();
+  await settled();
+  await frames(view, 3);
   expect(reports.at(-1)).toEqual([]);
 });
 

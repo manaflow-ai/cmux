@@ -50,10 +50,16 @@ export interface GlassSurface {
   close(): void;
 }
 
+/** The page's window, with the observer constructors the host makes its observers from (a frame's own). */
+export type GlassHostWindow = Window & {
+  ResizeObserver?: typeof ResizeObserver;
+  MutationObserver: typeof MutationObserver;
+};
+
 export type GlassHostOptions = {
   transport: GlassTransport;
   /** The page's window (rAF, timers). Defaults to `globalThis.window`. */
-  view?: Window;
+  view?: GlassHostWindow;
   /** How long a new surface waits for the app before it falls back, ms. */
   deadlineMs?: number;
   /** Whether the app's glass can show now (a page that is see-through over it). Read before every
@@ -153,9 +159,13 @@ class SurfaceImpl implements GlassSurface {
   }
 }
 
+/** What moves an attached element without resizing it (``Host.follow``). */
+const FOLLOW_EVENTS = ["transitionrun", "transitionend", "animationstart"] as const;
+
 class Host implements GlassHost {
   private readonly entries = new Map<string, Entry>();
-  private readonly view: Window;
+  private readonly view: GlassHostWindow;
+  private stopFollowing?: () => void;
   private readonly transport: GlassTransport;
   private readonly deadline: number;
   private readonly applies: () => boolean;
@@ -167,7 +177,7 @@ class Host implements GlassHost {
   live = true;
 
   constructor(options: GlassHostOptions) {
-    const view = options.view ?? globalThis.window;
+    const view = options.view ?? (globalThis.window as GlassHostWindow | undefined);
     if (!view) throw new Error("glass-host: no window");
     this.view = view;
     this.transport = options.transport;
@@ -216,9 +226,11 @@ class Host implements GlassHost {
     element.setAttribute(PHASE_ATTRIBUTE, surface.phase);
     const entry = this.entries.get(surface.id)!;
     if (typeof view.ResizeObserver === "function") {
-      entry.observer = new view.ResizeObserver(() => this.kick());
-      entry.observer.observe(element);
+      const observer = new view.ResizeObserver(() => this.kick());
+      observer.observe(element);
+      entry.observer = observer;
     }
+    this.follow();
     return surface;
   }
 
@@ -254,21 +266,8 @@ class Host implements GlassHost {
       attributes: true,
       attributeFilter: [LEVEL_ATTRIBUTE],
     });
-    // A positioner rewritten on scroll, a transition or a resize moves attached elements.
-    const follow = () => this.kick();
-    const doc = this.view.document;
-    this.view.addEventListener("scroll", follow, { capture: true, passive: true });
-    this.view.addEventListener("resize", follow);
-    doc.addEventListener("transitionrun", follow, true);
-    doc.addEventListener("transitionend", follow, true);
-    doc.addEventListener("animationstart", follow, true);
     return () => {
       observer.disconnect();
-      this.view.removeEventListener("scroll", follow, { capture: true });
-      this.view.removeEventListener("resize", follow);
-      doc.removeEventListener("transitionrun", follow, true);
-      doc.removeEventListener("transitionend", follow, true);
-      doc.removeEventListener("animationstart", follow, true);
       for (const surface of attached.values()) surface.close();
       attached.clear();
     };
@@ -289,7 +288,33 @@ class Host implements GlassHost {
     entry.element?.removeAttribute(PHASE_ATTRIBUTE);
     if (entry.surface.phase === "pending") this.setPhase(entry, "fallback");
     this.entries.delete(id);
+    if (![...this.entries.values()].some((other) => other.read)) {
+      this.stopFollowing?.();
+      this.stopFollowing = undefined;
+    }
     this.kick();
+  }
+
+  /** While any element is attached, whatever can move it without resizing it (a scroll, a positioner
+   * rewritten on a window resize, a transition or an animation) or take it out of the document (a DOM
+   * change) reads the attached elements again for a few frames (`tick`). Installed by the first
+   * attach, removed with the last. */
+  private follow() {
+    if (this.stopFollowing) return;
+    const kick = () => this.kick();
+    const view = this.view;
+    const doc = view.document;
+    const removal = new view.MutationObserver(kick);
+    removal.observe(doc, { childList: true, subtree: true });
+    view.addEventListener("scroll", kick, { capture: true, passive: true });
+    view.addEventListener("resize", kick);
+    for (const type of FOLLOW_EVENTS) doc.addEventListener(type, kick, true);
+    this.stopFollowing = () => {
+      removal.disconnect();
+      view.removeEventListener("scroll", kick, { capture: true });
+      view.removeEventListener("resize", kick);
+      for (const type of FOLLOW_EVENTS) doc.removeEventListener(type, kick, true);
+    };
   }
 
   destroy() {
@@ -308,7 +333,10 @@ class Host implements GlassHost {
     else
       entry.timer = setTimeout(() => {
         entry.timer = undefined;
-        if (entry.surface.phase === "pending") this.setPhase(entry, "fallback");
+        if (entry.surface.phase !== "pending") return;
+        this.setPhase(entry, "fallback");
+        // Its glass may be on its way: the next report goes without it, so a late app takes it away.
+        this.flushSoon();
       }, this.deadline);
     this.flushSoon();
     return surface;

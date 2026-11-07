@@ -47,7 +47,9 @@ public final class GlassMaterialView: NSView, GlassSurfaceView {
 
     private var materialView: NSView?
     private var tintView: NSView?
-    private var observer: (any NSObjectProtocol)?
+    /// Set once in init and read only by deinit; NotificationCenter's removeObserver is thread-safe, so a
+    /// deinit on any thread may remove it (macOS 14 has no isolated deinit).
+    private nonisolated(unsafe) var observer: (any NSObjectProtocol)?
 
     /// `material` pins one (tests, previews); nil follows this Mac and its Reduce Transparency setting live.
     public init(level: GlassLevel, material: Material? = nil) {
@@ -70,7 +72,7 @@ public final class GlassMaterialView: NSView, GlassSurfaceView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
+    deinit {
         if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
     }
 
