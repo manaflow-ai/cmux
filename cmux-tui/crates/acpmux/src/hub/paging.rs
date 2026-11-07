@@ -23,6 +23,8 @@ const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "_acpmux/message",
+    // A fork whose agent did not start says so in its transcript (`fork.rs` `start_later`).
+    "fork_start_failed",
     "user_message",
     "queued",
     "dequeued",
