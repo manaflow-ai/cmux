@@ -96,7 +96,7 @@ impl IntegrationOwner {
             }
             let updated = FeedItem {
                 id: existing.id.clone(),
-                count: existing.count + 1,
+                count: existing.count.saturating_add(1),
                 revision: existing.revision,
                 created_at: existing.created_at,
                 read_at: None,
@@ -164,10 +164,11 @@ impl IntegrationOwner {
     }
 
     fn publish(&mut self, changed: Vec<FeedItem>, tx: Option<String>) -> Vec<OwnerEvent> {
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         let mut stamped = Vec::with_capacity(changed.len());
         for mut item in changed {
-            item.revision = self.items.get(&item.id).map_or(0, |old| old.revision) + 1;
+            item.revision =
+                self.items.get(&item.id).map_or(0, |old| old.revision).saturating_add(1);
             self.items.insert(item.id.clone(), item.clone());
             stamped.push(item);
         }
@@ -196,7 +197,7 @@ impl IntegrationOwner {
         });
         let removed: Vec<String> = oldest
             .iter()
-            .take(self.items.len() - self.max_items)
+            .take(self.items.len().saturating_sub(self.max_items))
             .map(|item| item.id.clone())
             .collect();
         if removed.is_empty() {
@@ -205,7 +206,7 @@ impl IntegrationOwner {
         for id in &removed {
             self.items.remove(id);
         }
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         Some(OwnerEvent { revision: self.revision, tx: None, items: Vec::new(), removed })
     }
 }

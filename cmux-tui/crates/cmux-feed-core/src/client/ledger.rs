@@ -58,7 +58,7 @@ pub struct Counts {
 
 impl Counts {
     pub fn badge(&self) -> usize {
-        self.open_requests + self.unread_notices
+        self.open_requests.saturating_add(self.unread_notices)
     }
 }
 

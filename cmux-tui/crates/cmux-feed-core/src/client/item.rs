@@ -191,7 +191,7 @@ pub struct FeedItem {
 /// not keep them either once shown).
 pub(crate) fn ms(value: Option<&Value>) -> Option<i64> {
     let value = value?;
-    value.as_i64().or_else(|| value.as_f64().filter(|n| n.is_finite()).map(|n| n as i64))
+    value.as_i64().or_else(|| value.as_f64().and_then(whole_ms))
 }
 
 fn string(value: Option<Value>) -> Option<String> {
@@ -410,4 +410,18 @@ impl<'de> Deserialize<'de> for FeedItem {
             )
         })
     }
+}
+
+/// A finite JSON number of milliseconds, rounded down, when it fits an `i64`.
+pub(crate) fn whole_ms(value: f64) -> Option<i64> {
+    let floor = value.floor();
+    // i64::MIN is exactly representable; i64::MAX is not, so the upper bound is exclusive.
+    (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&floor).then(|| {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "checked above: finite, whole and inside i64's range"
+        )]
+        let whole = floor as i64;
+        whole
+    })
 }

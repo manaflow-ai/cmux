@@ -87,7 +87,7 @@ pub fn issues(
             issues.push(ChoiceIssue::OtherNotAllowed { question: question.id.clone() });
         }
         let distinct: BTreeSet<&str> = selection.selected.iter().map(String::as_str).collect();
-        let count = distinct.len() + usize::from(!other.is_empty());
+        let count = distinct.len().saturating_add(usize::from(!other.is_empty()));
         if count == 0 {
             issues.push(ChoiceIssue::Unanswered { question: question.id.clone() });
         } else if count > 1 && !question.multi {
