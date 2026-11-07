@@ -6,13 +6,17 @@ import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment"
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
+import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
+import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
+import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -24,6 +28,7 @@ import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/plac
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -32,6 +37,7 @@ import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
+import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -46,6 +52,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
+import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
@@ -62,11 +69,13 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fileKindIcon,
   finishedTaskLook,
   claudeTurnFold,
+  turnFoldReplies,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
   newTabHeadline,
   newTabComposerTrailingGap,
+  newTabIconColumn,
   threadMinimapLit,
   threadMinimapMark,
   threadMinimapWave,
@@ -82,12 +91,16 @@ export const EXPERIMENTS: readonly Experiment[] = [
   tableActionsPlace,
   backgroundReactionLook,
   cloudStartLook,
+  cloudProgressLook,
+  cloudStartAskLook,
   agentStartLook,
   liveLineTokens,
+  backgroundHintRoom,
   trayPanelLook,
   trayRowLook,
   trayStopLook,
   trayMotionLook,
+  composerHatLook,
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
@@ -102,6 +115,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   promptSuggestionLook,
   composerDeeplinkLook,
+  pastedAgentLook,
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,

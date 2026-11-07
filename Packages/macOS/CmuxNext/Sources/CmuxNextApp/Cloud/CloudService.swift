@@ -232,7 +232,7 @@ final class CloudService {
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
-            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
+            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
         let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() })

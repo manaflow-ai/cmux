@@ -1,4 +1,4 @@
-public import CmuxNextActions
+import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
 
@@ -15,7 +15,7 @@ public nonisolated enum SettingsSchema {
             + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + [MachineColorsSetting.descriptor, SSHLinkHostsSetting.descriptor] + CloudNewWorkspaceSetting.descriptors + CloudLoginCopyConsentSetting.descriptors + CloudCodexSignInConsentSetting.descriptors + CloudAgentStartSetting.descriptors + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + NewTabWidgetSettings.editDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
@@ -25,21 +25,8 @@ public nonisolated enum SettingsSchema {
             + BrowserAppSettingsSchema.descriptors
     }()
 
-    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
-    /// `appearance.metrics.*` rows say so themselves.
-    static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
-        "focusRing.enabled", "focusRing.width", "focusRing.color",
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
-    ]
-
-    /// Keys Reset All Settings leaves alone: the look picked at onboarding
-    /// (the app theme and the terminal font), which each row still resets.
-    public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
-        TerminalFontSetting().sizePath,
-    ]
+    // `sharedWithBrowser`, `keptOnResetAll`: schemas/settings/source/row-facts.json
+    // (SettingsSchema+RowFacts.generated.swift).
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
     /// page-hidden keys stay out).
@@ -50,29 +37,6 @@ public nonisolated enum SettingsSchema {
     /// The descriptor for a dotted key or key path.
     public static func descriptor(for path: [String]) -> SettingDescriptor? {
         all.first { $0.path == path }
-    }
-
-    /// Actions shown as buttons at the end of a section (their titles and
-    /// availability come from the action registry).
-    public static func actions(in section: SettingsSection) -> [ActionID] {
-        switch section {
-        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates", "liveWeb.start", "liveWeb.stop",
-                        "palette.clearSearchHistory"]
-        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
-        case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
-        case .editor: ["fileEditor.importEditorSettings"]
-        case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
-        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
-        case .notifications: []
-        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
-        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
-        case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        // The page draws Open <settings file> itself, named from the loaded path.
-        // Start and Stop Swift Live Mode, beside Labs > Live Code.
-        case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
-        case .development: []
-        }
     }
 
     // MARK: General
@@ -211,6 +175,7 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.nativeNewTabPage(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
+            TabSettingsSchema.newTabButtonPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),

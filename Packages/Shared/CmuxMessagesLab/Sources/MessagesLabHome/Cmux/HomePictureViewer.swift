@@ -303,6 +303,8 @@ final class HomePictureViewer: NSView {
         scroll.isHidden = isComparing
         tools.isEnabled = !isComparing
         rowSwitch.isHidden = !isComparing || rowSwitchRows.count < 2
+        // The switch takes room in the top bar: the title's space changes with it.
+        needsLayout = true
         if isComparing { showCompare() }
         compareButton?.state = isComparing ? .on : .off
         compareButton?.contentTintColor = isComparing ? .controlAccentColor : NSColor.white.withAlphaComponent(0.85)
@@ -312,17 +314,21 @@ final class HomePictureViewer: NSView {
         super.layout()
         backdrop.frame = bounds
         dim.frame = bounds
-        let top: CGFloat = 44, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
+        let top = HomePictureViewerTopBar.height, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
         let area = CGRect(x: side, y: top, width: max(0, bounds.width - 2 * side), height: max(0, bounds.height - top - bottom))
         scroll.frame = area
         compare.frame = area
-        titleLabel.frame = CGRect(x: 16, y: 14, width: max(0, bounds.width - 180), height: 18)
-        let switchSize = rowSwitch.fittingSize
-        rowSwitch.frame = CGRect(x: (bounds.midX - switchSize.width / 2).rounded(), y: ((top - switchSize.height) / 2).rounded(),
-                                 width: switchSize.width, height: switchSize.height)
-        counterLabel.frame = CGRect(x: bounds.maxX - 150, y: 15, width: 100, height: 16)
+        let topBar = HomePictureViewerTopBar(
+            width: bounds.width,
+            titleWidth: naturalWidth(titleLabel),
+            center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
+            counterWidth: naturalWidth(counterLabel),
+            avoiding: topBarObstacles)
+        titleLabel.frame = topBar.title
+        rowSwitch.frame = topBar.center
+        counterLabel.frame = topBar.counter
         counterLabel.alignment = .right
-        closeButton.frame = CGRect(x: bounds.maxX - 38, y: 10, width: 26, height: 26)
+        closeButton.frame = topBar.close
         previousButton.frame = CGRect(x: 12, y: bounds.midY - 18, width: 36, height: 36)
         nextButton.frame = CGRect(x: bounds.maxX - 48, y: bounds.midY - 18, width: 36, height: 36)
         spinner.frame = CGRect(x: bounds.midX - 16, y: bounds.midY - 16, width: 32, height: 32)
@@ -340,6 +346,35 @@ final class HomePictureViewer: NSView {
         if let textField {
             textField.frame.size.width = max(160, min(320, bounds.width - textField.frame.minX - 20))
         }
+    }
+
+    /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
+    /// intrinsic width: a truncating label's follows its current frame, so a short frame kept it short ("Ligh…After").
+    private func naturalWidth(_ label: NSTextField) -> CGFloat {
+        guard !label.stringValue.isEmpty else { return 0 }
+        return max(label.cell?.cellSize.width ?? 0, label.attributedStringValue.size().width + 4).rounded(.up)
+    }
+
+    /// Controls the pane floats over the viewer's top bar, in the viewer's coordinates: visible views drawn above
+    /// it (the Home chat column's round compose button is the chat's sibling, above it) and the window's traffic
+    /// lights, where they reach into the bar. A view half the viewer's width or wider is an overlay, not a control.
+    private var topBarObstacles: [CGRect] {
+        let band = CGRect(x: 0, y: 0, width: bounds.width, height: HomePictureViewerTopBar.height)
+        var found: [CGRect] = []
+        var child: NSView = self
+        while let parent = child.superview, child !== window?.contentView {
+            for view in parent.subviews.drop(while: { $0 !== child }).dropFirst() where !view.isHidden && view.alphaValue > 0 {
+                let rect = convert(view.bounds, from: view)
+                if rect.intersects(band), rect.width < bounds.width / 2 { found.append(rect) }
+            }
+            child = parent
+        }
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(kind), !button.isHiddenOrHasHiddenAncestor else { continue }
+            let rect = convert(button.bounds, from: button)
+            if rect.intersects(band) { found.append(rect) }
+        }
+        return found
     }
 
     // MARK: Keys

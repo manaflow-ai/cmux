@@ -131,6 +131,12 @@ pub enum Service {
     TerminalBytes,
     TcpTunnel,
     ComputerUse,
+    /// A byte stream to a Unix socket on the daemon's host. The client names
+    /// the socket with metadata `path`, which must equal one entry of the
+    /// allowlist the daemon was started with; a daemon with none refuses
+    /// every open. Only a session whose carrier grant marks the machine's
+    /// owner holds this service (the Cloud desktop, `/run/cmux-rd/desktop.sock`).
+    LocalSocket,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

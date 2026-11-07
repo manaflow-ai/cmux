@@ -235,6 +235,8 @@ impl Hub {
                             tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // The model request failed and Claude Code tries again (`turn_retry.rs`).
                         if let Some(retry) = retry {
+                            // A sign-in the model API refuses ends the turn at its third retry.
+                            tap_hub.end_sign_in_refused(&tap_session, &retry);
                             tap_hub.turn_retrying(&tap_session, retry);
                         }
                         return logged;

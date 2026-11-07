@@ -72,6 +72,11 @@ public struct CloudDirectory: Decodable, Hashable, Sendable {
     }
 }
 
+/// Why a Cloud chat did not start, as copy for the person.
+public struct CloudChatStartError: Error {
+    public let message: String
+}
+
 /// One Cloud machine's ACP channel over a paired Mac. The existing chat hub
 /// owns replay, streaming, prompt IDs and recovery; this only binds its carrier.
 @MainActor @Observable
@@ -145,6 +150,29 @@ public final class CloudChatRelay {
         isRetired = true
         stores.removeAll()
         hub = AcpmuxHub()
+    }
+
+    /// How long the phone waits for `session/new`: past hostd's whole start (list, workspace and tab
+    /// at 15 s each, then 90 s for the agent; cloud_acp.rs `DEADLINE`, `START_DEADLINE`), so a slow
+    /// start that hostd still finishes is not given up here first.
+    static let startTimeout: Duration = .seconds(3 * 15 + 90 + 10)
+
+    /// Starts a Claude chat on this machine (hostd's `session/new`: the machine makes its folder
+    /// and the chat asks before acting) and returns its session id, already in `hub.sessions`.
+    public func startChat() async throws -> String {
+        let reply: JSONValue
+        do {
+            reply = try await hub.request("session/new", .object([
+                "mcpServers": .array([]),
+                "_meta": .object(["acpmux": .object(["harness": .string("claude"), "policy": .string("ask")])]),
+            ]), timeout: Self.startTimeout)
+        } catch {
+            throw CloudChatStartError(message: AcpmuxSessionSource.message(error))
+        }
+        guard let session = reply["sessionId"]?.stringValue, !session.isEmpty else {
+            throw CloudChatStartError(message: "The Cloud machine didn't start the chat.")
+        }
+        return session
     }
 
     /// The exact session listed on this machine, without a local-Mac fallback.
