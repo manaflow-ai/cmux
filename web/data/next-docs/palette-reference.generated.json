@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1330,
+    "entries": 1331,
     "shortcuts": 189
   },
   "sections": [
@@ -8012,6 +8012,12 @@
           "title": "Window Style: Bare",
           "shortcut": null,
           "command": "cmux settings window-style-bare"
+        },
+        {
+          "id": "appearance.chromeStyle.blocks",
+          "title": "Window Style: Blocks",
+          "shortcut": null,
+          "command": "cmux settings window-style-blocks"
         },
         {
           "id": "appearance.chromeStyle.card",

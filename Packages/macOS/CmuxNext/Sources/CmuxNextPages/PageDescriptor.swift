@@ -247,6 +247,12 @@ public extension PageDescriptor {
     /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
     static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
 
+    /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
+    /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the
+    /// window's state; the page sends its commands and its content height.
+    static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
+    static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
+    static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
     /// The browser's Import Cookies card (webviews/src/pages/cookie-import, its owner CmuxNextBrowser's
     /// BrowserCookieImportCard through BrowserChromeWebHost), inside the card's native glass on the
     /// window's overlay. `cmux.cookie-import.state` brings the card's lines; the page sends the

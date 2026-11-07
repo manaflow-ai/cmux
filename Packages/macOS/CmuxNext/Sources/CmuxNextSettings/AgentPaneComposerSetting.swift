@@ -15,6 +15,13 @@ import CmuxNextDesign
 /// type thing instead as well for some people". `showDictation`: the dictation mic beside Send
 /// in every composer (a chat's and the New Tab page's); its right-click hides it, Settings shows it
 /// again. A bad value is the default plus a diagnostic.
+/// `dictationSource`: what that mic dictates with, `cmux` (cmux's own dictation; the default) or the
+/// dictation app the person already uses: `macos` (macOS Dictation), `chatgpt`, `claude`, `gemini`,
+/// `wisprFlow` or `superwhisper`, whose shortcut the mic then sends (design/composer-dictation.md).
+/// `dictationShortcut`: the chord the mic sends for an app source, such as `ctrl+opt+space`, when
+/// the person bound the app to one other than its default; empty (the default) uses the app's.
+/// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
+/// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
 /// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
@@ -40,6 +47,8 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let showContextUsagePath = ["agentPane", "showContextUsage"]
     public static let composerRingPath = ["agentPane", "composerRing"]
     public static let showDictationPath = ["agentPane", "showDictation"]
+    public static let dictationSourcePath = ["agentPane", "dictationSource"]
+    public static let dictationShortcutPath = ["agentPane", "dictationShortcut"]
     public static let spellCheckingPath = ["agentPane", "spellChecking"]
     public static let attachmentViewPath = ["agentPane", "attachmentView"]
     public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
@@ -49,6 +58,8 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var showContextUsage = true
     public var composerRing = AgentPaneComposerRing.context
     public var showDictation = true
+    public var dictationSource = AgentPaneDictationSource.cmux
+    public var dictationShortcut = ""
     public var spellChecking = false
     public var attachmentView = AgentPaneAttachmentView.inline
     public var scrollToBottomOnSend = true
@@ -63,12 +74,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
             "composerRing": .string(composerRing.rawValue),
             "showDictation": .bool(showDictation),
+            "dictationSource": .string(dictationSource.rawValue),
+            "dictationShortcut": .string(dictationShortcut),
             "spellChecking": .bool(spellChecking),
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
@@ -98,6 +111,27 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     continue
                 }
                 setting.composerRing = ring
+                continue
+            }
+            if descriptor.path == dictationSourcePath {
+                guard descriptor.accepts(value), let source = value.stringValue.flatMap(AgentPaneDictationSource.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.dictationSource = source
+                continue
+            }
+            if descriptor.path == dictationShortcutPath {
+                guard descriptor.accepts(value), let shortcut = value.stringValue else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                // A chord that does not parse is kept, so the mic refuses it (`dictation.bad_shortcut`)
+                // instead of sending the app's default the person replaced.
+                if !shortcut.isEmpty, AgentPaneDictationShortcut(shortcut) == nil {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                }
+                setting.dictationShortcut = shortcut
                 continue
             }
             if descriptor.path == newChatsInPath {
@@ -131,6 +165,65 @@ public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, Cas
     /// In the text and in the row too, so every attachment shows in one place with its remove
     /// (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
     case both
+}
+
+/// What the composer's mic dictates with (`agentPane.dictationSource`): cmux's own dictation, or an
+/// app the person already dictates with (design/composer-dictation.md).
+public nonisolated enum AgentPaneDictationSource: String, Sendable, Hashable, CaseIterable {
+    /// cmux's own dictation, as before.
+    case cmux
+    /// macOS Dictation, into the composer.
+    case macos
+    case chatgpt
+    case claude
+    case gemini
+    case wisprFlow
+    case superwhisper
+}
+
+/// A chord the mic sends for an app source (`agentPane.dictationShortcut`): modifiers and one key,
+/// joined with `+`, such as `ctrl+opt+space` or `cmd+shift+d`. At least one of cmd, ctrl, opt; a
+/// bare key or shift alone would type into the composer instead of reaching the app.
+public nonisolated struct AgentPaneDictationShortcut: Sendable, Hashable {
+    public nonisolated struct Modifiers: OptionSet, Sendable, Hashable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        public static let command = Modifiers(rawValue: 1)
+        public static let control = Modifiers(rawValue: 2)
+        public static let option = Modifiers(rawValue: 4)
+        public static let shift = Modifiers(rawValue: 8)
+    }
+
+    public let modifiers: Modifiers
+    /// The key's name: a letter, a digit, `space`, `return`, `tab` or `f1`...`f19`.
+    public let key: String
+
+    public init?(_ text: String) {
+        let parts = text.lowercased().split(separator: "+", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count >= 2, let key = parts.last, Self.isKey(key) else { return nil }
+        var modifiers = Modifiers()
+        for part in parts.dropLast() {
+            let modifier: Modifiers
+            switch part {
+            case "cmd", "command": modifier = .command
+            case "ctrl", "control": modifier = .control
+            case "opt", "option", "alt": modifier = .option
+            case "shift": modifier = .shift
+            default: return nil
+            }
+            guard !modifiers.contains(modifier) else { return nil }
+            modifiers.insert(modifier)
+        }
+        guard !modifiers.isDisjoint(with: [.command, .control, .option]) else { return nil }
+        (self.modifiers, self.key) = (modifiers, key)
+    }
+
+    static func isKey(_ key: String) -> Bool {
+        if ["space", "return", "tab"].contains(key) { return true }
+        if key.count == 1, let character = key.first, character.isASCII, character.isLetter || character.isNumber { return true }
+        if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...19).contains(number) { return true }
+        return false
+    }
 }
 
 /// What the composer's ring shows (`agentPane.composerRing`).
@@ -183,6 +276,31 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                                          "The microphone beside Send in every composer, including the New Tab page."),
                 kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showDictation),
                 keywords: ["dictation", "microphone", "mic", "voice", "speech", "composer", "agent", "new tab"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationSourcePath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationSource", "Dictate With"),
+                help: SettingsText.keyed("settings.agentPane.dictationSource.help",
+                                         "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."),
+                kind: .choice([
+                    SettingChoice(AgentPaneDictationSource.cmux.rawValue, SettingsText.keyed("settings.choice.dictationSourceCmux", "cmux")),
+                    SettingChoice(AgentPaneDictationSource.macos.rawValue, SettingsText.keyed("settings.choice.dictationSourceMacos", "macOS Dictation")),
+                    SettingChoice(AgentPaneDictationSource.chatgpt.rawValue, SettingsText.keyed("settings.choice.dictationSourceChatgpt", "ChatGPT")),
+                    SettingChoice(AgentPaneDictationSource.claude.rawValue, SettingsText.keyed("settings.choice.dictationSourceClaude", "Claude")),
+                    SettingChoice(AgentPaneDictationSource.gemini.rawValue, SettingsText.keyed("settings.choice.dictationSourceGemini", "Gemini")),
+                    SettingChoice(AgentPaneDictationSource.wisprFlow.rawValue, SettingsText.keyed("settings.choice.dictationSourceWisprFlow", "Wispr Flow")),
+                    SettingChoice(AgentPaneDictationSource.superwhisper.rawValue, SettingsText.keyed("settings.choice.dictationSourceSuperwhisper", "Superwhisper")),
+                ]),
+                default: .string(AgentPaneComposerSetting.fallback.dictationSource.rawValue),
+                keywords: ["dictation", "dictate", "microphone", "mic", "voice", "speech", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper", "macos", "composer"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationShortcutPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationShortcut", "Dictation App Shortcut"),
+                help: SettingsText.keyed("settings.agentPane.dictationShortcut.help",
+                                         "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."),
+                kind: .text, default: .string(AgentPaneComposerSetting.fallback.dictationShortcut),
+                keywords: ["dictation", "shortcut", "hotkey", "key", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.spellCheckingPath, section: .general, group: group,

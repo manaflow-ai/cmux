@@ -207,7 +207,8 @@ export type AgentPaneVariant = VariantBase & {
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
-   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
+   * called with the call's params for its answer (one too large to write out, made when asked). */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;

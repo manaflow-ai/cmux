@@ -70,6 +70,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from datetime import datetime, timedelta
@@ -147,13 +148,15 @@ class GitHub(_evidence.GitHub):
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
         # Request ANSI-capable output first; old gh versions reject the flag, while modern
         # versions reject coloured output without it. Either way, normalize bytes in Python.
+        # A log section can open with a byte-order mark before its timestamp, which hides that line from every
+        # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
         try:
-            return self.run(["api", ESCAPE_FLAG, route])
+            return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
         except Refused as error:
             said = str(error)
             if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
                 raise
-        return self.run(["api", route])
+        return self.run(["api", route]).replace("\ufeff", "")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
@@ -176,24 +179,42 @@ class GitHub(_evidence.GitHub):
         """MEMBER's text in Actions ARTIFACT's zip, or None when the zip has no such file. Refused when the download
         fails, passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            # gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole group
+            # ends the read.
             process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
-                                       stdout=subprocess.PIPE, stderr=errors)
+                                       stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
+
+            def kill() -> None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
+                    pass
+
+            fired = threading.Event()
+
+            def expire() -> None:
+                fired.set()
+                kill()
+
+            # A read blocks while gh sends nothing: the deadline kills gh's group, which ends the read
+            # (router-review F1 of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
+            end = time.monotonic() + ARTIFACT_SECONDS
+            deadline = threading.Timer(ARTIFACT_SECONDS, expire)
+            deadline.start()
             try:
-                kept, end = 0, time.monotonic() + ARTIFACT_SECONDS
+                kept = 0
                 while chunk := process.stdout.read(1 << 20):
                     kept += len(chunk)
                     if kept > ARTIFACT_MAX_BYTES:
                         raise Refused(f"artifact {artifact} is over {ARTIFACT_MAX_BYTES} bytes")
-                    if time.monotonic() > end:
-                        raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
                     output.write(chunk)
-                process.wait(timeout=max(1, end - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read") from None
+                process.wait()
+                if fired.is_set() or time.monotonic() > end:  # the timer thread may run late
+                    raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
             finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                deadline.cancel()
+                kill()  # a stray child of a wrapper too, on every path
+                process.wait()
             if process.returncode:
                 errors.seek(0)
                 raise Refused(REQUEST_FAILED + errors.read(2000).decode(errors="replace"))
@@ -782,7 +803,7 @@ def normalise_error(text: str) -> str:
 def lines_of(log: str) -> list[str]:
     """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
     found = []
-    for line in log.splitlines():
+    for line in log.replace("\ufeff", "").splitlines():  # a log section can open with a BOM; strip() keeps it
         parts = line.split("\t", 2)
         # `gh run view --log` prefixes each line with job and step columns.
         # The job-log API does not; preserve tabs in raw command output.
@@ -1221,17 +1242,22 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
 
 
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], errors: set[str], tests: set[str],
-                   log: str, github) -> str | None:
+                   log: str, github) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
     PR whose pin is a published base release its app compile passed against (the rules above). Wherever the pin error
     shows, the PR must be one a rule covers, whatever else is red: Refused when it changes Swift or Package.swift or no
     FFI input and its pin is not a published base release it compiled against, since the base comparison may set the
     error aside beside another red the base shares (review of d5c11dd8). None when there is no pin error, or when
     something else is red too (another failed step, a failing test, a crash, another error): that red is judged as
-    before. The caller asks only after test_reds.read found no crash or cut-short run."""
+    before. The caller asks only after test_reds.read found no crash or cut-short run.
+
+    Returns (audit line, set-aside line). The first is the excuse when the pin is the job's only red. The second, when
+    other reds stand beside a pin a rule covers, says why the pin's own parts (without_ffi_pin) leave the base
+    comparison: before 2026-11-07 they stayed in it, and since the base never has the pin error, a step-A PR whose
+    job also carried reds the base shares (cmux#37767: the iOS CmuxTabsKit notice, a next-batch line) was refused."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
-        return None
+        return None, None
     number, paths = pr_paths(repo, base, sha, github)
     if moved := [path for path in FFI_PIN_PATHS if path in paths]:
         why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
@@ -1250,15 +1276,23 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
             raise Refused(f"'{name}': its app FFI pin is red, and {why}; nor is its pin a published base release it "
                           f"compiled against: {missing}")
     others = {error for error in errors if not error.startswith(pin)} - {rollup}
+    reason = (f"#{number} {published}" if published is not None else
+              f"#{number} changes app FFI inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned "
+              "by the release its merge publishes")
     # The rollup must have named the pin as its red check: a rollup that failed before saying so is another red.
     if (tests or crash_signals(log) or not steps or steps - {FFI_PIN_CHECK, FFI_PIN_ROLLUP_STEP} or others
             or rollup not in errors):
-        return None
-    if published is not None:
-        return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} {published}"
-    return (f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and #{number} changes app FFI "
-            f"inputs, not {FFI_PIN_MANIFEST} and no Swift: a step-A Rust change, pinned by the release its merge "
-            "publishes")
+        return None, f"set aside '{FFI_PIN_CHECK}' (\"{FFI_PIN_ERROR}\"): {reason}"
+    return f"excused '{name}': only '{FFI_PIN_CHECK}' is red (\"{FFI_PIN_ERROR}\"), and {reason}", None
+
+
+def without_ffi_pin(head: tuple[set[str], set[str], set[str]]) -> tuple[set[str], set[str], set[str]]:
+    """HEAD's signature (failed steps, failing tests, error lines) without the app FFI pin's own parts: its check step,
+    its error lines and the rollup's line naming it. The rollup step stays: the base must have failed it too."""
+    steps, tests, errors = head
+    pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
+    return (steps - {FFI_PIN_CHECK}, tests,
+            {error for error in errors if not error.startswith(pin) and error != rollup})
 
 
 def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
@@ -2363,7 +2397,8 @@ UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
                             r"MemoryError|died on signal|unexpected signal")
-WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+\)$")
+# tools/ws_check_run.py's step line; since leo-workspace#3746 it also ends with the step's time (", 62.1 s").
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+(?:, [\d.]+ s)?\)$")
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -2894,8 +2929,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if own.crashes or (own.truncated and not chromium_without_diagnostics):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
-        if (pinned := ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log,
-                                     github)) is not None:
+        pinned, aside = ffi_pin_step_a(repo, base, sha, name, head_steps, head_errors, head_tests, head_log, github)
+        if pinned is not None:
             audit.append(pinned)
             continue
         workflow_info = rest_run(repo, job["run_id"], github, run_reads)
@@ -2952,6 +2987,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
         head = signature(job, head_log)
+        if aside is not None:
+            head = without_ffi_pin(head)
         if not head[1] and not head[2] and not crash_signals(head_log) and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
@@ -2963,7 +3000,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, head_log, window, chromium_without_diagnostics,
-                                            flake_state=flake_state, workflow=workflow_info.get("name", "")))
+                                            flake_state=flake_state, workflow=workflow_info.get("name", ""))
+                             + (f"; {aside}" if aside is not None else ""))
                 break
             except Final:
                 raise
