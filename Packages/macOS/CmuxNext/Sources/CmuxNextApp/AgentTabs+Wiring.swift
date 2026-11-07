@@ -168,6 +168,12 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
+        services.cloud.portChanged = { [weak tabs] change in
+            guard let tabs, change.isBrowserPreview else { return }
+            for (key, view) in tabs.views where tabs.remoteMachineID(of: key) == change.machineID {
+                view.cloudPreviewPortOpened(port: change.port, process: change.process, machineID: change.machineID, state: change.state.rawValue, known: change.known)
+            }
+        }
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
@@ -380,6 +386,7 @@ extension AgentTabStore {
             }
             return await CloudMachineShare.shareWithMe(session, cloud: services.cloud)
         }
+        tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession else { return nil }
             let started = record.host.hasPrefix(AgentTabRemoteStart.registryPrefix)

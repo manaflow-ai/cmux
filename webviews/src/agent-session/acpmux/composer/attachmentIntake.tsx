@@ -24,7 +24,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, PlayTriangle, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -44,6 +44,8 @@ import { FileAttachment } from "../FileAttachment";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -73,7 +75,8 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
-  place?(chips: readonly PendingAttachment[]): void;
+  /// `kind`: how they came (a paste takes the selection's place; a drop or a pick replaces nothing).
+  place?(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -352,7 +355,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown);
+      current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -1045,6 +1048,7 @@ function PendingChip({
   onRetry?(id: string): void;
 }) {
   const t = useT();
+  const look = usePasteLoadingLook();
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
@@ -1086,12 +1090,18 @@ function PendingChip({
       </div>
     );
   return (
-    <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
-      {chip.progress === undefined ? (
-        <Spinner loading size={16} className="acpmux-attachment-spinner" />
-      ) : (
-        <UploadProgress value={chip.progress} name={name} />
-      )}
+    <div
+      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      data-paste-look={look}
+      aria-busy="true"
+      aria-label={name}
+    >
+      <PasteLoadingMark
+        look={look}
+        size={16}
+        className="acpmux-attachment-spinner"
+        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+      />
       {!square && <span>{chip.name}</span>}
       {remove}
     </div>

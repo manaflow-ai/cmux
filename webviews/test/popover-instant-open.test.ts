@@ -200,6 +200,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
   "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
   "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/header/headerMotion.ts": {
+    count: 3,
+    what: "the chat header's icons (Debug agentChat.headerMotion): an arriving icon springs in, its neighbours glide, and an opening click's glyph travels to its pane's tab; buttons and a ghost, never a menu",
+  },
   "src/agent-session/acpmux/conversation/followGlide.ts": {
     count: 1,
     what: "a followed reply eases into each new line",
@@ -211,6 +215,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
+  "src/agent-session/acpmux/subagents/trayMotion.tsx": {
+    count: 1,
+    what: "a status line's width easing as its words slide",
+  },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },

@@ -19,6 +19,23 @@ public struct TabGroupWrites: Sendable {
     /// The pane the writes act in (surface commands only).
     public let paneHandle: PaneID
 
+    /// The open groups `tab` can join: every group of its machine's `store` but its own. Add Tab
+    /// to Group… lists them; with none it says why, instead of asking for a group from an empty list.
+    ///
+    /// - Parameters:
+    ///   - tab: The tab that would join.
+    ///   - store: The store of `tab`'s own machine.
+    /// - Returns: The groups, in workspace, pane and strip order.
+    @MainActor public static func joinable(by tab: TabModel, in store: DaemonStore) -> [TabGroupModel] {
+        store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabGroups).filter { $0.id != tab.tabGroup }
+    }
+
+    /// Why Add Tab to Group… cannot ask `tab` for a group: no group of its machine's `store` to
+    /// join (``joinable(by:in:)``). Nil when there is one.
+    @MainActor public static func joinRefusal(for tab: TabModel, in store: DaemonStore) -> String? {
+        joinable(by: tab, in: store).isEmpty ? RefusalStrings.noTabGroupToJoin : nil
+    }
+
     /// - Parameters:
     ///   - pane: The pane the tabs and the group are in.
     ///   - daemon: `pane`'s own daemon.
