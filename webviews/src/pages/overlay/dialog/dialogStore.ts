@@ -22,12 +22,17 @@ export class DialogStore {
 
   readonly snapshot = () => this.current;
 
-  edit(id: number, values: Record<string, DialogValue>) {
-    void this.client.call("cmux.overlay.dialog.edit", { id, values }).catch(() => {});
+  // `serial` is the values serial the page's values stand on: the host ignores values sent against older ones.
+  edit(id: number, serial: number, values: Record<string, DialogValue>) {
+    void this.client.call("cmux.overlay.dialog.edit", { id, serial, values }).catch(() => {});
   }
 
-  press(id: number, button: string, values: Record<string, DialogValue>) {
-    void this.client.call("cmux.overlay.dialog.press", { id, button, values }).catch(() => {});
+  press(id: number, serial: number, button: string, values: Record<string, DialogValue>) {
+    void this.client.call("cmux.overlay.dialog.press", { id, serial, button, values }).catch(() => {});
+  }
+
+  painted(id: number) {
+    void this.client.call("cmux.overlay.dialog.painted", { id }).catch(() => {});
   }
 
   layout(id: number, card: { x: number; y: number; w: number; h: number }) {

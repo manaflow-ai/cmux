@@ -36,11 +36,13 @@ import {
   type WorkflowCommands,
 } from "../summary/workflowView";
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
-import { COMMAND_STATE, StopButton } from "./TasksSection";
+import { StopButton } from "./TasksSection";
+import { COMMAND_STATE } from "./tasksSectionModel";
 import { TASK_ICONS } from "./taskIcons";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -285,20 +287,23 @@ function WorkflowPhaseRow({
       </span>
       {open && opens && (
         <ul className="acpmux-session-info-list acpmux-workflow-phase__agents">
-          {live.map((agent) => (
-            <WorkflowAgentRow
-              key={agent.id}
-              workflow={workflow}
-              agent={agent}
-              now={now}
-              shared={shared}
-              commands={commandsOf(agent)}
-              onStopCommand={onStopCommand}
-              onOpenSubagent={onOpenSubagent}
-              onOpenWorkflowAgent={onOpenWorkflowAgent}
-              variant={agentRowVariant}
-            />
-          ))}
+          <WindowedRows
+            items={live}
+            render={(agent) => (
+              <WorkflowAgentRow
+                key={agent.id}
+                workflow={workflow}
+                agent={agent}
+                now={now}
+                shared={shared}
+                commands={commandsOf(agent)}
+                onStopCommand={onStopCommand}
+                onOpenSubagent={onOpenSubagent}
+                onOpenWorkflowAgent={onOpenWorkflowAgent}
+                variant={agentRowVariant}
+              />
+            )}
+          />
         </ul>
       )}
     </li>
@@ -408,7 +413,7 @@ function CommandList({
             data-state={command.state}
             title={command.command}
           >
-            <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
+            <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
             {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
             {!running && <span className="acpmux-session-info-task__state">{t(COMMAND_STATE[command.state])}</span>}

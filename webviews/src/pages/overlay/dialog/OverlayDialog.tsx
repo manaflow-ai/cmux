@@ -14,46 +14,69 @@ export interface OverlayDialogProps {
   onPress(button: string, values: Record<string, DialogValue>): void;
   /** The card's rect in the page (CSS px), after each layout. */
   onLayout(card: { x: number; y: number; w: number; h: number }): void;
+  /** The card has been on screen a frame: the host fades it in then. */
+  onPainted?(): void;
 }
 
-export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDialogProps) {
+/** `node`'s untransformed box in page coordinates (offsets ignore CSS transforms). */
+export function layoutBox(node: HTMLElement): { x: number; y: number; w: number; h: number } {
+  let x = 0;
+  let y = 0;
+  for (let at: HTMLElement | null = node; at; at = at.offsetParent as HTMLElement | null) {
+    x += at.offsetLeft;
+    y += at.offsetTop;
+  }
+  return { x, y, w: node.offsetWidth, h: node.offsetHeight };
+}
+
+export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: OverlayDialogProps) {
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
-  // A secure field's text goes to the host only with the press, never on each key.
-  const secure = new Set(dialog.fields.flatMap((field) => (field.kind === "text" && field.secure ? [field.id] : [])));
-  // The values the person typed win over the host's until the host sends a new dialog or sets one. The
-  // host never has a secure field's text, so its updates (a focus move, a set value) keep what was typed.
-  const [values, setValues] = useState(dialog.values);
-  const [hostValues, setHostValues] = useState({ id: dialog.id, values: dialog.values });
-  if (hostValues.values !== dialog.values || hostValues.id !== dialog.id) {
-    const typed = hostValues.id === dialog.id ? values : {};
-    setHostValues({ id: dialog.id, values: dialog.values });
-    setValues({
-      ...dialog.values,
-      ...Object.fromEntries(Object.entries(typed).filter(([key]) => secure.has(key))),
-    });
-  }
+  // What the person typed wins over the host's values until the host sends a new dialog or sets a value
+  // (a new values serial): a host update that lags the edit (a focus move, a re-show) keeps every field
+  // typed, a secure one or not (review 32 of #37296).
+  const serial = dialog.valuesSerial ?? 0;
+  const [typed, setTyped] = useState<{ id: number; serial: number; values: Record<string, DialogValue> }>({
+    id: dialog.id,
+    serial,
+    values: {},
+  });
+  const own = typed.id === dialog.id && typed.serial === serial ? typed.values : {};
+  if (own !== typed.values) setTyped({ id: dialog.id, serial, values: {} });
+  const values = { ...dialog.values, ...own };
   const edit = (id: string, value: DialogValue) => {
-    const next = { ...values, [id]: value };
-    setValues(next);
-    onEdit(Object.fromEntries(Object.entries(next).filter(([key]) => !secure.has(key))));
+    setTyped({ id: dialog.id, serial, values: { ...own, [id]: value } });
+    // Every value, a secure field's too: the host answers keys and automation presses with what it
+    // has, as it read the native fields before.
+    onEdit({ ...values, [id]: value });
   };
   const press = (button: string) => onPress(button, values);
 
   useLayoutEffect(() => {
     const node = cardNode;
     if (!node) return;
-    const report = () => {
-      const rect = node.getBoundingClientRect();
-      onLayout({ x: rect.left, y: rect.top, w: rect.width, h: rect.height });
-    };
+    // The card's layout box, not its drawn rect: the opening scale of the shared dialog's entrance is a
+    // transform, which a ResizeObserver never reports ending, so the glass would keep the opening size.
+    const report = () => onLayout(layoutBox(node));
     report();
     const observer = new ResizeObserver(report);
     observer.observe(node);
     observer.observe(document.documentElement);
     return () => observer.disconnect();
   }, [cardNode, onLayout]);
+
+  // Two frames after the card mounted, one of them has drawn it: the host waits for this, not the
+  // document's first paint, since a pooled page drew an earlier dialog.
+  const painted = useRef(onPainted);
+  painted.current = onPainted;
+  useLayoutEffect(() => {
+    if (!cardNode) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => painted.current?.());
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [cardNode]);
 
   // The buttons on one line, right-aligned, when they fit; else stacked the card's width with the
   // default on top, as a native alert stacks buttons that do not fit (four quit choices, a long locale).
@@ -65,7 +88,18 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
     // when the card or the page resizes (the interface scale, a longer title), so the row fits as it shows.
     const measure = () => {
       delete row.dataset.stacked;
-      const overflows = row.scrollWidth > row.clientWidth + 0.5;
+      // The buttons' own widths and gaps: the row is end-aligned, so what overflows it spills past its
+      // left edge, which its scrollWidth never counts.
+      const buttons = [...row.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
+      const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+      // Drawn widths at the row's layout size: the entrance's opening scale shrinks what is drawn, and a
+      // ResizeObserver never hears it end, so a row that does not fit would measure as fitting.
+      const drawn = row.getBoundingClientRect().width;
+      const scale = row.offsetWidth > 0 && drawn > 0 ? drawn / row.offsetWidth : 1;
+      const needed =
+        buttons.reduce((sum, button) => sum + button.getBoundingClientRect().width, 0) / scale +
+        gap * Math.max(0, buttons.length - 1);
+      const overflows = needed > row.clientWidth + 0.5;
       if (overflows) row.dataset.stacked = "";
       setStacked(overflows);
     };

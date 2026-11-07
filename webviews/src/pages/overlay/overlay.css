@@ -7,3 +7,9 @@ body,
   overflow: hidden;
   background: transparent;
 }
+/* Not even the fill the theme bootstrap paints on html with !important in an opaque window or under
+   Reduce Transparency (WebTheme.bootstrapScript): over the whole region it covered the native glass
+   under the card and the window around it. */
+html[data-cmux-page="overlay"] {
+  background: transparent !important;
+}

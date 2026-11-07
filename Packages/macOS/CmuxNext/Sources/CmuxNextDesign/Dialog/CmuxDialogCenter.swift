@@ -41,8 +41,11 @@ public final class CmuxDialogCenter {
         case app
     }
 
-    /// The host that places dialogs. Replaced by the R84 overlay host.
-    public var host: any CmuxDialogHosting
+    /// The host that places dialogs. The app's composition root gives the shared center a host that draws
+    /// them (CmuxNextPages `OverlayDialogDrawing`); a dialog shown before that moves to the new host.
+    public var host: any CmuxDialogHosting {
+        didSet { rehost(from: oldValue) }
+    }
     private var entries: [Int: Entry] = [:]
     private var queue = CmuxDialogQueue<ScopeKey>()
     private var nextID = 1
@@ -231,6 +234,16 @@ public final class CmuxDialogCenter {
         dialog.onPress = { [weak self] button in self?.press(id, button: button) }
         entries[id]?.dialog = dialog
         host.show(dialog, in: scope) { [weak self] in self?.dismiss(id) }
+    }
+
+    /// Shows the dialogs `old` showed on ``host`` instead, so none is left in a host that no longer draws.
+    private func rehost(from old: any CmuxDialogHosting) {
+        guard old !== host else { return }
+        for id in entries.keys.sorted() {
+            guard let dialog = entries[id]?.dialog else { continue }
+            old.hide(dialog)
+            show(id)
+        }
     }
 
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {

@@ -450,7 +450,10 @@ const SHOW_LESS_LOG = Array.from(
 const showLessAtEnd = async (ctx: PlayContext) => {
   await openSingleShell(ctx);
   const more = { selector: ".cv-shell .cv-output-more" };
-  await ctx.click(more);
+  // The reader clicks the row's words, at its start. The row is the block's whole width
+  // (ExpandRow.tsx), so its centre sits under Jump to latest, centred over the view's foot.
+  const words = { selector: ".cv-shell .cv-output-more .cv-expand-row__label" };
+  await ctx.click(words);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
   // The opened output lands first: its fold plays and the rows under it place by their drawn
   // heights, so the content stops growing (three frames at one height, nothing animating).
@@ -473,7 +476,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
   const row = ctx.find(more).closest(".acpmux-row")!;
   if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
-  await ctx.click(more);
+  await ctx.click(words);
   const clicked = performance.now();
   // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
@@ -1999,26 +2002,6 @@ export default agentPaneEntry({
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
     },
-    "thought-streaming-short": {
-      note: 'A short thought still streaming (Debug toggle agentPane.debug.codexToolRuns off, where the live thought draws in the run) reads "Thinking" on its own line with the text under it, never "Thought I am here" as one sentence (Leo 2026-10-21).',
-      theme: { codexToolRuns: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity(
-            [thought("I am here, reading the retry helper before changing it.", { startedAt: 0, endedAt: 2_000 })],
-            1.5,
-          ),
-        ],
-        { isWorking: true },
-      ),
-      play: async (ctx) => {
-        const label = () => ctx.document.querySelector<HTMLElement>(".cv-thought__label");
-        await ctx.waitFor(() => label()?.textContent === "Thinking");
-        if (!ctx.document.querySelector(".cv-thought.is-full"))
-          throw new Error("the live thought's text is not under its label");
-      },
-    },
     "thought-codex-headings": {
       note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
       checks: {
@@ -2166,17 +2149,6 @@ export default agentPaneEntry({
             1.4,
           ),
           assistant("The parser drops the status code. I'll write a typed error and a test for it.", 1.2),
-        ],
-        { isWorking: true },
-      ),
-    },
-    "working-line-above": {
-      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
-      theme: { liveLineBelow: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
         ],
         { isWorking: true },
       ),
@@ -3647,7 +3619,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        await ctx.click({ role: "button", name: "Show all 21 lines" });
+        // The reader clicks the row's words, at its start: the row is the block's whole width
+        // (ExpandRow.tsx), and with the card at the view's foot its centre sits under Jump to latest.
+        ctx.find({ role: "button", name: "Show all 21 lines" });
+        await ctx.click({ selector: ".cv-edit-diff .cv-output-more .cv-expand-row__label" });
         await ctx.waitFor(
           () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
         );

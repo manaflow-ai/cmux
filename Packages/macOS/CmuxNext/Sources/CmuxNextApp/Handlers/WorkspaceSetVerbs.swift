@@ -65,9 +65,9 @@ enum WorkspaceSetVerbs {
     }
 
     /// A new workspace listed in the target section: added as its item (Pinned
-    /// too), or for the workspaces section by `workspaces.newPlacement`: first in
-    /// the list under the default `top` (not into the current workspace's group),
-    /// last under `bottom`, after the current workspace under `afterCurrent`
+    /// too), or for the workspaces section by `workspaces.newPlacement`: after the
+    /// current workspace under the default `afterCurrent`, first in the list under
+    /// `top` (not into the current workspace's group), last under `bottom`
     /// (Leo 2026-10-22: "DEFAULT NEW WORKSPACE AT THE TOP"; it went to the bottom
     /// whatever the setting).
     private static func newWorkspace(inSection invocation: ActionInvocation, _ context: AppActionContext) throws {

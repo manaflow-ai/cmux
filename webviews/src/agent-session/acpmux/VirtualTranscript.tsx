@@ -41,6 +41,7 @@ import {
   isLineRow,
   isLiveStep,
   restRoom,
+  rowFrameKey,
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -62,6 +63,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
@@ -79,6 +81,7 @@ import {
   referenceScopes,
   turnOpener,
   type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -464,11 +467,12 @@ const RowFrame = React.memo(function RowFrame({
     const id = row.id;
     acpmuxPerf.rowMounted(id);
     return () => acpmuxPerf.rowUnmounted(id);
-    // A row keeps its id for its whole mount (its key).
+    // The id the frame mounted with: a message run's line can take over its first row's frame
+    // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
-    if (entering) onEntered(row.id);
+    if (entering) onEntered(rowFrameKey(row));
     // Only the first mount enters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -948,7 +952,111 @@ function TranscriptContext({
   );
 }
 
-export function VirtualTranscript({
+export type VirtualTranscriptProps = Omit<React.ComponentProps<typeof TranscriptView>, "references">;
+
+/// Where the transcript reads each row's bare `#N` scope (conversation/bareReferences.ts): the
+/// reading of the client's rows and the cache it keeps. A new value only when a scope changed.
+type TranscriptReferences = {
+  readonly cache: ReferenceScopeCache;
+  readonly scopeOf: (opener: string) => ReferenceScope;
+};
+
+/// The list props a pane render rebuilds with the same rows in them (the pane's row shaping and
+/// queue lists run again on every snapshot).
+const LIST_PROPS: ReadonlySet<string> = new Set([
+  "rows",
+  "sourceRows",
+  "earlier",
+  "queuedTail",
+  "queueIds",
+  "queueWithdrawn",
+]);
+
+/// The same item: the same object, or a row the shaping made again with every field the same
+/// (turns.ts builds the live line anew on each pass).
+function sameItem(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) || Array.isArray(b)) return false;
+  const before = a as Record<string, unknown>;
+  const after = b as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
+}
+
+const sameList = (a: readonly unknown[], b: readonly unknown[]) =>
+  a.length === b.length && a.every((item, index) => sameItem(item, b[index]));
+
+/// The transcript, drawn again only when what it is handed changes. The pane renders on every
+/// snapshot, a running command's output update too (its rows feed the header's Preview, Session
+/// Info and the sends), and handed the transcript new callbacks and new lists of the same rows
+/// each time, so the whole transcript rendered once per update with nothing in it changed
+/// (bench/delta-renders.bench.ts: 1.07 renders per output update at 75, 750 and 7,500 rows).
+/// Here a callback prop is a stable function that calls the pane's newest one (its presence still
+/// counts), a list of the same rows is the list drawn before, and the client's rows (`sourceRows`,
+/// read only for bare `#N` scopes) reach the transcript as their scopes, which change only when
+/// the rows name something new. A streamed reply's text still reaches its row through
+/// streamingRow.ts without the pane.
+export function VirtualTranscript(props: VirtualTranscriptProps) {
+  // The newest props, for the stable callbacks below: written as the pane renders, so a callback
+  // the transcript runs in its own layout effects already calls this render's function.
+  const latest = useRef(props);
+  latest.current = props;
+  const calls = useRef(new Map<string, (...args: unknown[]) => unknown>());
+  const lists = useRef(new Map<string, readonly unknown[]>());
+  const stable: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (typeof value === "function") {
+      let call = calls.current.get(key);
+      if (!call) {
+        call = (...args: unknown[]) =>
+          (latest.current as unknown as Record<string, ((...args: unknown[]) => unknown) | undefined>)[key]?.(...args);
+        calls.current.set(key, call);
+      }
+      stable[key] = call;
+    } else if (Array.isArray(value) && LIST_PROPS.has(key)) {
+      const before = lists.current.get(key);
+      const kept = before && sameList(before, value) ? before : value;
+      lists.current.set(key, kept);
+      stable[key] = kept;
+    } else stable[key] = value;
+  }
+  const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
+  delete stable.sourceRows;
+  const references = useTranscriptReferences(source);
+  return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
+}
+
+/// The bare `#N` scopes of `source` (referenceScopes), kept as the last value while every scope
+/// it gives is the one it gave: the same reading of every row before the last (the cache kept its
+/// prefix and evidence) and the same scope for the last row's turn.
+function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptReferences {
+  const cache = useRef<ReferenceScopeCache>(undefined as unknown as ReferenceScopeCache);
+  cache.current ??= newReferenceScopeCache();
+  const held = useRef<
+    | { source: readonly AcpmuxRow[]; value: TranscriptReferences; lastTurn?: string; lastScope?: ReferenceScope }
+    | undefined
+  >(undefined);
+  const before = held.current;
+  if (before?.source === source) return before.value;
+  const kept = cache.current;
+  const { generation, prefixLength, evidence } = kept;
+  const scopeOf = referenceScopes(source, kept);
+  const lastId = source.at(-1)?.id;
+  const lastTurn = lastId === undefined ? undefined : kept.rowTurn.get(lastId);
+  const lastScope = lastTurn === undefined ? undefined : scopeOf(lastTurn);
+  const same =
+    before !== undefined &&
+    generation === kept.generation &&
+    prefixLength === kept.prefixLength &&
+    evidence === kept.evidence &&
+    before.lastTurn === lastTurn &&
+    before.lastScope === lastScope;
+  const value = same ? before.value : { cache: kept, scopeOf };
+  held.current = { source, value, lastTurn, lastScope };
+  return value;
+}
+
+function TranscriptView({
   rows: paneRows,
   streams = false,
   earlier,
@@ -965,7 +1073,7 @@ export function VirtualTranscript({
   historyFrom,
   githubRepository,
   fallbackRepository,
-  sourceRows,
+  references,
   find,
   reveal,
   working = false,
@@ -983,6 +1091,7 @@ export function VirtualTranscript({
   onLoadOlder,
   sends = 0,
   onFollowingChange,
+  onJumpShownChange,
   coldOpen,
   onColdOpenShown,
   afterLatest,
@@ -1050,6 +1159,9 @@ export function VirtualTranscript({
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
   onFollowingChange?: (following: boolean) => void;
+  /// Jump to latest (or the Needs your input pill) shows or hides: the pane lifts its bottom toast
+  /// deck above it while it shows (toastLayer.css). Told `false` when the transcript goes.
+  onJumpShownChange?: (shown: boolean) => void;
   githubRepository?: string;
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
@@ -1057,6 +1169,8 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
+  /// The bare `#N` scopes of `sourceRows` (VirtualTranscript's `useTranscriptReferences`).
+  references: TranscriptReferences;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1088,6 +1202,8 @@ export function VirtualTranscript({
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
 }) {
+  // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`).
+  useCountedRender("transcript");
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
   const live = useStreamingRow(streams);
@@ -1170,12 +1286,10 @@ export function VirtualTranscript({
   // Which repository each row's bare `#N` names, by the transcript's evidence
   // (conversation/bareReferences.ts): one scope object per turn, kept while nothing new is named;
   // a streaming reply reads only its own row again.
-  const referenceCache = useRef(newReferenceScopeCache());
-  const scopeAt = useMemo(() => {
-    const cache = referenceCache.current;
-    const scopeOf = referenceScopes(sourceRows ?? rows, cache);
-    return (index: number) => scopeOf(turnOpener(cache, rows, index));
-  }, [rows, sourceRows]);
+  const scopeAt = useMemo(
+    () => (index: number) => references.scopeOf(turnOpener(references.cache, rows, index)),
+    [rows, references],
+  );
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1567,7 +1681,8 @@ export function VirtualTranscript({
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
-  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
+  // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
+  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map(rowFrameKey));
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
@@ -1580,24 +1695,25 @@ export function VirtualTranscript({
     // take a live row's entrance. They draw in place, as if they had always been there, unless the
     // page came late: the reader already reached the top of the loaded rows, and only then do they
     // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
-    const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
+    const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
-      if (knownRows.current.has(row.id)) continue;
+      const key = rowFrameKey(row);
+      if (knownRows.current.has(key)) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
       } else arrived.push(row);
-      knownRows.current.add(row.id);
+      knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
     // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
     if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed() && !turnFold.current?.opening)
-      for (const row of arrived) enteringRows.current.add(row.id);
+      for (const row of arrived) enteringRows.current.add(rowFrameKey(row));
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
@@ -1830,7 +1946,7 @@ export function VirtualTranscript({
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
-  // Under the opt-in fade (Debug Settings agentPane.debug.scrollerFade), the scrollbar fades in and
+  // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
@@ -2044,6 +2160,47 @@ export function VirtualTranscript({
   }, []);
   // Another chat starts with none (its first render already leaves it out, `keptEnd`).
   useLayoutEffect(() => dropFoldRoom(), [sessionId, dropFoldRoom]);
+  /// Pins the bottom for what closes under `line`, its row's disclosure: the content's end stays at
+  /// the view's end as the body shrinks, and the rows over it come down (the placement pass's
+  /// `bottomStacking`). A close at the very bottom starts it at the click (`beginBottomStackFold`);
+  /// a close a little over the end holds its line until the rows' end reaches the view's end, and
+  /// pins the bottom from that pass on (`folding` below), so the line comes down only as far as the
+  /// rest of the close would have left blank under the last row.
+  const startBottomStack = useCallback(
+    (node: HTMLElement, line: HTMLElement): boolean => {
+      const row = line.closest<HTMLElement>(".acpmux-row");
+      if (!row) return false;
+      followGlide.current?.stop();
+      stopJump();
+      // The body itself supplies the height: any room kept by an older collapse goes, so neither
+      // a second gap opens nor one stays after the close.
+      dropFoldRoom();
+      const drawn = new Map<Element, number>();
+      for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
+      const stack: BottomStackFold = {
+        toggle: line,
+        row,
+        beforeTop: layoutScrollTop(node),
+        delta: 0,
+        from: 0,
+        drawn,
+        pinned: node.scrollTop,
+      };
+      bottomStackFold.current = stack;
+      // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
+      row.setAttribute("data-bottom-stack-fold", "");
+      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
+      followRef.current(true);
+      stack.cleanupTimer = setTimeout(
+        () => {
+          if (bottomStackFold.current === stack) stopBottomStackFold();
+        },
+        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
+      );
+      return true;
+    },
+    [dropFoldRoom, stopBottomStackFold, stopJump],
+  );
   /// The reader took the view (a wheel, a key, a drag up) from a fold at the very bottom: the fold
   /// lands at once and its row is placed at that height in this same task, so the browser clamps to
   /// the new end before the reader's scroll applies. What was left of a closing body's shrink never
@@ -2744,6 +2901,19 @@ export function VirtualTranscript({
       stack.pinned = node.scrollTop;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
+    } else if (
+      folding &&
+      node &&
+      foldAnchor.current &&
+      !bottomStackFold.current &&
+      foldRoomRef.current > Math.max(rowsEndRef.current, node.clientHeight) + 1 &&
+      rowsEndRef.current < node.scrollTop + node.clientHeight - 1
+    ) {
+      // A close a little over the end: its line held this far, and the rows now end above the
+      // view's end, so holding it on would leave blank room under the last row that nothing gives
+      // back (Leo, 2026-11-07: the closed ones "didn't have the wherewithal to ... remove the space
+      // at the bottom"). From here the bottom is pinned, as for a close at the very bottom.
+      startBottomStack(node, foldAnchor.current.toggle);
     } else if (folding && node) {
       // What opened pushed the latest row out of view, or what closed left room under it
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
@@ -3683,12 +3853,22 @@ export function VirtualTranscript({
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
     // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
-    // clicked line, so the hold keeps it on the pixel it was clicked at.
+    // clicked line, so the hold keeps it on the pixel it was clicked at. So does another line's close
+    // that pinned the bottom part way (`startBottomStack` from the placement pass): its thread slide
+    // lands with the rows it moves with, never cut short while they land.
     const settleFold = (line: HTMLElement) => {
-      if (!turnFold.current) return;
+      const playing = bottomStackFold.current;
+      const stack = playing?.animation && playing.toggle !== line ? playing : undefined;
+      if (!turnFold.current && !stack) return;
       const before = line.getBoundingClientRect().top;
-      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      if (turnFold.current) settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = undefined;
+      if (stack) {
+        for (const held of stack.held ?? []) held.finish();
+        for (const cut of stack.cuts?.values() ?? []) cut.finish();
+        stack.animation?.finish();
+        stopBottomStackFold();
+      }
       const moved = line.getBoundingClientRect().top - before;
       if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
     };
@@ -3717,37 +3897,9 @@ export function VirtualTranscript({
         stopBottomStackFold();
         return false;
       }
-      const row = line.closest<HTMLElement>(".acpmux-row");
-      if (!row) return false;
+      if (!line.closest(".acpmux-row")) return false;
       stopBottomStackFold();
-      followGlide.current?.stop();
-      stopJump();
-      // The body itself supplies the height: any room kept by an older collapse goes, so neither
-      // a second gap opens nor one stays after the close.
-      dropFoldRoom();
-      const drawn = new Map<Element, number>();
-      for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
-      const stack: BottomStackFold = {
-        toggle: line,
-        row,
-        beforeTop: layoutScrollTop(node),
-        delta: 0,
-        from: 0,
-        drawn,
-        pinned: node.scrollTop,
-      };
-      bottomStackFold.current = stack;
-      // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
-      row.setAttribute("data-bottom-stack-fold", "");
-      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
-      followIntent(true);
-      stack.cleanupTimer = setTimeout(
-        () => {
-          if (bottomStackFold.current === stack) stopBottomStackFold();
-        },
-        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
-      );
-      return true;
+      return startBottomStack(node, line);
     };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
@@ -3858,7 +4010,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, landForReader, stopBottomStackFold, stopJump]);
+  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
@@ -3972,6 +4124,15 @@ export function VirtualTranscript({
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
+  // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
+  // moves in the same frame the button starts to fade in or out.
+  const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
+  const jumpShownReport = useRef(onJumpShownChange);
+  jumpShownReport.current = onJumpShownChange;
+  useLayoutEffect(() => {
+    jumpShownReport.current?.(jumpVisible);
+  }, [jumpVisible]);
+  useLayoutEffect(() => () => jumpShownReport.current?.(false), []);
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
   // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
   useLayoutEffect(() => {
@@ -4111,7 +4272,7 @@ export function VirtualTranscript({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
-                        key={`${sessionId ?? ""}:${row.id}`}
+                        key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={
@@ -4139,7 +4300,7 @@ export function VirtualTranscript({
                         queueDrawn={queueDrawn}
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(row.id)}
+                        enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
                         older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
                         onOlderShown={onOlderShown}
@@ -4214,3 +4375,5 @@ export function VirtualTranscript({
     </ReadOnlyBoundary>
   );
 }
+
+const TranscriptViewMemo = React.memo(TranscriptView);

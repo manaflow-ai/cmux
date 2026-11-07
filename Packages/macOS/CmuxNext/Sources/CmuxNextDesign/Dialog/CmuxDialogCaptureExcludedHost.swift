@@ -26,11 +26,20 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
 
     public func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
         inner.show(dialog, in: scope, scopeGone: scopeGone)
+        // The window it shows in is the overlay's, known once the host presents it: its view may wait in
+        // the source window before, invisible, while the page draws the card.
+        dialog.whenPresented { [weak dialog] in
+            guard let dialog else { return }
+            Self.exclude(dialog)
+        }
+    }
+
+    private static func exclude(_ dialog: CmuxDialogPresentation) {
         guard let window = dialog.window else { return }
         let key = ObjectIdentifier(window)
-        var entry = Self.excluded[key] ?? Excluded(window: window, sharing: window.sharingType, dialogs: [])
+        var entry = excluded[key] ?? Excluded(window: window, sharing: window.sharingType, dialogs: [])
         entry.dialogs.insert(ObjectIdentifier(dialog))
-        Self.excluded[key] = entry
+        excluded[key] = entry
         window.sharingType = .none
     }
 

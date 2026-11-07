@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Draws every cmux dialog with the overlay page's React dialog (webviews/src/pages/overlay/dialog):
 /// the shared center's `CmuxDialogOverlayHost` gets it at the composition root. Each shown dialog gets a warm overlay page view
@@ -8,7 +9,8 @@ public import CmuxNextSettings
 /// keys and clicks with the same rules as before (`CmuxDialogKeys`).
 @MainActor
 public final class OverlayDialogDrawing: CmuxDialogDrawing {
-    let pool = OverlayPagePool(route: "/dialog") { OverlayDialogProvider() }
+    // A dialog's page refuses page probes whatever it shows: a typed password, or a consent only the person answers.
+    let pool = OverlayPagePool(route: "/dialog", refusesProbes: true) { OverlayDialogProvider() }
     private var views: [ObjectIdentifier: (container: OverlayDialogView, page: PageWebView)] = [:]
 
     /// Draws `center`'s dialogs from now on: its host becomes an overlay host with this drawing.
@@ -40,19 +42,38 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         pool.provider(of: shown.page)?.resetFocus(dialog)
     }
 
+    /// The page draws the card in its own turn, and a page claimed before the spare loaded draws later
+    /// still: the host holds the dialog at its transparent first frame until the page says this dialog's
+    /// card painted, or ``drawDeadline`` passes.
+    public func whenDrawn(_ dialog: CmuxDialogPresentation, _ ready: @escaping () -> Void) {
+        guard let shown = views[ObjectIdentifier(dialog)], let provider = pool.provider(of: shown.page) else { return ready() }
+        let wait = OverlayDialogDrawWait(ready: ready)
+        provider.whenCardPainted(dialog) { wait.finish() }
+        wait.deadline.schedule(after: Self.drawDeadline) { @MainActor in wait.finish() }
+    }
+
+    /// The longest a dialog waits for its card: past it the host shows the dialog as it is.
+    static let drawDeadline: Duration = .milliseconds(400)
+
     public func detach(_ dialog: CmuxDialogPresentation) {
         guard let (container, page) = views.removeValue(forKey: ObjectIdentifier(dialog)) else { return }
         // The card keeps what it shows through the overlay host's fade; it takes no more presses.
         pool.provider(of: page)?.retire()
-        container.releasePageWhenOffScreen { [pool] in pool.release(page) }
+        // Scrubbed before it waits for the next dialog: the page drops the card, and with it what the
+        // person typed (a password), once the fade is over.
+        container.releasePageWhenOffScreen { [pool] in
+            // A private dialog's page keeps refusing probes as the spare: the next dialog's claim sets it again.
+            pool.provider(of: page)?.show(nil)
+            pool.release(page)
+        }
         // The next dialog is drawn ahead, before it is asked.
         pool.prewarm()
     }
 }
 
 /// The dialog route's ops: the page subscribes to `cmux.overlay.dialog.state` (the dialog it draws,
-/// or none) and calls `cmux.overlay.dialog.edit {id, values}`, `.press {id, button, values}` and
-/// `.layout {id, card}`.
+/// or none) and calls `cmux.overlay.dialog.edit {id, values}`, `.press {id, button, values}`,
+/// `.layout {id, card}` and `.painted {id}`.
 @MainActor
 final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     private weak var dialog: CmuxDialogPresentation?
@@ -65,13 +86,17 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
+        paintedDialog = nil
         focusSerial = 0
+        valuesSerial = 0
         shows = 0
         publish()
     }
 
     /// The dialog ended: the page keeps drawing it while it fades, and its presses go nowhere.
     func retire() {
+        // A dialog that ended before its card was drawn: its wait ends now.
+        endPaintWaits()
         dialog = nil
         container = nil
     }
@@ -85,13 +110,37 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         if shows > 1 { publish() }
     }
 
+    /// Bumped by each value the host sets (automation's `setValue`), so the page takes the host's values,
+    /// a secure field's too, over what the person typed.
+    private var valuesSerial = 0
+
+    /// Who waits for the shown dialog's card to paint (``OverlayDialogDrawing/whenDrawn(_:_:)``): the
+    /// page says so (`painted`) a frame after it drew this dialog, not the document's first paint.
+    private var cardPainted: [() -> Void] = []
+    private var paintedDialog: ObjectIdentifier?
+
+    func whenCardPainted(_ dialog: CmuxDialogPresentation, _ body: @escaping () -> Void) {
+        guard dialog === self.dialog else { return body() }
+        if paintedDialog == ObjectIdentifier(dialog) { body() } else { cardPainted.append(body) }
+    }
+
+    private func endPaintWaits() {
+        let waiters = cardPainted
+        cardPainted = []
+        waiters.forEach { $0() }
+    }
+
     func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {
         guard dialog === self.dialog else { return }
+        valuesSerial += 1
         publish()
     }
 
     func dialogMoveFocus(_ dialog: CmuxDialogPresentation, backward: Bool) {
         guard dialog === self.dialog else { return }
+        // A key the window answered for the dialog (its panel lost key): the page takes the keyboard
+        // back, so what the person types next reaches the field the focus moves to.
+        container?.page.focusPage()
         focusSerial += 1
         focusBackward = backward
         publish()
@@ -100,11 +149,15 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let dialog, params["id"]?.doubleValue == Double(dialog.id) else { return .null }
         switch op {
+        // Answered as the person's: a dialog's page refuses page probes (the pool's `refusesProbes`), so no
+        // `debug.page` call or script reaches it, while a click, a key or VoiceOver's press does.
+        // An edit or press made against older values (an older `serial`: the page had not yet taken a value
+        // automation set) leaves the host's values as they are, so a late edit never undoes that value.
         case "cmux.overlay.dialog.edit":
-            dialog.edited(Self.values(params["values"]))
+            dialog.edited(current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.press":
             guard let button = params["button"]?.stringValue else { throw PageError.invalidParams(op) }
-            dialog.press(button, values: Self.values(params["values"]))
+            dialog.press(button, values: current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.layout":
             // CSS px from the page's top-left, in points at the page's zoom (the interface scale); the view
             // is flipped only when AppKit's bottom-left origin is not.
@@ -116,6 +169,9 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             let rect = CGRect(x: x, y: (dialog.view?.isFlipped ?? false) ? y : height - y - h, width: w, height: h)
             dialog.cardRect = rect
             container?.placeCard(rect)
+        case "cmux.overlay.dialog.painted":
+            paintedDialog = ObjectIdentifier(dialog)
+            endPaintWaits()
         default:
             throw PageError.unknownOp(op)
         }
@@ -144,6 +200,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
                                                                        "backward": .bool(focusBackward)])
         if case .object(var object) = wire {
             object["shown"] = .number(Double(max(shows, 1)))
+            object["valuesSerial"] = .number(Double(valuesSerial))
             wire = .object(object)
         }
         return ["dialog": wire]
@@ -217,6 +274,11 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         }
     }
 
+    /// Whether the page made this call against the values the host last sent (its `serial`).
+    private func current(_ params: JSONValue) -> Bool {
+        (params["serial"]?.doubleValue ?? 0) == Double(valuesSerial)
+    }
+
     static func values(_ json: JSONValue?) -> [String: CmuxDialogValue] {
         guard case .object(let members)? = json else { return [:] }
         return members.compactMapValues { value in
@@ -283,5 +345,24 @@ final class OverlayDialogView: NSView {
         offScreen = nil
         page.removeFromSuperview()
         release()
+    }
+}
+
+/// One dialog's wait for its card (``OverlayDialogDrawing/whenDrawn(_:_:)``): ends once, at the card
+/// or the deadline, whichever comes first.
+@MainActor
+final class OverlayDialogDrawWait {
+    let deadline = DemandTimer(owner: "OverlayDialogDrawing.draw")
+    private var ready: (() -> Void)?
+
+    init(ready: @escaping () -> Void) {
+        self.ready = ready
+    }
+
+    func finish() {
+        guard let ready else { return }
+        self.ready = nil
+        deadline.cancel()
+        ready()
     }
 }

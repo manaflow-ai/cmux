@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { OverlayDialog } from "./OverlayDialog";
+import { layoutBox, OverlayDialog } from "./OverlayDialog";
 import type { DialogState, DialogValue } from "./types";
 
 let dom: JSDOM | undefined;
@@ -187,49 +187,59 @@ test("shown again after a tab switch, the focus goes back to the first text fiel
   expect(dom!.window.document.activeElement).toBe(field);
 });
 
-test("a host update keeps the secure text the person typed, which never goes out on an edit", async () => {
+test("a host update keeps the text the person typed, secure or not, and each edit gives it to the host", async () => {
   const login: DialogState = {
     ...quit,
     layout: "standard",
-    fields: [{ kind: "text", id: "password", label: "Password", secure: true }],
-    values: { password: "" },
+    fields: [
+      { kind: "text", id: "user", label: "User", secure: false },
+      { kind: "text", id: "password", label: "Password", secure: true },
+    ],
+    values: { user: "", password: "" },
   };
   const { host, presses, edits } = await render(login);
+  const user = host.querySelector('[data-field="user"]') as HTMLInputElement;
   const field = host.querySelector('[data-field="password"]') as HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
   act(() => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(user, "leo");
+    user.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  act(() => {
     setter.call(field, "hunter2");
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
-  expect(edits.at(-1)).toEqual({});
+  // The host answers its own keys and automation's presses with what it has (review 7 of #37296).
+  expect(edits.at(-1)).toEqual({ user: "leo", password: "hunter2" });
   // A key the host answered moves the focus: a new state, with the host's own (empty) values.
   await act(async () => {
     root!.render(
       <OverlayDialog
-        dialog={{ ...login, values: { password: "" }, focus: { serial: 1, backward: false } }}
+        dialog={{ ...login, values: { user: "", password: "" }, focus: { serial: 1, backward: false } }}
         onPress={(button, values) => presses.push({ button, values })}
         onEdit={(values) => edits.push(values)}
         onLayout={() => {}}
       />,
     );
   });
+  // Review 32 of #37296 (F1): the ordinary field kept its text too.
+  expect(user.value).toBe("leo");
   expect(field.value).toBe("hunter2");
   act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
-  expect(presses.at(-1)?.values).toEqual({ password: "hunter2" });
+  expect(presses.at(-1)?.values).toEqual({ user: "leo", password: "hunter2" });
 });
 
 test("buttons that do not fit on one line stack, and stay on one line when they fit (#29984)", async () => {
   installDom();
   const proto = dom!.window.HTMLElement.prototype;
-  // jsdom lays nothing out: the row reports the width its buttons would need on one line.
-  let needed = 600;
+  // jsdom lays nothing out: each button reports its width, the row its own.
+  let buttonWidth = 150;
   Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
-  Object.defineProperty(proto, "scrollWidth", {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.classList.contains("overlay-dialog-buttons") ? needed : 0;
-    },
-  });
+  const rect = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (!this.classList.contains("overlay-dialog-button")) return rect.call(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: buttonWidth, bottom: 26, width: buttonWidth, height: 26, toJSON() {} };
+  };
   const quitChoice: DialogState = {
     ...quit,
     layout: "standard",
@@ -250,6 +260,125 @@ test("buttons that do not fit on one line stack, and stay on one line when they 
     return dom!.window.document.body.querySelector<HTMLElement>(".overlay-dialog-buttons")!;
   };
   expect((await mount(quitChoice)).dataset.stacked).not.toBeUndefined();
-  needed = 300;
+  // Two that fit stay on one line.
+  buttonWidth = 150;
   expect((await mount({ ...quitChoice, buttons: quitChoice.buttons.slice(2) })).dataset.stacked).toBeUndefined();
+});
+
+// Review 25 of #37296 (F3): the buttons were measured drawn, at the entrance's opening scale, against the
+// row's layout width, so a row that does not fit measured as fitting while the card scaled in.
+test("buttons that do not fit stack while the card is drawn at its opening scale", async () => {
+  installDom();
+  const proto = dom!.window.HTMLElement.prototype;
+  const scale = 0.97;
+  const isRow = (node: HTMLElement) => node.classList.contains("overlay-dialog-buttons");
+  Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
+  Object.defineProperty(proto, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isRow(this) ? 400 : 0;
+    },
+  });
+  const rect = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    // Two buttons of 200 and an 8 px gap need 408 of the row's 400; drawn, they are 194 each.
+    const width = isRow(this) ? 400 * scale : this.classList.contains("overlay-dialog-button") ? 200 * scale : 0;
+    if (width === 0) return rect.call(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 26, width, height: 26, toJSON() {} };
+  };
+  const style = scope.getComputedStyle as (node: Element) => CSSStyleDeclaration;
+  scope.getComputedStyle = (node: Element) => {
+    const computed = style(node);
+    if (!(node instanceof dom!.window.HTMLElement) || !isRow(node)) return computed;
+    return new Proxy(computed, { get: (target, key) => (key === "columnGap" ? "8px" : Reflect.get(target, key)) });
+  };
+  root ??= createRoot(dom!.window.document.getElementById("root")!);
+  const dialog: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [],
+    values: {},
+    buttons: [
+      { id: "cancel", title: "Cancel", role: "cancel" },
+      { id: "keep", title: "Keep Sessions", role: "default" },
+    ],
+  };
+  await act(async () => {
+    root!.render(<OverlayDialog dialog={dialog} onPress={() => {}} onEdit={() => {}} onLayout={() => {}} />);
+  });
+  const row = dom!.window.document.body.querySelector<HTMLElement>(".overlay-dialog-buttons")!;
+  expect(row.dataset.stacked).not.toBeUndefined();
+});
+
+test("a value the host sets wins over the secure text the person typed", async () => {
+  const login: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [{ kind: "text", id: "password", label: "Password", secure: true }],
+    values: { password: "" },
+  };
+  const { host, presses } = await render(login);
+  const field = host.querySelector('[data-field="password"]') as HTMLInputElement;
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "hunter2");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  // Automation's setValue clears the field: the host bumps its values serial.
+  await act(async () => {
+    root!.render(
+      <OverlayDialog
+        dialog={{ ...login, values: { password: "swordfish" }, valuesSerial: 1 }}
+        onPress={(button, values) => presses.push({ button, values })}
+        onEdit={() => {}}
+        onLayout={() => {}}
+      />,
+    );
+  });
+  expect(field.value).toBe("swordfish");
+  act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
+  expect(presses.at(-1)?.values).toEqual({ password: "swordfish" });
+});
+
+test("the card tells the host a frame after it drew, once per dialog", async () => {
+  installDom();
+  let painted = 0;
+  root = createRoot(dom!.window.document.getElementById("root")!);
+  await act(async () => {
+    root!.render(
+      <OverlayDialog
+        dialog={quit}
+        onPress={() => {}}
+        onEdit={() => {}}
+        onLayout={() => {}}
+        onPainted={() => painted++}
+      />,
+    );
+  });
+  expect(painted).toBe(0);
+  for (let frame = 0; frame < 10 && painted === 0; frame++) {
+    await act(async () => {
+      await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+    });
+  }
+  expect(painted).toBe(1);
+});
+
+// Review 24 of #37296 (F2): the card reported its drawn rect, which the entrance's opening scale shrinks,
+// and a ResizeObserver never hears the scale end, so the glass kept the opening size. The card reports its
+// layout box, which no transform changes.
+test("the card reports its layout box, not its scaled drawn rect", () => {
+  const document = new JSDOM("<!doctype html><body></body>").window.document;
+  const card = document.createElement("div");
+  card.style.transform = "scale(0.97)";
+  document.body.append(card);
+  Object.defineProperties(card, {
+    offsetLeft: { value: 120 },
+    offsetTop: { value: 80 },
+    offsetWidth: { value: 380 },
+    offsetHeight: { value: 180 },
+    offsetParent: { value: null },
+  });
+  card.getBoundingClientRect = () => ({ left: 125, top: 83, width: 368, height: 174 }) as DOMRect;
+  expect(layoutBox(card)).toEqual({ x: 120, y: 80, w: 380, h: 180 });
 });

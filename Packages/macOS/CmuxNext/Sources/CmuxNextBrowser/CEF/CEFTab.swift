@@ -119,6 +119,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The last read found no background of the document's own and a dark color scheme: Blink paints its dark canvas
+    /// (over a white page base), which the resize gap and a closing pane show.
+    @ObservationIgnored var pageCanvasDark = false
     /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
     /// (`documentDidPaint`), so the second of the two events starts no second read.
     @ObservationIgnored var pageBackdropReading: Int?
@@ -388,6 +391,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
+        if machine.state.isAudioMuted { applyAudioMute() }
         // Focus asked for while the page was being created applies only if
         // the page is still shown: CEF's SetFocus activates (orders front)
         // the page window, which for a page that is no longer selected put

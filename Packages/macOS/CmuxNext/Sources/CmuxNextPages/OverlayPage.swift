@@ -19,12 +19,18 @@ public extension PageDescriptor {
 @MainActor
 public final class OverlayPagePool<Provider: PageProvider> {
     public let route: String
+    /// Its views refuse page probes (``PageWebView/refusesProbes``) from the moment they are made: a pool of
+    /// overlays that show what automation must never read or answer (dialogs: a typed password, a consent).
+    public let refusesProbes: Bool
     private let makeProvider: @MainActor () -> Provider
     private var spare: (view: PageWebView, provider: Provider)?
     private var claimed: [ObjectIdentifier: Provider] = [:]
+    /// Tests: the page's files come from this folder instead of the app's bundle.
+    var testRoot: URL?
 
-    public init(route: String, makeProvider: @escaping @MainActor () -> Provider) {
+    public init(route: String, refusesProbes: Bool = false, makeProvider: @escaping @MainActor () -> Provider) {
         self.route = route
+        self.refusesProbes = refusesProbes
         self.makeProvider = makeProvider
     }
 
@@ -61,8 +67,14 @@ public final class OverlayPagePool<Provider: PageProvider> {
 
     private func make() -> (view: PageWebView, provider: Provider)? {
         let provider = makeProvider()
-        guard let view = PageWebView(descriptor: .overlay, routes: [PageRoute(prefix: "cmux.overlay.", provider: provider)],
-                                     route: route) else { return nil }
+        // WebKit by name: the page is transparent over the window's own glass in the overlay panel, which
+        // a Chromium page (an opaque child window that takes the keys) cannot be.
+        let routes = [PageRoute(prefix: "cmux.overlay.", provider: provider)]
+        let made = testRoot.map { PageWebView(descriptor: .overlay, root: $0, testRoot: true, routes: routes, route: route) }
+            ?? PageWebView(descriptor: .overlay, routes: routes, route: route, options: PageEngineOptions(requiresWebKit: .transparentOverlay))
+        guard let view = made else { return nil }
+        // Before any probe can pick it (this turn), so none that picked a spare reads the dialog it is claimed for.
+        view.refusesProbes = refusesProbes
         view.autoresizingMask = []
         return (view, provider)
     }

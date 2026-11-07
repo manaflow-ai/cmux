@@ -21,7 +21,23 @@ public final class CmuxDialogPresentation {
     /// The view the host shows (the overlay page), while it is on screen.
     public internal(set) weak var view: NSView?
     /// The card's rect in ``view``'s coordinates, as the page last laid it out; nil before.
-    public var cardRect: CGRect?
+    public var cardRect: CGRect? {
+        didSet {
+            guard cardRect != nil else { return }
+            resumeCardWaiters()
+            onCardRect?()
+        }
+    }
+    /// The host follows the card (an app-scope dialog's region grows to hold it).
+    var onCardRect: (() -> Void)?
+    /// Who waits for the card's first rect (`debug.dialog_strip`): resumed when it arrives.
+    var cardWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func resumeCardWaiters() {
+        let waiters = cardWaiters
+        cardWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
 
     init(id: Int, spec: CmuxDialogSpec, activeLook: ActiveLookScope?) {
         self.id = id
@@ -32,6 +48,23 @@ public final class CmuxDialogPresentation {
 
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }
+    /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
+    /// card draws); false again when the overlay hides it.
+    public private(set) var isPresented = false
+    private var presentedWaiters: [() -> Void] = []
+
+    /// Runs `body` once ``view`` is presented in its overlay, now when it is.
+    public func whenPresented(_ body: @escaping () -> Void) {
+        if isPresented { body() } else { presentedWaiters.append(body) }
+    }
+
+    func notePresented(_ presented: Bool) {
+        isPresented = presented
+        guard presented else { return }
+        let waiters = presentedWaiters
+        presentedWaiters = []
+        waiters.forEach { $0() }
+    }
 
     // MARK: From the drawing
 
