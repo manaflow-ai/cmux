@@ -264,7 +264,8 @@ test("a gathered deck's older cards are inert and hidden from assistive tech unt
   for (const message of ["one", "two", "three"]) queue.show({ message, duration: 0 });
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
   const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
-  const concealed = () => cards().map((card) => card.hasAttribute("inert") && card.getAttribute("aria-hidden") === "true");
+  const concealed = () =>
+    cards().map((card) => card.hasAttribute("inert") && card.getAttribute("aria-hidden") === "true");
   // Gathered: only the front card can be reached; focusing it spreads the deck.
   expect(concealed()).toEqual([false, true, true]);
   act(() => {
