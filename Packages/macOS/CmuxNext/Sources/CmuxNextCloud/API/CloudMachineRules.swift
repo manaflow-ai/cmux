@@ -65,6 +65,23 @@ public nonisolated struct CloudMachineRules: Sendable {
     static let statuses: Statuses = CloudMachineRules().call("cloud_machine_statuses", [String: String](), as: Statuses.self) ?? Statuses()
 }
 
+/// A Cloud API answer cmux-cloud-machine reads (`models::KINDS`): its fields are the crate's, not
+/// the server's, so ``CloudAPIClient`` reads one only through ``CloudMachineRules/answer(_:as:context:)``.
+public protocol CloudServerModel: Decodable {
+    static var cloudModelKind: String { get }
+}
+
+extension CloudMachineRules {
+    /// A route's 2xx answer read as `T`: through the crate for a ``CloudServerModel``, else as
+    /// plain JSON; throws ``CloudAPIError/decoding(_:)`` naming `context`.
+    func answer<T: Decodable>(_ data: Data, as: T.Type, context: String) throws -> T {
+        if let model = T.self as? any CloudServerModel.Type {
+            return try read(model.cloudModelKind, data, as: T.self, context: context)
+        }
+        do { return try JSONDecoder().decode(T.self, from: data) } catch { throw CloudAPIError.decoding("\(context): \(error)") }
+    }
+}
+
 /// `cloud_model_read`'s request and answer (file level: a generic function nests no types).
 private struct ModelRead: Encodable {
     var kind: String
@@ -75,3 +92,11 @@ private struct ModelReadReply<T: Decodable>: Decodable {
     var value: T?
     var error: String?
 }
+
+// The answers ``CloudAPIClient`` reads through the crate, each with its `models::KINDS` kind.
+extension CloudMachine: CloudServerModel { public static var cloudModelKind: String { "machine_classic" } }
+extension CloudSnapshot: CloudServerModel { public static var cloudModelKind: String { "snapshot" } }
+extension CloudSCPEndpoint: CloudServerModel { public static var cloudModelKind: String { "scp_endpoint" } }
+extension CloudExecResult: CloudServerModel { public static var cloudModelKind: String { "exec_result" } }
+extension CloudFileStat: CloudServerModel { public static var cloudModelKind: String { "file_stat" } }
+extension CloudFileContents: CloudServerModel { public static var cloudModelKind: String { "file_contents" } }

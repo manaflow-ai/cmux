@@ -52,7 +52,7 @@ struct CloudMachineTeamMetadataTests {
         #"{"id":"vm-bad","createdBy":{"userId":42,"displayName":null}}"#,
     ])
     func malformedFieldsStillFailDecoding(json: String) {
-        #expect(throws: DecodingError.self) {
+        #expect(throws: CloudAPIError.self) {
             try CloudMachine.classic(Data(json.utf8))
         }
     }
