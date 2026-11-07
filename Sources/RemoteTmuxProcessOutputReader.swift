@@ -7,6 +7,12 @@ import Foundation
 /// readability source has delivered the pipe's final buffered bytes. This reader
 /// keeps one serial owner for the descriptor and, when told the process exited,
 /// drains the nonblocking descriptor before finishing its stream.
+///
+/// The bounds are flow control, not a failure: once the consumer holds
+/// `maxPendingChunks` unreleased chunks or `maxPendingBytes` unreleased bytes,
+/// the reader stops reading the pipe and resumes when the consumer has released
+/// half of either. The kernel pipe then fills and the writing process blocks, so
+/// a remote that outpaces the parser is slowed down instead of disconnected.
 // Sendable safety: mutable descriptor, source, and byte-accounting state is
 // confined to `queue`; AsyncStream is the thread-safe handoff primitive.
 final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
@@ -14,30 +20,35 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
 
     private let continuation: AsyncStream<Data>.Continuation
     private let queue: DispatchQueue
+    private let maxPendingChunks: Int
     private let maxPendingBytes: Int
     private let maxReadChunkBytes: Int
-    private let onOverflow: @MainActor @Sendable () -> Void
     private var handle: FileHandle?
     private var source: DispatchSourceRead?
     private var pendingBytes = 0
+    private var pendingChunks = 0
+    /// Reading stopped because the consumer is at a bound.
+    private var paused = false
+    private var sourceSuspended = false
+    /// The process exited; reads continue until the pipe is empty, then the stream ends.
+    private var draining = false
     private var closed = false
 
     init(
         label: String,
         maxPendingChunks: Int,
         maxPendingBytes: Int,
-        maxReadChunkBytes: Int = 64 * 1024,
-        onOverflow: @escaping @MainActor @Sendable () -> Void
+        maxReadChunkBytes: Int = 64 * 1024
     ) {
-        let (stream, continuation) = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingOldest(maxPendingChunks)
-        )
+        // Accounting keeps at most maxPendingChunks unreleased chunks, so the
+        // stream's buffer never holds more than that.
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         self.stream = stream
         self.continuation = continuation
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
+        self.maxPendingChunks = max(1, maxPendingChunks)
         self.maxPendingBytes = max(1, maxPendingBytes)
         self.maxReadChunkBytes = max(1, maxReadChunkBytes)
-        self.onOverflow = onOverflow
     }
 
     func attach(to handle: FileHandle) {
@@ -55,14 +66,24 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
+    /// Returns a chunk's share of the bounds once the consumer is done with it.
     func release(_ data: Data) {
-        release(byteCount: data.count)
+        let byteCount = data.count
+        queue.async { [weak self] in
+            self?.releaseOnQueue(byteCount: byteCount)
+        }
     }
 
     /// Drains bytes already committed to the pipe, then finishes the stream.
     func processDidExit() {
         queue.async { [weak self] in
-            self?.drainAfterProcessExit()
+            guard let self, !self.closed else { return }
+            // The drain owns reads from here on; a readability source left
+            // running would fire without pause while the drain waits on the
+            // consumer.
+            self.draining = true
+            self.setSourceSuspended(true)
+            self.drain()
         }
     }
 
@@ -79,29 +100,33 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
     }
 
-    private func release(byteCount: Int) {
-        guard byteCount > 0 else { return }
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.pendingBytes = max(0, self.pendingBytes - byteCount)
-        }
+    private var atBound: Bool {
+        pendingChunks >= maxPendingChunks || pendingBytes >= maxPendingBytes
     }
 
     private func readAvailable(from fileDescriptor: Int32) {
-        guard !closed, let source else { return }
+        guard !closed, !draining, let source else { return }
+        guard !atBound else {
+            pause()
+            return
+        }
         if readAndPublish(from: fileDescriptor, byteCount: readByteCount(available: source.data)) == .ended {
             finishOnQueue()
         }
     }
 
-    private func drainAfterProcessExit() {
+    private func drain() {
         guard !closed, let handle else {
             finishOnQueue()
             return
         }
         let fileDescriptor = handle.fileDescriptor
         while !closed {
-            switch readAndPublish(from: fileDescriptor, byteCount: maxReadChunkBytes) {
+            guard !atBound else {
+                pause()
+                return
+            }
+            switch readAndPublish(from: fileDescriptor, byteCount: readByteCount(available: UInt(maxReadChunkBytes))) {
             case .published, .interrupted:
                 continue
             case .wouldBlock, .ended:
@@ -120,22 +145,10 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
         if bytesRead > 0 {
             let chunk = Data(buffer[0..<bytesRead])
-            guard reserve(byteCount: chunk.count) else {
-                overflowOnQueue()
-                return .ended
-            }
-            switch continuation.yield(chunk) {
-            case .enqueued:
-                return .published
-            case .dropped, .terminated:
-                releaseOnQueue(byteCount: chunk.count)
-                overflowOnQueue()
-                return .ended
-            @unknown default:
-                releaseOnQueue(byteCount: chunk.count)
-                overflowOnQueue()
-                return .ended
-            }
+            pendingBytes += chunk.count
+            pendingChunks += 1
+            if case .terminated = continuation.yield(chunk) { return .ended }
+            return .published
         }
         if bytesRead == 0 { return .ended }
         if errno == EINTR { return .interrupted }
@@ -143,37 +156,50 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         return .ended
     }
 
+    /// A read never takes more than the byte bound has room for, so one large
+    /// write cannot overshoot it.
     private func readByteCount(available: UInt) -> Int {
+        let room = maxPendingBytes - pendingBytes
         guard available > 0 else { return 1 }
-        return max(1, min(maxReadChunkBytes, Int(min(available, UInt(maxReadChunkBytes)))))
-    }
-
-    private func reserve(byteCount: Int) -> Bool {
-        guard byteCount > 0 else { return true }
-        guard byteCount <= maxPendingBytes - pendingBytes else { return false }
-        pendingBytes += byteCount
-        return true
+        return max(1, min(maxReadChunkBytes, room, Int(min(available, UInt(maxReadChunkBytes)))))
     }
 
     private func releaseOnQueue(byteCount: Int) {
-        guard byteCount > 0 else { return }
         pendingBytes = max(0, pendingBytes - byteCount)
+        pendingChunks = max(0, pendingChunks - 1)
+        guard paused, !closed,
+              pendingChunks <= maxPendingChunks / 2,
+              pendingBytes <= maxPendingBytes / 2 else { return }
+        paused = false
+        if draining {
+            drain()
+        } else {
+            setSourceSuspended(false)
+        }
     }
 
-    private func overflowOnQueue() {
-        finishOnQueue()
-        Task { @MainActor [onOverflow] in
-            onOverflow()
-        }
+    private func pause() {
+        paused = true
+        setSourceSuspended(true)
+    }
+
+    private func setSourceSuspended(_ suspended: Bool) {
+        guard let source, suspended != sourceSuspended else { return }
+        sourceSuspended = suspended
+        if suspended { source.suspend() } else { source.resume() }
     }
 
     private func finishOnQueue() {
         guard !closed else { return }
         closed = true
         pendingBytes = 0
+        pendingChunks = 0
         let sourceToCancel = source
-        source = nil
         sourceToCancel?.cancel()
+        // Dispatch traps when a suspended source is released, and a cancelled
+        // source delivers no further events once resumed.
+        setSourceSuspended(false)
+        source = nil
         handle = nil
         continuation.finish()
     }
