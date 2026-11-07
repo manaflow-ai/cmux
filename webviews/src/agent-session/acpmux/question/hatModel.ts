@@ -11,7 +11,7 @@
 //   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
 //   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
-// - the questions of the chats this one started (needsYou/JumpPill.tsx `pillAsks`): the pane can only
+// - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): the pane can only
 //   answer the chat it shows, so these open their chat.
 //
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question
@@ -22,8 +22,9 @@
 // (direct.ts `recordQuestion`); one the agent or a Stop withdrew leaves when acpmux says so.
 import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
 import { NEXT_STEP } from "../conversation/turns";
+import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
-import { pillAsks } from "../needsYou/JumpPill";
+import { pillAsks } from "../needsYou/jumpPillModel";
 import { needsYouItems, type WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { hasPreviews, isPending, type AgentQuestion } from "./model";
@@ -53,6 +54,8 @@ export type HatQuestion = {
   /// answered as the person's reply; `child`: a started chat's, opened in that chat.
   source: "own" | "nextStep" | "child";
   sessionId?: string;
+  /// A tagged ask's card key (waitingAskStore.ts `askKey`): the hat and the card share its answer.
+  answerKey?: string;
   tag?: HatTag;
   prompt: string;
   /// The question's second line: a tagged ask's words after its question, or what else it asks.
@@ -78,7 +81,7 @@ const ONE_CLICK = 4;
 export function oneClickAnswers(question: AgentQuestion): HatAnswer[] {
   if (question.items.length !== 1) return [];
   const item = question.items[0]!;
-  if (item.multiSelect || item.options.length < 2 || item.options.length > ONE_CLICK || hasPreviews(item)) return [];
+  if (item.multiSelect || item.options.length === 0 || item.options.length > ONE_CLICK || hasPreviews(item)) return [];
   return item.options.map((option) => ({ id: option.id, label: option.label }));
 }
 
@@ -159,6 +162,7 @@ function nextStepQuestion(row: AcpmuxRow | undefined, owner: string): HatQuestio
   return {
     id: `next:${row.id}`,
     sessionId: owner,
+    answerKey: askKey(row),
     source: "nextStep",
     ...(hatTag(ask.tag) ? { tag: hatTag(ask.tag) } : {}),
     prompt: ask.question,

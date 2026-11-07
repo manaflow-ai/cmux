@@ -21,7 +21,7 @@ import {
   type BackgroundCommand,
   type SessionInfoProcess,
 } from "../processes";
-import { COMMAND_STATE } from "../TasksSection";
+import { COMMAND_STATE } from "../tasksSectionModel";
 import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
 import { TASK_ICONS } from "../taskIcons";
 import { compactTokens } from "../../conversation/CompactionNote";

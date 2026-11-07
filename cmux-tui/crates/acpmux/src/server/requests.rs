@@ -449,6 +449,8 @@ async fn dispatch_brief(
             "host": crate::host_pressure::host_name(),
         }));
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
+        // Its session there is this caller's (a workflow's remote activity: its owning agent).
+        crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
         let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
             Ok(result) => result,
             Err(e) => {
@@ -531,6 +533,13 @@ async fn dispatch_brief(
         }
         if let Some(via) = params.pointer("/_meta/acpmux/via") {
             obj.insert("via".into(), via.clone());
+        }
+        // A forwarding peer's own answer of who creates it; `creator_of` takes it from a
+        // proven peer only (`hub/created_by.rs`).
+        if let Some(by) =
+            params.pointer(&format!("/_meta/acpmux/{}", crate::hub::created_by::FIELD))
+        {
+            obj.insert(crate::hub::created_by::FIELD.into(), by.clone());
         }
     }
     if durable && let Some(ceiling) = params.get("allowedTools") {
@@ -791,6 +800,21 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
         *slot = Value::String(route);
     }
     Ok(())
+}
+
+/// `_meta.acpmux` for a start this daemon forwards to a peer: who creates it, as this daemon
+/// decides it (`hub/created_by.rs`); the peer takes it from this link only.
+fn created_by_stamp(hub: &Hub, conn: &Conn, params: &Value) -> Value {
+    let by = hub.creator_of(crate::hub::created_by::Creator {
+        person: person_asks(conn),
+        caller: conn.caller(),
+        control: super::remote_guard::proven_control(conn.origin, conn.auth),
+        meta: mux_meta(params),
+        workspace: crate::session_env::workspace_id(mux_meta(params), &Default::default())
+            .ok()
+            .flatten(),
+    });
+    json!({crate::hub::created_by::FIELD: serde_json::to_value(by).unwrap_or_default()})
 }
 
 pub(super) async fn handle_request(
@@ -1372,6 +1396,7 @@ async fn dispatch_request_with_identity(
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
+                crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).
                 if peer.vm_boundary()
@@ -1386,11 +1411,7 @@ async fn dispatch_request_with_identity(
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
                 }
-                let asked = p.clone();
-                let mut result =
-                    super::remote_guard::hint::new_on(&peer, &params, p).await.map_err(|e| {
-                        crate::hub::full_access_children::refused_by(&peer.name, &asked, e)
-                    })?;
+                let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
@@ -1504,6 +1525,17 @@ async fn dispatch_request_with_identity(
             let copy = succ.as_ref().and_then(|s| s.copy.clone()).unwrap_or_default();
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
+            let workspace_id = crate::session_env::workspace_id(meta, &env)?;
+            // Who creates it (`hub/created_by.rs`), from what this connection proved.
+            let created_by = (!adopting).then(|| {
+                hub.creator_of(crate::hub::created_by::Creator {
+                    person: person_asks(conn),
+                    caller: conn.caller(),
+                    control: super::remote_guard::proven_control(conn.origin, conn.auth),
+                    meta,
+                    workspace: workspace_id.clone(),
+                })
+            });
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1513,7 +1545,7 @@ async fn dispatch_request_with_identity(
                 model: copy.model.or_else(|| pick("model")),
                 effort: copy.effort.or_else(|| pick("effort")),
                 adopt,
-                workspace_id: crate::session_env::workspace_id(meta, &env)?,
+                workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
@@ -1527,6 +1559,7 @@ async fn dispatch_request_with_identity(
                 route,
                 subsession: None,
                 lineage,
+                created_by,
                 disallowed_tools,
                 checked_cwd: None,
                 additional_directories,
