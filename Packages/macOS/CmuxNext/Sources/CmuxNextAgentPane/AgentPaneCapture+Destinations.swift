@@ -105,19 +105,34 @@ extension AgentPaneCapture {
         return AgentPaneReply.success(["saved": destination.path])
     }
 
+    /// Off the main actor: copies `file` to a new `staged` through descriptors. The source is opened
+    /// with `O_NOFOLLOW` and must be a regular file on the open descriptor itself, so a link put in
+    /// the movie's place between the check and the copy is refused, never followed; `staged` must
+    /// not exist yet.
+    nonisolated static func copyRegular(_ file: URL, to staged: URL) -> Bool {
+        let source = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard source >= 0 else { return false }
+        defer { Darwin.close(source) }
+        var info = stat()
+        guard fstat(source, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return false }
+        let target = Darwin.open(staged.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        guard target >= 0 else { return false }
+        defer { Darwin.close(target) }
+        return fcopyfile(source, target, nil, copyfile_flags_t(COPYFILE_DATA)) == 0
+    }
+
     /// Off the main actor: `bytes`, or a copy of `file`, written beside `destination` and then
     /// moved over it in one atomic rename (the panel asked before replacing), so a failure at any
     /// step leaves the old file whole. Only that partial copy is removed on failure; the movie
     /// itself stays, for Copy and a later Save. A file that is no longer a regular file (a link put
-    /// in its place) is refused.
+    /// in its place) is refused (``copyRegular(_:to:)``).
     nonisolated static func write(bytes: Data?, file: URL?, to destination: URL) -> Bool {
         let staged = destination.deletingLastPathComponent().appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).part")
         do {
             if let bytes {
                 try bytes.blockingWrite(to: staged)
             } else {
-                guard let file, (try? FileManager.checked.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType) == .typeRegular else { return false }
-                try FileManager.checked.copyItem(at: file, to: staged)
+                guard let file, copyRegular(file, to: staged) else { throw CocoaError(.fileReadNoPermission) }
             }
             // rename(2) replaces an existing destination atomically (both are in its folder).
             guard rename(staged.path, destination.path) == 0 else { throw CocoaError(.fileWriteUnknown) }

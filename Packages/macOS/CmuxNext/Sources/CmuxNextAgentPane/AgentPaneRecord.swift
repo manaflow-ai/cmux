@@ -60,6 +60,7 @@ final class AgentPaneRecorder {
         weak var model: AgentPaneModel?
         let session: String?
         let recording: AgentPaneRecording
+        let since: Date
     }
 
     private var leftovers: [Leftover] = []
@@ -100,7 +101,7 @@ final class AgentPaneRecorder {
         if let stale = current {
             current = nil
             if let owner = recordingModel {
-                leftovers.append(Leftover(model: owner, session: recordingSession, recording: stale))
+                leftovers.append(Leftover(model: owner, session: recordingSession, recording: stale, since: Date()))
             } else {
                 Task.detached(priority: .utility) { await stale.discard() }
             }
@@ -174,10 +175,13 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
-    /// Discards the leftovers whose pane is gone: nobody can collect them any more.
+    /// Discards the leftovers whose pane is gone (nobody can collect them any more) and those
+    /// waiting over a day, as the sweep would (a pane that missed the end event never asks).
     private func dropOrphans() {
-        let orphans = leftovers.filter { $0.model == nil }.map(\.recording)
-        leftovers.removeAll { $0.model == nil }
+        let now = Date()
+        let gone = { (leftover: Leftover) in leftover.model == nil || now.timeIntervalSince(leftover.since) > 24 * 60 * 60 }
+        let orphans = leftovers.filter(gone).map(\.recording)
+        leftovers.removeAll(where: gone)
         for orphan in orphans { Task.detached(priority: .utility) { await orphan.discard() } }
     }
 

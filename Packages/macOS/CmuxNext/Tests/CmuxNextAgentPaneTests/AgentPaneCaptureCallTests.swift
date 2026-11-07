@@ -155,5 +155,17 @@ struct AgentPaneCaptureCallTests {
         #expect(!AgentPaneCapture.write(bytes: nil, file: root.appendingPathComponent("missing.mp4"), to: destination))
         #expect(try Data(contentsOf: destination) == Data("new".utf8))
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["Shot.png"])
+        // A link in the movie's place is refused, never followed: the destination keeps its bytes.
+        let secret = root.appendingPathComponent("secret.txt")
+        try Data("secret".utf8).write(to: secret)
+        let link = root.appendingPathComponent("movie.mp4")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
+        #expect(!AgentPaneCapture.write(bytes: nil, file: link, to: destination))
+        #expect(try Data(contentsOf: destination) == Data("new".utf8))
+        // A regular movie copies.
+        let movie = root.appendingPathComponent("real.mp4")
+        try Data("movie".utf8).write(to: movie)
+        #expect(AgentPaneCapture.write(bytes: nil, file: movie, to: destination))
+        #expect(try Data(contentsOf: destination) == Data("movie".utf8))
     }
 }
