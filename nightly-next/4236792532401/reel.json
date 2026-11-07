@@ -1,0 +1,263 @@
+{
+  "version": 1,
+  "build": "4236792532401",
+  "notes": "notes/4236792532401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37737,
+      "title": "image roll: refuse a VM_BOOT_IMAGES list over Cloudflare's 5,120-byte limit, and trim staging under it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37278,
+      "title": "Cloud carrier: cmux carrier serve, the dial behind a Unix socket, and vmk on the dial",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37283,
+      "title": "palette.rank: the Channels palette ranks on the daemon's shared Rust ranker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37734,
+      "title": "ci(base-red): read the app FFI pin from app-ffi-pin.json when the head has one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37717,
+      "title": "cmux daemon: view-only link shares (role on share-create; up to 1000 uses)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37707,
+      "title": "fix(tabs): a burst's second new tab reads its slot after the first tab moved",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37705,
+      "title": "sidebar: a group's glass block draws no edge down its rows' side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37561,
+      "title": "cmux NEXT: the close rules ask Rust; delete their Swift (step B of #37258)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37730,
+      "title": "cmux NEXT: the menu reason gallery draws its disabled rows, shortcuts and captions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37723,
+      "title": "fix(next): a split's lit drag band stays inside its line (RESIZE P0 5)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37552,
+      "title": "experiments: delete the superseded remote-desktop prototype, both iroh spikes and the cloud-browser scratch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37722,
+      "title": "perf(next): a key resize keeps the page window attached (RESIZE P0 5)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37711,
+      "title": "Agent chat menu: Set Chat Avatar… draws the chat's avatar; Show in Mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37727,
+      "title": "cmux next: more room under the worked-for rule",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37299,
+      "title": "cmux NEXT sidebar: the workspace group editor is a React page in a warm native popup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37690,
+      "title": "cmux-api: forward the carrier ticket route to cmux-platform",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37504,
+      "title": "acpmux: a stopped hand-written daemon unit moves to acpmux.service; agents rank above the daemon for the OOM killer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37608,
+      "title": "cmux NEXT: one icon family at the top; the puzzle is the arrows' size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37644,
+      "title": "cmux-tui: clippy lock-scope lints catch a lock held across slow work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37495,
+      "title": "cmux-tui-core: take the lone dock with first_mut, not [0] (panic ratchet)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37721,
+      "title": "inference setup: keep --machine from the global option scan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37688,
+      "title": "Agent chat: the provider file id scan stops past its cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37699,
+      "title": "cmux-next: sidebar group rails and row frames cost the rows near the screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37702,
+      "title": "cmux-next benches: seeders read a chat after acpmux's checkpoint (journal always on)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37704,
+      "title": "docs(cmux-next): design lessons carry the corrected counts (51 stale-test base reds, not 235)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37696,
+      "title": "acpmux: a dispatch refusal is decided and written under the shutdown's lock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37654,
+      "title": "Composer: the caret keeps clear of an attachment's edge in the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37642,
+      "title": "Spinners: every spinner turns once per 2 s, from one token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34323,
+      "title": "fix: estimate permission and question cards on the grid (#33866)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37584,
+      "title": "Pane tab row: one trailing slot whichever tab is selected; no row swap or jump on tab open, close or select",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37700,
+      "title": "gateway-e2e: run again after cmux#37694",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37683,
+      "title": "acpmux: a steered turn's typed failure read from lastTurn keeps its kind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37673,
+      "title": "perf(agent-pane): the chat page records its frame pacing (missed 120 Hz and 60 Hz frames) once a second",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37655,
+      "title": "cmux NEXT: column and dock edges show the faint line at rest too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28596,
+      "title": "carry of #28303: time the live turn instead of its old prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37672,
+      "title": "cmux NEXT: a menu row that shows a reason draws no shortcut over it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37666,
+      "title": "acpmux: log pressure_digest and host_short on every shadow admission line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37220,
+      "title": "Cloud carrier: cmux carrier dial --service desktop (the desktop over the carrier)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37617,
+      "title": "Agent pane: a turn Timeline's header corner says its calls and total",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37287,
+      "title": "Cloud bootstrap: the machine bootstrap, machine.toml applier and create retry rules move to Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37694,
+      "title": "cmux-api: forward the team's inference gateway routes to cmux-platform",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37167,
+      "title": "Agent pane: a question to the person stays answerable after another agent's turn",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
