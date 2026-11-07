@@ -401,7 +401,7 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
       {kinds.length > 0 && (
         <>
           {lines > 0 && (
-            <div className="acpmux-pr-card__bar" aria-hidden="true">
+            <div className="acpmux-pr-card__kindBar" aria-hidden="true">
               {kinds.map((total) => {
                 const share = (total.additions + total.deletions) / lines;
                 return share > 0 ? (

@@ -76,7 +76,8 @@ nonisolated extension AgentChatPullRequestReader {
         var updatedAt: String
         /// `open`, `draft`, `merged` or `closed`, as ``AgentPanePullRequest/state`` says it.
         var state: String
-        /// The head commit's rollup sum, upper-cased; empty when not asked or there are no checks.
+        /// The head commit's rollup fingerprint (``rollupFingerprint(_:)``); empty when not asked or
+        /// there are no checks.
         var rollupState: String
     }
 
@@ -117,7 +118,7 @@ nonisolated extension AgentChatPullRequestReader {
     /// A merged or closed one is not asked: its checks no longer change what the card says.
     static func probeQuery(_ targets: [(target: Target, checks: Bool)]) -> String {
         let aliases = targets.enumerated().map { index, entry in
-            let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }" : ""
+            let checks = entry.checks ? " commits(last: 1) { nodes { commit { statusCheckRollup { state \(rollupCounts) } } } }" : ""
             return "p\(index): repository(owner: \"\(entry.target.owner)\", name: \"\(entry.target.name)\") "
                 + "{ pullRequest(number: \(entry.target.number)) { updatedAt state isDraft\(checks) } }"
         }
@@ -142,12 +143,33 @@ nonisolated extension AgentChatPullRequestReader {
             }
             let state = (view["state"] as? String)?.lowercased() ?? "open"
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]
-            let rollup = (commit?["statusCheckRollup"] as? [String: Any])?["state"] as? String
             result[target.url] = .some(Probe(updatedAt: view["updatedAt"] as? String ?? "",
                                              state: state == "open" && view["isDraft"] as? Bool == true ? "draft" : state,
-                                             rollupState: rollup?.uppercased() ?? ""))
+                                             rollupState: rollupFingerprint(commit?["statusCheckRollup"] as? [String: Any])))
         }
         return result
+    }
+
+    /// The rollup's checks counted by state, asked beside its sum in the probe and the full read.
+    /// The sum alone stays `PENDING` while one check after another finishes, and none of them moves
+    /// `updatedAt`, so a probe of the sum alone kept stale counts as fresh (review of #37571 at
+    /// 1eac536b); the counts change with every check that finishes.
+    static let rollupCounts = "counts: contexts(first: 1) { checkRunCountsByState { state count } "
+        + "statusContextCountsByState { state count } }"
+
+    /// A rollup's sum, upper-cased, then its counts by state when GitHub gave them
+    /// (`PENDING IN_PROGRESS:2,SUCCESS:5|PENDING:1`); empty with no rollup. Equal fingerprints mean
+    /// the card's checks row has nothing new to say.
+    static func rollupFingerprint(_ rollup: [String: Any]?) -> String {
+        guard let state = (rollup?["state"] as? String)?.uppercased() else { return "" }
+        let counts = rollup?["counts"] as? [String: Any]
+        let byState = ["checkRunCountsByState", "statusContextCountsByState"].map { key in
+            ((counts?[key] as? [[String: Any]]) ?? []).compactMap { entry -> String? in
+                guard let name = entry["state"] as? String, let count = entry["count"] as? Int else { return nil }
+                return "\(name.uppercased()):\(count)"
+            }.sorted().joined(separator: ",")
+        }
+        return byState.allSatisfy(\.isEmpty) ? state : state + " " + byState.joined(separator: "|")
     }
 
     /// The rate limit a GraphQL answer reports; nil when it reports none (a failed read).

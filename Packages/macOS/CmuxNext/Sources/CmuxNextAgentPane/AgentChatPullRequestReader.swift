@@ -158,7 +158,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             changedFiles baseRefName headRefName baseRefOid headRefOid author { login avatarUrl(size: 48) } \
             labels(first: \(AgentPanePullRequest.maximumLabels)) { nodes { name color } } \
             files(first: 100) { nodes { path additions deletions } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { state \(contexts) } } } } \
+            commits(last: 1) { nodes { commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } } \
             baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
@@ -190,8 +190,8 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             let rollup = commit?["statusCheckRollup"] as? [String: Any]
             let contexts = rollup?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
-            // The rollup's own sum, which the cheap probe compares (``probeQuery(_:)``).
-            view["rollupState"] = rollup?["state"] as? String
+            // The rollup's sum and counts, which the cheap probe compares (``probeQuery(_:)``).
+            view["rollupState"] = Self.rollupFingerprint(rollup)
             view["commits"] = nil
             // The base branch's tip, under the name `AgentPanePullRequest` reads it by. The tip is
             // what "also red on base" means: the merge rules measure a base red there, not at this

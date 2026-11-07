@@ -27,6 +27,7 @@ const AVATAR =
   encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" fill="#3b5bdb"/><circle cx="18" cy="14" r="7" fill="#dbe4ff"/><path d="M5 34c2-8 8-11 13-11s11 3 13 11z" fill="#dbe4ff"/></svg>',
   );
+const file = (path: string, additions: number, deletions: number) => ({ path, additions, deletions });
 // The card in Leo's screenshot (2026-11-07): 255 files, of which GitHub listed the first 100, two
 // labels with GitHub's colours, and checks that passed, failed and are still running.
 const LARGE_FILES = Array.from({ length: 100 }, (_, index) =>
@@ -41,7 +42,7 @@ const ALT_OUTLINE_LABELS = `
 .acpmux-pr-card__label { background: transparent !important; }
 .acpmux-pr-card__glyph { background: transparent !important; }`;
 const ALT_KIND_COLUMNS = `
-.acpmux-pr-card__bar { display: none !important; }
+.acpmux-pr-card__kindBar { display: none !important; }
 .acpmux-pr-card__breakdown { display: grid !important; grid-template-columns: repeat(3, max-content); column-gap: 14px; }
 .acpmux-pr-card__checksName { display: none !important; }`;
 const withStyle =
@@ -52,7 +53,6 @@ const withStyle =
     ctx.document.head.append(style);
     await openCard(ctx);
   };
-const file = (path: string, additions: number, deletions: number) => ({ path, additions, deletions });
 const FILES = [
   file("webviews/src/agent-session/acpmux/chips/PullRequestCard.tsx", 231, 48),
   file("webviews/src/agent-session/acpmux/styles.css", 36, 1),

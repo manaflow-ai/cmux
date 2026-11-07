@@ -285,6 +285,30 @@ struct AgentReplyPullRequestsQuotaTests {
         #expect(AgentReplyPullRequests.Budget.softFloor(10_000) == 1000)
     }
 
+    // MARK: - Checks finishing under a pending rollup
+
+    /// Review of #37571 at 1eac536b: one check after another finishes while the rollup stays
+    /// `PENDING` and `updatedAt` stays put, so a probe of the sum alone renewed stale counts as
+    /// fresh. The counts by state are part of what the probe compares.
+    @Test func aCheckThatFinishesUnderAPendingRollupIsAChange() throws {
+        func rollup(_ running: Int, _ passed: Int) -> [String: Any] {
+            ["state": "PENDING", "counts": ["checkRunCountsByState": [["state": "IN_PROGRESS", "count": running],
+                                                                     ["state": "SUCCESS", "count": passed]],
+                                            "statusContextCountsByState": [[String: Any]]()]]
+        }
+        let before = AgentChatPullRequestReader.rollupFingerprint(rollup(3, 5))
+        let after = AgentChatPullRequestReader.rollupFingerprint(rollup(2, 6))
+        #expect(before == "PENDING IN_PROGRESS:3,SUCCESS:5|")
+        #expect(before != after)
+        #expect(AgentChatPullRequestReader.rollupFingerprint(["state": "success"]) == "SUCCESS")
+        #expect(AgentChatPullRequestReader.rollupFingerprint(nil) == "")
+        let held = AgentPanePullRequest(url: "https://github.com/o/r/pull/1", number: 1, state: "open", checks: .init(state: "pending", passed: 5, total: 8),
+                                        updatedAt: "2026-11-07T00:00:00Z", rollupState: before)
+        let probe = AgentChatPullRequestReader.Probe(updatedAt: "2026-11-07T00:00:00Z", state: "open", rollupState: after)
+        #expect(AgentReplyPullRequests.changed(held, probe))
+        #expect(!AgentReplyPullRequests.changed(held, .init(updatedAt: held.updatedAt, state: "open", rollupState: before)))
+    }
+
     // MARK: - Label colors
 
     @Test func labelColorsAreSixHexDigitsOrNothing() throws {

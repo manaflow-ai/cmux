@@ -92,7 +92,7 @@
 .acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
 /* One bar split by the lines each kind of file changed, then each kind's +/− after a dot of its colour (Leo 2026-11-07). The bar and the dots are marks, not controls, so they size by block-size. */
-.acpmux-pr-card__bar{display:flex;gap:4px;block-size:6px;margin-block:4px;overflow:hidden;border-radius:999px}
+.acpmux-pr-card__kindBar{display:flex;gap:4px;block-size:6px;margin-block:4px;overflow:hidden;border-radius:999px}
 .acpmux-pr-card__barPart{min-width:3px;border-radius:999px;background:var(--kind)}
 .acpmux-pr-card__bar,.acpmux-pr-card__breakdown{--kind:var(--agent-muted)}
 [data-kind=code]{--kind:var(--agent-link)}

@@ -148,7 +148,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// picture?").
     public var authorAvatar: String?
     /// The head commit's check rollup as GitHub sums it (`SUCCESS`, `PENDING`, `FAILURE`, ...),
-    /// upper-cased; empty without checks and from `gh pr view`. The probe compares it
+    /// upper-cased and followed by its checks counted by state when GitHub gave them
+    /// (``AgentChatPullRequestReader/rollupFingerprint(_:)``); empty without checks and from
+    /// `gh pr view`. The probe compares it
     /// (``AgentChatPullRequestReader/probeQuery(_:)``); the card does not read it.
     public var rollupState: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
