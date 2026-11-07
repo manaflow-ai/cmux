@@ -252,6 +252,15 @@ const listed = (path: string | undefined): Act =>
     ? { key: "command.listedFiles", bare: "command.listedFiles" }
     : { key: "command.listed", values: { path: oneLine(path) }, bare: "command.listedFiles" };
 
+/// The folder `find` lists: its first argument after the symlink options (-H, -L, -P, -D x, -Olevel)
+/// when that is no predicate (`-name`, `(`, `!`); none, the folder it runs in.
+function findRoot(args: string[]): string | undefined {
+  let at = 0;
+  while (/^-([HLP]|O\d*)$/.test(args[at] ?? "") || args[at] === "-D") at += args[at] === "-D" ? 2 : 1;
+  const root = args[at];
+  return root && !/^[-(!)]/.test(root) ? root : undefined;
+}
+
 const ranScript = (script: string): Act => ({ key: "tools.ranCommand", values: { command: baseName(script) } });
 
 // ---------------------------------------------------------------------------------------------
@@ -576,7 +585,7 @@ const PROGRAMS: Record<string, Rule> = {
   ls: (args) => listed(parse(args, ["-I", "--ignore", "-w", "--width"]).positional[0]),
   eza: (args) => listed(parse(args).positional[0]),
   tree: (args) => listed(parse(args, ["-L", "-I", "-P"]).positional[0]),
-  find: (args) => listed(args.find((arg) => !arg.startsWith("-"))),
+  find: (args) => listed(findRoot(args)),
   fd: (args) =>
     listed(
       parse(args, [
@@ -748,7 +757,9 @@ export function commandLook(): CommandLabelLook {
   return experimentArm(commandLabelLook);
 }
 
-const running = (tool: Tool) => tool.status === "pending" || tool.status === "in_progress";
+// A shell that went on in the background keeps its launch's "completed" while it runs there.
+const running = (tool: Tool) =>
+  tool.status === "pending" || tool.status === "in_progress" || tool.background?.state === "running";
 
 /// A command row's words when they are not its command line: the table's action, else the call's
 /// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call

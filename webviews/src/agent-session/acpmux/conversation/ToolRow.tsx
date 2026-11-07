@@ -15,6 +15,7 @@ import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
+import { commandSaid } from "./commandActions";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
@@ -113,9 +114,13 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a shortened line is skipped.
-  // A label that names what the command did draws no command at all (commandActions.ts).
+  // A label that names what the command did draws no command at all (commandActions.ts), even when
+  // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
   const drawsCommand =
-    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() && label.includes(tool.command?.trim() ?? "");
+    shell &&
+    !commandSaid(t, tool) &&
+    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() &&
+    label.includes(tool.command?.trim() ?? "");
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
   // rendered result so the disclosure and its body agree, including image-only envelopes.
