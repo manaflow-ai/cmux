@@ -50,29 +50,47 @@ pub(crate) async fn run(
                 .map(|r| json!(r.into_inner())),
         }
     };
-    // Each preview call has its own deadline, not the generated client's longer default.
-    let Ok(answer) = tokio::time::timeout(PREVIEW_TIMEOUT, sent).await else {
-        return Err(Failure::TimedOut(path));
-    };
-    match answer {
-        Ok(body) => Ok(body),
-        Err(cmux_cloud_client::Error::CommunicationError(error))
-            if request.local_only && error.is_connect() =>
-        {
-            Err(Failure::NoBackend)
+    // One deadline for the whole call, its refusal's body included, not the generated
+    // client's longer default.
+    let now = tokio::time::Instant::now();
+    let deadline = now.checked_add(PREVIEW_TIMEOUT).unwrap_or(now);
+    within(deadline, path, sent, |error| async move {
+        match error {
+            cmux_cloud_client::Error::CommunicationError(error)
+                if request.local_only && error.is_connect() =>
+            {
+                Failure::NoBackend
+            }
+            error => {
+                let error = cmux_cloud_client::ApiError::from_api(error).await;
+                match error.status {
+                    Some(status) => Failure::http(status, error.code, Some(error.message)),
+                    None => Failure::Transport(error.message),
+                }
+            }
         }
-        Err(error) => {
-            let Ok(error) =
-                tokio::time::timeout(PREVIEW_TIMEOUT, cmux_cloud_client::ApiError::from_api(error))
-                    .await
-            else {
-                return Err(Failure::TimedOut(path));
-            };
-            Err(match error.status {
-                Some(status) => Failure::http(status, error.code, Some(error.message)),
-                None => Failure::Transport(error.message),
-            })
-        }
+    })
+    .await
+}
+
+/// `sent`'s answer, its error read by `refusal`, both before `deadline` (else `TimedOut(path)`).
+pub(crate) async fn within<E, R>(
+    deadline: tokio::time::Instant,
+    path: String,
+    sent: impl std::future::Future<Output = Result<Value, E>>,
+    refusal: impl FnOnce(E) -> R,
+) -> Result<Value, Failure>
+where
+    R: std::future::Future<Output = Failure>,
+{
+    let timed_out = || Failure::TimedOut(path.clone());
+    match tokio::time::timeout_at(deadline, sent).await {
+        Err(_) => Err(timed_out()),
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(error)) => match tokio::time::timeout_at(deadline, refusal(error)).await {
+            Err(_) => Err(timed_out()),
+            Ok(failure) => Err(failure),
+        },
     }
 }
 
