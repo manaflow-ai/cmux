@@ -596,6 +596,7 @@ struct Args {
     relay_endpoints: Vec<String>,
     relay_slots: Vec<String>,
     relay_credentials: Vec<RelayCredentialArg>,
+    carrier_grant_config: Option<PathBuf>,
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
@@ -709,6 +710,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         relay_endpoints: Vec::new(),
         relay_slots: Vec::new(),
         relay_credentials: Vec::new(),
+        carrier_grant_config: None,
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
@@ -895,6 +897,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 if !(1..=86_400).contains(&out.remote_resume_lease_seconds) {
                     usage_exit("--remote-resume-lease-seconds must be between 1 and 86400");
                 }
+                out.remote = true;
+            }
+            "--carrier-grant-config" => {
+                out.carrier_grant_config = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--carrier-grant-config needs a value"))
+                        .into(),
+                );
                 out.remote = true;
             }
             "--remote-local-socket" => {
@@ -1537,6 +1547,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--relay-ticket-file",
     "--relay-ticket-command",
     "--relay-ticket-command-arg",
+    "--carrier-grant-config",
     "--advertise",
     "--term",
     "--owner-host-fg",
@@ -2655,6 +2666,7 @@ fn run_server(
                 trusted_carrier_websocket: trusted_carrier,
                 workspace_http: remote_workspace_http,
                 relays: remote_relays,
+                carrier_grant_config: args.carrier_grant_config,
                 iroh: args.iroh,
                 advertised_routes: args.advertised_routes,
                 resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
