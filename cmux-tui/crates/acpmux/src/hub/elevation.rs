@@ -126,7 +126,7 @@ pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
             ))),
         })
         .collect::<Result<_, _>>()?;
-    if argv[0].is_empty() || argv[0].starts_with('-') {
+    if argv.first().is_none_or(|a| a.is_empty() || a.starts_with('-')) {
         return Err(RpcError::invalid_params("argv[0] must name the command, not an option"));
     }
     let reason = params.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
@@ -193,7 +193,7 @@ impl Hub {
             session,
             "mux",
             "elevation_run",
-            json!({"argv": ask.argv, "exitCode": result["exitCode"], "timedOut": result["timedOut"]}),
+            json!({"argv": ask.argv, "exitCode": result.get("exitCode"), "timedOut": result.get("timedOut")}),
         );
         Ok(result)
     }
@@ -236,7 +236,7 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
         }
     };
     let pid = child.id();
-    let cap = MAX_OUTPUT_BYTES + password.len() + marker.len();
+    let cap = MAX_OUTPUT_BYTES.saturating_add(password.len()).saturating_add(marker.len());
     let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let answer = password.clone();
     let mut reads = tokio::spawn(async move {
@@ -344,14 +344,15 @@ async fn answer_prompt(
             Ok(0) | Err(_) => break,
             Ok(n) => n,
         };
-        let room = cap - kept.len();
+        let room = cap.saturating_sub(kept.len());
         cut |= n > room;
         // Only the new bytes and the marker's length before them can complete it.
         let from = kept.len().saturating_sub(marker.len());
-        kept.extend_from_slice(&chunk[..n.min(room)]);
-        let prompted = kept[from..].windows(marker.len()).any(|w| w == marker.as_slice());
+        kept.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
+        let fresh = kept.get(from..).unwrap_or_default();
+        let prompted = fresh.windows(marker.len()).any(|w| w == marker.as_slice());
         if let Some(mut pipe) = stdin.take_if(|_| prompted) {
-            let mut line = Zeroizing::new(Vec::with_capacity(password.len() + 1));
+            let mut line = Zeroizing::new(Vec::with_capacity(password.len().saturating_add(1)));
             line.extend_from_slice(password.as_bytes());
             line.push(b'\n');
             // A sudo that exited first closes the pipe: what it printed says why.
@@ -362,8 +363,8 @@ async fn answer_prompt(
     let mut clean = Vec::with_capacity(kept.len());
     let mut rest = kept.as_slice();
     while let Some(at) = rest.windows(marker.len()).position(|w| w == marker.as_slice()) {
-        clean.extend_from_slice(&rest[..at]);
-        rest = &rest[at + marker.len()..];
+        clean.extend_from_slice(rest.get(..at).unwrap_or_default());
+        rest = rest.get(at.saturating_add(marker.len())..).unwrap_or_default();
     }
     clean.extend_from_slice(rest);
     (clean, cut)

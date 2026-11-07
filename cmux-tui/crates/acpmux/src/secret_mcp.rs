@@ -217,8 +217,8 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Some("request_elevation") => (
             method::MUX_ELEVATION_REQUEST,
             json!({
-                "argv": arguments["argv"], "reason": arguments["reason"],
-                "host": arguments["host"], "timeoutSecs": arguments["timeoutSecs"],
+                "argv": field(&arguments, "argv"), "reason": field(&arguments, "reason"),
+                "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
             }),
         ),
         Some("connect_mcp_server")
@@ -254,9 +254,9 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
-            let text = if result["outcome"] == "denied" {
+            let text = if *field(&result, "outcome") == "denied" {
                 "The user denied this command. The deny is final: do not ask again for it unless they ask you to.".to_owned()
-            } else if result["outcome"] == "cancelled" {
+            } else if *field(&result, "outcome") == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
             } else if *field(&result, "status") == "cancelled" {
                 "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()

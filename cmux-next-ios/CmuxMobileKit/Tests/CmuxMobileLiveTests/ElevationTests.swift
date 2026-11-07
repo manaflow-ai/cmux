@@ -27,7 +27,7 @@ import Testing
 
     /// The phone asks for the card's records on attach and live; acpmux sends a client only the
     /// kinds it names, so without them the card never shows on the phone.
-    @Test func theChatSubscribesToTheCardsRecords() {
+    @Test @MainActor func theChatSubscribesToTheCardsRecords() {
         let kinds = AcpmuxSessionSource.chatKinds.arrayValue ?? []
         #expect(kinds.contains(.string("elevation_request")))
         #expect(kinds.contains(.string("elevation_decision")))
@@ -49,7 +49,7 @@ import Testing
         #expect(!"\(secret)".contains("hunter2"))
     }
 
-    @Test func theApproveIsSignedOverTheCard() {
+    @Test @MainActor func theApproveIsSignedOverTheCard() {
         let payload = ApprovalPayload(
             instance: "i1", macDevice: "mac-1", approver: "phone-1", session: "s1", permission: "c1",
             option: AcpmuxHub.elevationOption, nonce: "n1", expiresAt: 1_760_000_000)
