@@ -85,7 +85,7 @@ import Testing
 
     /// Open Desktop has only the carrier viewer: a classic machine (no carrier route), or a cmux-next one
     /// that serves no desktop, is refused up front instead of opening a blank tab.
-    @Test func openDesktopNeedsTheCarrierDesktop() {
+    @Test func openDesktopNeedsTheCarrierDesktop() throws {
         let desktop = CloudMachine(id: "vm-1", capabilities: CloudMachine.Capabilities(exec: true, desktop: true))
         let none = CloudMachine(id: "vm-2", capabilities: CloudMachine.Capabilities(exec: true))
         let undeclared = CloudMachine(id: "vm-3")
@@ -99,8 +99,8 @@ import Testing
         #expect(desktop.allows(.desktop))
         #expect(!none.allows(.desktop), "Open Desktop is refused and hidden")
         #expect(undeclared.allows(.desktop))
-        let platform = CloudMachine.Capabilities(names: ["exec", "desktop", "agent_session"])
-        #expect(platform.desktop, "the app server's name list says desktop")
+        let platform = try #require(CloudMachine(next: .object(["id": .string("vm-4"), "provider_operations": .array([.string("exec"), .string("desktop"), .string("agent_session")])])))
+        #expect(platform.capabilities.desktop, "the app server's name list says desktop")
     }
 
     /// A Cloud session's daemon connection waits out the carrier's dial of a cold machine (180 s): the

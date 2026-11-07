@@ -4,6 +4,8 @@
 use crate::json::JsonField;
 use std::collections::HashMap;
 
+use cmux_server::cloud_http::RequestDeadline;
+
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -21,6 +23,32 @@ pub trait Http {
     /// Transports opt in; the default refuses.
     fn post_empty(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Value), String> {
         Err("empty-body Cloud transport unavailable".into())
+    }
+
+    /// A raw GET (`body=None`) or JSON POST bounded by one continuous budget, no redirects.
+    /// Transports opt in; the default refuses.
+    fn request_with_deadline(
+        &self,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _deadline: &RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        Err("continuous Cloud transport unavailable".into())
+    }
+
+    /// [`Http::request_with_deadline`] with the response's `Retry-After`.
+    /// A transport without headers answers none.
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.request_with_deadline(url, body, bearer, deadline).map(|(status, bytes)| {
+            cmux_server::cloud_http::Response { status, retry_after: None, bytes }
+        })
     }
 
     /// Optional for POST-only test transports; production implements both methods.
@@ -403,6 +431,26 @@ impl<H: Http> CloudClient<H> {
         let (status, value) =
             self.http.post(&self.url(path), body, None).map_err(|_| malformed())?;
         Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
+    }
+
+    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to the
+    /// bound environment's own API origin, and at most 1 MiB.
+    pub(super) fn request_with_headers(
+        &self,
+        path: &str,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+            return Err("bounded Cloud request unavailable".into());
+        }
+        let response = self
+            .http
+            .request_with_headers(&self.url(path), None, None, deadline)
+            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
+        if response.bytes.len() > 1024 * 1024 || deadline.remaining().is_none() {
+            return Err("bounded Cloud response unavailable".into());
+        }
+        Ok(response)
     }
 
     /// One read on `/v1/read` (`{op, params}`), with the same token
