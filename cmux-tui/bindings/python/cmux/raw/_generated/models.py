@@ -2247,6 +2247,13 @@ class UsageSetEnabledResult:
 
 
 @dataclass(frozen=True)
+class UsageSetSharingResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/UsageSetSharingResult'
+    dir: str
+    on: bool
+
+
+@dataclass(frozen=True)
 class ViewportPaneWidthResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ViewportPaneWidthResult'
     width: float
@@ -5204,6 +5211,12 @@ class UsageSetEnabledRequest:
 
 
 @dataclass(frozen=True)
+class UsageSetSharingRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/usage-set-sharing/request'
+    on: bool
+
+
+@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -6470,6 +6483,7 @@ __all__ = [
     'Tree',
     'UsageRecordResult',
     'UsageSetEnabledResult',
+    'UsageSetSharingResult',
     'ViewportPaneWidthResult',
     'VtStateResult',
     'WaitForResult',
@@ -6821,6 +6835,7 @@ __all__ = [
     'UrlOpenSubscribeRequest',
     'UsageRecordRequest',
     'UsageSetEnabledRequest',
+    'UsageSetSharingRequest',
     'VtStateRequest',
     'WaitForRequest',
     'WsListenRequest',

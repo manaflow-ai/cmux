@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2";
+pub const ir_sha256 = "c147f05b1f00efac76f661d9143387a0c501e5f65821f22869402c6c90fffc97";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3296,6 +3296,11 @@ pub const UsageRecordResult = struct {
 };
 
 pub const UsageSetEnabledResult = struct {
+    dir: []const u8,
+    on: bool,
+};
+
+pub const UsageSetSharingResult = struct {
     dir: []const u8,
     on: bool,
 };
@@ -10316,6 +10321,23 @@ pub fn usageSetEnabled(client: anytype, request: UsageSetEnabledRequest) !wire.D
     );
 }
 
+pub const UsageSetSharingRequest = struct {
+    on: bool,
+};
+
+pub fn usageSetSharing(client: anytype, request: UsageSetSharingRequest) !wire.Decoded(UsageSetSharingResult) {
+    return client.callTyped(
+        UsageSetSharingResult,
+        .{
+            .name = "usage-set-sharing",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const VtStateRequest = struct {
     surface: Id,
 };
@@ -12038,7 +12060,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 297;
+pub const command_count: usize = 298;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12333,6 +12355,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "usage-record", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "usage-set-enabled", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "usage-set-sharing", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },

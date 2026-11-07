@@ -1,10 +1,11 @@
-//! `usage-record` and `usage-set-enabled`: the app's opt-in usage recording
-//! (cmux-usage: interaction shape, never content). The verified cmux app only
-//! (the `frontend` actor): the app sends the switch after the person's own
+//! `usage-record`, `usage-set-enabled` and `usage-set-sharing`: the app's
+//! opt-in usage recording (cmux-usage: interaction shape, never content) and
+//! its second opt-in, sharing it with the team. The verified cmux app only
+//! (the `frontend` actor): the app sends each switch after the person's own
 //! write and per-Mac consent, so no other client (an agent in a pane, a
-//! script, the `cmux` CLI, a remote or WebSocket peer) can switch recording
-//! on or write into the person's usage folder. Each function is one `Command`
-//! arm of `handle_command_with_cancellation`.
+//! script, the `cmux` CLI, a remote or WebSocket peer) can switch recording or
+//! sharing on or write into the person's usage folder. Each function is one
+//! `Command` arm of `handle_command_with_cancellation`.
 //!
 //! A request runs on its connection's own thread (server/line_connection.rs),
 //! so the append is a plain file write here; it holds only this module's
@@ -34,6 +35,12 @@ pub(super) struct SetEnabledParams {
     on: bool,
 }
 
+/// `usage-set-sharing`.
+#[derive(Deserialize)]
+pub(super) struct SetSharingParams {
+    on: bool,
+}
+
 /// Writers kept at once. A source is a client-named stem, so the map is
 /// bounded: past this many it starts over (a `Recorder` holds only its
 /// cached salt, so a rebuilt one costs one read of the salt file).
@@ -60,12 +67,26 @@ pub(super) fn set_enabled(
     set_enabled_in(&dir, params.on)
 }
 
+/// `usage-set-sharing`: write or remove the `<usage dir>/share` marker that
+/// `cmux usage upload` requires, from this Mac's own consent in the app.
+pub(super) fn set_sharing(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: &SetSharingParams,
+) -> anyhow::Result<Value> {
+    require_app(mux, client)?;
+    let dir = default_dir()?;
+    set_sharing_in(&dir, params.on)
+}
+
 /// Refuses every client but the verified cmux app: a role-main Unix
 /// connection whose code signature or install key was proved in
 /// `client-hello` (the check `cloud_conversations::is_app` makes).
 fn require_app(mux: &Mux, client: u64) -> anyhow::Result<()> {
     if !matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. }) {
-        anyhow::bail!("usage recording is switched and written only by the verified cmux app");
+        anyhow::bail!(
+            "usage recording and sharing are switched and written only by the verified cmux app"
+        );
     }
     Ok(())
 }
@@ -98,6 +119,16 @@ pub(super) fn record_in(dir: &UsageDir, source: &str, events: &str) -> anyhow::R
 /// The handler body of `usage-set-enabled`, on a given folder.
 pub(super) fn set_enabled_in(dir: &UsageDir, on: bool) -> anyhow::Result<Value> {
     dir.set_enabled(on).map_err(|error| anyhow::anyhow!("usage switch failed: {error}"))?;
+    Ok(json!({ "on": on, "dir": dir.path().to_string_lossy() }))
+}
+
+/// The handler body of `usage-set-sharing`, on a given folder. On refuses
+/// while recording is off: sharing has nothing to send without it.
+pub(super) fn set_sharing_in(dir: &UsageDir, on: bool) -> anyhow::Result<Value> {
+    if on && !dir.is_enabled() {
+        anyhow::bail!("usage sharing needs usage recording on");
+    }
+    dir.set_sharing(on).map_err(|error| anyhow::anyhow!("usage sharing switch failed: {error}"))?;
     Ok(json!({ "on": on, "dir": dir.path().to_string_lossy() }))
 }
 

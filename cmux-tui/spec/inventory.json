@@ -593,6 +593,7 @@
       "delete-terminal-commands",
       "usage-record",
       "usage-set-enabled",
+      "usage-set-sharing",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",

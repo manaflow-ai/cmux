@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2. */
+/* cmux-tui mux protocol 12, IR c147f05b1f00efac76f661d9143387a0c501e5f65821f22869402c6c90fffc97. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2" as const;
+export const SDK_IR_SHA256 = "c147f05b1f00efac76f661d9143387a0c501e5f65821f22869402c6c90fffc97" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3716,6 +3716,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Switching off keeps what was recorded; nothing is deleted."
+    ]
+  },
+  "usage-set-sharing": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Sharing needs recording: on refuses while recording is off, and switching recording off also switches sharing off.",
+      "`cmux usage upload` refuses without this switch, so a synced settings file or an agent cannot make a Mac upload."
     ]
   },
   "vt-state": {
@@ -14252,6 +14263,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "object"
   },
   "UsageSetEnabledResult": {
+    "additional_properties": false,
+    "fields": {
+      "dir": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "UsageSetSharingResult": {
     "additional_properties": false,
     "fields": {
       "dir": {
@@ -28897,6 +28930,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "UsageSetEnabledResult"
+    }
+  },
+  "usage-set-sharing": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "UsageSetSharingResult"
     }
   },
   "vt-state": {

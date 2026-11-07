@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2.
+// cmux-tui mux protocol 12, IR c147f05b1f00efac76f661d9143387a0c501e5f65821f22869402c6c90fffc97.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4200,6 +4200,12 @@ pub struct UsageSetEnabledRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageSetSharingRequest {
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
 }
@@ -5928,6 +5934,10 @@ impl CmuxClient {
 
     pub fn usage_set_enabled(&mut self, request: UsageSetEnabledRequest) -> Result<T::UsageSetEnabledResult> {
         self.execute(&USAGE_SET_ENABLED_METADATA, &request)
+    }
+
+    pub fn usage_set_sharing(&mut self, request: UsageSetSharingRequest) -> Result<T::UsageSetSharingResult> {
+        self.execute(&USAGE_SET_SHARING_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

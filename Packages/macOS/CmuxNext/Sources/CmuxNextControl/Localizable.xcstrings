@@ -16268,6 +16268,530 @@
           }
         }
       }
+    },
+    "usageSharing.privacySummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسل cmux سجل استخدام هذا الـ Mac إلى فريقك في cmux كل ست ساعات تقريبًا: الأسطح التي تستخدمها، والأوامر التي تعمل وكيف، وتوقيتاتها، وأعداد النوافذ والأجزاء وعلامات التبويب المفتوحة. لا يتضمن أبدًا أسماء الملفات أو المسارات أو عناوين الويب أو العناوين أو نصوص الطرفية أو الدردشة أو أي شيء تكتبه. شغّل cmux usage delete-shared لحذف ما شاركته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux šalje zapis korištenja ovog Maca vašem cmux timu otprilike svakih šest sati: koje površine koristite, koje se naredbe pokreću i kako, njihova trajanja te broj otvorenih prozora, okna i kartica. Nikad ne sadrži imena datoteka, putanje, web adrese, naslove, tekst terminala ili chata, niti išta što kucate. Pokrenite cmux usage delete-shared da obrišete ono što ste podijelili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sender denne Macs brugsregistrering til dit cmux-team cirka hver sjette time: hvilke flader du bruger, hvilke kommandoer der kører og hvordan, deres tider og antal åbne vinduer, ruder og faner. Den indeholder aldrig filnavne, stier, webadresser, titler, terminal- eller chattekst eller noget, du skriver. Kør cmux usage delete-shared for at slette det, du har delt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sendet die Nutzungsaufzeichnung dieses Macs etwa alle sechs Stunden an dein cmux-Team: welche Bereiche du nutzt, welche Befehle wie laufen, ihre Zeiten und die Anzahl offener Fenster, Bereiche und Tabs. Sie enthält nie Dateinamen, Pfade, Webadressen, Titel, Terminal- oder Chattext oder etwas, das du tippst. Mit cmux usage delete-shared löschst du, was du geteilt hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sends this Mac's usage record to your cmux team about every six hours: which surfaces you use, which commands run and how, their timings, and counts of open windows, panes and tabs. It never holds file names, paths, web addresses, titles, terminal or chat text, or anything you type. Run cmux usage delete-shared to delete what you shared."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux envía el registro de uso de este Mac a tu equipo de cmux cada seis horas aproximadamente: qué superficies usas, qué comandos se ejecutan y cómo, sus tiempos y el número de ventanas, paneles y pestañas abiertos. Nunca incluye nombres de archivo, rutas, direcciones web, títulos, texto de terminal o chat, ni nada que escribas. Ejecuta cmux usage delete-shared para eliminar lo que compartiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux envoie l’enregistrement d’utilisation de ce Mac à votre équipe cmux environ toutes les six heures : les surfaces que vous utilisez, les commandes exécutées et comment, leurs durées et le nombre de fenêtres, panneaux et onglets ouverts. Il ne contient jamais de noms de fichiers, de chemins, d’adresses web, de titres, de texte du terminal ou du chat, ni rien de ce que vous tapez. Exécutez cmux usage delete-shared pour supprimer ce que vous avez partagé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux invia la registrazione dell’utilizzo di questo Mac al tuo team cmux circa ogni sei ore: quali superfici usi, quali comandi vengono eseguiti e come, i loro tempi e il numero di finestre, riquadri e schede aperti. Non contiene mai nomi di file, percorsi, indirizzi web, titoli, testo del terminale o della chat, né nulla di ciò che digiti. Esegui cmux usage delete-shared per eliminare ciò che hai condiviso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxは、このMacの使用状況の記録を約6時間ごとにcmuxのチームに送信します: 使っている画面の種類、実行されたコマンドとその起動方法、所要時間、開いているウインドウ、ペイン、タブの数です。ファイル名、パス、Webアドレス、タイトル、ターミナルやチャットのテキスト、入力した内容は含みません。共有した記録は cmux usage delete-shared で削除できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ផ្ញើ​កំណត់ត្រា​ការប្រើប្រាស់​របស់ Mac នេះ​ទៅ​ក្រុម cmux របស់​អ្នក​ប្រហែល​រៀងរាល់​ប្រាំមួយ​ម៉ោង​ម្តង៖ ផ្ទៃ​ណា​ដែល​អ្នក​ប្រើ ពាក្យបញ្ជា​ណា​ដំណើរការ និង​របៀប រយៈពេល​របស់​វា និង​ចំនួន​បង្អួច ផ្ទាំង និង​ផ្ទាំង​រង​ដែល​បើក។ វា​មិនដែល​មាន​ឈ្មោះ​ឯកសារ ផ្លូវ អាសយដ្ឋាន​បណ្ដាញ ចំណងជើង អត្ថបទ​ស្ថានីយ ឬ​ជជែក ឬ​អ្វី​ដែល​អ្នក​វាយ​ទេ។ ដំណើរការ cmux usage delete-shared ដើម្បី​លុប​អ្វី​ដែល​អ្នក​បាន​ចែករំលែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 이 Mac의 사용 기록을 약 6시간마다 cmux 팀에 보냅니다: 사용하는 화면 종류, 실행된 명령과 실행 방식, 소요 시간, 열려 있는 윈도우, 패인, 탭의 수입니다. 파일 이름, 경로, 웹 주소, 제목, 터미널이나 채팅 텍스트, 입력한 내용은 절대 포함하지 않습니다. 공유한 기록은 cmux usage delete-shared로 삭제할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sender bruksregistreringen fra denne Macen til cmux-teamet ditt omtrent hver sjette time: hvilke flater du bruker, hvilke kommandoer som kjøres og hvordan, tidene deres og antall åpne vinduer, ruter og faner. Den inneholder aldri filnavn, stier, nettadresser, titler, terminal- eller chattekst eller noe du skriver. Kjør cmux usage delete-shared for å slette det du har delt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wysyła zapis użycia tego Maca do Twojego zespołu cmux mniej więcej co sześć godzin: z jakich powierzchni korzystasz, jakie polecenia działają i jak, ich czasy oraz liczbę otwartych okien, paneli i kart. Nigdy nie zawiera nazw plików, ścieżek, adresów stron, tytułów, tekstu terminala lub czatu ani niczego, co wpisujesz. Uruchom cmux usage delete-shared, aby usunąć to, co udostępniono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux envia o registro de uso deste Mac para sua equipe do cmux a cada seis horas, mais ou menos: quais superfícies você usa, quais comandos rodam e como, seus tempos e quantas janelas, painéis e abas estão abertos. Ele nunca contém nomes de arquivos, caminhos, endereços web, títulos, texto do terminal ou do chat, nem nada que você digite. Execute cmux usage delete-shared para apagar o que você compartilhou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux отправляет запись использования этого Mac вашей команде cmux примерно раз в шесть часов: какие поверхности вы используете, какие команды выполняются и как, их время и количество открытых окон, панелей и вкладок. В ней никогда нет имён файлов, путей, веб-адресов, заголовков, текста терминала или чата и всего, что вы вводите. Чтобы удалить то, чем вы поделились, выполните cmux usage delete-shared."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ส่งบันทึกการใช้งานของ Mac เครื่องนี้ให้ทีม cmux ของคุณประมาณทุกหกชั่วโมง: พื้นที่ที่คุณใช้ คำสั่งที่ทำงานและวิธีเรียก เวลาที่ใช้ และจำนวนหน้าต่าง บานหน้าต่าง และแท็บที่เปิดอยู่ ไม่มีชื่อไฟล์ พาธ ที่อยู่เว็บ ชื่อเรื่อง ข้อความในเทอร์มินัลหรือแชท หรือสิ่งที่คุณพิมพ์ เรียกใช้ cmux usage delete-shared เพื่อลบสิ่งที่คุณแชร์ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, bu Mac’in kullanım kaydını yaklaşık altı saatte bir cmux ekibinize gönderir: hangi yüzeyleri kullandığınızı, hangi komutların nasıl çalıştığını, sürelerini ve açık pencere, bölme ve sekme sayılarını. Dosya adları, yollar, web adresleri, başlıklar, terminal veya sohbet metni ya da yazdığınız hiçbir şey içermez. Paylaştıklarınızı silmek için cmux usage delete-shared komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux надсилає запис використання цього Mac вашій команді cmux приблизно раз на шість годин: якими поверхнями ви користуєтеся, які команди виконуються і як, їхній час і кількість відкритих вікон, панелей і вкладок. У ньому ніколи немає назв файлів, шляхів, вебадрес, заголовків, тексту термінала чи чату або того, що ви вводите. Щоб видалити те, чим ви поділилися, виконайте cmux usage delete-shared."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gửi bản ghi sử dụng của máy Mac này cho nhóm cmux của bạn khoảng sáu giờ một lần: bạn dùng những bề mặt nào, lệnh nào chạy và chạy ra sao, thời gian của chúng, và số cửa sổ, ngăn và tab đang mở. Bản ghi không bao giờ có tên tệp, đường dẫn, địa chỉ web, tiêu đề, văn bản terminal hay trò chuyện, hoặc bất cứ thứ gì bạn gõ. Chạy cmux usage delete-shared để xóa những gì bạn đã chia sẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 大约每六小时将此 Mac 的使用记录发送给你的 cmux 团队：你使用哪些界面、运行了哪些命令及其方式、它们的耗时，以及打开的窗口、窗格和标签页数量。它绝不包含文件名、路径、网址、标题、终端或聊天文本，或你输入的任何内容。运行 cmux usage delete-shared 可删除你共享的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 大約每六小時將此 Mac 的使用記錄傳送給你的 cmux 團隊：你使用哪些介面、執行了哪些指令及其方式、它們的耗時，以及開啟的視窗、窗格和分頁數量。它絕不包含檔案名稱、路徑、網址、標題、終端機或聊天文字，或你輸入的任何內容。執行 cmux usage delete-shared 可刪除你共享的內容。"
+          }
+        }
+      }
+    },
+    "usageSharing.ask.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الاستخدام مع فريقك؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeliti korištenje s timom?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del brug med dit team?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung mit deinem Team teilen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Usage with Your Team?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Compartir el uso con tu equipo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’utilisation avec votre équipe ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividere l’utilizzo con il tuo team?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況をチームと共有しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក​ការប្រើប្រាស់​ជាមួយ​ក្រុម​របស់​អ្នក?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀과 사용 기록을 공유할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dele bruk med teamet ditt?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępniać użycie zespołowi?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar o uso com sua equipe?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Делиться использованием с командой?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์การใช้งานกับทีมของคุณไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım ekibinizle paylaşılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ділитися використанням із командою?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ cách sử dụng với nhóm của bạn?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你的团队共享使用情况？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與你的團隊共享使用情況？"
+          }
+        }
+      }
+    },
+    "usageSharing.ask.yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli korištenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del brug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Usage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir el uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’utilisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi l’utilizzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況を共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក​ការប្រើប្រាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 기록 공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępniaj użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar o uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Делиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımı Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ділитися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ cách sử dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享使用情况"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享使用情況"
+          }
+        }
+      }
+    },
+    "usageSharing.ask.no": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne sada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែន​ឥឡូវ​ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie teraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agora não"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сейчас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไว้ทีหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以後再說"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

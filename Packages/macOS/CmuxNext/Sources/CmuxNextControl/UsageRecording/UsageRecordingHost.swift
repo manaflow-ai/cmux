@@ -27,4 +27,8 @@ public protocol UsageRecordingHost: AnyObject, Sendable {
     func usageAsk(_ title: String, detail: String, yes: String, no: String) async -> Bool
     /// Whether a managed profile forces `DisableTelemetry` (reads the managed preferences: off main).
     nonisolated func usageManagedDisables() -> Bool
+    /// The bundled `cmux` that runs `cmux usage upload` (team sharing).
+    var usageCLI: BundledExecutable { get }
+    /// The selected backend's platform and a fresh install token, or nil when signed out.
+    func usageShareAccess() async -> UsageShareAccess?
 }

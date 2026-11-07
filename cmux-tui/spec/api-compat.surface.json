@@ -12610,6 +12610,12 @@
         "required": true
       }
     },
+    "request:usage-set-sharing": {
+      "/on": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:vt-state": {
       "/surface": {
         "ty": "uint64",
@@ -21703,6 +21709,16 @@
       }
     },
     "response:usage-set-enabled": {
+      "/data/dir": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/on": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:usage-set-sharing": {
       "/data/dir": {
         "ty": "string",
         "required": true

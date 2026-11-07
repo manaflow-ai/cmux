@@ -303,6 +303,7 @@ public final class Commands {
     public static final CommandMetadata URL_OPEN_SUBSCRIBE = new CommandMetadata("url-open-subscribe", Authority.FRONTEND, 12, null, StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata USAGE_RECORD = new CommandMetadata("usage-record", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata USAGE_SET_ENABLED = new CommandMetadata("usage-set-enabled", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata USAGE_SET_SHARING = new CommandMetadata("usage-set-sharing", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WS_LISTEN = new CommandMetadata("ws-listen", Authority.LOCAL_ADMIN, 12, "ws-listen-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -604,6 +605,7 @@ public final class Commands {
         values.put("url-open-subscribe", URL_OPEN_SUBSCRIBE);
         values.put("usage-record", USAGE_RECORD);
         values.put("usage-set-enabled", USAGE_SET_ENABLED);
+        values.put("usage-set-sharing", USAGE_SET_SHARING);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
         values.put("ws-listen", WS_LISTEN);

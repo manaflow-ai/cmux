@@ -871,6 +871,7 @@ enum Command {
     /// Opt-in usage recording, trusted local only (server/cmd_usage.rs).
     UsageRecord(cmd_usage::RecordParams),
     UsageSetEnabled(cmd_usage::SetEnabledParams),
+    UsageSetSharing(cmd_usage::SetSharingParams),
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {

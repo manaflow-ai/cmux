@@ -94,7 +94,10 @@ mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
 mod usage_recording;
+#[cfg(unix)]
+mod usage_sharing;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;

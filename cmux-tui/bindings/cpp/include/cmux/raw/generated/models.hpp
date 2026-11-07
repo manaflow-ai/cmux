@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2";
+inline constexpr std::string_view kProtocolIrSha256 = "c147f05b1f00efac76f661d9143387a0c501e5f65821f22869402c6c90fffc97";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -246,6 +246,7 @@ struct TerminalResumeCommandResult;
 struct Tree;
 struct UsageRecordResult;
 struct UsageSetEnabledResult;
+struct UsageSetSharingResult;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
 struct VtStateResult;
@@ -593,6 +594,7 @@ struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
 struct UsageRecordRequest;
 struct UsageSetEnabledRequest;
+struct UsageSetSharingRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct WsListenRequest;
@@ -6136,6 +6138,17 @@ struct UsageSetEnabledResult {
     friend bool operator==(const UsageSetEnabledResult&, const UsageSetEnabledResult&) = default;
 };
 
+struct UsageSetSharingRequest {
+    bool on{};
+    friend bool operator==(const UsageSetSharingRequest&, const UsageSetSharingRequest&) = default;
+};
+
+struct UsageSetSharingResult {
+    std::string dir{};
+    bool on{};
+    friend bool operator==(const UsageSetSharingResult&, const UsageSetSharingResult&) = default;
+};
+
 struct ViewportPaneWidthResult {
     float width{};
     friend bool operator==(const ViewportPaneWidthResult&, const ViewportPaneWidthResult&) = default;
@@ -7666,6 +7679,12 @@ template <>
 struct Codec<UsageSetEnabledResult> {
     static Result<Json> encode(const UsageSetEnabledResult& value);
     static Result<UsageSetEnabledResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageSetSharingResult> {
+    static Result<Json> encode(const UsageSetSharingResult& value);
+    static Result<UsageSetSharingResult> decode(const Json& value);
 };
 
 template <>
@@ -9748,6 +9767,12 @@ template <>
 struct Codec<UsageSetEnabledRequest> {
     static Result<Json> encode(const UsageSetEnabledRequest& value);
     static Result<UsageSetEnabledRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageSetSharingRequest> {
+    static Result<Json> encode(const UsageSetSharingRequest& value);
+    static Result<UsageSetSharingRequest> decode(const Json& value);
 };
 
 template <>
