@@ -727,11 +727,12 @@ const foldAndOpen: Play = async (ctx) => {
 
 /// Changes' own Show more grows its list in place and Show less closes it over the rows that go.
 const showMoreAndLess: Play = async (ctx) => {
-  await ctx.waitFor(() => /already on base/.test(text(ctx)));
+  const fold = () => ctx.document.querySelector("button.acpmux-session-info-pr-fold");
+  await ctx.waitFor(() => /already on base/.test(text(ctx)) && fold());
   await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
-  await ctx.waitFor(() => /Show less/.test(text(ctx)) && settled(ctx), { capMs: 3000 });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
   await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
-  await ctx.waitFor(() => !/Show less/.test(text(ctx)) && settled(ctx), { capMs: 3000 });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
   if (ctx.document.querySelector("[data-folding]")) throw new Error("A Show less left its box clipped");
 };
 
