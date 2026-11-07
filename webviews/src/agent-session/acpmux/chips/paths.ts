@@ -105,6 +105,12 @@ export function foreignFileIds(text: string): { start: number; end: number; valu
   return [...text.matchAll(FOREIGN_FILE)].map((m) => ({ start: m.index!, end: m.index! + m[0].length, value: m[0] }));
 }
 
+/// `text` when it is one foreign file id and nothing else (a code span's text, an image's source).
+export function foreignFileId(text: string): string | undefined {
+  const [id, more] = foreignFileIds(text.trim());
+  return id && !more && id.value === text.trim() ? id.value : undefined;
+}
+
 /// The line of a `:12` or `:12:4` suffix.
 function lineOf(value: string): number | undefined {
   const match = /:(\d+)(?::\d+)?$/.exec(value);

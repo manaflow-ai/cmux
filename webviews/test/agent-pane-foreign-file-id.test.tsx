@@ -50,3 +50,22 @@ for (const [name, node] of [
     expect(host.querySelector("img")).toBeNull();
     expect(host.textContent).toContain("Screenshot IMG_6165.png");
   });
+
+// Review of #37203: an id in a code span or as an image's source, and one in a prompt too large to
+// draw as anything but literal text (#29840), is named the same way.
+const ID = "libfile_c11cc7d347448191ac0b4dbb221437bf";
+for (const [name, node] of [
+  ["a code span", <AgentMessageBody key="code" text={`The shot is \`${ID}\`.`} />],
+  ["an image's source", <AgentMessageBody key="image" text={"Here: ![the card](sediment://file_00000000abc)"} />],
+  [
+    "a huge prompt",
+    <PromptText key="huge" rowId="r2" text={`see ${ID} ${"x".repeat(210_000)}`} show={(text) => text} />,
+  ],
+] as const)
+  test(`${name} shows a foreign file id as one it cannot open`, async () => {
+    const host = await render(node);
+    const refs = [...host.querySelectorAll(".cv-foreign-file")];
+    expect(refs.length).toBe(1);
+    expect(refs[0]!.querySelector(".cv-foreign-file__note")?.textContent).toBe(translate("message.foreignFile"));
+    expect(host.querySelector("img, code")).toBeNull();
+  });
