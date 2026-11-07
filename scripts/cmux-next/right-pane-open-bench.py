@@ -633,6 +633,7 @@ def drag_round(run, label, refresh_s):
     step, moves = opts.drag_step, opts.drag_moves
     path = [-step] * moves + [step] * (2 * moves) + [-step] * moves
     run.rpc("debug.motion", {"action": "trace_start", "targets": ["dividers"]})
+    run.rpc("debug.hangs", {"clear": True})
     run.rpc("debug.frames", {"action": "start"})
     time.sleep(0.15)  # test script: frames at rest before the press
     run.rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
@@ -652,6 +653,11 @@ def drag_round(run, label, refresh_s):
     time.sleep(0.8)  # test script: the release's spring lands
     frames = run.rpc("debug.frames", {"action": "stop"}) or {}
     trace = run.rpc("debug.motion", {"action": "trace_stop"}) or {}
+    hangs = sorted([{"ms": round(h.get("duration_ms") or 0, 1), "kind": h.get("kind"),
+                     "frames": [str(f)[:110] for f in (h.get("frames") or [])[:40]]}
+                    for h in (run.rpc("debug.hangs") or {}).get("records") or []], key=lambda h: -h["ms"])
+    for hang in hangs[:3]:
+        say(f"right-pane-open: {label}: main-thread stall {hang['ms']} ms ({hang['kind']}): " + " < ".join(hang["frames"]))
     samples = [(float(s.get("t") or 0), divider_x(s)) for s in trace.get("samples") or []]
     samples = [(t, v) for t, v in samples if v is not None]
     if not samples:
@@ -679,7 +685,7 @@ def drag_round(run, label, refresh_s):
         "mouse_rpc_ms": {"p50": pct(trips, 0.5), "p95": pct(trips, 0.95), "max": pct(trips, 1.0)},
         "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "max_ms", "missed", "main_p50_ms",
                                               "main_p95_ms", "main_max_ms", "view_layouts", "view_layouts_max") if k in frames},
-        "trace": [[round(t, 1), round(v, 1)] for t, v in samples],
+        "trace": [[round(t, 1), round(v, 1)] for t, v in samples], "hangs": hangs[:8],
     }
     return record
 
