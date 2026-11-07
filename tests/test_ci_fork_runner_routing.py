@@ -159,8 +159,7 @@ BOUNDED_LINUX_SELECTOR = (
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
-# so a 4 vCPU stall left them queued). nightly-next-launch-smoke's pick keeps its own literal
-# pair (16 vCPU, 32 vCPU while the overflow record exists); nightly jobs read no shared variable.
+# so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
 BOUNDED_SELECTOR_JOBS = {
     ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-compile-attribution.yml", "analyze"),
     ("ci-guard-attribution.yml", "analyze"), ("ci-hosted-queue-rescue.yml", "rescue"),
@@ -320,9 +319,6 @@ def runner_label_errors(runs_on: str) -> list[str]:
 # job that runs on a reused owned machine by design and still holds a secret there: each needs
 # its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
 SECRET_RUNNER_EXCEPTIONS = {
-    ("nightly.yml", "generate-nightly-deltas"):
-        "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
-        "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("nightly.yml", "build-sign-notarize-nightly"):
         "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
     ("cmux-next-dev-daily.yml", "tip-deltas"):

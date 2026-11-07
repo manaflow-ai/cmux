@@ -268,5 +268,124 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertIsNone(receipt)
 
 
+
+class HostedLightJobsGuardTests(unittest.TestCase):
+    """check_no_github_hosted_runners admits hosted Ubuntu only for the jobs `hosted_light_jobs` declares.
+
+    Leo, 2026-11-01: hosted Ubuntu for declared light jobs. A declaration never admits hosted macOS or Windows,
+    or a job that builds, signs, notarizes, publishes or releases.
+    """
+
+    def run_guard(self, workflow: str, declare: dict | None) -> subprocess.CompletedProcess[str]:
+        root = WORKFLOW.parents[2]
+        guard = (root / "tests/test_ci_self_hosted_guard.sh").read_text()
+        function = guard.split("check_no_github_hosted_runners() {", 1)[1].split(
+            "\ncheck_no_self_hosted_fleet_runners() {", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp)
+            shutil.copytree(root / ".github/workflows", target / ".github/workflows")
+            runners = json.loads((root / ".github/runners.json").read_text())
+            if declare is not None:
+                runners["hosted_light_jobs"]["light-probe.yml:probe"] = declare
+            (target / ".github/runners.json").write_text(json.dumps(runners))
+            (target / ".github/workflows/light-probe.yml").write_text(workflow)
+            env = os.environ.copy()
+            env["ROOT_DIR"] = str(target)
+            return subprocess.run(["bash", "-c", "set -euo pipefail\ncheck_no_github_hosted_runners() {"
+                                   + function + "\ncheck_no_github_hosted_runners"],
+                                  env=env, capture_output=True, text=True)
+
+    LIGHT = """\
+        name: light probe
+        on: workflow_dispatch
+        permissions: {}
+        jobs:
+          probe:
+            runs-on: RUNNER
+            steps:
+              - run: STEP
+        """
+
+    def workflow(self, runner: str = "ubuntu-24.04", step: str = "echo ok") -> str:
+        return textwrap.dedent(self.LIGHT).replace("RUNNER", runner).replace("STEP", step)
+
+    def test_a_declared_light_job_passes(self) -> None:
+        result = self.run_guard(self.workflow(), {"runner": "ubuntu-24.04", "why": "reads one file"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_an_undeclared_hosted_job_fails(self) -> None:
+        result = self.run_guard(self.workflow(), None)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("light-probe.yml", result.stdout)
+
+    def test_a_declared_build_or_release_job_fails(self) -> None:
+        for step in ("xcodebuild -scheme cmux build", "cargo build --release", "swift build -c release",
+                     "./scripts/ci/release-cut.sh", "xcrun notarytool submit x.zip", "gh release create v1"):
+            with self.subTest(step=step):
+                result = self.run_guard(self.workflow(step=step), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL: hosted light job", result.stdout)
+
+    def test_hosted_macos_or_windows_fails_even_when_declared(self) -> None:
+        for runner in ("macos-15", "windows-2025"):
+            with self.subTest(runner=runner):
+                result = self.run_guard(self.workflow(runner=runner), {"runner": runner, "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL:", result.stdout)
+
+    def test_a_declared_job_with_write_permission_or_an_environment_fails(self) -> None:
+        for before, after in (("permissions: {}", "permissions:\n  contents: write"),
+                              ("    runs-on:", "    environment: release\n    runs-on:")):
+            with self.subTest(change=after):
+                result = self.run_guard(self.workflow().replace(before, after, 1), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_declared_job_without_explicit_read_only_permissions_fails(self) -> None:
+        # No permissions block inherits the repository's default token, which may write.
+        for before, after in (("permissions: {}\n", ""), ("permissions: {}", "permissions: write-all")):
+            with self.subTest(change=after or "no block"):
+                result = self.run_guard(self.workflow().replace(before, after, 1), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_declaration_without_a_usable_why_fails(self) -> None:
+        for why in (None, False, 0, [], "", "   "):
+            with self.subTest(why=why):
+                result = self.run_guard(self.workflow(), {"runner": "ubuntu-24.04", "why": why})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_declared_job_that_releases_through_an_action_fails(self) -> None:
+        # docker/build-push-action builds and pushes through its inputs, with no run line (review of #36918).
+        for step in ("uses: docker/build-push-action@v6\n        with:\n          push: true",
+                     "uses: softprops/action-gh-release@v2",
+                     "uses: pypa/gh-action-pypi-publish@release/v1",
+                     "uses: actions/github-script@v7\n        with:\n          script: exec('xcodebuild build')",
+                     "uses: some/tool@v1\n        env:\n          CMD: cargo build --release"):
+            with self.subTest(step=step.split("\n")[0]):
+                text = self.workflow().replace("- run: echo ok", "- " + step, 1)
+                result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL: hosted light job", result.stdout)
+
+    def test_a_declared_light_job_may_check_out_and_read(self) -> None:
+        text = self.workflow().replace("- run: echo ok", "- uses: actions/checkout@v6\n        with:\n          sparse-checkout: x", 1)
+        result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_copied_declared_line_on_another_job_fails(self) -> None:
+        text = self.workflow() + "  other:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hi\n"
+        result = self.run_guard(text, {"runner": "ubuntu-24.04", "why": "x"})
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_declared_job_whose_selector_could_pick_another_runner_fails(self) -> None:
+        # A dispatch input or variable could name macos-15 at run time; only the declared label, or the reviewed
+        # fast-checks admission selector (an allowlisted Blacksmith label or the declared one), may be its runs-on.
+        for runner in ("${{ inputs.runner || 'ubuntu-24.04' }}", "${{ vars.X || 'ubuntu-24.04' }}",
+                       "${{ github.event_name == 'push' && 'ubuntu-24.04' || inputs.runner }}"):
+            with self.subTest(runner=runner):
+                result = self.run_guard(self.workflow(runner=runner), {"runner": "ubuntu-24.04", "why": "x"})
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("FAIL:", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

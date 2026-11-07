@@ -24,9 +24,16 @@ import Foundation
 enum ChiefSettings {
     private static let keys = ChiefCatalogSection()
 
-    /// `chief.enabled`: whether the Home row and Chief entry points are shown.
-    static func isEnabled(in defaults: UserDefaults) -> Bool {
-        keys.enabled.value(in: defaults)
+    /// Whether this build offers Chief at all (`chief-enabled-release`). Readable
+    /// from any thread: the mobile host reads it off the main actor.
+    static var isAvailable: Bool {
+        CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.chiefFlag)
+    }
+
+    /// Whether the Home row and Chief entry points are shown: the build offers
+    /// Chief and `chief.enabled` is on.
+    static func isEnabled(in defaults: UserDefaults, isAvailable: Bool = ChiefSettings.isAvailable) -> Bool {
+        isAvailable && keys.enabled.value(in: defaults)
     }
 
     /// `chief.harness`, falling back to ``ChiefHarnessSetting/defaultHarness`` for an

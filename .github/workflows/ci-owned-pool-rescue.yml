@@ -175,8 +175,11 @@ jobs:
 
       - name: Watch runs on persistent pools
         env:
-          # The minute light-job pass never borrows either App's quota.
-          HOSTED_LIGHT_TOKEN: ${{ github.token }}
+          # The minute light-job pass reads as cmux-bot (its own installation pool) and falls back to the
+          # repository's shared GITHUB_TOKEN pool, which the NEXT nightly needs, only while cmux-bot's is low or
+          # refused (scripts/ci/hosted_light_rescue.py). Never the routing App. Writes stay on github.token.
+          HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          HOSTED_LIGHT_FALLBACK_TOKEN: ${{ github.token }}
           HOSTED_LIGHT_POLICY: .rescue-workflows/.github
           HOSTED_LIGHT_DISABLED: ${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}
           # Keep every Actions read on the workflow's existing token. The
