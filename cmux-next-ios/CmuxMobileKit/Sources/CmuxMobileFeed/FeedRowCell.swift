@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAgentQuestion
+import CmuxSpinner
 import OSLog
 import CmuxMobileAgentChat
 import CmuxMobileDesign
@@ -82,8 +83,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         made.insert("sending")
         return label
     }()
-    private lazy var sendingSpinner: UIActivityIndicatorView = {
-        let view = UIActivityIndicatorView(style: .medium)
+    private lazy var sendingSpinner: CmuxSpinnerView = {
+        let view = CmuxSpinnerView(side: 20)
         row.addSubview(view)
         return view
     }()
@@ -122,8 +123,8 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let answerLabel = UILabel()
     /// Rarely shown parts, made the first time a row needs them: a new cell (the list makes a few
     /// as it first scrolls) costs only what most rows show.
-    private lazy var spinner: UIActivityIndicatorView = {
-        let view = UIActivityIndicatorView(style: .medium)
+    private lazy var spinner: CmuxSpinnerView = {
+        let view = CmuxSpinnerView(side: 20)
         row.addSubview(view)
         return view
     }()

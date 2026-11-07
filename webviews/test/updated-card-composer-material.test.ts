@@ -82,3 +82,16 @@ test("the Updated card paints the shared material at the composer's height", () 
   const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
   expect(rest).toContain("height: var(--composer-material-height)");
 });
+
+// Review F3 of #37615: the sidebar no longer draws a native glass under the card's page, so the
+// card with the theme's doodle decoration paints the composer's material itself too, or it has none.
+test("the doodle-decorated card wears the same material", () => {
+  const surface = /\.wn-card\[data-decoration="doodle"\] \{([^}]*)\}/.exec(card)?.[1] ?? "";
+  expect(surface).toContain("background: var(--composer-material-tint)");
+  expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
+  expect(surface).toContain("border-radius: var(--composer-material-radius)");
+  const tsx = read("pages/changelog/UpdateSurfaces.tsx");
+  const doodle = /<section[^>]*data-decoration="doodle"[^>]*>/s.exec(tsx)?.[0] ?? "";
+  expect(doodle).toContain('data-composer-material=""');
+  expect(doodle).not.toContain("ui-glass");
+});
