@@ -6,6 +6,7 @@
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal, foldFind } from "./chatFind";
 import {
@@ -99,18 +100,23 @@ export function PromptText({
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
       rememberFold(rowId, text, pasted, width, next);
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
-      // change that disagrees still updates the fold synchronously before paint.
+      // change that disagrees still updates the fold before paint.
       setMeasured((last) => ((last?.parts === parts ? last.long : unmeasured) === next ? last : { parts, long: next }));
     };
-    // perf-hot: a bubble mounting as the reader scrolls. Measured before at this text, it waits for
-    // the observer's first call, which comes after layout, and measures again only at a new width.
-    if (!wasMeasured) measure();
-    if (typeof ResizeObserver !== "function") return;
+    // perf-hot: a bubble mounting as the reader scrolls measures in its observer's first call, which
+    // comes after the frame's layout and before its paint, so reading the layout forces none. A
+    // measure that disagrees commits at once (`flushSync`), and the frame paints the right fold.
+    // Measured before at this text and width, it measures nothing. With no observer (a test DOM),
+    // it measures here.
+    if (typeof ResizeObserver !== "function") {
+      if (!wasMeasured) measure();
+      return;
+    }
     const observer = new ResizeObserver((entries) => {
       const width = entries?.[entries.length - 1]?.contentRect.width;
       const last = knownFold(rowId, text, pasted)?.width;
       if (width !== undefined && last !== undefined && Math.abs(width - last) < 0.5) return;
-      measure(width);
+      flushSync(() => measure(width));
     });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);

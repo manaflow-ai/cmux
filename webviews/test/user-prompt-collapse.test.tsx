@@ -122,7 +122,9 @@ function measuredPrompt(
   const observer = scope.ResizeObserver;
   const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
   const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-  const observers = new Set<() => void>();
+  const observers = new Set<(entries: { contentRect: { width: number } }[]) => void>();
+  // The bubble's width, as the observer reports it after layout.
+  const observed = () => [{ contentRect: { width: 300 } }];
   const commits: string[] = [];
   let height = initialHeight;
   let measurements = 0;
@@ -137,7 +139,7 @@ function measuredPrompt(
     value: () => ({ height: readHeight() }),
   });
   scope.ResizeObserver = class {
-    constructor(private changed: () => void) {}
+    constructor(private changed: (entries: { contentRect: { width: number } }[]) => void) {}
     observe() {
       observers.add(this.changed);
     }
@@ -148,7 +150,8 @@ function measuredPrompt(
   const show = (text: string) => text;
   // Each fixture its own row: a row's measure outlives its mount.
   const rowId = `measured-prompt-${++measuredPrompts}`;
-  const draw = (text: string) =>
+  // The browser lays the frame out, then calls each new observer once, before paint.
+  const draw = (text: string) => {
     act(() =>
       root.render(
         <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
@@ -158,6 +161,10 @@ function measuredPrompt(
         </Profiler>,
       ),
     );
+    act(() => {
+      for (const changed of [...observers]) changed(observed());
+    });
+  };
   try {
     run({
       render: draw,
@@ -170,7 +177,7 @@ function measuredPrompt(
         height = next;
         expect(observers.size).toBe(1);
         act(() => {
-          observers.values().next().value!();
+          observers.values().next().value!([{ contentRect: { width: 300 + next } }]);
         });
       },
       commits,
