@@ -363,6 +363,69 @@
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
+/* Send and Stop's morph (composer/SendSlotGlyph.tsx, experiment send-stop-morph): while the slot
+   turns, the old glyph and the new one stand in the button's one grid cell, so its 28 px box never
+   moves. One run on the structural step; under Reduce Motion or motion off the copy is never drawn
+   and these rules play nothing. */
+.acpmux-send > .acpmux-send-layer {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.acpmux-send > .acpmux-send-layer[data-send-layer="out"] {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-agent-motion="off"]) .acpmux-send > .acpmux-send-layer {
+    animation-duration: var(--agent-motion-move, 180ms);
+    animation-timing-function: var(--agent-ease-out);
+    animation-fill-mode: both;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="in"] {
+    animation-name: acpmux-send-scale-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="scale"][data-send-layer="out"] {
+    animation-name: acpmux-send-scale-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="in"] {
+    animation-name: acpmux-send-rotate-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="rotate"][data-send-layer="out"] {
+    animation-name: acpmux-send-rotate-out;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="in"] {
+    animation-name: acpmux-send-blur-in;
+  }
+  :root:not([data-agent-motion="off"]) .acpmux-send-layer[data-send-morph="blur"][data-send-layer="out"] {
+    animation-name: acpmux-send-blur-out;
+  }
+}
+@keyframes acpmux-send-scale-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-scale-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.7); }
+}
+@keyframes acpmux-send-rotate-in {
+  from { opacity: 0; transform: rotate(-90deg) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes acpmux-send-rotate-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: rotate(90deg) scale(0.7); }
+}
+@keyframes acpmux-send-blur-in {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes acpmux-send-blur-out {
+  from { opacity: 1; filter: none; }
+  to { opacity: 0; filter: blur(3px); }
+}
+
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
    glyph (styles.css, --acpmux-send-off-fg), one disabled look, with no pill on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {

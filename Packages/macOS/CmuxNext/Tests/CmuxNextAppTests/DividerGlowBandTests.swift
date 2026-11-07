@@ -52,6 +52,7 @@ struct DividerGlowBandTests {
 
     @Test func edgeHandlesLightTheSameBand() {
         let edge = handle(.columnEdge(ColumnID("column")))
+        edge.showsIdleLine = false
         #expect(!edge.isLineVisible)
         edge.setHovered(true)
         #expect(edge.glow.isLit)
