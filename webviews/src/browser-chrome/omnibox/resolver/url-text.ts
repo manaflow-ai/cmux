@@ -116,6 +116,54 @@ export function lenientURL(text: string): { text: string; parsed: ParsedURL } | 
   return parsed ? { text: encoded, parsed } : null;
 }
 
+const isASCII = (text: string): boolean => Array.from(text).every((character) => character.charCodeAt(0) < 0x80);
+
+/**
+ * A host as IDNA gives it (UTS #46, the WHATWG URL parser's host step): an ASCII host unchanged,
+ * a Unicode one in punycode (`例え.jp` is `xn--r8jz45g.jp`), or null when it has no ASCII form.
+ */
+export function asciiHost(host: string): string | null {
+  if (isASCII(host)) return host;
+  try {
+    return new URL(`http://${host}/`).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Percent-encodes the non-ASCII characters of `text` as UTF-8; ASCII stays as it is. */
+const encodingNonASCII = (text: string): string => percentEncode(text, () => true);
+
+/**
+ * `URLComponents(string:)` on macOS 14 and later: a Unicode host in punycode and every other
+ * non-ASCII character percent-encoded, then parsed strictly (`https://例え.jp/café` is
+ * `https://xn--r8jz45g.jp/caf%C3%A9`). An invalid ASCII character still makes it null.
+ */
+export function componentsURL(text: string): { text: string; parsed: ParsedURL } | null {
+  const strict = parseStrictURL(text);
+  if (strict) return { text, parsed: strict };
+  if (isASCII(text)) return null;
+  const match = URL_SHAPE.exec(text);
+  if (!match) return null;
+  const [, scheme, authority, path, query, fragment] = match;
+  let encoded = `${scheme}:`;
+  if (authority != null) {
+    const at = authority.lastIndexOf("@");
+    const userinfo = at < 0 ? "" : `${encodingNonASCII(authority.slice(0, at))}@`;
+    const hostPort = authority.slice(at + 1);
+    const colon = hostPort.startsWith("[") ? hostPort.indexOf(":", hostPort.indexOf("]")) : hostPort.indexOf(":");
+    const host = colon < 0 ? hostPort : hostPort.slice(0, colon);
+    const ascii = host.startsWith("[") ? host : asciiHost(host);
+    if (ascii == null) return null;
+    encoded += `//${userinfo}${ascii}${colon < 0 ? "" : hostPort.slice(colon)}`;
+  }
+  encoded += encodingNonASCII(path);
+  if (query != null) encoded += `?${encodingNonASCII(query)}`;
+  if (fragment != null) encoded += `#${encodingNonASCII(fragment)}`;
+  const parsed = parseStrictURL(encoded);
+  return parsed ? { text: encoded, parsed } : null;
+}
+
 const PATH_CHARACTER = /^[A-Za-z0-9\-._~!$&'()*+,;=:@/]$/;
 
 /** `URL(filePath:).absoluteString` for an absolute path. */

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createOmniboxResolver } from "./omnibox-resolver";
 import { containsPairingLink, createURLResolver, isLoopback, isNonUniqueHost, splitHostAndPort } from "./url-resolver";
 
 const url = createURLResolver({ homeDirectory: "/Users/me" });
@@ -142,5 +143,41 @@ describe("BrowserURLResolver rules", () => {
     expect(isNonUniqueHost("100.128.0.1")).toBe(false);
     expect(isNonUniqueHost("fe80::1")).toBe(true);
     expect(isNonUniqueHost("printer.home.arpa")).toBe(true);
+  });
+});
+
+describe("Unicode URLs (URLComponents(string:) on macOS 14+)", () => {
+  const resolver = createOmniboxResolver();
+
+  test("an explicit URL with a Unicode path loads percent-encoded", () => {
+    expect(url("https://example.com/café")).toBe("https://example.com/caf%C3%A9");
+    expect(url("https://example.com/パス?q=日本#節")).toBe(
+      "https://example.com/%E3%83%91%E3%82%B9?q=%E6%97%A5%E6%9C%AC#%E7%AF%80",
+    );
+  });
+
+  test("an explicit URL with an IDN host loads in punycode", () => {
+    expect(url("https://例え.jp/")).toBe("https://xn--r8jz45g.jp/");
+    expect(url("http://Bücher.example:8080/a")).toBe("http://xn--bcher-kva.example:8080/a");
+  });
+
+  test("a scheme-less IDN host loads over https", () => {
+    expect(url("例え.jp")).toBe("https://xn--r8jz45g.jp");
+    expect(url("例え.jp/パス")).toBe("https://xn--r8jz45g.jp/%E3%83%91%E3%82%B9");
+    expect(url("例え.みんな")).toBe("https://xn--r8jz45g.xn--q9jyb4c");
+  });
+
+  test("a scheme-less ASCII host with a Unicode path loads", () => {
+    expect(url("example.com/café")).toBe("https://example.com/caf%C3%A9");
+    expect(resolver.destination("example.com/café")).toEqual({ kind: "url", url: "https://example.com/caf%C3%A9" });
+  });
+
+  test("Unicode phrases and single words still search", () => {
+    expect(url("café au lait")).toBeNull();
+    expect(url("café")).toBeNull();
+    expect(url("例え")).toBeNull();
+    expect(resolver.destination("café au lait")?.kind).toBe("search");
+    // An invalid ASCII character is still no URL.
+    expect(url("https://example.com/a|b")).toBeNull();
   });
 });

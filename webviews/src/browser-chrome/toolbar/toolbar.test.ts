@@ -1,6 +1,7 @@
 // The toolbar page's pure parts: keys, dispositions, tab slots, event seqs, layout diffs, the
 // runner's queue and status, and the chip mapping.
 import { describe, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
 import type { OmnibarFieldSurface } from "../omnibox/effect-applier";
 import { initialOmnibarState } from "../omnibox/state";
 import { testResolver } from "../omnibox/testing";
@@ -470,5 +471,64 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
       hostState("tab-1", "https://one.example/", { draft: { text: "older", selection: [0, 0] } }),
     );
     expect(a.session.state.retainedText).toBe("kept here");
+  });
+  /** Runs `body` with a jsdom document installed (attachInput listens on `document`). */
+  function withDocument(body: (document: Document) => void) {
+    const scope = globalThis as Record<string, unknown>;
+    const had = "document" in scope;
+    const saved = scope.document;
+    const { window } = new JSDOM('<!doctype html><div class="bc-omnibar"><div class="bc-field"><input></div></div>');
+    scope.document = window.document;
+    try {
+      body(window.document);
+    } finally {
+      if (had) scope.document = saved;
+      else delete scope.document;
+      window.close();
+    }
+  }
+
+  function countFocus(input: HTMLInputElement) {
+    const calls = { count: 0 };
+    const focus = input.focus.bind(input);
+    input.focus = (options?: FocusOptions) => {
+      calls.count += 1;
+      focus(options);
+    };
+    return calls;
+  }
+
+  test("a focus queued before the input mounts reaches the input when it attaches", () => {
+    withDocument((document) => {
+      const a = page();
+      a.session.applyHostState(
+        hostState("tab-1", "https://one.example/", { events: [event(1, { kind: "focus", source: "programmatic" })] }),
+      );
+      expect(a.session.state.phase).not.toBe("idle");
+      const input = document.querySelector("input") as HTMLInputElement;
+      const focus = countFocus(input);
+      a.session.attachInput(input);
+      expect(focus.count).toBe(1);
+      expect(document.activeElement).toBe(input);
+      const selection = a.session.presentation.selection;
+      expect(selection).not.toBeNull();
+      expect(input.value).toBe(a.session.presentation.text);
+      expect({ start: input.selectionStart, end: input.selectionEnd }).toEqual({
+        start: selection!.location,
+        end: selection!.location + selection!.length,
+      });
+    });
+  });
+
+  test("an input that attaches with no focus pending stays unfocused", () => {
+    withDocument((document) => {
+      const a = page();
+      a.session.applyHostState(hostState("tab-1", "https://one.example/"));
+      const input = document.querySelector("input") as HTMLInputElement;
+      const focus = countFocus(input);
+      a.session.attachInput(input);
+      expect(focus.count).toBe(0);
+      expect(document.activeElement).not.toBe(input);
+    });
   });
 });

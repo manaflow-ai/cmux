@@ -368,8 +368,9 @@ export class ToolbarSession {
       if (this.blurring || !this.editorActive || !document.hasFocus()) return;
       this.loseFocus();
     });
-    document.addEventListener("selectionchange", () => {
-      if (document.activeElement !== input || this.press || this.composing) return;
+    const page = input.ownerDocument;
+    page.addEventListener("selectionchange", () => {
+      if (page.activeElement !== input || this.press || this.composing) return;
       this.reportField(null);
     });
     const bar = input.closest<HTMLElement>(".bc-omnibar");
@@ -379,6 +380,10 @@ export class ToolbarSession {
     input.closest<HTMLElement>(".bc-field")?.addEventListener("mousedown", (event) => {
       if (event.target !== input && event.button === 0) event.preventDefault();
     });
+    // A focus the host granted before React mounted the input (the first state's queued `focus`,
+    // a Cmd-L while the page loaded) reached no element: the keys go to the input now, then the
+    // applier places the text and selection in the focused field.
+    if (this.editorActive) input.focus({ preventScroll: true });
     this.runner.applier.apply(this.presentation);
   };
 

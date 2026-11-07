@@ -3,7 +3,9 @@
 // `absoluteString` gives.
 import { chromiumPage } from "./chromium-page";
 import {
+  asciiHost,
   authorityEnd,
+  componentsURL,
   fileURL,
   hasWhitespace,
   isLetter,
@@ -11,7 +13,6 @@ import {
   isNumber,
   isWhitespace,
   lenientURL,
-  parseStrictURL,
   parseUnsigned,
   trimWhitespace,
 } from "./url-text";
@@ -177,8 +178,10 @@ export function createURLResolver(config: URLResolverConfig = {}): URLResolve {
   function explicitURL(text: string, scheme: string): string | null {
     switch (scheme) {
       case "http":
-      case "https":
-        return parseStrictURL(text)?.host ? text : null;
+      case "https": {
+        const url = componentsURL(text);
+        return url?.parsed.host ? url.text : null;
+      }
       case "file": {
         const url = lenientURL(text);
         return url && url.parsed.scheme.toLowerCase() === "file" && url.parsed.path.startsWith("/") ? url.text : null;
@@ -214,7 +217,10 @@ export function createURLResolver(config: URLResolverConfig = {}): URLResolve {
     const end = authorityEnd(text);
     const authority = end < 0 ? text : text.slice(0, end);
     if (!authority || authority.includes("@")) return null;
-    const { host, hasPort } = splitHostAndPort(authority);
+    const split = splitHostAndPort(authority);
+    // A Unicode host is judged in its punycode form (`例え.みんな` is `xn--r8jz45g.xn--q9jyb4c`).
+    const host = split.host && asciiHost(split.host);
+    const hasPort = split.hasPort;
     if (!host) return null;
     const hasPath = end >= 0 && text[end] === "/";
     let scheme: string;
@@ -230,8 +236,8 @@ export function createURLResolver(config: URLResolverConfig = {}): URLResolve {
     } else {
       return null;
     }
-    const url = `${scheme}://${text}`;
-    return parseStrictURL(url)?.host ? url : null;
+    const url = componentsURL(`${scheme}://${text}`);
+    return url?.parsed.host ? url.text : null;
   }
 
   return (input: string) => {
