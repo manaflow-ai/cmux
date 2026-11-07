@@ -430,6 +430,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 .cv-agentmsg.cv-received[data-open] button.cv-agent-tag.is-open {
   height: var(--cv-tool-row-height);
+}
 /* A sent message (SentMessageLine.tsx) draws as a received one (ask-64e107ccf0; Leo, 2026-11-07:
    "it's just not good, compared to the normal ones"): the received row above (`.cv-received` on the
    one message row), the envelope in the icon column, then "Sent to" before the recipient's chip and
@@ -486,5 +487,4 @@ button.cv-agentmsg__name:focus-visible {
 .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
-}
 }
