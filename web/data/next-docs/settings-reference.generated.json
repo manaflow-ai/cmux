@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 606,
+  "count": 605,
   "sections": [
     {
       "id": "general",
@@ -2336,7 +2336,8 @@
             "bare",
             "panes",
             "two-tone",
-            "floating"
+            "floating",
+            "blocks"
           ]
         },
         {
@@ -3652,21 +3653,6 @@
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
-        },
-        {
-          "key": "sidebar.groupPalette",
-          "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
-          "kind": "choice",
-          "default": "glass",
-          "group": "Sidebar",
-          "values": [
-            "glass",
-            "theme",
-            "wallpaper",
-            "grayscale",
-            "vibrant"
-          ]
         },
         {
           "key": "sidebar.hoverCards.delay",

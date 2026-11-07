@@ -461,7 +461,7 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pill.borderColor = background.rim?.nsColor.cgColor
-        pill.borderWidth = background.rim == nil ? 0 : Metrics.dividerThickness
+        pill.borderWidth = background.rim == nil ? 0 : Metrics.lineWidth(Metrics.dividerThickness)
         CATransaction.commit()
     }
 
