@@ -7,15 +7,19 @@ nonisolated private let agentHookDeliveryLogger = Logger(
 )
 
 extension CMUXCLI {
-    /// Chooses the live wrapper PID for Codex while preserving legacy precedence for other agents.
+    /// Chooses the pid to persist for a hook event, keeping the mapped pid only
+    /// while its process is still alive.
     func preferredAgentHookEventPID(
         agentName: String,
         mappedPID: Int?,
         inferredPID: Int?
     ) -> Int? {
-        agentName == "codex"
-            ? inferredPID ?? mappedPID
-            : mappedPID ?? inferredPID
+        AgentHookDeliveryPolicy().preferredEventPID(
+            agentName: agentName,
+            mappedPID: mappedPID,
+            inferredPID: inferredPID,
+            isRunning: AgentHookDeliveryPolicy.processIsRunning
+        )
     }
 
     /// Reports a persistently throttled hook failure without serializing raw transport details.
