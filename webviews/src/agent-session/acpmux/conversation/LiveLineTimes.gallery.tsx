@@ -1,17 +1,19 @@
-// l10n-allow-file: gallery fixtures (sample commands), not shipped UI.
-// The live line's two times past the turn's first step: a finished step's own time and the turn's
-// clock. Leo's capture (2026-11-07) read "python3 - <<'EOF' 3s · 21s · 549 tokens", two bare
-// durations with nothing saying which was which. The `live-line-times` arms: both named, "step 3s ·
-// turn 21s" (shipped); the turn's clock alone; the step's time alone with the turn's on hover.
-// Thinking past the first step keeps its summed thinking bare beside the word, with the turn's
-// clock named after it. Test: webviews/test/transcript-live-line-times.test.tsx.
+// l10n-allow-file: gallery fixtures, not shipped UI.
+// The live line's times past the turn's first step. Leo's capture (2026-11-07) read "python3 -
+// <<'EOF' 3s · 21s · 549 tokens": a held finished step's own time and the turn's clock, two bare
+// durations. The line no longer holds a finished step (it reads Thinking the moment a call
+// completes), so the two times left are the turn's summed thinking beside "Thinking" and the turn's
+// clock. The `live-line-times` arms: the turn's clock named, "Thinking 8s · turn 21s" (shipped); the
+// turn's clock alone; the thinking time alone with the turn's on hover. With no thoughts yet the
+// line reads "Thinking · turn 21s", never a bare clock beside the word.
+// Tests: webviews/test/transcript-live-line-times.test.tsx, transcript-live-line-call-done.test.tsx.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { Thinking } from "./Thinking";
 import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
 
-type Props = { arm: "labelled" | "turn" | "hover"; thinking?: boolean };
+type Props = { arm: "labelled" | "turn" | "hover"; thoughts?: boolean };
 
 const counts: WorkingCounts = {
   agents: 0,
@@ -25,7 +27,7 @@ const counts: WorkingCounts = {
 
 const scope = globalThis as { cmuxExperiments?: Record<string, string> };
 
-function Fixture({ arm, thinking = false }: Props) {
+function Fixture({ arm, thoughts = true }: Props) {
   // The arm is the host's override for this stage, set before the line first renders.
   useState(() => {
     scope.cmuxExperiments = { ...scope.cmuxExperiments, [liveLineTimes.id]: arm };
@@ -36,11 +38,7 @@ function Fixture({ arm, thinking = false }: Props) {
   return (
     <div style={{ padding: 24, maxWidth: 640 }}>
       <WorkingCountsContext.Provider value={counts}>
-        {thinking ? (
-          <Thinking since={since} below turnTotal verbKey="gallery" thoughtMs={8_000} />
-        ) : (
-          <Thinking since={since} below turnTotal doing="python3 - <<'EOF'" done doneMs={3_000} />
-        )}
+        <Thinking since={since} below turnTotal verbKey="gallery" {...(thoughts && { thoughtMs: 8_000 })} />
       </WorkingCountsContext.Provider>
     </div>
   );
@@ -62,22 +60,22 @@ export default componentEntry<Props>({
   variants: {
     labelled: {
       props: { arm: "labelled" },
-      note: 'Shipped: "step 3s · turn 21s · 549 tokens", each time named.',
+      note: 'Shipped: "Thinking 8s · turn 21s · 549 tokens", the thinking time beside its word, the turn\'s clock named.',
+    },
+    "no-thoughts": {
+      props: { arm: "labelled", thoughts: false },
+      note: 'Right after a call completed, no thoughts yet: "Thinking · turn 21s", never "Thinking 21s".',
     },
     "turn-only": {
       props: { arm: "turn" },
-      note: "The turn's clock alone: \"21s · 549 tokens\"; the step's own time stays on its row.",
+      note: 'The turn\'s clock alone: "Thinking 21s", which reads as that long a think.',
     },
     "step-hover": {
       props: { arm: "hover" },
-      note: "The step's time alone, \"3s · 549 tokens\"; the turn's clock only in its tooltip.",
+      note: 'The thinking time alone, "Thinking 8s"; the turn\'s clock only in its tooltip.',
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-worked__own" });
       },
-    },
-    "thinking-labelled": {
-      props: { arm: "labelled", thinking: true },
-      note: 'Thinking past the first step: "Thinking 8s · turn 21s"; the thinking time stays bare beside its word.',
     },
   },
   load: () => Promise.resolve(Fixture),

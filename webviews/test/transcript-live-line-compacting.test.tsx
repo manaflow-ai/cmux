@@ -50,17 +50,12 @@ test("a note after a running compaction leaves it the line's state; a reply afte
   expect(answered.at(-1)!.liveState).not.toBe("compacting");
 });
 
-test("a finished compaction is held on the line until the next step, then lands in the transcript", () => {
+test("a finished compaction lands in the transcript at once and the line reads Thinking again", () => {
   const done = { ...compacting(), version: 2, compaction: { state: "completed" as const } };
-  const held = view([prompt, reply, done]);
-  expect(held.at(-1)!).toMatchObject({ liveState: "compacting", liveCompaction: { state: "completed" } });
-  expect(held.some((entry) => entry.id === "compaction-9")).toBe(false);
-  const next = view([prompt, reply, done, row("a-2", "assistant", 50, { text: "Picking up again." })]);
-  expect(next.at(-1)!.liveState).not.toBe("compacting");
-  expect(next.some((entry) => entry.id === "compaction-9")).toBe(true);
-  // A failed one keeps its row, as a failed call keeps its mark.
-  const failed = { ...done, compaction: { state: "failed" as const, error: "Prompt is too long" } };
-  expect(view([prompt, reply, failed]).some((entry) => entry.id === "compaction-9")).toBe(true);
+  const shaped = view([prompt, reply, done]);
+  expect(shaped.at(-1)!.liveState).toBeUndefined();
+  expect(shaped.at(-1)!.doing).toBeUndefined();
+  expect(shaped.some((entry) => entry.id === "compaction-9")).toBe(true);
 });
 
 test("an account-switch compaction keeps its own words on the line", () => {
@@ -149,14 +144,4 @@ test("the account-switch compaction's line keeps its meaning", () => {
   );
   expect(container.textContent).toContain("Compacting the conversation to continue on another account…");
   expect(container.textContent).not.toContain("Thinking");
-});
-
-test("a completed compaction reads as its note on the line, with the turn's time again", () => {
-  const compaction = { state: "completed" as const, preTokens: 412_000, postTokens: 18_400 };
-  act(() => root!.render(line({ liveState: "compacting", liveCompaction: compaction, doingAt: START + 83_000 })));
-  const text = container.querySelector(".cv-worked")!.textContent!;
-  expect(text).toContain("Conversation compacted");
-  expect(text).toContain("1m 35s");
-  expect(text).not.toContain("Thinking");
-  expect(container.querySelector("[data-compacting]")).toBeNull();
 });

@@ -12,7 +12,7 @@
 // A policy note says the chat's harness cannot keep its permission policy (acpmux
 // `policy_unenforced`), which is otherwise invisible too: the chat still names the policy while
 // its agent runs without the asks the policy would answer.
-import { type StringKey, type Translate, useT } from "../i18n";
+import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
 
@@ -23,27 +23,21 @@ export function compactTokens(tokens: number): string {
   return `${thousands < 10 ? thousands.toFixed(1).replace(/\.0$/, "") : Math.round(thousands)}k`;
 }
 
-/// How a compaction's note reads: the running words, how it ended, or why it failed. The live line
-/// says a completed one the same way while it holds it (Thinking.tsx).
-export function compactionText(t: Translate, compaction: AcpmuxCompaction): string {
-  const { state, reason, error, preTokens, postTokens } = compaction;
-  const accountSwitch = reason === "account_switch";
-  if (state === "running") return accountSwitch ? t("compaction.runningAccountSwitch") : t("compaction.running");
-  if (isUnheard(compaction)) return t("compaction.ended");
-  if (state === "failed") return error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
-  const text = accountSwitch ? t("compaction.completedAccountSwitch") : t("compaction.completed");
-  if (preTokens === undefined || postTokens === undefined) return text;
-  return t("compaction.withSizes", { text, before: compactTokens(preTokens), after: compactTokens(postTokens) });
-}
-
-/// How it ended was never heard: neither a failure nor a completion is claimed.
-const isUnheard = ({ state, inferred, error }: AcpmuxCompaction) => state === "failed" && inferred === true && !error;
-
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
-  const { state } = compaction;
-  const unheard = isUnheard(compaction);
-  const text = compactionText(t, compaction);
+  const { state, inferred, reason, error, preTokens, postTokens } = compaction;
+  // How it ended was never heard: neither a failure nor a completion is claimed.
+  const unheard = state === "failed" && inferred === true && !error;
+  const accountSwitch = reason === "account_switch";
+  let text: string;
+  if (state === "running") text = accountSwitch ? t("compaction.runningAccountSwitch") : t("compaction.running");
+  else if (unheard) text = t("compaction.ended");
+  else if (state === "failed") text = error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
+  else {
+    text = accountSwitch ? t("compaction.completedAccountSwitch") : t("compaction.completed");
+    if (preTokens !== undefined && postTokens !== undefined)
+      text = t("compaction.withSizes", { text, before: compactTokens(preTokens), after: compactTokens(postTokens) });
+  }
   return (
     <div className="cv-tools">
       <div className="cv-tool cv-compaction" data-state={unheard ? "ended" : state}>

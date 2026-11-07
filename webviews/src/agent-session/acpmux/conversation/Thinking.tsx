@@ -30,7 +30,6 @@ import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { compactionText } from "./CompactionNote";
 import type { Translate } from "../i18n";
 
 /// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
@@ -198,14 +197,14 @@ export function Thinking({
   sendTo?: string;
   sendSession?: string;
   draft?: boolean;
-  /// `doing` is the latest step, finished ("Ran grep …"): the line holds it until the next one.
+  /// `doing` is a finished step ("Ran grep …"). The transcript's live line no longer holds one
+  /// (turns.ts `codexLiveTurn` reads "Thinking" the moment a call completes); a host may still.
   done?: boolean;
-  /// How long that finished step took (turns.ts `liftedStep`): the time beside it with `turnTotal`.
+  /// How long that finished step took: the time beside it with `turnTotal`.
   doneMs?: number;
   /// With no call named: the agent waits on `liveAgents` foreground subagents, or writes its reply
   /// (turns.ts `codexLiveTurn`), or compacts the conversation (`compacting`: `liveCompaction`
-  /// running, timed from `doingAt`, or just completed, which the line holds as a finished step).
-  /// Otherwise it reads "Thinking".
+  /// running, timed from `doingAt`). Otherwise it reads "Thinking".
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
   liveCompaction?: AcpmuxCompaction;
@@ -262,21 +261,16 @@ export function Thinking({
   const writing = liveState === "writing" && stillWriting;
   // A compaction says so with its own clock: no model thinks or writes then, so never "Thinking"
   // and no token count (Leo, 2026-11-07: "You're not thinking during this time. So it shouldn't be
-  // labeled as thinking"). The look's arm sets its clock (compactingLine.experiment.ts). A completed
-  // one is the turn's latest step, held with the turn's clock and tokens as any finished step is.
-  const compaction = doing === undefined && liveState === "compacting" ? liveCompaction : undefined;
-  const compacted = compaction?.state === "completed";
-  const compacting = compaction !== undefined && !compacted;
+  // labeled as thinking"). The look's arm sets its clock (compactingLine.experiment.ts).
+  const compacting = doing === undefined && liveState === "compacting";
   const compactLook = compacting ? experimentArm(compactingLine) : undefined;
   const elapsedMs = timed ? Math.max(0, time - from) : 0;
   const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
-  const decorative = doing === undefined && !waitsOnAgents && !writing && compaction === undefined;
+  const decorative = doing === undefined && !waitsOnAgents && !writing && !compacting;
   const label =
     doing === undefined
-      ? compaction
-        ? compacting
-          ? t(compaction.reason === "account_switch" ? "compaction.runningAccountSwitch" : "turn.live.compacting")
-          : compactionText(t, compaction)
+      ? compacting
+        ? t(liveCompaction?.reason === "account_switch" ? "compaction.runningAccountSwitch" : "turn.live.compacting")
         : waitsOnAgents
           ? t("turn.live.waitingOnSubagents", { n: liveAgents })
           : writing
@@ -308,7 +302,7 @@ export function Thinking({
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const compactMs = compacting && timed && doingAt !== undefined ? Math.max(0, time - doingAt) : undefined;
-  const ownMs = compaction
+  const ownMs = compacting
     ? compactLook === "turn"
       ? compactMs
       : undefined
@@ -333,9 +327,12 @@ export function Thinking({
   // compaction's clock beside its words) already reads as that word's.
   const own =
     ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
+  // "Thinking" past the first step with no thoughts streamed yet: the turn's clock after a dot, named,
+  // never bare beside the word, which would read as that long a think (Leo, 2026-11-03).
+  const bareTurn = decorative && total && own === undefined && timesLook === "labelled";
   // The turn's clock after it: named when labelled, only in the step time's tooltip on hover.
   const turnClock =
-    own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+    (own || bareTurn) && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
   const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting
@@ -344,7 +341,9 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : (own ?? turnTime);
+    : bareTurn
+      ? undefined
+      : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -475,7 +474,7 @@ export function Thinking({
           )}
         </span>
       )}
-      {own && !waiting && timesLook !== "hover" && (
+      {(own || bareTurn) && !waiting && timesLook !== "hover" && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·

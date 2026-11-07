@@ -6,9 +6,8 @@
 // says "Compacting conversation…" with the compaction's own clock and no token count, and the row
 // folds into it (conversation/turns.ts `codexLiveTurn`). Entering and leaving roll the words in
 // place (Thinking.tsx `useRoll`); the line keeps its box, so nothing below or beside it moves. When
-// the compaction ends the line holds its note ("Conversation compacted · 412k → 18k") as it holds
-// any finished step, so no row lands while the line changes; at the next step the note joins the
-// transcript and the line names that step (here Thinking). The
+// the compaction ends its note ("Conversation compacted · 412k → 18k") lands in the transcript and
+// the line rolls back to Thinking at once, as after any finished step. The
 // mid-change variants hold the roll at one moment; Replay plays it. The `compacting-line` arms
 // differ in the clock: the compaction's own (shipped), its own then the turn's, or none.
 // Test: webviews/test/transcript-live-line-compacting.test.tsx.
@@ -21,7 +20,7 @@ import { compactingLine } from "./compactingLine.experiment";
 import { Thinking } from "./Thinking";
 import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
 
-type Phase = "before" | "thinking" | "compacting" | "compacted" | "next";
+type Phase = "before" | "thinking" | "compacting" | "compacted";
 type Props = { phase: Phase; arm?: "own" | "turn" | "calm"; accountSwitch?: boolean };
 
 const counts: WorkingCounts = {
@@ -49,9 +48,9 @@ function Fixture({ phase: start, arm, accountSwitch = false }: Props) {
   const reason = accountSwitch ? { reason: "account_switch" } : {};
   const running: AcpmuxCompaction = { state: "running", ...reason };
   const completed: AcpmuxCompaction = { state: "completed", preTokens: 412_000, postTokens: 18_400, ...reason };
-  // Base drew the running note as its own row; a compaction the line no longer holds is a row too.
-  const note = phase === "before" ? running : phase === "next" ? completed : undefined;
-  const held = phase === "compacting" ? running : phase === "compacted" ? completed : undefined;
+  // Base drew the running note as its own row; a finished compaction is a row again.
+  const note = phase === "before" ? running : phase === "compacted" ? completed : undefined;
+  const held = phase === "compacting" ? running : undefined;
   const step = (next: Phase) => () => {
     if (next === "compacting") setCompactedAt(Date.now());
     setPhase(next);
@@ -64,9 +63,6 @@ function Fixture({ phase: start, arm, accountSwitch = false }: Props) {
         </button>
         <button type="button" onClick={step("compacted")}>
           Finish compacting
-        </button>
-        <button type="button" onClick={step("next")}>
-          Next step
         </button>
       </div>
       <p style={{ margin: "0 0 8px", color: "var(--cv-text)" }}>The migration is applied; running the tests next.</p>
@@ -99,7 +95,6 @@ const holdAt = (ms: number) => (ctx: PlayContext) => {
 };
 const start = (ctx: PlayContext) => ctx.click({ role: "button", name: "Start compacting" });
 const finish = (ctx: PlayContext) => ctx.click({ role: "button", name: "Finish compacting" });
-const nextStep = (ctx: PlayContext) => ctx.click({ role: "button", name: "Next step" });
 const settled = (ctx: PlayContext) => ctx.waitFor(() => rollAnimations(ctx.document).length === 0);
 
 export default componentEntry<Props>({
@@ -119,7 +114,6 @@ export default componentEntry<Props>({
     script: [
       { name: "Start compacting", run: start },
       { name: "Finish compacting", run: finish },
-      { name: "Next step", run: nextStep },
     ],
   },
   variants: {
@@ -141,25 +135,17 @@ export default componentEntry<Props>({
     },
     leaving: {
       props: { phase: "compacting" },
-      note: '60 ms into its end: "Compacting conversation…" rolls out as the line takes the finished note, "Conversation compacted · 412k → 18k"; no row lands.',
+      note: "60 ms into its end: Compacting rolls out above as Thinking rolls in; the note lands in the transcript.",
       play: async (ctx) => {
         await finish(ctx);
         holdAt(60)(ctx);
       },
     },
-    compacted: {
+    left: {
       props: { phase: "compacting" },
-      note: "Ended: the line holds the finished note with the turn's time and tokens, as it holds any finished step.",
+      note: 'Ended: "Conversation compacted · context 412k → 18k" in the transcript, the line on Thinking with the turn\'s clock and tokens.',
       play: async (ctx) => {
         await finish(ctx);
-        await settled(ctx);
-      },
-    },
-    "next-step": {
-      props: { phase: "compacted" },
-      note: "The next step: the note joins the transcript and the line rolls on to name the step (Thinking here).",
-      play: async (ctx) => {
-        await nextStep(ctx);
         await settled(ctx);
       },
     },

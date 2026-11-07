@@ -29,11 +29,10 @@ import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isFailed as callFailed, isRunning } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
-import { agentCall } from "./agentCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
@@ -1806,8 +1805,8 @@ function codexLiveTurn(
     // writes then, so the line never reads "Thinking" or counts tokens, and the compaction's own
     // row folds into it, one status line (Leo, 2026-11-07: "when you're compacting the
     // conversation, just show it as you're compacting ... You're not thinking during this time ...
-    // That should replace the thinking area"). Once it ends the line holds its note until the
-    // next step, as it holds any finished step (`liftedStep`), so no row lands as the line changes.
+    // That should replace the thinking area"). Once it ends its note lands in the transcript and
+    // the line reads "Thinking" again.
     rows = rows.filter((row) => row.id !== compactingRow.id);
     line.liveState = "compacting";
     line.liveCompaction = compactingRow.compaction;
@@ -1838,22 +1837,12 @@ function codexLiveTurn(
   if (agents > 0) Object.assign(line, { liveState: "subagents", liveAgents: agents });
   // With a todo list and no answer streaming, the activity line under the list is the live line
   // (below), which names the plan's step, so no call leaves its run for it.
-  if (!named && !answering && !compacting && !statusPlan && agents === 0) {
-    // Between calls the line keeps the latest finished step ("Ran grep …") instead of a separate
-    // "Thinking" under it, shimmering and timed from the prompt like any step: the line is the
-    // turn's current activity and just keeps going (Leo, 2026-11-01: "this should be replacing
-    // the thinking area and its shimmer across things", "like the thinking or whatever it should
-    // just keep going"). The step leaves its run while the line names it, so it reads once.
-    const lifted = liftedStep(rows, last);
-    if (lifted) {
-      rows = lifted.rows;
-      line.doing = lifted.doing;
-      line.doingShell = lifted.shell;
-      line.doingDone = true;
-      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m").
-      if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
-    }
-  }
+  // Between calls the line reads "Thinking" the moment a call completes, in one in-place roll: it
+  // never holds the finished step with its frozen time (Leo, 2026-11-07: "if we can genuinely
+  // determine that there's no more seconds ticking, then why are we still showing it? Why don't
+  // we just immediately switch to the thinking? I feel like this hangs on for a bit too much").
+  // Takes back the held step of 2026-11-01 ("this should be replacing the thinking area and its
+  // shimmer across things"); the finished call stays in its run.
   // Still "Thinking" after the first step: the time beside it is only the turn's thinking, the
   // summed spans its thoughts streamed, never the calls, waits and queue time between them (Leo's
   // "Thinking 7m 34s · ↓ 4.5K out", 2026-11-03). The turn's whole time is the total after it.
@@ -1877,66 +1866,16 @@ function codexLiveTurn(
   ];
 }
 
-/// The turn's latest step when it is a compaction, running or completed, with nothing from the agent
-/// since: no reply, call or prompt after it. A note after it (a failover, a background task's end)
-/// leaves it the latest step. A failed one keeps its row, as a failed call keeps its mark.
+/// The turn's compaction still running, with nothing from the agent since: no reply, call or prompt
+/// after it. A note after it (a failover, a background task's end) leaves it running. Once it ends,
+/// its note is a row and the line reads "Thinking" at once, as after any finished step.
 function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
-    if (row.kind === "compaction")
-      return row.compaction?.state === "running" || row.compaction?.state === "completed" ? row : undefined;
+    if (row.kind === "compaction") return row.compaction?.state === "running" ? row : undefined;
     if (row.kind === "assistant" || row.kind === "activity" || row.kind === "user") return undefined;
   }
   return undefined;
-}
-
-/// The latest run's last finished call, lifted out of the run for the live line to name: a command
-/// as its short line ("Ran grep …"), any other call as its row names it. Only a plain step: a failed
-/// call keeps its mark in the run, a command sent to the background keeps its state there, and
-/// messages, sub-sessions, subagent calls, render cards and edits keep their own rows. Nil when the latest step is anything else.
-/// Its `ms` is its run from start to end; none when both were stamped at one moment, which measured nothing.
-function liftedStep(
-  rows: AcpmuxRow[],
-  last: AcpmuxRow,
-): { rows: AcpmuxRow[]; doing: string; shell: boolean; ms?: number } | undefined {
-  if (last.kind !== "activity") return undefined;
-  // A run that a short note joined to an earlier one keeps the earlier one's id (mergeShortNotes).
-  const at = rows.findIndex((row) => row.id === last.id || row.joined?.includes(last.id));
-  const run = rows[at];
-  if (!run?.foldRun) return undefined;
-  const items = run.items ?? [];
-  // Thoughts after it are the agent thinking about it; the line still names the call.
-  let index = items.length - 1;
-  while (index >= 0 && !items[index]!.tool) index -= 1;
-  const item = items[index];
-  const call = item?.tool;
-  if (
-    !call ||
-    isRunning(call) ||
-    call.background !== undefined ||
-    callFailed(call) ||
-    isEditTool(call) ||
-    renderCall(call) ||
-    subsessionCall(call) ||
-    agentCall(call) ||
-    // A subagent's launch named only by its tool (Task, Agent), its input not read: its call ends
-    // when the subagent starts, so its time is the launch's, never the subagent's (Leo, 2026-11-05,
-    // on a line reading "Identify which wait belongs to the relay-login green step 0s · 32s").
-    canonicalCall(call)?.tool === "task" ||
-    agentMessage(call) ||
-    acpmuxSendCalls(call) ||
-    acpmuxMcpSends(call)
-  )
-    return undefined;
-  const shell =
-    call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
-  const doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, item!.text);
-  const kept = items.filter((_, position) => position !== index);
-  const next = rows.slice();
-  if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
-  else next.splice(at, 1);
-  const span = call.startedAt !== undefined && call.endedAt !== undefined ? call.endedAt - call.startedAt : undefined;
-  return { rows: next, doing, shell, ms: span !== undefined && span > 0 ? span : undefined };
 }
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
@@ -1971,10 +1910,6 @@ function foregroundAgents(rows: readonly AcpmuxRow[]): number {
       for (const agent of row.subagents ?? []) if (agent.state === "running" && !agent.background) count += 1;
   return count;
 }
-/// A run with its last call on the live line differs from the same run whole. (Not a sixth
-/// `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
-const LIFTED_STATES = 2;
-
 /// The newest call still running in a live turn's latest row.
 function runningCall(
   row: AcpmuxRow,

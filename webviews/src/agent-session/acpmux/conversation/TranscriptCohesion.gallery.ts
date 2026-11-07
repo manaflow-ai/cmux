@@ -51,9 +51,7 @@ function liveSeam(kind: "peers" | "tools" | "status"): AcpmuxSnapshot {
         ]
       : kind === "tools"
         ? [activity([tool("Read layout rules", "read", "completed"), tool("Check spacing", "execute", "completed")], 1)]
-        : // A compaction whose end was never heard keeps its own row; a running or just completed
-          // one is the live line itself (Thinking.tsx), so it would leave no notice above the line.
-          [row("compaction", 1, { compaction: { state: "failed", inferred: true } })];
+        : [row("compaction", 1, { compaction: { state: "completed", preTokens: 24_000, postTokens: 6_000 } })];
   const snapshot = chat(
     [user("Check the transcript spacing.", 3), assistant("I will compare the activity and live state.", 2), ...rows],
     { isWorking: true, harness: "claude", model: "claude-opus-5-5" },
