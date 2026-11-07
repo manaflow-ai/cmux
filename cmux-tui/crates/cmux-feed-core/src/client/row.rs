@@ -61,7 +61,7 @@ pub struct Row {
     /// "api-server › Fix login redirect".
     #[serde(rename = "where", skip_serializing_if = "Option::is_none")]
     pub place: Option<String>,
-    /// The Swift `IconName` case name (`terminal`, `agentQuestion`, ...).
+    /// The icon registry name the page draws (`terminal`, `agent.question`, ...).
     pub icon: &'static str,
     pub urgent: bool,
     pub dimmed: bool,
@@ -193,32 +193,33 @@ fn place_text(item: &FeedItem, place: Option<&Place>, who: &str) -> String {
     label.to_owned()
 }
 
-/// The Swift `IconName` case of an item.
+/// The icon registry name of an item (the dotted names `webviews` draws, as the Swift `IconName`
+/// cases did: `agent.question`, `feed.choice`).
 pub fn icon(item: &FeedItem, prompt: &Prompt) -> &'static str {
     match prompt {
         Prompt::Notice => match item.poster.kind.as_str() {
             "integration" => "integration",
-            "server" | "vm" => "machineRemote",
+            "server" | "vm" => "machine.remote",
             "automation" => "automation",
             "system" if item.context_str("terminal").is_some() => "terminal",
             _ => "notification",
         },
         Prompt::Approve { action, .. } => match action {
             ApproveType::Command => "terminal",
-            ApproveType::Edit => "actionEdit",
+            ApproveType::Edit => "action.edit",
             ApproveType::Network => "network",
             ApproveType::Install => "package",
             ApproveType::Tool | ApproveType::Custom => "tools",
         },
-        Prompt::Question { .. } => "agentQuestion",
-        Prompt::Choice { .. } => "feedChoice",
-        Prompt::Confirm { .. } => "actionConfirm",
-        Prompt::SignIn { .. } => "accountSignin",
-        Prompt::Passkey { .. } => "accountPasskey",
-        Prompt::Review { .. } => "actionReview",
-        Prompt::Input => "feedInput",
-        Prompt::File { .. } => "fileNew",
-        Prompt::Handoff { .. } => "agentHandoff",
-        Prompt::Custom => "feedCustom",
+        Prompt::Question { .. } => "agent.question",
+        Prompt::Choice { .. } => "feed.choice",
+        Prompt::Confirm { .. } => "action.confirm",
+        Prompt::SignIn { .. } => "account.signin",
+        Prompt::Passkey { .. } => "account.passkey",
+        Prompt::Review { .. } => "action.review",
+        Prompt::Input => "feed.input",
+        Prompt::File { .. } => "file.new",
+        Prompt::Handoff { .. } => "agent.handoff",
+        Prompt::Custom => "feed.custom",
     }
 }

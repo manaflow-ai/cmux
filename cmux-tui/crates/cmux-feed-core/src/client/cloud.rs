@@ -210,8 +210,10 @@ impl CloudStream {
         self.presence_frame()
     }
 
+    /// Only on a live stream: a reconnect sends presence after its snapshot, never before the
+    /// subscribe.
     fn presence_frame(&self) -> Option<String> {
-        (!self.stream.is_empty()).then(|| {
+        (self.live && !self.stream.is_empty()).then(|| {
             json!({"t": "presence.set", "stream": self.stream, "state": {"active": self.active, "client": "mac"}})
                 .to_string()
         })

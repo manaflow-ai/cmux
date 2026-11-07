@@ -131,7 +131,7 @@ fn a_row_marks_urgent_dimmed_and_local() {
     item.home = "local:inst".into();
     let row = Row::of(&item, None);
     assert!(row.urgent && row.local && !row.dimmed);
-    assert_eq!(row.icon, "agentQuestion");
+    assert_eq!(row.icon, "agent.question");
     assert_eq!(row.headline, "Notice fi_q");
     assert_eq!(row.detail.as_deref(), Some("Ship?"));
     item.state = State::Expired;
@@ -452,6 +452,24 @@ fn the_stream_subscribes_takes_the_snapshot_and_resends_unsettled_intents() {
 }
 
 #[test]
+fn presence_waits_for_a_live_stream_after_a_reconnect() {
+    let mut stream = CloudStream::new();
+    stream.on_connect();
+    stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
+    stream.on_text(&json!({"t": "snapshot", "seq": 1, "state": {"items": {}}}).to_string());
+    assert!(stream.set_presence(true).is_some(), "a live stream sends presence at once");
+    stream.on_disconnect();
+    stream.on_connect();
+    assert_eq!(stream.set_presence(false), None, "no presence before the new subscribe");
+    stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
+    assert_eq!(stream.set_presence(true), None, "nor before the snapshot");
+    let actions =
+        stream.on_text(&json!({"t": "snapshot", "seq": 2, "state": {"items": {}}}).to_string());
+    let CloudAction::Send(presence) = &actions[1] else { panic!("{actions:?}") };
+    assert!(presence.contains("\"active\":true"), "the snapshot sends the latest state");
+}
+
+#[test]
 fn an_event_names_removed_items_by_what_is_still_present() {
     let mut stream = CloudStream::new();
     stream.on_text(&json!({"t": "welcome", "principal": {"user": "u"}}).to_string());
@@ -530,7 +548,7 @@ fn the_inbox_groups_by_the_readers_day_and_collapses_threads() {
     assert_eq!(west["total"], 3);
     let item = &utc["groups"][0]["entries"][0]["item"];
     assert_eq!(item["pending"], false);
-    assert_eq!(item["row"]["icon"], "agentQuestion");
+    assert_eq!(item["row"]["icon"], "agent.question");
     assert_eq!(
         utc["counts"],
         json!({"open_requests": 1, "unread_notices": 3, "badge": 4, "unread": 4})
