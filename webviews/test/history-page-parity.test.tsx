@@ -192,7 +192,7 @@ test("Up and Down move the selection, and Return opens the selected row in the a
   await key(list, "Enter");
   const run = provider.last(ACTION_RUN)!;
   expect(run.action).toBe("history.open");
-  expect((run.args as { new_tab: boolean }).new_tab).toBe(false);
+  expect((run.args as { newTab: boolean }).newTab).toBe(false);
 });
 
 test("an offline machine's entries are greyed, badged Offline and cannot be opened", async () => {

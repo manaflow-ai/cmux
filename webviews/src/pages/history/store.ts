@@ -279,7 +279,7 @@ export class HistoryStore {
 
   /** Runs the row's restore action in the app (page open, go to, reopen, resume, run again). */
   open(entry: HistoryEntry, newTab = false): Promise<void> {
-    return this.intent(ACTION_RUN, { action: "history.open", args: { id: entry.id, new_tab: newTab } }, false);
+    return this.intent(ACTION_RUN, { action: "history.open", args: { id: entry.id, newTab } }, false);
   }
 
   remove(entry: HistoryEntry): Promise<void> {
@@ -289,11 +289,8 @@ export class HistoryStore {
   removeSite(entry: HistoryEntry): Promise<void> {
     const host = siteHost(entry);
     if (!host) return Promise.resolve();
-    return this.intent(HistoryOps.removeSite, {
-      host,
-      profile: entry.profile,
-      idempotency_key: this.key(),
-    });
+    // Every profile's visits to the host go, as the native page's Remove All from This Site did.
+    return this.intent(HistoryOps.removeSite, { host, idempotency_key: this.key() });
   }
 
   /** Clears the range of the kinds the filter shows (every kind under All). */
