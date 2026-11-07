@@ -460,18 +460,23 @@ public final class AgentTurnStateStore {
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
-    /// Sessions another watch wrote stay as they are, and so do the `keeping` ones: a change
-    /// pushed while the page's later parts were read is newer than the page.
+    /// Sessions another watch wrote stay as they are, and so do the `keeping` ones and the
+    /// `keepingPeers` rows (by session id, then peer): a change pushed while the page's later
+    /// parts were read is newer than the page. Every other peer row of such a session is the page's.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
-                        source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = []) {
+                        source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
+                        keepingPeers: [String: Set<String>] = [:]) {
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let ids = Set(own).union(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
-        for id in ids where !keeping.contains(id) {
-            apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
-                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
-            let rows = peers[id] ?? [:]
+        for id in ids.union(keepingPeers.keys) {
+            if !keeping.contains(id), keepingPeers[id] == nil {
+                apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
+                      title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+            }
+            var rows = peers[id] ?? [:]
+            for name in keepingPeers[id] ?? [] { rows[name] = record(id).peers[name] }
             if record(id).peers != rows { record(id).peers = rows }
         }
     }
@@ -495,6 +500,12 @@ public final class AgentTurnStateStore {
                   generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false, source: source)
             if !record.peers.isEmpty { record.peers = [:] }
         }
+    }
+
+    /// Peer `peer` purged its session `session`: its row goes (another peer's row of that id stays).
+    public func removePeerRow(_ peer: String, session: String) {
+        guard let record = sessions[session], record.peers[peer] != nil else { return }
+        record.peers[peer] = nil
     }
 
     // MARK: Reads
