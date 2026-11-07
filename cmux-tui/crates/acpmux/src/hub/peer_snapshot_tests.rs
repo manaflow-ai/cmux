@@ -163,7 +163,7 @@ fn copies_a_late_scan_finds_stay_within_their_bound_and_written_ones_go_first() 
     assert!(store.own <= KEPT_TOTAL && store.copies.len() == 40);
     // The next run cannot read the disk at first and keeps new copies meanwhile; nothing it
     // writes works.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.write = refuse;
     for i in 0..30 {
         keep(&mut again, &format!("new{i}"), empty());
@@ -184,7 +184,7 @@ fn a_copy_a_late_scan_finds_goes_before_any_copy_not_written_yet() {
     let cost = store.copies[&key("written-earlier")].own;
     // The next run, before its disk reads, keeps unwritten copies until the written one no
     // longer fits beside them.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.write = refuse;
     let mut n = 0;
     while again.own + cost <= KEPT_TOTAL {
@@ -333,7 +333,7 @@ fn a_directory_that_does_not_read_or_is_a_symlink_holds_up_every_write() {
     std::fs::create_dir(&elsewhere).unwrap();
     std::fs::write(elsewhere.join("keep.txt"), b"not ours").unwrap();
     std::os::unix::fs::symlink(&elsewhere, disk::root(linked.path())).unwrap();
-    let mut store = Store::new(disk::root(linked.path()), Arc::default());
+    let mut store = Store::new(disk::root(linked.path()), Arc::default(), Arc::default());
     assert!(!store.scan() && elsewhere.join("keep.txt").exists());
 }
 
@@ -768,7 +768,7 @@ fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
     store.write_due(None, When::Last);
     // The next run cannot read the disk at first; meanwhile m1 is purged, m2 recreated, and a
     // full list leaves m3 out.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.take(Op::Gone { key: key("m1"), generation: Some(7) });
     list(&mut again, &[("m2", 8)]);
     assert!(again.scan());
@@ -787,7 +787,7 @@ fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
     let page = attach(7, 1, false, vec![json!({"sessionId": "n", "seq": 1, "kind": "k"})]);
     store.take(Op::Page { key: ("other".into(), "n".into()), page });
     store.write_due(None, When::Last);
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     again.take(Op::LostPeer(PEER.into()));
     again.take(Op::LostPeer("other".into()));
     assert!(again.scan());
@@ -817,7 +817,7 @@ fn a_late_purge_of_an_older_generation_keeps_a_newer_copy_on_disk_and_a_late_lis
     store.write_due(None, When::Last);
     // The next run lists 8, then is told of a purge of 7, before it can read the disk: generation
     // 8 there stays.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     list(&mut again, &[("m1", 8)]);
     again.take(Op::Gone { key: key("m1"), generation: Some(7) });
     assert!(again.scan());
@@ -848,7 +848,7 @@ fn a_purge_told_again_without_its_generation_still_lets_the_recreated_session_ba
     }
     assert!(store.barred.len() <= BARRED_KEYS);
     // Before the disk reads, a bar that goes takes everything an earlier run kept with it.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     for i in 0..=BARRED_KEYS {
         again.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
     }
@@ -910,7 +910,7 @@ fn nothing_of_a_peer_is_queued_while_its_loss_waits() {
     assert_eq!(ops.len(), 2);
     assert!(matches!(&ops[0], Op::LostPeer(p) if p == PEER));
     assert!(matches!(&ops[1], Op::Listed { peer, .. } if peer == "other"));
-    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone());
+    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone(), Arc::default());
     store.scan();
     store.barred.insert(key("m1"), None);
     store.links.insert(PEER.into(), (1, 1));
@@ -925,7 +925,7 @@ fn past_its_bound_what_went_before_the_disk_read_takes_every_earlier_copy() {
     list(&mut store, &[("m1", 7)]);
     put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
     store.write_due(None, When::Last);
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    let mut again = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     for i in 0..=UNREAD_KEYS {
         again.remove(&key(&format!("x{i}")));
         again.take(Op::LostPeer(format!("p{i}")));
