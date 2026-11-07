@@ -459,12 +459,12 @@
   font: inherit;
   text-align: start;
   cursor: default;
-  background: var(--page-elevated);
-  box-shadow: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+  background: color-mix(in srgb, var(--page-elevated) 60%, transparent);
+  box-shadow: var(--elevation-1);
 }
 
 .tasks-card:hover {
-  box-shadow: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  box-shadow: var(--elevation-2);
 }
 
 .tasks-card.selected {
