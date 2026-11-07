@@ -72,6 +72,7 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 
 export type AttachmentIntakeOptions = {
   place?(chips: readonly PendingAttachment[]): void;
+  remove?(id: string): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -115,43 +116,57 @@ export function appendAttachments(
   const result = [...current];
   const ids = new Map<string, number>();
   const links = new Map<string, number>();
-  const content = new Map<string, number>();
-  const contentKey = (attachment: ComposerAttachment): string | undefined => {
-    if (attachment.kind === "image" && attachment.data !== undefined)
-      return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.data}`;
-    if (attachment.kind === "image" && attachment.text !== undefined)
-      return `${attachment.kind}:${attachment.mimeType}:${attachment.size}:${attachment.text}`;
-    if (attachment.kind === "link" && attachment.path) return `link:${attachment.path}`;
-    return undefined;
+  const content = new Map<string, number[]>();
+  const contentKey = (attachment: ComposerAttachment): string | undefined =>
+    attachment.kind === "image" && (attachment.data !== undefined || attachment.text !== undefined)
+      ? `${attachment.mimeType}:${attachment.size}`
+      : attachment.kind === "link" && attachment.path
+        ? `link:${attachment.path}`
+        : undefined;
+  const sameContent = (a: ComposerAttachment, b: ComposerAttachment) =>
+    a.kind === "link" && b.kind === "link" ? a.path === b.path : sameImageContent(a, b);
+  const remember = (key: string | undefined, index: number) => {
+    if (key) content.set(key, [...(content.get(key) ?? []), index]);
   };
   result.forEach((attachment, index) => {
     ids.set(attachment.id, index);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, index);
     const key = dedupeContent ? contentKey(attachment) : undefined;
-    if (key) content.set(key, index);
+    remember(key, index);
   });
   for (const attachment of added) {
     const key = dedupeContent ? contentKey(attachment) : undefined;
     const previous =
       ids.get(attachment.id) ??
       (attachment.kind === "link" && attachment.path ? links.get(attachment.path) : undefined) ??
-      (key ? content.get(key) : undefined);
+      (key ? content.get(key)?.find((index) => sameContent(result[index]!, attachment)) : undefined);
     if (previous !== undefined) {
       const old = result[previous];
       const oldKey = dedupeContent ? contentKey(old) : undefined;
-      if (oldKey && content.get(oldKey) === previous) content.delete(oldKey);
+      if (oldKey)
+        content.set(
+          oldKey,
+          (content.get(oldKey) ?? []).filter((index) => index !== previous),
+        );
       result[previous] = attachment;
       ids.set(attachment.id, previous);
       if (attachment.kind === "link" && attachment.path) links.set(attachment.path, previous);
-      if (key) content.set(key, previous);
+      remember(key, previous);
       continue;
     }
     ids.set(attachment.id, result.length);
     if (attachment.kind === "link" && attachment.path) links.set(attachment.path, result.length);
-    if (key) content.set(key, result.length);
+    remember(key, result.length);
     result.push(attachment);
   }
   return result;
+}
+
+function sameImageContent(a: ComposerAttachment, b: ComposerAttachment): boolean {
+  if (a.kind !== "image" || b.kind !== "image") return false;
+  if (a.mimeType !== b.mimeType || a.size !== b.size) return false;
+  if (a.data !== undefined || b.data !== undefined) return a.data !== undefined && a.data === b.data;
+  return a.text !== undefined && a.text === b.text;
 }
 
 /// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
@@ -462,6 +477,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
         return;
       }
+      if (dedupeContent && stagedNow.current.some((existing) => sameImageContent(existing, attachment))) {
+        // The editor already placed this intake chip. Remove only the duplicate atom so the
+        // existing chip and its token remain the canonical attachment.
+        live.current.options.remove?.(attachment.id);
+        return;
+      }
       // In paste order, whichever file was ready first: before the first staged chip pasted after it.
       const place = places.current.get(attachment.id)!;
       staged.add(attachment.id);
@@ -477,6 +498,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
+      const gestureRefusal = "text" in error && error.code === "transport.gesture_required";
       // An upload that failed is tried again on its own first; its chip keeps loading meanwhile and
       // says plainly that it is retrying. It shows Retry only once the bounded attempts are spent.
       if (uploads && "text" in error) {
@@ -497,7 +519,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               chip.id === id
                 ? {
                     ...chip,
-                    failed: failed.includes("agent connection") ? live.current.t("upload.notStarted") : failed,
+                    failed: gestureRefusal ? live.current.t("upload.notStarted") : failed,
                     uploadFailed: true,
                     retrying: false,
                     uploading: false,
@@ -531,7 +553,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (tries < UPLOAD_AUTO_RETRIES)
           setPending((chips) =>
             chips.map((chip) =>
-              chip.id === id ? { ...chip, failed: retrying(), retrying: true, progress: undefined, uploading: true } : chip,
+              chip.id === id
+                ? { ...chip, failed: retrying(), retrying: true, progress: undefined, uploading: true }
+                : chip,
             ),
           );
         return;

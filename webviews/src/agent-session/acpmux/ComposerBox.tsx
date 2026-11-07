@@ -28,6 +28,8 @@ export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
   place(chips: readonly PendingAttachment[]): void;
+  /// Removes an intake placeholder whose payload was already attached (content dedupe).
+  remove(id: string): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
   sent(ids: Iterable<string>): void;
 };
@@ -197,6 +199,7 @@ export function ComposerBox({
         prompt.current?.plainPaste();
       },
       place: (chips) => inline.place(chips, "paste"),
+      remove: (id) => prompt.current?.removeInline(id),
       sent: (ids) => inline.sent(ids),
     }),
     [inline],

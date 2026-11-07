@@ -10,11 +10,7 @@ export const uploadRetryDelay = (tries: number) => UPLOAD_RETRY_DELAY_MS * 2 ** 
 
 /// Runs `again` for try `tries` (0 is the first try again) of a failed upload, or `giveUp` once the
 /// bounded retries are spent. Answers what stops a retry still waiting (the chip's x).
-export function retryUploadLater(
-  tries: number,
-  again: () => void,
-  giveUp: () => void,
-): () => void {
+export function retryUploadLater(tries: number, again: () => void, giveUp: () => void): () => void {
   if (tries >= UPLOAD_AUTO_RETRIES) {
     giveUp();
     return () => {};

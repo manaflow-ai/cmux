@@ -255,6 +255,7 @@ test("automatic retries use bounded exponential backoff and can be stopped", asy
     () => (again += 1),
     () => (gaveUp += 1),
   );
+  // fixed-wait: retry backoff timing is the behavior under test.
   await new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS + 50));
   expect(again).toBe(1);
   const second = retryUploadLater(
@@ -262,6 +263,7 @@ test("automatic retries use bounded exponential backoff and can be stopped", asy
     () => (again += 1),
     () => (gaveUp += 1),
   );
+  // fixed-wait: retry backoff timing is the behavior under test.
   await new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS * 2 + 50));
   expect(again).toBe(2);
   expect(gaveUp).toBe(0);

@@ -756,6 +756,7 @@ public final class AgentPaneModel {
                     }
                     if reply["ok"] as? Bool == true, endsStage {
                         stagedUploadKeys.removeValue(forKey: token)
+                        if case .finish = stage { uploadRetryCredits.removeValue(forKey: key) }
                     } else if (reply["error"] as? [String: Any])?["code"] as? String == "upload_failed" {
                         armUploadRetry(key)
                     }
@@ -772,7 +773,9 @@ public final class AgentPaneModel {
             let now = transport.gestures.uptime
             let retry = uploadRetryCredits[key].map { now <= $0.expires && $0.uses < 2 } == true
             if retry {
-                uploadRetryCredits.removeValue(forKey: key)
+                if let credit = uploadRetryCredits[key] {
+                    uploadRetryCredits[key] = (credit.expires, credit.uses + 1)
+                }
             } else {
                 guard transport.gestures.consumeUpload() else { return Self.transportFailure(.gestureRequired) }
             }
