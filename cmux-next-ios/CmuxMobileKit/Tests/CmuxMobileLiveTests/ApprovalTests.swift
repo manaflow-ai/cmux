@@ -90,7 +90,7 @@ import Testing
             case "initialize": return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"personInstance":"inst"}}}"#)]
             case "_acpmux/watch": return [reply(#"{"sessions":[]}"#)]
             case "_acpmux/info":
-                return [reply(#"{"sessionId":"s1","pending":[{"permissionId":"perm","decisionNonce":"n1","personInstance":"\#(instance)","request":{"toolCall":{"toolCallId":"call-1","title":"rm -rf build"},"options":[{"optionId":"allow","kind":"allow_once"},{"optionId":"deny","kind":"reject_once"}]}}]}"#)]
+                return [reply(#"{"sessionId":"s1","pending":[{"permissionId":"perm","decisionNonce":"n1","personInstance":"\#(instance)","request":{"toolCall":{"toolCallId":"call-1","title":"rm -rf build"},"options":[{"optionId":"allow","kind":"allow_once"},{"optionId":"always","kind":"allow_always"},{"optionId":"deny","kind":"reject_once"}]}}]}"#)]
             case "_acpmux/permission_respond":
                 sent.append(object["params"] as? [String: Any] ?? [:])
                 return [reply("{}")]
@@ -151,6 +151,45 @@ import Testing
                                           expiresAt: 1_120)
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: try #require(Data(hexString: decision["signature"] as? String ?? "")))
         #expect(key.publicKey.isValidSignature(signature, for: payload.message))
+    }
+
+    /// Review of #37313: a peer counts only a one-time allow from the phone, so anything else is
+    /// refused before the approval key (Face ID) is asked, and nothing is sent.
+    @Test func aPeersPromptIsNeverSignedPastAllowOnce() async throws {
+        let sent = Sent()
+        let hub = AcpmuxHub()
+        await hub.bind(try await Self.fakeAcpmux(sent, instance: "peer-run").openChannel(service: "acpmux", args: [:]))
+        let asked = Sent()
+        hub.approver = AcpmuxHub.Approver(phoneID: "iphone-1", macDevice: "mac-device-1") { reason in
+            asked.append(["reason": reason])
+            return { _ in Data() }
+        }
+        await #expect(throws: AcpmuxHub.PeerAllowOnceOnly.self) {
+            try await hub.respond(sessionID: "s1", permissionID: "perm", optionID: "always")
+        }
+        #expect(asked.all.isEmpty && sent.all.isEmpty)
+        // This Mac's own prompt keeps its old path: the Mac refuses a lasting allow itself.
+        let local = AcpmuxHub()
+        await local.bind(try await Self.fakeAcpmux(sent).openChannel(service: "acpmux", args: [:]))
+        local.approver = hub.approver
+        try await local.respond(sessionID: "s1", permissionID: "perm", optionID: "always")
+        #expect(asked.all.count == 1)
+    }
+
+    /// Review of #37397: the phone mirrors the peer's `may_allow` on the option and the prompt, so a plan or a
+    /// mode switch, or an option id offered twice, never asks for a signature.
+    @Test func peerMayAllowMirrorsWhatThePeerCounts() {
+        func ask(_ tool: JSONValue, _ options: [JSONValue]) -> JSONValue {
+            .object(["toolCall": tool, "options": .array(options)])
+        }
+        let once: JSONValue = .object(["optionId": .string("y"), "kind": .string("allow_once")])
+        let edit: JSONValue = .object(["kind": .string("edit")])
+        #expect(AcpmuxHub.peerMayAllow(ask(edit, [once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(edit, [once, once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(.object(["kind": .string("switch_mode")]), [once]), optionID: "y"))
+        let plan: JSONValue = .object(["_meta": .object(["claude": .object(["tool": .string("ExitPlanMode")])])])
+        #expect(!AcpmuxHub.peerMayAllow(ask(plan, [once]), optionID: "y"))
+        #expect(!AcpmuxHub.peerMayAllow(ask(edit, [once]), optionID: "n"))
     }
 
     @Test func anUnreadableApprovalKeySendsNothing() async throws {

@@ -152,7 +152,7 @@ test("several assistant messages and tool calls render exactly one footer at the
   }
 });
 
-test("a personal steer keeps reply A and final reply B expanded while other chatter collapses", async () => {
+test("a personal steer keeps reply A and final reply B expanded while the work around them folds", async () => {
   for (const steered of [false, true]) {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const expanded = new Set<string>();
@@ -189,7 +189,13 @@ test("a personal steer keeps reply A and final reply B expanded while other chat
       expect(Boolean(document.querySelector('[data-row-id="a1"]'))).toBe(steered);
       expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
-      for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
+      for (const id of ["interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
+      // Steered, reply A stays in sight, so the work after it folds into one closed line under its first
+      // run's id (turns.ts aroundReplies; Leo, 2026-11-06: "your intermediate message got lost. that can
+      // never happen"); not steered, all of it stays under Worked for.
+      const line = document.querySelector('[data-row-id="t1"]');
+      expect(Boolean(line)).toBe(steered);
+      if (steered) expect(line!.textContent).toContain("Ran 2 commands");
       // Steered, reply A's stretch ends on its own copy row over the steer (turns.ts supersededFooters,
       // #34939; Leo, 2026-11-03: "a lot of these should've been counted as "ended"-ish turns that allow
       // me to copy/paste your stuff"); the turn keeps one footer of its own, at its end.
