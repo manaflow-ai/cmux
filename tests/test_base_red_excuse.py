@@ -4733,5 +4733,163 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.assertEqual(self.graphql, [])
 
 
+
+GALLERY = "health (1)"
+RENDER_STEP, REPLAY_STEP = "Render the gallery and judge it", "Judge the red states against the base"
+GALLERY_STATE = "agent-pane.subagent-tray#restart-on-hover"
+PILL_ASKS = ("SyntaxError: Export named 'pillAsks' not found in module "
+             "'/home/runner/_work/cmux/cmux/webviews/src/agent-session/acpmux/needsYou/JumpPill.tsx'.")
+OLDER_SHA, OLDEST_SHA = "c" * 40, "d" * 40
+
+
+def gallery_job(job_id, run_id, sha, *, failed=REPLAY_STEP, render="success"):
+    steps = [("Checkout", "success"), ("Choose the entries to render", "success"),
+             (RENDER_STEP, render), (REPLAY_STEP, "skipped"),
+             ("Record what was rendered", "success")]
+    return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": GALLERY, "status": "completed",
+            "conclusion": "failure" if failed else "success",
+            "steps": [{"name": step, "status": "completed",
+                       "conclusion": "failure" if step == failed else conclusion} for step, conclusion in steps]}
+
+
+def health(*states, reason="did not render: never reported ready after 30000 ms"):
+    return json.dumps({"fresh": [{"state": state, "reason": reason} for state in states], "known": [], "slow": []})
+
+
+class GalleryGitHub(FakeGitHub):
+    """A gallery health shard of run 10 whose base replay crashed loading base BASE_SHA. feat-cmux-next's gallery
+    health runs: 30 at BASE_SHA (the break: its render wrote no health.json), 20 at OLDER_SHA (2 h older, red on the
+    same state), 25 at OLDEST_SHA (60 h older, past the window)."""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs = {1: gallery_job(1, 10, HEAD), 3: gallery_job(3, 30, BASE_SHA), 2: gallery_job(2, 20, OLDER_SHA),
+                     4: gallery_job(4, 25, OLDEST_SHA)}
+        self.logs = {1: "\n".join(f"{GALLERY}\t{step}\t2026-11-07T15:48:15.0000000Z {line}" for step, line in (
+            (RENDER_STEP, f"- {GALLERY_STATE}: did not render: never reported ready after 30000 ms"),
+            (REPLAY_STEP, "##[group]Run set -euo pipefail"),
+            (REPLAY_STEP, f"replaying on base {BASE_SHA}: {GALLERY_STATE}"),
+            (REPLAY_STEP, PILL_ASKS),
+            (REPLAY_STEP, "##[error]Process completed with exit code 1."),
+            ("Record what was rendered", "##[group]Run set -euo pipefail")))}
+        self.base_runs = [{"id": run, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "failure", "head_sha": sha, "created_at": f"2026-11-07T{hour}:00:00Z"}
+                          for run, sha, hour in ((30, BASE_SHA, 15), (20, OLDER_SHA, 13), (25, OLDEST_SHA, 1))]
+        # by artifact id (run * 10): the head's, and each base run's
+        self.health = {100: health(GALLERY_STATE), 300: None, 250: health(GALLERY_STATE),
+                       200: health(GALLERY_STATE, reason="did not render: never reported ready after 31000 ms")}
+        now = excuse.datetime.fromisoformat("2026-11-07T15:00:00+00:00")
+        self.commits = [{"sha": sha, "parents": [{"sha": parent}],
+                         "commit": {"committer": {"date": (now - excuse.timedelta(hours=hours)).isoformat()}}}
+                        for sha, parent, hours in ((BASE_SHA, OLDER_SHA, 0), (OLDER_SHA, OLDEST_SHA, 2),
+                                                   (OLDEST_SHA, "e" * 40, 60))]
+        self.artifact_reads: list[int] = []
+        for job_id in (2, 3, 4):  # a base run red on a push: no base to compare with
+            self.logs[job_id] = log(GALLERY, REPLAY_STEP, "##[error]gallery health is red on this push, "
+                                                                         "which has no base to compare with")
+
+    def json(self, route, *, paginate=False):
+        if route == f"repos/{REPO}/actions/runs/10":
+            self.routes.append(route)
+            return {"id": 10, "workflow_id": 7, "name": "gallery health", "path": ".github/workflows/gallery-health.yml"}
+        if route.startswith(f"repos/{REPO}/commits?sha={BASE_SHA}&"):
+            self.routes.append(route)
+            return copy.deepcopy(self.commits) if route.endswith("&page=1") else []
+        if "/artifacts?" in route:
+            self.routes.append(route)
+            run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
+            # artifact id: the run id times ten
+            return {"artifacts": [{"id": run * 10, "name": "gallery-health-1", "expired": False}]}
+        return super().json(route, paginate=paginate)
+
+    def artifact_file(self, repo, artifact, member):
+        assert member == "health.json", member
+        self.artifact_reads.append(artifact)
+        return self.health[artifact]
+
+    def run(self, args):
+        raise excuse.Refused("no GraphQL here")
+
+
+class GalleryBaseLoadCrash(unittest.TestCase):
+    """A gallery health shard whose base replay crashed loading the base is judged per state against the newest older
+    base run with a whole verdict (gallery_crash_verdict)."""
+
+    def judge(self, github):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_crashed_base_replay_falls_back_to_an_older_base_verdict(self):
+        github = GalleryGitHub()
+        lines = "\n".join(self.judge(github))
+        self.assertIn(f"excused '{GALLERY}': its base replay crashed loading feat-cmux-next {BASE_SHA[:12]}", lines)
+        self.assertIn("Export named 'pillAsks' not found", lines)
+        # run 30 (the break itself) gave no whole result; run 20 is the fallback, named
+        self.assertIn(f"against feat-cmux-next {OLDER_SHA[:12]} (run 20)", lines)
+        self.assertIn(GALLERY_STATE, lines)
+        self.assertEqual(github.artifact_reads, [100, 300, 200])
+
+    def test_a_red_state_the_fallback_base_renders_is_its_own(self):
+        github = GalleryGitHub()
+        github.health[200] = health("agent-pane.other#state")
+        with self.assertRaisesRegex(excuse.Refused, rf"so judged against feat-cmux-next {OLDER_SHA[:12]} \(run 20\)"
+                                                    rf": 1 red state\(s\) render or are red another way"):
+            self.judge(github)
+
+    def test_a_crash_on_the_pull_request_side_is_never_excused(self):
+        github = GalleryGitHub()
+        # The head itself does not load: its render wrote no per-state result, so the replay never starts.
+        github.logs[1] = "\n".join(f"{GALLERY}\t{step}\t2026-11-07T15:48:15.0000000Z {line}" for step, line in (
+            (RENDER_STEP, PILL_ASKS),
+            (REPLAY_STEP, "##[group]Run set -euo pipefail"),
+            (REPLAY_STEP, "##[error]the render step failed but health.json names no red state")))
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(github)
+        self.assertNotIn("base replay crashed", str(refused.exception))
+        self.assertEqual(github.artifact_reads, [])
+
+    def test_a_replay_red_without_a_load_error_is_not_a_crash(self):
+        github = GalleryGitHub()
+        github.logs[1] = github.logs[1].replace(PILL_ASKS, "::error title=gallery health::1 red state(s) render or "
+                                                           "are red another way on base bbbbbbbbbbbb: x")
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(github)
+        self.assertNotIn("base replay crashed", str(refused.exception))
+        self.assertEqual(github.artifact_reads, [])
+
+    def test_no_whole_base_verdict_in_the_window_refuses(self):
+        github = GalleryGitHub()
+        github.health[200] = json.dumps({"error": "gallery health could not render: SyntaxError"})
+        with self.assertRaisesRegex(excuse.Refused, "base replay crashed loading .*; no feat-cmux-next commit in the "
+                                                    "last 50 first-parent commits or 48 h"):
+            self.judge(github)
+        self.assertNotIn(250, github.artifact_reads)  # run 25 is 60 h older: past the window, never read
+
+    def test_a_base_run_red_before_its_verdict_step_is_no_fallback(self):
+        github = GalleryGitHub()
+        github.jobs[2] = gallery_job(2, 20, OLDER_SHA, failed="Choose the entries to render", render="skipped")
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next commit in the last 50"):
+            self.judge(github)
+
+
+    def test_an_artifact_is_read_from_its_zip_and_held_to_its_cap(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as where:
+            archive = Path(where) / "a.zip"
+            with zipfile.ZipFile(archive, "w") as out:
+                out.writestr("health.json", health(GALLERY_STATE))
+                out.writestr("shots/one.png", b"\0" * 4096)
+            gh = Path(where) / "gh"
+            gh.write_text(f"#!/bin/sh\ncat '{archive}'\n")
+            gh.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}):
+                reader = excuse.GitHub()
+                self.assertEqual(json.loads(reader.artifact_file(REPO, 7, "health.json"))["fresh"][0]["state"],
+                                 GALLERY_STATE)
+                self.assertIsNone(reader.artifact_file(REPO, 7, "missing.json"))
+                with unittest.mock.patch.object(excuse, "ARTIFACT_MAX_BYTES", 100):
+                    with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
+                        reader.artifact_file(REPO, 7, "health.json")
+
+
 if __name__ == "__main__":
     unittest.main()
