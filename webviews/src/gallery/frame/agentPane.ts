@@ -203,7 +203,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
   if (state.sessionInfoOpen)
     (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
-  const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
+  const { mountAcpmux } = await import("../../agent-session/acpmux/mountModel");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
   // context or a delayed host still exercise the normal asynchronous startup.

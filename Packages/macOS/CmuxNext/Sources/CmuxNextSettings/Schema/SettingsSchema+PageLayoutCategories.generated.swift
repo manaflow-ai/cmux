@@ -192,7 +192,7 @@ extension SettingsPageLayout {
         id: "notifications", title: section(.notifications), symbol: "bell",
         groups: [
             GroupSpec(group: "settings.group.banners"),
-            // Per-event sounds, volume, timing and the burst cooldown (NotificationSoundSettingsSchema); its per-level maps stay off the page.
+            // Per-event sounds, volume, timing and the burst cooldown (notifications.json's sounds list); its per-level maps stay off the page.
             GroupSpec(group: "settings.group.sounds"),
             GroupSpec(group: "settings.group.dismissal"),
             GroupSpec(group: "settings.group.attention"),
