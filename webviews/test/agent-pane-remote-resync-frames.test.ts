@@ -80,6 +80,10 @@ class Daemon {
   readsDown = false;
   /// Attaches wait here until let go, while the row changes under them.
   heldAttaches?: (() => void)[];
+  /// Reads of the records after a seq wait here, each answered or failed when let go.
+  heldReads?: { afterSeq: number; answer: () => void; fail: () => void }[];
+  /// The machine's log stays the same across sockets (a reconnect reaches the same log).
+  keepLog = false;
   createdAt = 100;
   listed = true;
   log = LOG.slice();
@@ -179,6 +183,27 @@ class Daemon {
       return result({ events, hasMore: events.length < older.length, lastSeq: last });
     }
     if (message.method === "_acpmux/events") {
+      if (this.heldReads) {
+        const read = { ...message, params: { ...p } };
+        this.heldReads.push({
+          afterSeq: Number(p.afterSeq ?? 0),
+          answer: () => {
+            const events = this.log.filter((event) => event.seq > Number(p.afterSeq ?? 0));
+            this.onmessage?.({
+              data: JSON.stringify({ jsonrpc: "2.0", id: read.id, result: { events, hasMore: false, lastSeq: last } }),
+            });
+          },
+          fail: () =>
+            this.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                id: read.id,
+                error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
+              }),
+            }),
+        });
+        return;
+      }
       if (this.readsDown)
         return this.onmessage?.({
           data: JSON.stringify({
@@ -217,7 +242,9 @@ afterEach(() => {
 async function openChat() {
   resetKeptTailsForTests();
   const daemons: Daemon[] = [];
-  let state: Pick<Daemon, "down" | "createdAt" | "listed" | "heldAttaches"> | undefined;
+  let state:
+    | Pick<Daemon, "down" | "createdAt" | "listed" | "heldAttaches" | "heldReads" | "keepLog" | "log">
+    | undefined;
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
     {
@@ -241,6 +268,9 @@ async function openChat() {
           createdAt: state.createdAt,
           listed: state.listed,
           heldAttaches: state.heldAttaches,
+          heldReads: state.heldReads,
+          keepLog: state.keepLog,
+          ...(state.keepLog ? { log: state.log } : {}),
         });
       daemons.push(daemon);
       state = daemon;
@@ -491,4 +521,36 @@ test("an attach retry that fails keeps the frame until the copy is drawn: no emp
   await flush();
   expect(chat.drawn.slice(from).filter((snapshot) => snapshot.rows.length === 0)).toEqual([]);
   expect(chat.drawn.at(-1)!.rows.length).toBeGreaterThan(0);
+});
+
+test("a newer gap read that lands keeps an older one's hole to read when the older fails", async () => {
+  const chat = await openChat();
+  // The reconnect's attach waits while the machine runs on past one page: 17..24.
+  const sockets = chat.daemon();
+  sockets.keepLog = true;
+  sockets.heldAttaches = [];
+  sockets.heldReads = [];
+  sockets.drop();
+  await until(() => chat.daemon() !== sockets && (chat.daemon().heldAttaches?.length ?? 0) > 0, "the held attach");
+  const daemon = chat.daemon();
+  for (let seq = 17; seq <= 24; seq += 1) daemon.log.push(reply(seq, `missed ${seq}. `));
+  const attaches = daemon.heldAttaches!;
+  daemon.heldAttaches = undefined;
+  for (const answer of attaches) answer();
+  // Its page is 19..24; its read of 17..18 waits.
+  await until(() => daemon.heldReads!.some((read) => read.afterSeq === 16), "the reconnect's gap read");
+  // A watch lag reads after the page's newest meanwhile, and lands first.
+  daemon.notify("_acpmux/lagged", { dropped: 1 });
+  await until(() => daemon.heldReads!.some((read) => read.afterSeq === 24), "the lag's read");
+  daemon.heldReads!.find((read) => read.afterSeq === 24)!.answer();
+  await flush();
+  // The older read fails: 17..18 are still to read.
+  const older = daemon.heldReads!.find((read) => read.afterSeq === 16)!;
+  daemon.heldReads = undefined;
+  older.fail();
+  await flush();
+  // The next reconnect reads the hole: from the newest record the transcript is whole through.
+  await chat.reconnect();
+  await until(() => JSON.stringify(chat.drawn.at(-1)?.rows).includes("missed 17."), "the hole read", 4_000);
+  expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 24.");
 });
