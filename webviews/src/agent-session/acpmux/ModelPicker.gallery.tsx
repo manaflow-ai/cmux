@@ -639,22 +639,12 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
-    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"; 2026-11-06: "it should
-    // only need to necessarily fork when you enter a message on that new model"): the rail lists
-    // every harness the chat can fork to beside its own, whose models it opens on. Another tab's
-    // models show in started-chat-held, which opens on Codex: switched to from here, the menu keeps
-    // the width Claude's rows set (columns hold their largest size while open).
-    "started-chat-fork": {
-      props: startedFork,
-      play: async (ctx) => {
-        await openColumns(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tab[aria-label="Codex"]') !== null);
-      },
-    },
     // A Codex model held for the next message: the chip names it with the fork mark, and the menu
     // opens on the Codex tab with the held row checked and its effort shown. Shipped look (`glyph`).
     "started-chat-held": { props: startedHeld("glyph"), play: openColumns },
-    // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick.
+    // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick, the
+    // rail listing every harness the chat can fork to (Leo 2026-11-06: "Everybody wants to see the
+    // models").
     // C, shipped: the history glyph after the running model, a hairline ring on its tab.
     "started-chat-used-glyph": { props: startedHeld("glyph"), play: openOwnTab },
     // A: a dot after the running model's name and on its tab.
