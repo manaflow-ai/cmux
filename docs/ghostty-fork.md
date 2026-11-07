@@ -14,7 +14,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### A resize's prompt clear waits for the shell (ghostty-next, opt-in)
 
-- Fork PR #85 (head `e51b179`, on `850bb9849`), merged to fork `main` as `1740c4452`.
+- Fork PR #85 (head `e6d6eec09`, on `850bb9849`), merged to fork `main` as `1740c4452`.
   GhosttyNextKit `xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6` (zip sha256 `ba1abb11...4ec426`, run 42336304101). New C API option
   `GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL` (1028), `Terminal.flags.prompt_redraw_waits_for_shell`, default
   off. cmux-tui's `ghostty-vt` turns it on for every terminal (host and daemon mirrors); the app's surfaces turn it on in
