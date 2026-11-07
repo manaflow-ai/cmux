@@ -1668,7 +1668,6 @@ fn a_ready_folder_or_a_machine_that_cannot_exec_starts_as_before() {
 fn a_check_that_may_pass_later_is_asked_again_and_never_starts_the_chat() {
     for first in [
         refused("vm_busy", "busy"),
-        refused("vm_not_running", "starting"),
         refused("app.unreachable", "no app"),
         refused("cloud.exec_timeout", "the command timed out"),
         exec_out(""),
@@ -2051,5 +2050,70 @@ fn a_cwd_with_shell_text_in_it_is_only_ever_a_folder_name() {
         assert!(no_start(&fake.ran), "{name:?}");
         fake.assert_clean();
         assert!(!pwned(), "{name:?} ran");
+    }
+}
+
+/// Review of #37248 at 948eeb00: `cloud exec` doesn't wake a paused machine (start-session does). A check
+/// refused `vm_not_running` resumes the machine once (`cloud resume-machine`, as start-session's resume),
+/// then checks again: a paused machine with its folder ready starts, and one still cloning is waited on.
+#[test]
+fn a_paused_machine_is_resumed_once_then_checked() {
+    let resume = strings(&["cloud", "resume-machine", "--target", "machine:vm-1", "--json"]);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        refused("vm_not_running", "the machine is paused"),
+        ok(json!({})),
+        refused("vm_not_running", "the machine is still starting"),
+        exec_out("busy\n"),
+        exec_out("ready\n"),
+        relay_ok(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(fake.ran[2], resume, "{:?}", fake.ran);
+    assert_eq!(fake.ran.iter().filter(|args| **args == resume).count(), 1, "{:?}", fake.ran);
+    for step in [1, 3, 4, 5] {
+        assert!(is_folder_check(&fake.ran[step], "/home/cmux/work/r"), "{step}: {:?}", fake.ran);
+    }
+    assert!(is_relay(&fake.ran[6]));
+    assert_eq!(fake.ran.len(), 7);
+
+    // A resume the app refuses for good leaves it unknown: no start.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        refused("vm_not_running", "the machine is paused"),
+        refused("vm_forbidden", "not yours"),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start("/home/cmux/work/r", "900"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.folder_unknown");
+    assert!(no_start(&fake.ran), "{:?}", fake.ran);
+}
+
+/// Review of #37248 at 948eeb00: the check's answer is exactly one of its lines (trailing whitespace at
+/// most); anything more is malformed, asked again, and never ready.
+#[test]
+fn an_answer_with_more_than_its_line_is_malformed_and_asked_again() {
+    for extra in [
+        "ready\nanything\n",
+        "ready\n\nready\n",
+        "busy\nready\n",
+        "absent\nx\n",
+        "x\nready\n",
+        "ended\n{\"state\":\"failed\"}\nmore\n",
+        "ended\nnot json\n",
+    ] {
+        let mut fake =
+            Fake::new(vec![signed_in(), exec_out(extra), exec_out("ready  \n"), relay_ok()]);
+        let Outcome::Done(_) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
+            panic!("{extra:?}: {:?}", fake.ran)
+        };
+        assert!(is_folder_check(&fake.ran[2], "/home/cmux/work/r"), "{extra:?}: {:?}", fake.ran);
+        assert!(is_relay(&fake.ran[3]), "{extra:?}");
+        assert_eq!(fake.ran.len(), 4, "{extra:?}");
     }
 }
