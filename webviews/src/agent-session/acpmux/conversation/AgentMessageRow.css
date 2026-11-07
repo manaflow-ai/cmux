@@ -415,6 +415,13 @@ button.cv-agentmsg__name:focus-visible {
   flex: 0 0.0001 auto;
   min-width: 0;
 }
+/* The sender's chip is its span's only child here (the mark is in the icon column), pulled back
+   over the icon gap by its own margin (conversation.css `.cv-received__sender > .cv-agent-tag.is-open`):
+   its cap counts that pull, or the span's 100% cuts the name by it while the first line still has
+   room (cmux#37653 review). */
+.cv-agentmsg__sentence > .cv-received__sender > .cv-agent-tag.is-open {
+  max-width: calc(100% + var(--ds-space-1));
+}
 /* A received line is the tool rows' fixed 22px line (conversation.css `.cv-received >
    .cv-agentmsg__line`), opened or not: its sender's chip stays on that line, whole while it fits,
    as the received line always drew it, so the chevron follows the name (transcript-chevron-after-label). */
