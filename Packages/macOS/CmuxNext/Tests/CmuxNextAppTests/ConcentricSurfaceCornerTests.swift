@@ -55,7 +55,7 @@ import Testing
             ("CardSurfaceView", CardSurfaceView().cornerRadius),
             ("TerminalStatusBanner", TerminalStatusBanner().layer?.cornerRadius ?? -1),
             ("ServerMetrics.cornerRadius", ServerMetrics.cornerRadius),
-            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius),
+            ("ToolbarRowMetrics.cornerRadius", ToolbarRowMetrics.cornerRadius),
         ]
         for (name, value) in surfaces {
             #expect(value == outer, "\(radius)/\(padding): \(name) is \(value) pt, the one corner radius is \(outer) pt")

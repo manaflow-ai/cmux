@@ -75,7 +75,7 @@ import CmuxNextTestSupport
     /// A text field of Home for a test to focus. Typed, so that focusing it does not make AppKit's
     /// AutoFill heuristic ask the ViewBridge service for one-time codes: an untyped field does that
     /// synchronously on the main thread, and on a host with no console session the call blocks
-    /// about 10 s per focus (the omnibar's `AddressField` declares `.URL` for the same reason).
+    /// about 10 s per focus (the omnibar field did the same).
     /// Where the keys go does not depend on the type: the key path checks `NSTextField`.
     private static func field() -> NSTextField {
         let field = NSTextField(string: "")

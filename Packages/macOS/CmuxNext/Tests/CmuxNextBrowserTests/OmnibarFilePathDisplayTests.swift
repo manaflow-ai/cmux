@@ -41,11 +41,16 @@ struct OmnibarFilePathDisplayTests {
         #expect(BrowserURLDisplay.editingText(for: url) == "file:///Users/someone/fun/README.md")
     }
 
-    /// The live bar, with the process's home folder.
+    /// The live bar, with the process's home folder: it pushes the file's address and the home
+    /// folder, and the toolbar page draws `~/fun/README.md` with the same rules (`displayText` in
+    /// browser-chrome/omnibox, tested there).
     @Test func theBarShowsAHomeFileWithTheTilde() {
-        let bar = AddressBarView(suggestionEngine: OmniboxSuggestionEngine())
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
         let url = URL(fileURLWithPath: NSHomeDirectory()).appending(path: "fun/README.md")
         bar.update(url: url, security: .local)
-        #expect(bar.displayedText == "~/fun/README.md")
+        let state = bar.wireState()
+        #expect(state["url"] as? String == url.absoluteString)
+        #expect((state["omnibar"] as? [String: Any])?["home"] as? String == NSHomeDirectory())
+        #expect(BrowserURLDisplay.displayText(for: url) == "~/fun/README.md")
     }
 }

@@ -30,7 +30,7 @@ import Testing
 
     @Test func reloadMenuRowsAreNativeAndRun() throws {
         let (chrome, tab) = Self.chrome()
-        let menu = try #require(chrome.reloadButton.menuProvider?())
+        let menu = try #require(chrome.navigationMenu(.reload))
         #expect(menu.items.map(\.title) == [Strings.menuReload])
         Self.expectThemedWithIcons(menu, "Reload")
         menu.performActionForItem(at: 0)
@@ -48,7 +48,7 @@ import Testing
 
     @Test func backMenuRowsAreNativeAndGoToTheirEntry() throws {
         let (chrome, tab) = Self.chrome(back: 3)
-        let menu = try #require(chrome.backButton.menuProvider?())
+        let menu = try #require(chrome.navigationMenu(.back))
         #expect(menu.items.map(\.title) == ["Page 2", "Page 1", "Page 0"])
         Self.expectThemedWithIcons(menu, "Back")
         menu.performActionForItem(at: 1)
@@ -75,7 +75,8 @@ import Testing
         let menu = BrowserDeviceMenu(devices: try Self.devices(), current: current, fit: nil, fits: ["16:9", "1280"]) { title, _ in
             chosen.append(title)
         }.menu()
-        let buttons = BrowserToolbarButtonsView()
+        let buttons = BrowserToolbarButtons(), row = BrowserToolbarWebView()
+        buttons.toolbarView = row
         buttons.popUpMenu = { _, _, _ in }
         buttons.present(menu, from: .overflow, themed: true)
         Self.expectThemedWithIcons(menu, "Devices")
@@ -94,7 +95,8 @@ import Testing
     @Test func clearingTheDeviceSearchShowsTheCheckedDeviceAgain() throws {
         let current = BrowserDeviceMenu.Current(title: "iPad (10th gen)", orientation: "vertical", orientations: ["vertical"])
         let menu = BrowserDeviceMenu(devices: try Self.devices(), current: current) { _, _ in }.menu()
-        let buttons = BrowserToolbarButtonsView()
+        let buttons = BrowserToolbarButtons(), row = BrowserToolbarWebView()
+        buttons.toolbarView = row
         buttons.popUpMenu = { _, _, _ in }
         buttons.present(menu, from: .overflow, themed: true)
         let all = try #require(menu.items.first { $0.title == BrowserDeviceMenu.Strings.allDevices }?.submenu)

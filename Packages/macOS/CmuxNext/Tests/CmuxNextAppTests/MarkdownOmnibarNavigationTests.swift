@@ -54,32 +54,39 @@ import Testing
         #expect(host.history.map(\.canForward) == [false, true])
     }
 
-    @Test func theButtonsFollowTheHistoryAndRunTheTabsActions() throws {
+    @Test func theButtonsFollowTheHistoryAndRunTheTabsActions() {
         var ran: [String] = []
         let actions = MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: { ran.append("back") }, forward: { ran.append("forward") }, reload: { ran.append("reload") })
         let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: actions)
-        let back = try #require(bar.toolbar.backButton)
-        let forward = try #require(bar.toolbar.forwardButton)
-        let reload = try #require(bar.toolbar.reloadButton)
+        // The page draws Back, Forward and Reload; a press arrives as the page's command and runs
+        // only while its button is enabled.
+        let row = bar.toolbar.addressBar
+        func press() {
+            row.handle(.goBack)
+            row.handle(.goForward)
+            row.handle(.reload)
+        }
 
         // The empty state: nothing to go back to, nothing to reload.
-        #expect(!back.isEnabled && !forward.isEnabled && !reload.isEnabled)
+        #expect(!row.navigation.canGoBack && !row.navigation.canGoForward)
+        press()
+        #expect(ran.isEmpty)
 
         bar.show(URL(fileURLWithPath: "/tmp/a.md"))
-        #expect(reload.isEnabled)
-        #expect(!back.isEnabled && !forward.isEnabled)
+        #expect(!row.navigation.canGoBack && !row.navigation.canGoForward)
+        press()
+        #expect(ran == ["reload"])
+        ran.removeAll()
 
         bar.setHistory(canBack: true, canForward: false)
-        #expect(back.isEnabled && !forward.isEnabled)
+        #expect(row.navigation.canGoBack && !row.navigation.canGoForward)
         bar.setHistory(canBack: false, canForward: true)
-        #expect(!back.isEnabled && forward.isEnabled)
+        #expect(!row.navigation.canGoBack && row.navigation.canGoForward)
 
         bar.setHistory(canBack: true, canForward: true)
-        back.performClick(nil)
-        forward.performClick(nil)
-        reload.performClick(nil)
+        press()
         #expect(ran == ["back", "forward", "reload"])
     }
 
@@ -87,7 +94,7 @@ import Testing
         let bar = MarkdownOmnibarBar(suggestionEngine: OmniboxSuggestionEngine(), actions: MarkdownOmnibarActions(
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: {}, forward: {}, reload: {}))
-        #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
+        #expect(bar.toolbar.preferredHeight == ToolbarRowMetrics.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
         // The row sizes the bar (its intrinsic height), so a density change resizes the Markdown tab's row too.
         #expect(bar.fittingSize.height == bar.toolbar.preferredHeight)
     }
