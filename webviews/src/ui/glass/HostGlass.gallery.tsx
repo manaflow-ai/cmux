@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// Host glass (hostGlass.ts; Leo, 2026-11-06: "why the fuck is this not glass? Like the way the native
+// Host glass (hostGlass.ts; Leo, 2026-11-06: "why the f*** is this not glass? Like the way the native
 // menus are"): a floating surface in a see-through Chromium page, before (the page's own glass, which
 // lays the theme surface under its tint because its blur never reaches the window glass) and with the
 // App's glass under it. The gallery runs no AppKit, so a stand-in draws the App's part: the wallpaper
@@ -12,7 +12,8 @@ import { componentEntry } from "../../gallery/format";
 
 type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
-type Props = { look: Look; scheme: Scheme };
+/** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme surface). */
+type Props = { look: Look; scheme: Scheme; menuVeil?: number };
 
 const SCHEMES: Record<Scheme, Record<string, string>> = {
   dark: {
@@ -71,7 +72,7 @@ const ROWS = [
 const TRANSCRIPT =
   "I traced the stutter to the transcript's scroll handler: every wheel event read the composer's height, which forced a layout right after the virtualizer moved its rows. The fix reads the height once per frame from the resize observer that already watches the composer. ";
 
-function HostGlassGallery({ look, scheme }: Props) {
+function HostGlassGallery({ look, scheme, menuVeil }: Props) {
   const host = look !== "before";
   useStage(scheme, host);
   return (
@@ -120,6 +121,11 @@ function HostGlassGallery({ look, scheme }: Props) {
           display: "grid",
           alignContent: "start",
           ...(host ? LOOKS[look] : {}),
+          ...(host && menuVeil !== undefined
+            ? ({
+                "--host-glass-fill": `color-mix(in srgb, var(--cmux-surface-solid) ${menuVeil}%, transparent)`,
+              } as CSSProperties)
+            : {}),
         }}
       >
         {ROWS.map(([title, detail]) => (
@@ -142,7 +148,7 @@ export default componentEntry<Props>({
   load: async () => HostGlassGallery,
   variants: {
     before: {
-      note: "Before: the page's own glass in a see-through Chromium page. Its blur never reaches the window glass, so it lays the theme surface under its tint and reads as a flat box (Leo: 'why the fuck is this not glass?').",
+      note: "Before: the page's own glass in a see-through Chromium page. Its blur never reaches the window glass, so it lays the theme surface under its tint and reads as a flat box (Leo: 'why the f*** is this not glass?').",
       props: { look: "before", scheme: "dark" },
     },
     clear: {
@@ -156,6 +162,18 @@ export default componentEntry<Props>({
     rim: {
       note: "The App's glass plus the page's specular rim. On macOS 26 Liquid Glass lights its own edge, so this draws two edges.",
       props: { look: "rim", scheme: "dark" },
+    },
+    "model-0": {
+      note: "The model menu on the App's glass with no page veil: the wallpaper's color comes into the row text.",
+      props: { look: "clear", scheme: "dark", menuVeil: 0 },
+    },
+    "model-40": {
+      note: "Ships for the model menu: a 40% page veil on the App's glass, so its rows never read the chat through them (Leo, 2026-10-31) and it is still glass.",
+      props: { look: "clear", scheme: "dark", menuVeil: 40 },
+    },
+    "model-70": {
+      note: "A 70% page veil: reads as the solid card again.",
+      props: { look: "clear", scheme: "dark", menuVeil: 70 },
     },
     veil: {
       note: "The App's glass plus a 20% theme veil from the page: the wallpaper is calmer under the text, and the glass is denser than every native popover's.",
