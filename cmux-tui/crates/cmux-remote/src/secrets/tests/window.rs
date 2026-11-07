@@ -80,7 +80,7 @@ fn concurrent_requests_never_interleave_and_one_nonce_is_taken_once() {
 }
 
 #[test]
-fn an_edit_racing_a_claude_login_is_merged_once_then_refused() {
+fn an_edit_just_before_the_rename_is_merged_once_then_refused_and_kept() {
     let fixture = fixture(&[]);
     std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
     let settings = fixture.home.join(".claude/settings.json");
@@ -125,6 +125,12 @@ fn an_edit_racing_a_claude_login_is_merged_once_then_refused() {
     let error = refused.unwrap_err();
     assert!(error.message.starts_with("conflict"), "{error}");
     assert_eq!(std::fs::read_to_string(&settings).unwrap(), r#"{"theme":"edit-2"}"#);
+    let left: Vec<_> = std::fs::read_dir(fixture.home.join(".claude"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tmp") || name.contains(".bak"))
+        .collect();
+    assert!(left.is_empty(), "a temporary or backup was left: {left:?}");
     let credentials =
         std::fs::read_to_string(fixture.home.join(".claude/.credentials.json")).unwrap();
     assert!(credentials.contains(&token) && !credentials.contains(&newer));

@@ -36,8 +36,8 @@ thread_local! {
     /// Tests only: fail the step with this index (each staged write and
     /// each rename is one step, in order).
     pub(super) static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    /// Tests only: run after every file is staged and before any is put in
-    /// place, as an outside edit would.
+    /// Tests only: run after every file is staged and backed up, right
+    /// before the first rename, as an outside edit would.
     pub(super) static BEFORE_COMMIT: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
         const { std::cell::RefCell::new(None) };
 }
@@ -90,13 +90,13 @@ fn replace_all_with(
             }
         }
     }
-    #[cfg(test)]
-    if faults {
-        BEFORE_COMMIT.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
-    }
     if let Err(error) = staged.iter_mut().try_for_each(keep_backup) {
         discard(&staged);
         return Err(error);
+    }
+    #[cfg(test)]
+    if faults {
+        BEFORE_COMMIT.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
     }
     let mut failed = None;
     for (file, write) in staged.iter_mut().zip(writes) {

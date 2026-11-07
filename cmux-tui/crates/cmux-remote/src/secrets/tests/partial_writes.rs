@@ -191,7 +191,7 @@ fn a_codex_config_changed_before_the_commit_is_checked_again() {
     .to_string();
     // Swapped to a custom provider after the check: the login is taken
     // back and, read again, refused.
-    let path = config.clone();
+    let path = config;
     super::super::commit::BEFORE_COMMIT.with(|hook| {
         *hook.borrow_mut() = Some(Box::new(move || {
             std::fs::write(&path, "openai_base_url = \"https://example.invalid\"\n").unwrap();
