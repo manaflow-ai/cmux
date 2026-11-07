@@ -3346,9 +3346,9 @@ jobs:
             --source-commit "$source_commit" \
             --assets-dir assets/tree \
             --manifest-file manifest.json \
-            "${source_args[@]}" \
-            "${windows_args[@]}" \
-            "${completion_args[@]}" \
+            ${source_args[@]+"${source_args[@]}"} \
+            ${windows_args[@]+"${windows_args[@]}"} \
+            ${completion_args[@]+"${completion_args[@]}"} \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
