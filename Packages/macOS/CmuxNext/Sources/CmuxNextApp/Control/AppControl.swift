@@ -200,7 +200,7 @@ final class AppControl {
             },
             // Home per window and the local conversation projection (home.md).
             .async("debug.home") { [weak services] _ in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugHome.reportWithPages(services: services)
             },
             // My pending and refused sends with the reason (no screenshot needed).
@@ -307,7 +307,7 @@ final class AppControl {
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
             .async("debug.home.drive") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugHomeNativeFixture.drive(call.params, services: services)
             },
             .mainActor("debug.window_record") { [weak services] call in

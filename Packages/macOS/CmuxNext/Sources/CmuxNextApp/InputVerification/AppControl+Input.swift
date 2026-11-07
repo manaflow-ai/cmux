@@ -60,7 +60,7 @@ extension AppControl {
                 return await DebugHomeAPI.handle(call.params, services: services)
             }.withDeadline(.fixed(.seconds(30))),
             .async("debug.home.sidebar_fixture") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
+                guard let services else { return .null }
                 return await DebugHome.sidebarFixture(call.params, services: services)
             },
             .mainActor("debug.tab_drag") { [weak services] _ in
