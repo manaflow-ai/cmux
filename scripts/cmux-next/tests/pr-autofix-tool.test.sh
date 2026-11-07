@@ -13,7 +13,7 @@ fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 
 # A pull request on lane/x whose one change is an unformatted webviews file.
-git init -q --bare "$tmp/remote.git"
+git init -q --bare "$tmp/acme/widgets.git"
 git init -q -b lane/x "$tmp/work"
 cd "$tmp/work"
 mkdir -p webviews/src .github/workflows
@@ -22,7 +22,7 @@ printf 'on: push\n' > .github/workflows/x.yml
 git add -A && git commit -q -m base
 printf 'export const   a = 2;\n' > webviews/src/a.ts
 git commit -q -am change
-git remote add origin "$tmp/remote.git"
+git remote add origin "$tmp/acme/widgets.git"
 git push -q origin lane/x
 head_sha="$(git rev-parse HEAD)"
 
@@ -53,43 +53,53 @@ esac
 EOF
 chmod +x "$tmp/gh"
 export CMUX_PR_AUTOFIX_GH="$tmp/gh"
+TOOL_ARGS=(--repo acme/widgets)
+pr_autofix() { "$TOOL" apply 5 "${TOOL_ARGS[@]}" "$@"; }
+
+# origin pushes somewhere else (a fork): refused before anything is applied.
+if pr_autofix --repo other/widgets >"$tmp/out" 2>&1; then fail "an origin that is not the PR's repo must be refused"; fi
+grep -q "not other/widgets" "$tmp/out" || fail "the refusal must name the repository"
+
+# An expired artifact is not "no repairs".
+if FAKE_ARTIFACT=expired pr_autofix >"$tmp/out" 2>&1; then fail "an expired artifact must fail"; fi
+grep -q "expired" "$tmp/out" || fail "must say the artifact expired"
 
 # Not the pull request's head: refused, nothing committed.
 git checkout -q HEAD^
-if "$TOOL" apply 5 >"$tmp/out" 2>&1; then fail "a checkout off the PR head must be refused"; fi
+if pr_autofix >"$tmp/out" 2>&1; then fail "a checkout off the PR head must be refused"; fi
 grep -q "not #5's head" "$tmp/out" || fail "the refusal must name the PR head"
 git checkout -q lane/x
 
 # A fork's pull request: its author applies the artifact.
-if FAKE_CROSS=true "$TOOL" apply 5 >"$tmp/out" 2>&1; then fail "a fork's pull request must be refused"; fi
+if FAKE_CROSS=true pr_autofix >"$tmp/out" 2>&1; then fail "a fork's pull request must be refused"; fi
 
 # No finished run yet, and a run that made no repairs.
-if FAKE_RUN= "$TOOL" apply 5 >"$tmp/out" 2>&1; then fail "no finished run must fail"; fi
+if FAKE_RUN= pr_autofix >"$tmp/out" 2>&1; then fail "no finished run must fail"; fi
 grep -q "no finished PR autofix run" "$tmp/out" || fail "must say no run finished"
-FAKE_ARTIFACT= "$TOOL" apply 5 >"$tmp/out" 2>&1 || fail "a run without repairs is not an error"
+FAKE_ARTIFACT= pr_autofix >"$tmp/out" 2>&1 || fail "a run without repairs is not an error"
 grep -q "made no repairs" "$tmp/out" || fail "must say the run made no repairs"
 
 # A patch to a workflow file is not an autofix output: refused, nothing committed.
-if FAKE_ZIP=workflow "$TOOL" apply 5 >"$tmp/out" 2>&1; then fail "a workflow patch must be refused"; fi
+if FAKE_ZIP=workflow pr_autofix >"$tmp/out" 2>&1; then fail "a workflow patch must be refused"; fi
 grep -q "refused: .github/workflows/x.yml" "$tmp/out" || fail "the refusal must name the workflow"
 [[ "$(git rev-parse HEAD)" == "$head_sha" && -z "$(git status --porcelain)" ]] || fail "a refused patch must change nothing"
 
 # Uncommitted changes: refused.
 printf 'x\n' >> webviews/src/a.ts
-if "$TOOL" apply 5 >"$tmp/out" 2>&1; then fail "a dirty checkout must be refused"; fi
+if pr_autofix >"$tmp/out" 2>&1; then fail "a dirty checkout must be refused"; fi
 git checkout -q -- webviews/src/a.ts
 
 # The repair: applied, committed on the head and pushed to the branch.
-"$TOOL" apply 5 >"$tmp/out" 2>&1 || fail "the repair must apply"
+pr_autofix >"$tmp/out" 2>&1 || fail "the repair must apply"
 grep -q "applied: webviews/src/a.ts" "$tmp/out" || fail "must name the applied file"
 [[ "$(cat webviews/src/a.ts)" == "export const a = 2;" ]] || fail "the file must be formatted"
 [[ "$(git rev-parse HEAD^)" == "$head_sha" ]] || fail "the repair must be one commit on the head"
 git log -1 --format=%B | grep -q "actions/runs/42" || fail "the commit must name its run"
 if git log -1 --format=%B | grep -q '^Autofix-Run: '; then fail "no Autofix-Run trailer (it skips later exports)"; fi
-[[ "$(git --git-dir="$tmp/remote.git" rev-parse lane/x)" == "$(git rev-parse HEAD)" ]] || fail "the commit must be pushed"
+[[ "$(git --git-dir="$tmp/acme/widgets.git" rev-parse lane/x)" == "$(git rev-parse HEAD)" ]] || fail "the commit must be pushed"
 
 # The repaired head's patch from the old run no longer applies: refused as stale.
-if FAKE_HEAD="$(git rev-parse HEAD)" "$TOOL" apply 5 --no-push >"$tmp/out" 2>&1; then fail "a stale patch must be refused"; fi
+if FAKE_HEAD="$(git rev-parse HEAD)" pr_autofix --no-push >"$tmp/out" 2>&1; then fail "a stale patch must be refused"; fi
 grep -q "does not apply cleanly" "$tmp/out" || fail "must say the patch does not apply"
 
 echo "PASS: pr-autofix apply"

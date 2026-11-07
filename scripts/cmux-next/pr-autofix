@@ -42,17 +42,24 @@ cross="$("$GH" pr view "$pr" -R "$repo" --json isCrossRepository --jq .isCrossRe
 [[ "$cross" == false ]] || die "#$pr comes from a fork; its author applies the artifact (see the run's summary)"
 [[ "$(git rev-parse HEAD)" == "$head_sha" ]] \
   || die "HEAD is $(git rev-parse --short HEAD), not #$pr's head ${head_sha:0:12}: fetch and check out $head_ref first"
+# The push goes to origin: it must be the repository the pull request and artifact came from, or a
+# fork's origin would take the commit and the pull request would stay red.
+origin_url="$(git remote get-url --push origin 2>/dev/null)" || die "this checkout has no origin remote"
+[[ "$origin_url" =~ [/:]${repo//./\.}(\.git)?/?$ ]] || die "origin pushes to $origin_url, not $repo"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || die "the checkout has uncommitted changes; commit or set them aside first"
 
 run="$("$GH" api "repos/$repo/actions/workflows/cmux-next-pr-autofix.yml/runs?head_sha=$head_sha&per_page=20" \
   --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty')"
 [[ -n "$run" ]] || die "no finished PR autofix run for ${head_sha:0:12} yet; run this again when it finishes"
 artifact="$("$GH" api "repos/$repo/actions/runs/$run/artifacts" \
-  --jq '[.artifacts[] | select(.name == "pr-autofix-patch" and (.expired | not))] | first | .id // empty')"
+  --jq '[.artifacts[] | select(.name == "pr-autofix-patch")] | first | if . == null then "" elif .expired then "expired" else .id end')"
 if [[ -z "$artifact" ]]; then
   echo "pr-autofix: run $run made no repairs for ${head_sha:0:12}; nothing to apply"
   exit 0
 fi
+# Artifacts expire after a few days: an old head's repairs are gone, not absent.
+[[ "$artifact" != expired ]] \
+  || die "run $run's pr-autofix-patch expired; push a new head (or merge the base) for a fresh PR autofix run"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-autofix.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
