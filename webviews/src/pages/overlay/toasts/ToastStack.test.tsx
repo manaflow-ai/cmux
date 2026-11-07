@@ -2,6 +2,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { ToastStack } from "./ToastStack";
 import type { ToastRect, ToastState } from "./types";
@@ -161,4 +162,12 @@ test("a closed toast is reported fading until its fade ends", () => {
   expect(reports.at(-1)).toEqual([0, 1]);
   act(() => fades.at(-1)?.onfinish?.());
   expect(reports.at(-1)).toEqual([0, 0]);
+});
+
+// Review 2 of #37289 (F1): a message of several lines (Home's stop-all notice) ran into one line; the
+// native label kept its line breaks.
+test("a toast message keeps its line breaks", () => {
+  const css = readFileSync(new URL("./toasts.css", import.meta.url), "utf8");
+  const rule = css.match(/\.cmux-toast-message \{([^}]*)\}/)?.[1] ?? "";
+  expect(rule).toContain("white-space: pre-wrap;");
 });
