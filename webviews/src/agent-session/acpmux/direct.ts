@@ -10352,11 +10352,12 @@ export class AcpmuxDirectClient {
       if (epoch !== this.historyEpoch) return;
       const page = records(result?.events);
       const start = page.findIndex(opensOlderTurn);
+      const pageMore = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
       // Keep the first older turn start when this page reaches it. Records before that start are
-      // older still and remain for the next bounded ask; pages inside the current turn are useful
-      // immediately and are therefore published whole.
-      publish(start >= 0 ? page.slice(start) : page);
-      more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      // older still and remain for the next bounded ask. On the final page there is no next ask,
+      // so retain its prefix too (native adoption history can begin before its first prompt).
+      publish(pageMore && start >= 0 ? page.slice(start) : page);
+      more = pageMore;
       if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
     this.historyExhausted = !more || (this.firstSeq ?? 1) <= 1;
