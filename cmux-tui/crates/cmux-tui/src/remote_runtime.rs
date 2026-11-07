@@ -2558,18 +2558,17 @@ fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
 fn report_unknown_kid(kid: &str) {
     let key = cmux_host::cloud::carrier_keyset::REQUEST_KEY;
     let line = format!("{}\n", serde_json::json!({ key: { "kid": kid } }));
-    let spawned =
-        std::thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
-            use std::io::{Read as _, Write as _};
-            let socket = cmux_host::cloud::wire::AGENT_SOCKET;
-            let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
-            let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
-            let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
-            if stream.write_all(line.as_bytes()).is_ok() {
-                let mut reply = [0_u8; 256];
-                let _ = stream.read(&mut reply);
-            }
-        });
+    let spawned = thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
+        use std::io::{Read as _, Write as _};
+        let socket = cmux_host::cloud::wire::AGENT_SOCKET;
+        let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
+        let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        if stream.write_all(line.as_bytes()).is_ok() {
+            let mut reply = [0_u8; 256];
+            let _ = stream.read(&mut reply);
+        }
+    });
     if let Err(error) = spawned {
         crate::client_log::stderr_log!("remote", "{BIN}: carrier keyset report: {error}");
     }

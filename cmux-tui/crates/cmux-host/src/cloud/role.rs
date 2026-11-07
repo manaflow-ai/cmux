@@ -822,7 +822,7 @@ impl Worker {
                         self.keyset.unknown_kid(kid);
                         json!({ "ok": true })
                     }
-                    Err(why) => super::github::refusal("request.invalid", &why),
+                    Err(why) => github::refusal("request.invalid", &why),
                 };
                 let Some(client) = self.clients.get_mut(i) else { continue };
                 if !client.output.is_empty() {
