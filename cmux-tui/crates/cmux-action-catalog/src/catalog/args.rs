@@ -48,7 +48,7 @@ pub const CASES_TALK_VIEW: &[EnumCase] = &[EnumCase { value: "talk", title: t("A
 #[rustfmt::skip]
 pub const CASES_ACP_TERMINAL: &[EnumCase] = &[EnumCase { value: "acp", title: t("ActionCatalog", "argument.agent.harness.protocol.acp", "ACP") }, EnumCase { value: "terminal", title: t("ActionCatalog", "argument.agent.harness.protocol.terminal", "Terminal") }];
 #[rustfmt::skip]
-pub const CASES_RD_WEB: &[EnumCase] = &[EnumCase { value: "rd", title: t("Localizable", "argument.value.viewerRd", "Video Stream") }, EnumCase { value: "web", title: t("Localizable", "argument.value.viewerWeb", "Browser") }, EnumCase { value: "native", title: t("Localizable", "argument.value.viewerNative", "Native") }];
+pub const CASES_RD: &[EnumCase] = &[EnumCase { value: "rd", title: t("Localizable", "argument.value.viewerRd", "Video Stream") }];
 #[rustfmt::skip]
 pub const CASES_SMALL_MEDIUM: &[EnumCase] = &[EnumCase { value: "small", title: t("Localizable", "argument.value.small", "Small") }, EnumCase { value: "medium", title: t("Localizable", "argument.value.medium", "Medium") }, EnumCase { value: "large", title: t("Localizable", "argument.value.large", "Large") }, EnumCase { value: "xlarge", title: t("Localizable", "argument.value.xlarge", "Extra Large") }];
 #[rustfmt::skip]
@@ -441,7 +441,7 @@ pub const KEY_3: Argument = Argument { name: "key", title: t("Localizable", "arg
 #[rustfmt::skip]
 pub const WORKSPACE_2: Argument = Argument { name: "workspace", title: t("Localizable", "argument.workspace", "Workspace"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
-pub const VIEWER: Argument = Argument { name: "viewer", title: t("Localizable", "argument.viewer", "Viewer"), kind: ArgKind::Enumeration(CASES_RD_WEB), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+pub const VIEWER: Argument = Argument { name: "viewer", title: t("Localizable", "argument.viewer", "Viewer"), kind: ArgKind::Enumeration(CASES_RD), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const SIZE_2: Argument = Argument { name: "size", title: t("Localizable", "argument.size", "Size"), kind: ArgKind::Enumeration(CASES_SMALL_MEDIUM), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]

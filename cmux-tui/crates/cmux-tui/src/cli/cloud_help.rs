@@ -149,7 +149,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "open-desktop",
-                "{target} [--viewer rd|web]",
+                "{target} [--viewer rd]",
                 "Show the machine's desktop in a new workspace",
                 "マシンのデスクトップを新しいワークスペースに表示",
             ),
