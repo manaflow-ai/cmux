@@ -300,7 +300,7 @@
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFavicons",
-        "CmuxNextFeedClient",
+        "CmuxNextFeed",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
         "CmuxNextFloating",
@@ -431,7 +431,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
-        "CmuxNextFeedClient",
+        "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
@@ -886,6 +886,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextCompat",
         "CmuxNextSettings",
@@ -1124,12 +1125,13 @@
       ],
       "packages": []
     },
-    "CmuxNextFeedClient": {
+    "CmuxNextFeed": {
       "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1566,6 +1568,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextFeed",
         "CmuxNextMobileHost",
         "CmuxNextSettings"
       ],
