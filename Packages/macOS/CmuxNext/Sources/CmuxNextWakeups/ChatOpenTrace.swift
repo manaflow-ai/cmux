@@ -40,7 +40,10 @@ public final class ChatOpenTrace {
              // Whether the open's tab took the prewarmed page (`AgentTabStore.view(for:)`,
              // AgentPaneSpareReadiness): adopted it; found none parked; found one not ready (still
              // connecting, Low Power Mode, thermal); or the page refused (a person touched it).
-             spareAdopted, spareEmpty, spareUnready, spareRefused
+             spareAdopted, spareEmpty, spareUnready, spareRefused,
+             // A fork (Fork Conversation): the forking chat's page asked the host to open the fork
+             // (`chat.openTab`, after acpmux answered the fork).
+             forkOpenAsked
 
         /// The mark's name in `debug.chat_open_trace` results.
         public var name: String {
@@ -65,6 +68,7 @@ public final class ChatOpenTrace {
             case .spareEmpty: "spare_empty"
             case .spareUnready: "spare_unready"
             case .spareRefused: "spare_refused"
+            case .forkOpenAsked: "fork_open_asked"
             }
         }
     }

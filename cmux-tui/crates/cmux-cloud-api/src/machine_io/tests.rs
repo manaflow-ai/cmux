@@ -1109,3 +1109,40 @@ fn a_direct_listing_past_max_bytes_is_refused_while_it_is_listed() {
     let (_, answer) = go(&whole, T0);
     assert_eq!(answer.status, 200, "without a limit the same listing is whole");
 }
+
+// MARK: review follow-ups (#37526)
+
+#[test]
+fn a_listing_exactly_at_max_bytes_is_whole_and_one_byte_under_is_refused() {
+    if !cfg!(target_os = "linux") || !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("listing");
+    std::fs::create_dir(&root).unwrap();
+    for n in 0..40 {
+        std::fs::write(root.join(format!("{n:06}")), []).unwrap();
+    }
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let (origin, _seen) =
+        fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
+    *cell.lock().unwrap() = origin.clone();
+    let base = Request {
+        path: Some(root.display().to_string()),
+        ..request(&origin, &dir.path().join("cache"), Op::Dir)
+    };
+    let size = |answer: &Answer| match answer.file.as_ref() {
+        Some(Spool::Json(file)) => file.metadata().unwrap().len(),
+        other => panic!("no listing: {other:?}"),
+    };
+    let (_, whole) = go(&base, T0);
+    let exact = size(&whole);
+    let (_, at) = go(&Request { max_bytes: Some(exact), ..base.clone() }, T0);
+    assert_eq!((at.status, size(&at)), (200, exact), "exactly the limit is whole");
+    let (_, under) = go(&Request { max_bytes: Some(exact - 1), ..base.clone() }, T0);
+    assert_eq!(under.code.as_deref(), Some("too_large"));
+    let (_, tiny) = go(&Request { max_bytes: Some(13), ..base }, T0);
+    assert_eq!(tiny.code.as_deref(), Some("too_large"), "not even the wrapper fits");
+}
