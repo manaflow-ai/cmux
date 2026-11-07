@@ -24,6 +24,11 @@ final class OmniboxPopupPanel {
     private var highlighted: Int?
     private var upward = false
     private var bar = NSRect.zero
+    /// What the card stays inside, on screen: its pane (and the screen); nil: unbounded.
+    private var clip: NSRect?
+    /// The card's tallest height in `clip` (`OmniboxCardPlacement.maxCardHeight`): the page
+    /// scrolls its rows within it.
+    private var maxCardHeight: CGFloat?
     private var revision = 0
     /// The revision that first drew the rows shown now: a hover or pick drawn before it names other rows.
     private var rowsRevision = 0
@@ -51,7 +56,8 @@ final class OmniboxPopupPanel {
     }
 
     /// Shows `rows` under `bar` (the omnibar's rect on screen), or above it when `upward`.
-    func show(_ rows: [BrowserSuggestion], highlighted: Int?, upward: Bool, bar: NSRect, in window: NSWindow, themeOf view: NSView) {
+    func show(_ rows: [BrowserSuggestion], highlighted: Int?, upward: Bool, bar: NSRect, clip: NSRect?, in window: NSWindow,
+              themeOf view: NSView) {
         guard let content = content ?? makeContent() else { return }
         // Another row count: the estimate until the page reports the new height.
         if rows.count != self.rows.count { cardHeight = 0 }
@@ -60,6 +66,8 @@ final class OmniboxPopupPanel {
         self.highlighted = highlighted
         self.upward = upward
         self.bar = bar
+        self.clip = clip
+        maxCardHeight = OmniboxCardPlacement.maxCardHeight(bar: bar, upward: upward, clip: clip)
         let panel = self.panel ?? makePanel(content)
         panel.adoptThemeScope(of: view)
         panel.applyGlassTheme()
@@ -73,10 +81,16 @@ final class OmniboxPopupPanel {
         if !panel.isVisible { panel.orderFront(nil) }
     }
 
-    /// Keeps an open card on the bar after the toolbar laid out again.
-    func follow(bar: NSRect?) {
-        guard let bar, isVisible, bar != self.bar else { return }
+    /// Keeps an open card on the bar, inside its pane, after the toolbar or its pane moved or resized.
+    func follow(bar: NSRect?, clip: NSRect?) {
+        guard let bar, isVisible, bar != self.bar || clip != self.clip else { return }
         self.bar = bar
+        self.clip = clip
+        let limit = OmniboxCardPlacement.maxCardHeight(bar: bar, upward: upward, clip: clip)
+        if limit != maxCardHeight {
+            maxCardHeight = limit
+            push()
+        }
         place()
     }
 
@@ -121,7 +135,8 @@ final class OmniboxPopupPanel {
         let m = margin
         let metrics = OmnibarMetrics.current
         let estimate = CGFloat(rows.count) * (metrics.barHeight + 2) + 4
-        let height = (cardHeight > 0 ? cardHeight : estimate) + m.top + m.bottom
+        let card = OmniboxCardPlacement.cardHeight(cardHeight > 0 ? cardHeight : estimate, limit: maxCardHeight)
+        let height = card + m.top + m.bottom
         let y = upward ? bar.maxY - m.bottom : bar.minY + m.top - height
         let frame = NSRect(x: bar.minX - m.left, y: y, width: bar.width + m.left + m.right, height: height)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
@@ -141,6 +156,7 @@ final class OmniboxPopupPanel {
             "revision": revision, "rows": rows, "highlighted": highlighted.map { $0 as Any } ?? NSNull(), "upward": upward,
             "metrics": ToolbarRowMetrics.wire(scale: panel?.backingScaleFactor ?? 2, withButtons: false),
             "cornerRadius": ToolbarRowMetrics.cornerRadius, "margin": [m.top, m.right, m.bottom, m.left],
+            "maxHeight": maxCardHeight.map { $0 as Any } ?? NSNull(),
         ])
     }
 
@@ -195,6 +211,34 @@ final class OmniboxPopupPanel {
     private static func pngData(_ image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
         return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
+/// Where the card may reach (AddressBarView's card was clipped to its pane, `cardPane`): flush on
+/// the bar's side and no further than the pane's (and the screen's) far edge, so in a short split
+/// it never covers the neighboring pane or leaves the window; the rows scroll within that height.
+/// Screen coordinates, y up.
+nonisolated enum OmniboxCardPlacement {
+    /// The least card height kept even when the pane leaves no room: one row and the card's ends.
+    static let minimumHeight: CGFloat = 40
+
+    /// The card's tallest height under (`upward`: above) `bar` inside `clip`; nil without a clip.
+    static func maxCardHeight(bar: NSRect, upward: Bool, clip: NSRect?) -> CGFloat? {
+        guard let clip, !clip.isNull, !clip.isEmpty else { return nil }
+        let room = upward ? clip.maxY - bar.maxY : bar.minY - clip.minY
+        return max(minimumHeight, floor(room))
+    }
+
+    /// `height` within `limit` (none: as it is).
+    static func cardHeight(_ height: CGFloat, limit: CGFloat?) -> CGFloat {
+        limit.map { min(height, $0) } ?? height
+    }
+
+    /// The pane `bar` belongs to on screen, within the screen's visible frame: what the card stays inside.
+    static func clip(pane: NSRect, screen: NSRect?) -> NSRect {
+        guard let screen else { return pane }
+        let both = pane.intersection(screen)
+        return both.isNull ? pane : both
     }
 }
 

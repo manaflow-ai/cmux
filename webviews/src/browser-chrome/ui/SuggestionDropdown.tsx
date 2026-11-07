@@ -50,7 +50,15 @@ export type SuggestionDropdownProps = {
   label: string;
   /** The host's density: each row is the bar's height, the card has the bar's corner radius. */
   metrics?: { bar: number; cornerRadius: number; fontSize: number };
+  /** The card's tallest height (px): the rows scroll within it (`cardBoundsStyle`). */
+  maxHeight?: number | null;
 };
+
+/** A card kept to `maxHeight` scrolls its rows; none (or not a number) leaves it its full height. */
+export function cardBoundsStyle(maxHeight: number | null | undefined): CSSProperties {
+  if (maxHeight == null || !Number.isFinite(maxHeight) || maxHeight <= 0) return {};
+  return { maxHeight: `${Math.floor(maxHeight)}px`, overflowY: "auto" };
+}
 
 export const MAX_SUGGESTIONS = 15;
 
@@ -110,6 +118,7 @@ export function SuggestionDropdown({
   idPrefix = "omnibox-suggestion",
   label,
   metrics,
+  maxHeight,
 }: SuggestionDropdownProps) {
   const slots: Slot[] = suggestions.slice(0, MAX_SUGGESTIONS).map((row, index) => ({ row, index }));
   // The shared listbox opens a row on its press; the press's modifiers are read here first.
@@ -119,7 +128,7 @@ export function SuggestionDropdown({
       className={look === "floating" ? "bc-suggestions ui-popup ui-glass" : "bc-suggestions"}
       data-look={look}
       data-upward={upward || undefined}
-      style={metrics ? densityStyle(metrics) : standardStyle}
+      style={{ ...(metrics ? densityStyle(metrics) : standardStyle), ...cardBoundsStyle(maxHeight) }}
       onPointerLeave={() => onCommand({ type: "hover", index: null })}
       onMouseDownCapture={(event) => {
         pressed.current = modifiers(event);

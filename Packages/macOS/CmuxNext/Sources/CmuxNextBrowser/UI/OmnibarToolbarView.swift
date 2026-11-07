@@ -93,4 +93,16 @@ public final class OmnibarToolbarView: ArrowCursorView {
         super.viewDidChangeBackingProperties()
         density.reapply()
     }
+
+    /// The row resized, or moved in its page tab (a bottom row when the pane's height changes): an
+    /// open suggestion card follows it.
+    public override func layout() {
+        super.layout()
+        addressBar.followLayout()
+    }
+
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        addressBar.followLayout()
+    }
 }

@@ -6,6 +6,7 @@ import type { OmnibarFieldSurface } from "../omnibox/effect-applier";
 import { initialOmnibarState } from "../omnibox/state";
 import { testResolver } from "../omnibox/testing";
 import type { TextRange } from "../omnibox/types";
+import { cardBoundsStyle } from "../ui/SuggestionDropdown";
 import { resolveLayout, TOOLBAR_METRICS } from "../ui/toolbarModel";
 import { OmnibarRunner } from "./controller";
 import { freshEvents } from "./events";
@@ -291,6 +292,14 @@ describe("runner (OmnibarController)", () => {
 });
 
 describe("view", () => {
+  test("a card kept to its pane's height scrolls its rows; no limit keeps its full height", () => {
+    expect(cardBoundsStyle(140.6)).toEqual({ maxHeight: "140px", overflowY: "auto" });
+    expect(cardBoundsStyle(null)).toEqual({});
+    expect(cardBoundsStyle(undefined)).toEqual({});
+    expect(cardBoundsStyle(0)).toEqual({});
+    expect(cardBoundsStyle(Number.NaN)).toEqual({});
+  });
+
   test("the bar's tonal fill always draws, over the theme background at the coverage", () => {
     const step = (percent: number, under: string) => `color-mix(in srgb, var(--ds-color-fg) ${percent}%, ${under})`;
     const surface = (percent: number) => `color-mix(in srgb, var(--ds-color-surface) ${percent}%, transparent)`;

@@ -320,6 +320,11 @@ export type PopupHostState = {
   cornerRadius: number;
   /** Space around the card inside the panel, for its shadow: [top, right, bottom, left]. */
   margin: [number, number, number, number];
+  /**
+   * The card's tallest height in its pane (CSS px, the margin excluded; null or absent: no limit).
+   * The rows scroll within it, so a short split never shows a card past its pane.
+   */
+  maxHeight?: number | null;
 };
 
 // MARK: Popup page -> host

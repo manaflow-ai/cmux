@@ -77,6 +77,7 @@ export function mountOmniboxPopupPage(root: HTMLElement, client: PageClient): ()
             onCommand={onCommand}
             look="joined"
             upward={current.upward}
+            maxHeight={current.maxHeight}
             label={label}
             metrics={{
               bar: current.metrics.bar,
