@@ -18,15 +18,17 @@
 //! status and log (`cloud.folder_missing`). A running bootstrap is waited on, on the machine, for at
 //! most [`SLICE_SECONDS`] per exec. Everything that may pass later (a busy, starting or unreachable
 //! machine, a timeout, an answer that can't be read) is asked again within the command's one
-//! [`Deadline`]. No bootstrap and no folder (a typo, or a bootstrap still being put on the machine:
-//! `list-machines` says nothing of a requested bootstrap) is asked again for a short [`GRACE`] only, then
-//! fails `cloud.folder_missing` with reason `no_such_folder`; past it the start answers [`out_of_time`], and with no
-//! deadline (no `--wait`) the wait stops at [`MAX_WAIT`] with `cloud.folder_pending`. Under a second
-//! left, no check runs. A machine that cannot run a command for the CLI at all ([`cannot_exec`]) starts
+//! [`Deadline`]: past it, or for an answer that comes back past it, the start answers [`out_of_time`].
+//! With `--timeout` the deadline is the only bound; with no deadline (no `--wait`) the wait stops at
+//! [`MAX_WAIT`] with `cloud.folder_pending`. Under a second left, no check runs. No bootstrap and no
+//! folder is a typo only on a machine older than [`YOUNG`] (`list-machines`' `created_at`; nothing there
+//! says whether a bootstrap was asked for): it fails `cloud.folder_missing` with reason
+//! `no_such_folder`. On a younger machine, or one whose age can't be read, the bootstrap may not have
+//! written its status yet, so it is asked again like any answer that may pass later. A machine that cannot run a command for the CLI at all ([`cannot_exec`]) starts
 //! the way it did before this check: the relay is its only way. Any other refusal is
 //! `cloud.folder_unknown`, retryable, and never a start.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -42,9 +44,11 @@ pub(super) const LOG: &str = ".cmux/bootstrap/bootstrap.log";
 pub(super) const SLICE_SECONDS: u64 = 15;
 /// The longest a start with no deadline (no `--wait`) waits for a clone.
 pub(super) const MAX_WAIT: Duration = Duration::from_secs(10 * 60);
-/// How long no bootstrap and no folder is asked again before it is a missing folder (less when less of
-/// the deadline is left).
-pub(super) const GRACE: Duration = Duration::from_secs(30);
+/// Below this age a machine with no bootstrap status may still be getting its bootstrap: the app's
+/// `CloudMachineBootstrap.start` runs a prepare exec (20 s at most), five file writes (120 s each at
+/// most) and the start exec (20 s) before the runner writes `status.json`: 640 s at worst, after the
+/// machine's create and boot. 15 minutes covers that with room for the boot.
+pub(super) const YOUNG: Duration = Duration::from_secs(15 * 60);
 /// The pause before asking again after an answer that may pass later.
 const RETRY_PAUSE: Duration = Duration::from_secs(2);
 /// The app's refusal of `cloud exec` on a machine without API exec (`CloudStrings.execUnavailable`,
@@ -61,7 +65,7 @@ pub(super) enum Folder {
     Cloning,
     /// Not known yet (an unknown state, an answer that can't be read): ask again after a pause.
     Again,
-    /// No bootstrap and no folder: ask again within [`GRACE`].
+    /// No bootstrap and no folder: missing on an old machine, asked again on a young one ([`YOUNG`]).
     Absent,
     /// The bootstrap failed; its status file.
     Missing(Value),
@@ -138,8 +142,14 @@ pub(super) fn wait(
     machine: &str,
     cwd: &str,
     deadline: Deadline,
+    listed: &Value,
 ) -> Option<Outcome> {
     let started = runner.now();
+    // The machine's age when the wait began; unknown (an unreadable `created_at`, or not listed) is young.
+    let age = machine_age(listed, machine, SystemTime::now());
+    let young = |runner: &mut dyn Runner| {
+        age.is_none_or(|age| age + runner.now().saturating_duration_since(started) < YOUNG)
+    };
     let late = |runner: &mut dyn Runner| {
         let waited = runner.now().saturating_duration_since(started);
         failed(
@@ -186,25 +196,17 @@ pub(super) fn wait(
     };
     // The machine was resumed once already (a paused machine; see the `vm_not_running` arm).
     let mut resumed = false;
-    // The last answer was `absent`: when time runs out, the folder is missing, not late.
-    let mut absent = false;
     loop {
         let waited = runner.now().saturating_duration_since(started);
-        if absent && waited >= GRACE {
-            return no_such_folder();
-        }
-        let own = Duration::from_secs(SLICE_SECONDS).min(MAX_WAIT.saturating_sub(waited));
+        // With `--timeout`, the deadline is the only bound; MAX_WAIT is for a start with none.
+        let own = match deadline.left(runner) {
+            Some(_) => Duration::from_secs(SLICE_SECONDS),
+            None => Duration::from_secs(SLICE_SECONDS).min(MAX_WAIT.saturating_sub(waited)),
+        };
         let slice = deadline.bound(runner, own);
-        // Under a second left: no check (a script waits whole seconds), so out of time.
+        // Under a second left: no check (a script waits whole seconds).
         if slice < Duration::from_secs(1) {
-            if absent {
-                return no_such_folder();
-            }
-            return if deadline.left(runner).is_some_and(|left| left < Duration::from_secs(1)) {
-                out(request)
-            } else {
-                Some(late(runner))
-            };
+            return if deadline.left(runner).is_some() { out(request) } else { Some(late(runner)) };
         }
         let args = vec![
             "cloud".to_owned(),
@@ -215,7 +217,12 @@ pub(super) fn wait(
             script(cwd, slice.as_secs()),
             "--json".to_owned(),
         ];
-        let answer = match step_result(&runner.cmux(&args)) {
+        let checked = step_result(&runner.cmux(&args));
+        // An answer that came back past the deadline is out of time, whatever it says.
+        if deadline.passed(runner) {
+            return out(request);
+        }
+        let answer = match checked {
             Ok(ran) => {
                 read(at(&ran, "exit_code").as_i64(), at(&ran, "stdout").as_str().unwrap_or(""))
             }
@@ -232,7 +239,11 @@ pub(super) fn wait(
                     format!("machine:{machine}"),
                     "--json".to_owned(),
                 ];
-                match step_result(&runner.cmux(&resume)) {
+                let resumed = step_result(&runner.cmux(&resume));
+                if deadline.passed(runner) {
+                    return out(request);
+                }
+                match resumed {
                     Ok(_) => continue,
                     Err(error) if may_pass_later(&error) => Folder::Again,
                     Err(error) => return Some(unknown(error)),
@@ -241,7 +252,6 @@ pub(super) fn wait(
             Err(error) if may_pass_later(&error) => Folder::Again,
             Err(error) => return Some(unknown(error)),
         };
-        absent = answer == Folder::Absent;
         match answer {
             Folder::Ready => return None,
             Folder::Missing(status) => {
@@ -262,11 +272,65 @@ pub(super) fn wait(
                 let pause = deadline.bound(runner, RETRY_PAUSE);
                 runner.pause(pause);
             }
+            // No bootstrap and no folder: a typo on an old machine; a young one may still get its bootstrap.
+            Folder::Absent if !young(runner) => return no_such_folder(),
             Folder::Absent => {
-                let grace = GRACE.saturating_sub(runner.now().saturating_duration_since(started));
-                let pause = deadline.bound(runner, RETRY_PAUSE.min(grace));
+                let pause = deadline.bound(runner, RETRY_PAUSE);
                 runner.pause(pause);
             }
         }
     }
+}
+
+/// How old `machine` was at `now`, from `list-machines`' `created_at` (`Date.formatted(.iso8601)`, for
+/// example `2026-11-07T01:23:45Z`). `None` when it is not listed or the time can't be read.
+pub(super) fn machine_age(listed: &Value, machine: &str, now: SystemTime) -> Option<Duration> {
+    let row = at(listed, "machines")
+        .as_array()?
+        .iter()
+        .find(|row| at(row, "machine_id").as_str() == Some(machine))?;
+    let created = unix_seconds(at(row, "created_at").as_str()?)?;
+    let now = i64::try_from(now.duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()?;
+    Some(Duration::from_secs(u64::try_from(now - created).unwrap_or(0)))
+}
+
+/// Seconds since 1970 of `YYYY-MM-DDTHH:MM:SS[.fff]Z`; `None` for anything else.
+fn unix_seconds(text: &str) -> Option<i64> {
+    let text = text.strip_suffix('Z')?;
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, "0"));
+    if !fraction.bytes().all(|b| b.is_ascii_digit()) || fraction.is_empty() {
+        return None;
+    }
+    let b = whole.as_bytes();
+    if b.len() != 19
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> {
+        let part = &whole[from..to];
+        part.bytes().all(|b| b.is_ascii_digit()).then(|| part.parse().ok()).flatten()
+    };
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    // Days from 1970-01-01 of a proleptic Gregorian date.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }

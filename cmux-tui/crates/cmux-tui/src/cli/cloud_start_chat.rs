@@ -645,7 +645,7 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
         Machine::New => None,
     };
     if let (Some(machine), Some(cwd)) = (existing, &request.cwd)
-        && let Some(outcome) = folder::wait(runner, request, &machine, cwd, deadline)
+        && let Some(outcome) = folder::wait(runner, request, &machine, cwd, deadline, &listed)
     {
         return outcome;
     }
