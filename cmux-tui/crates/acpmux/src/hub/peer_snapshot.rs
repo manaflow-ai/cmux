@@ -1034,10 +1034,30 @@ impl Store {
             return;
         };
         self.load(key);
+        let mut carried = Vec::new();
         match self.fate(key, &page, (from, to), generation) {
             Fate::Ignore => return,
             Fate::Join => {}
             Fate::Restart => {
+                // A copy of this generation replaced (a page past a gap) keeps its prompts'
+                // records: a message it holds may be on no disk of the peer's any more, and
+                // its delivery closed on it (`open_delivery.rs`, the move simulation).
+                if let Some(c) =
+                    self.copies.get(key).filter(|c| c.head.generation == Some(generation))
+                {
+                    let names = |r: &&Value| {
+                        r.pointer("/msg/promptId")
+                            .and_then(Value::as_str)
+                            .is_some_and(|p| crate::hub::open_delivery::names_prompt(r, p))
+                    };
+                    carried = c
+                        .records
+                        .iter()
+                        .flat_map(|r| r.range(..from).map(|(_, r)| r))
+                        .filter(names)
+                        .cloned()
+                        .collect();
+                }
                 self.remove(key);
                 // Only a page that names its generation itself starts a copy.
                 if page.generation != Some(generation) {
@@ -1069,7 +1089,8 @@ impl Store {
             h.summary = row;
             self.charge(key);
         }
-        self.add(key, page.records);
+        carried.extend(page.records);
+        self.add(key, carried);
     }
 
     /// A live record continues only a copy a page joined on the link it came on, and only next to
