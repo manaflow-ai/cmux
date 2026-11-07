@@ -127,7 +127,14 @@ class Daemon {
         _meta: { acpmux: { origin: "local", extensions: [], operations: ["acp.session.fork"] } },
       };
     else if (message.method === "_acpmux/watch") result = { sessions: [this.summary(PARENT), this.summary(FORK)] };
-    else if (message.method === "acp.session.fork") result = { ...this.summary(FORK), ...this.fork };
+    else if (message.method === "acp.session.fork")
+      // As acpmux answers it (server/requests.rs `SESSION_FORK`): the fork's summary in `_meta`.
+      result = {
+        sessionId: FORK,
+        modes: null,
+        configOptions: [],
+        _meta: { acpmux: { ...this.summary(FORK), ...this.fork } },
+      };
     else if (message.method === "_acpmux/attach") {
       const records = events(sessionId, this.pages.get(sessionId) ?? { events: [] });
       result = { session: this.summary(sessionId), lastSeq: records.at(-1)?.seq ?? 0, events: records, hasMore: false };

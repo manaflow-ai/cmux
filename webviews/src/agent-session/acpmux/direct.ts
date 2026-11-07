@@ -3185,7 +3185,9 @@ export class AcpmuxDirectClient {
         historyExhausted: this.historyExhausted,
         turnOpener: this.turnOpener,
       },
-      reply,
+      // acpmux answers `session/fork`'s `{sessionId, modes, configOptions}` and puts the fork's
+      // session summary (its `createdAt`, `lastSeq`, `forkSeq`) in `_meta.acpmux`.
+      { ...reply?._meta?.acpmux, sessionId: reply.sessionId },
     );
     // The fork's tab is another page: only the app host's copy reaches it.
     if (tail) rememberTail(String(reply.sessionId), tail, false);
