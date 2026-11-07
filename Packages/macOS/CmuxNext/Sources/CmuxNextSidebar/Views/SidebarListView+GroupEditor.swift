@@ -18,11 +18,6 @@ struct SidebarGroupEditing {
     /// The id of the editor's Sort row: it opens the sort menu (Manual, Name, Recent) next to the group, which the
     /// App builds from the registry (`groupSortMenu`, `workspaceGroup.setSort`).
     static let sortItem = "sidebar.group.sort"
-    /// The prefix of the editor's palette rows (`paletteItem`): the App sets `sidebar.groupPalette` to the rest.
-    static let palettePrefix = "sidebar.groupPalette."
-
-    /// The row a palette's marble sends: the App sets `sidebar.groupPalette` to `palette`.
-    static func paletteItem(_ palette: GroupPalette) -> String { palettePrefix + palette.rawValue }
 
     /// The editor's rows when the App gives none: the shared group actions. Pin and Move to Top
     /// sit in the editor itself (Lawrence 2026-10-20); the rest are in the header's right-click

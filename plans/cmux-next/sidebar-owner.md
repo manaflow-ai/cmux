@@ -210,8 +210,9 @@
   of the row, you're able to pick, say, a selection of colors" and "of course, like the automatic group colors". The
   nine tokens stay what the daemon stores; each palette draws them its own way (`GroupColor.paletteRGB`), so a stored
   color is never rewritten. Vibrant replaces the low-saturation set (which went brown and olive under a dark veil) as
-  the tokens' own colors and is what Glass draws a colored group in. The group editor keeps its dot row (no color is
-  now pure glass: a clear dot, an edge and a slash) and adds a row of marbles, one per palette, that sets the key. A
+  the tokens' own colors and is what Glass draws a colored group in. The key is set from Settings, Cmd-Shift-P, the
+  CLI and MCP; the group editor's marble row (one smudged ball per palette, beside the dots) follows on the React
+  editor page (#37299), so it is not drawn in the AppKit panel that PR deletes. A
   new group takes the palette's next color in `GroupColor.paletteOrder` (purple, cyan, red, green, pink, yellow,
   orange: neighbors far apart, never blue, the unread dot's), the one the fewest groups have; under Glass none, so
   "no colour the user didn't choose" stands for everyone who never picks a palette. Replaces Debug

@@ -4,8 +4,8 @@ import QuartzCore
 
 /// The workspace group editor (cx-rcby, Lawrence 2026-10-08: the Chrome tab
 /// group bubble): a name field that opens focused with the name selected,
-/// a row of color dots (none, then the group palette), a row of palettes
-/// (`sidebar.groupPalette`) and the group's actions in sections. Opened from the group chip, its more button or a
+/// a row of color dots (none, then the group palette) and the group's
+/// actions in sections. Opened from the group chip, its more button or a
 /// right-click. Every edit goes out through the callbacks; the editor
 /// never edits sidebar state.
 @MainActor
@@ -134,10 +134,6 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     let nameField = NSTextField()
     private let field = NSView()
     private(set) var swatches: [SidebarGroupSwatchView] = []
-    /// Under the dots, the palettes the dots and every group's color come from (Leo 2026-11-06: "you're always able
-    /// to pick the pure glass option. But then, like, in the other part of the row, you're able to pick, say, a
-    /// selection of colors"). A pick goes out as a `paletteItem` row, so the App sets `sidebar.groupPalette`.
-    private(set) var marbles: [GroupPaletteMarbleView] = []
     /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
     let customSwatch = GroupCustomSwatchView(label: GroupEditorStrings.customColor)
     let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize },
@@ -201,11 +197,6 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             swatch.onPick = { [weak self] picked in self?.pick(picked) }
             return swatch
         }
-        marbles = GroupPalette.allCases.map { palette in
-            let marble = GroupPaletteMarbleView(palette: palette)
-            marble.onPick = { [weak self] picked in self?.pickPalette(picked) }
-            return marble
-        }
         customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
         // The workspace group's Set Icon action: the shared icon picker, emoji included.
         emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
@@ -234,23 +225,16 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     func configure(_ group: SidebarGroup, items: [[SidebarGroupEditorItem]]) {
         name = group.name
         nameField.stringValue = group.name
-        showPalette(DesignSettings.shared.sidebarSections.groupPalette)
         showChosen(group.tint)
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let dots = NSStackView(views: swatches + [customSwatch, emojiButton])
         dots.spacing = Metrics.space1
         dots.distribution = .equalSpacing
-        let palettes = NSStackView(views: marbles)
-        palettes.spacing = Metrics.space1
-        palettes.distribution = .fillEqually
-        palettes.alignment = .top
-        var views: [NSView] = [dots, palettes]
+        var views: [NSView] = [dots]
         stack.addArrangedSubview(field)
         stack.addArrangedSubview(dots)
-        stack.addArrangedSubview(palettes)
         stack.setCustomSpacing(Metrics.space3, after: field)
-        stack.setCustomSpacing(Metrics.space2, after: dots)
-        var last: NSView = palettes
+        var last: NSView = dots
         for section in items where !section.isEmpty {
             let separator = HairlineView()
             separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
@@ -277,7 +261,6 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// The group changed while the editor is open: its color; its name only
     /// when the field is not being edited.
     func refresh(_ group: SidebarGroup) {
-        showPalette(DesignSettings.shared.sidebarSections.groupPalette)
         showChosen(group.tint)
         // A name the person typed is kept; an untouched field follows the group.
         if nameField.stringValue == name {
@@ -304,22 +287,6 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let tint: GroupTint = color == .grey ? .none : .palette(color)
         showChosen(tint)
         onColor?(tint)
-    }
-
-    /// A palette's marble: the dots draw from it at once, and the App sets `sidebar.groupPalette` (`paletteItem`).
-    func pickPalette(_ palette: GroupPalette) {
-        showPalette(palette)
-        onItem?(SidebarGroupEditing.paletteItem(palette))
-    }
-
-    /// The dots in `palette`'s colors, its marble ringed. A palette's colors follow the theme and the desktop picture:
-    /// each show draws the marbles again.
-    private func showPalette(_ palette: GroupPalette) {
-        for swatch in swatches { swatch.palette = palette }
-        for marble in marbles {
-            marble.isChosen = marble.palette == palette
-            marble.refresh()
-        }
     }
 
     /// The chosen ring: a palette dot (the "No color" dot for no color), or the custom dot showing its color.

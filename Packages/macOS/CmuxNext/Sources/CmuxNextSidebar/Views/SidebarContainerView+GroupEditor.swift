@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextDesign
 
 // The group editor's App side (cx-rcby): its action rows and what runs them.
 extension SidebarContainerView {
@@ -30,11 +29,6 @@ extension SidebarContainerView {
     public static var moreActionsItem: String { SidebarGroupEditing.moreActionsItem }
     /// Sent before the editor closes for a picker that still edits the group: keep a new empty group.
     public static var keepGroupItem: String { SidebarGroupEditing.keepGroupItem }
-    /// The group palette a palette row (`sidebar.groupPalette.<palette>`) picks; nil for any other row.
-    public static func groupPalette(item: String) -> GroupPalette? {
-        guard item.hasPrefix(SidebarGroupEditing.palettePrefix) else { return nil }
-        return GroupPalette(rawValue: String(item.dropFirst(SidebarGroupEditing.palettePrefix.count)))
-    }
 
     /// The editor's standard rows: New Workspace in Group, Move to New Window, Close All in Group;
     /// Pin or Unpin Group (as `pinned` says), Move to Top, Sort; Ungroup, Delete Group.

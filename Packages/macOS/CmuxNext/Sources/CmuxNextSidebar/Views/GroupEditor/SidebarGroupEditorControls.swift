@@ -3,19 +3,15 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// One color dot in the group editor: the color drawn from the group palette (`sidebar.groupPalette`), or for
-/// none (grey) pure glass, a clear dot with a hairline edge and a slash. The chosen dot gets a ring in the primary
-/// text color.
+/// One color dot in the group editor: the group palette's swatch, or for
+/// none (grey) the grey swatch with a hairline edge. The chosen dot gets a
+/// ring in the primary text color.
 final class SidebarGroupSwatchView: NSView {
     let color: GroupColor
     var isChosen = false { didSet { if oldValue != isChosen { updateColors() } } }
-    /// The palette the dot's color is drawn from.
-    var palette: GroupPalette = .glass { didSet { if oldValue != palette { updateColors() } } }
     var onPick: ((GroupColor) -> Void)?
     private let fill = CALayer()
     private let ring = CALayer()
-    /// Glass's slash, on the no-color dot only.
-    private let slash = CAShapeLayer()
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
 
     init(color: GroupColor) {
@@ -24,14 +20,10 @@ final class SidebarGroupSwatchView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         ring.borderWidth = Metrics.space1 * 0.75
-        for sublayer in [ring, fill, slash] {
-            sublayer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(),
-                                "path": NSNull(), "strokeColor": NSNull()]
+        for sublayer in [ring, fill] {
+            sublayer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull()]
             layer?.addSublayer(sublayer)
         }
-        slash.isHidden = color != .grey
-        slash.fillColor = nil
-        slash.lineWidth = Metrics.dividerThickness
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(GroupEditorStrings.colorName(color))
@@ -56,11 +48,6 @@ final class SidebarGroupSwatchView: NSView {
         let inner = outer.insetBy(dx: Metrics.space1 + 1, dy: Metrics.space1 + 1)
         fill.frame = inner
         fill.cornerRadius = inner.width / 2
-        slash.frame = inner
-        let path = CGMutablePath(), inset = inner.width * 0.3
-        path.move(to: CGPoint(x: inset, y: inset))
-        path.addLine(to: CGPoint(x: inner.width - inset, y: inner.height - inset))
-        slash.path = path
         updateColors()
     }
 
@@ -71,12 +58,10 @@ final class SidebarGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            // The group's color as its members' line draws it; none is pure glass: the ink at a breath, an edge and a slash.
-            fill.backgroundColor = color == .grey ? Palette.textPrimary.withAlphaComponent(0.06).cgColor
-                : GroupTint.palette(color).lineColor(palette: palette).cgColor
+            // The group's swatch, as its members' line draws it; none draws an edge too.
+            fill.backgroundColor = GroupTint.palette(color).lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
-            slash.strokeColor = Palette.textTertiary.cgColor
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)
@@ -195,22 +180,6 @@ enum GroupEditorStrings {
     static var expand: String { String(localized: "sidebar.group.expand", defaultValue: "Expand group", bundle: .module) }
     static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
     static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
-    /// The palette row's help: what choosing a palette does.
-    static var paletteHelp: String {
-        String(localized: "sidebar.groupPalette.help", defaultValue: "Group colors come from this palette, and new groups take its next color. Glass gives new groups no color.",
-               bundle: .module)
-    }
-
-    /// A palette's name under its marble (`sidebar.groupPalette`).
-    static func paletteName(_ palette: GroupPalette) -> String {
-        switch palette {
-        case .glass: String(localized: "sidebar.groupPalette.glass", defaultValue: "Glass", bundle: .module)
-        case .theme: String(localized: "sidebar.groupPalette.theme", defaultValue: "Theme", bundle: .module)
-        case .wallpaper: String(localized: "sidebar.groupPalette.wallpaper", defaultValue: "Wallpaper", bundle: .module)
-        case .grayscale: String(localized: "sidebar.groupPalette.grayscale", defaultValue: "Grayscale", bundle: .module)
-        case .vibrant: String(localized: "sidebar.groupPalette.vibrant", defaultValue: "Vibrant", bundle: .module)
-        }
-    }
 
     /// A sort's name in the Sort row and its menu.
     static func sortTitle(_ sort: SidebarGroupSort) -> String {

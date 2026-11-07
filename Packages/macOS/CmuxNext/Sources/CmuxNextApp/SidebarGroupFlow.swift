@@ -203,7 +203,6 @@ struct SidebarGroupFlow {
     }
 
     private func performEditorItem(_ group: CmuxNextSidebar.GroupID, _ item: String) {
-        if let palette = SidebarContainerView.groupPalette(item: item) { bridge.services.settings?.setGroupPalette(palette); return }
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
