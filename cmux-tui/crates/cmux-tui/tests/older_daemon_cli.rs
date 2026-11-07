@@ -8,6 +8,8 @@
 //! The fake daemon answers as the VM daemon of 2026-10-25 does (cmux 0.1.0,
 //! main 316d139f): `identify` with its build, every raw command with `ok`,
 //! and every `cmux.protocol/2` request with the envelope refusal of that build.
+//! A stale CLI that meets a NEWER daemon must not offer the restart: from
+//! the stale CLI it would downgrade the daemon.
 
 #![cfg(unix)]
 
@@ -30,6 +32,12 @@ struct OldDaemon {
 
 impl OldDaemon {
     fn start(name: &str) -> Self {
+        Self::start_as(name, None)
+    }
+
+    /// A daemon that reports `build_time` (a build newer than any CLI when
+    /// it is far in the future); `None` reports none, as 316d139f does.
+    fn start_as(name: &str, build_time: Option<u64>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-old-{name}-{}-{stamp}", std::process::id()));
@@ -40,7 +48,7 @@ impl OldDaemon {
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
-                std::thread::spawn(move || serve(stream));
+                std::thread::spawn(move || serve(stream, build_time));
             }
         });
         Self { dir, socket }
@@ -70,7 +78,7 @@ impl Drop for OldDaemon {
     }
 }
 
-fn serve(stream: UnixStream) {
+fn serve(stream: UnixStream, build_time: Option<u64>) {
     let mut writer = stream.try_clone().unwrap();
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
@@ -89,7 +97,7 @@ fn serve(stream: UnixStream) {
                 }
             })
         } else if request["cmd"] == "identify" {
-            json!({"id": request["id"], "ok": true, "data": {
+            let mut reply = json!({"id": request["id"], "ok": true, "data": {
                 "app": "cmux-tui",
                 "protocol": 12,
                 "version": "0.1.0",
@@ -99,7 +107,11 @@ fn serve(stream: UnixStream) {
                 "generation": "e5b73f7f-d219-4800-a38d-524708c86447",
                 "lifecycle_ready": true,
                 "capabilities": ["workspace-registry-v1", "session-journal-v1"]
-            }})
+            }});
+            if let Some(time) = build_time {
+                reply["data"]["build_time"] = json!(time);
+            }
+            reply
         } else {
             json!({"id": request["id"], "ok": true, "data": {}})
         };
@@ -149,4 +161,21 @@ fn daemon_upgrade_json_request_to_an_older_daemon_reports_daemon_outdated() {
     assert_eq!(error["code"], "daemon.outdated", "{error}");
     assert_eq!(error["details"]["daemon_build"], OLD_COMMIT, "{error}");
     assert_eq!(error["details"]["action"], "restart_daemon", "{error}");
+}
+
+#[test]
+fn daemon_upgrade_a_newer_daemon_says_this_cli_is_stale_and_offers_no_restart() {
+    // 2096-10-02: newer than the commit of any CLI under test.
+    let daemon = OldDaemon::start_as("newer", Some(4_000_000_000));
+    let output = daemon.cli(&["--json", "workspace", "list"]);
+    let printed = text(&output);
+    assert!(!output.status.success(), "succeeded against a refusing daemon: {printed}");
+    assert!(!printed.contains("invalid request envelope"), "bare envelope refusal: {printed}");
+    assert!(!printed.contains("daemon restart"), "restart from a stale CLI: {printed}");
+    assert!(printed.contains("is newer than this cmux"), "no newer daemon: {printed}");
+    let line = String::from_utf8_lossy(&output.stderr);
+    let line = line.lines().rfind(|line| line.starts_with('{')).unwrap_or_default().to_owned();
+    let error: Value = serde_json::from_str(&line).unwrap_or_else(|_| panic!("no JSON: {line}"));
+    assert_eq!(error["code"], "cli.outdated", "{error}");
+    assert_eq!(error["details"]["action"], "use_daemon_cli", "{error}");
 }

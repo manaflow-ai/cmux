@@ -6,8 +6,10 @@
 //! apps directories and Chief brains.
 //!
 //! The old owner's argv and environment are read once from the OS
-//! (`/proc/<pid>/cmdline` and `environ` on Linux, `KERN_PROCARGS2` on macOS,
-//! the same user's process only) before it is stopped. Only the flags and
+//! (`/proc/<pid>/cmdline` and `environ` on Linux, `KERN_PROCARGS2` on macOS)
+//! before it is stopped, and only when that process belongs to this
+//! effective user (Linux shows any user's cmdline, so this checks the owner
+//! of `/proc/<pid>`; macOS refuses another user's arguments itself). Only the flags and
 //! environment keys of the detached owner's own launch contract
 //! ([`super::spawn_detached_owner`]) are carried; anything else on the old
 //! argv, and every other variable, is not.
@@ -43,13 +45,35 @@ impl CarriedLaunch {
     /// user's process, a platform without the call) or `pid` is no headless
     /// owner.
     pub(crate) fn of_owner(pid: u32) -> Self {
+        if !Self::is_own_process(pid) {
+            return Self::default();
+        }
         cmux_tui_core::platform::process_launch(pid, &CARRIED_ENV)
             .map(|launch| Self::from_launch(&launch.argv, launch.env))
             .unwrap_or_default()
     }
 
+    /// Whether `pid` runs as this effective user (Linux; elsewhere the
+    /// platform call refuses another user's process by itself).
+    fn is_own_process(pid: u32) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // SAFETY: geteuid has no preconditions and cannot fail.
+            let euid = unsafe { libc::geteuid() };
+            std::fs::metadata(format!("/proc/{pid}")).is_ok_and(|proc| proc.uid() == euid)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = pid;
+            true
+        }
+    }
+
     /// The carried part of an owner's `argv` (program first) and `env`.
-    /// A flag the owner would refuse is left out, never guessed.
+    /// A flag the owner would refuse is left out, never guessed: a value
+    /// that is missing or is itself a flag (an empty argument the OS
+    /// listing dropped) leaves its flag out and is read as the next flag.
     pub(crate) fn from_launch(argv: &[String], env: Vec<(String, String)>) -> Self {
         let mut carried = Self::default();
         if !argv.iter().skip(1).any(|arg| arg == "--headless") {
@@ -57,7 +81,7 @@ impl CarriedLaunch {
         }
         let mut colors = cmux_tui_core::DefaultColors::default();
         let (mut listener, mut origins) = (false, Vec::new());
-        let mut args = argv.iter().skip(1);
+        let mut args = argv.iter().skip(1).peekable();
         while let Some(arg) = args.next() {
             let flag = arg.as_str();
             let takes_value = matches!(
@@ -73,7 +97,7 @@ impl CarriedLaunch {
             if !takes_value {
                 continue;
             }
-            let Some(value) = args.next() else { break };
+            let Some(value) = args.next_if(|value| !value.starts_with("--")) else { continue };
             match flag {
                 "--state" => carried.state = Some(PathBuf::from(value)),
                 "--term" => carried.term = Some(value.clone()),
@@ -220,6 +244,55 @@ mod tests {
             vec![("CMUX_APPS_DIRS".into(), "/apps".into())],
         );
         assert_eq!(launch, CarriedLaunch::default());
+    }
+
+    #[test]
+    fn a_flag_without_its_value_is_left_out_and_the_next_flag_still_counts() {
+        // `--state ""` as the OS lists it: the empty value is gone.
+        let launch = CarriedLaunch::from_launch(
+            &argv(&["cmux-tui", "--headless", "--state", "--term", "xterm-ghostty", "--ws"]),
+            Vec::new(),
+        );
+        assert_eq!(launch.state, None);
+        assert_eq!(launch.term.as_deref(), Some("xterm-ghostty"));
+        assert_eq!(launch.websocket, None);
+    }
+
+    #[test]
+    fn the_callers_own_values_win_and_the_rest_is_filled() {
+        let launch = CarriedLaunch::from_launch(
+            &argv(&[
+                "cmux-tui",
+                "--headless",
+                "--term",
+                "xterm-ghostty",
+                "--owner-host-bg",
+                "#272822",
+                "--terminal-reap-grace-seconds",
+                "30",
+            ]),
+            vec![("CMUX_APPS_DIRS".into(), "/apps".into())],
+        );
+        let mut spec = OwnerSpec {
+            session: "main".into(),
+            socket: PathBuf::from("/tmp/main.sock"),
+            socket_is_derived: false,
+            state: None,
+            term: Some("xterm-256color".into()),
+            initial_host_colors: None,
+            terminal_reap_grace: None,
+            exit_with_pid: None,
+            install_key: None,
+            chief_tools_socket: None,
+            chief_brains: None,
+            websocket: None,
+            carried_env: Vec::new(),
+        };
+        launch.apply(&mut spec);
+        assert_eq!(spec.term.as_deref(), Some("xterm-256color"));
+        assert_eq!(spec.terminal_reap_grace, Some(Duration::from_secs(30)));
+        assert!(spec.initial_host_colors.is_some_and(|colors| colors.bg.is_some()));
+        assert_eq!(spec.carried_env, [("CMUX_APPS_DIRS".to_string(), "/apps".to_string())]);
     }
 
     #[test]

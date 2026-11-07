@@ -38,8 +38,17 @@ pub(crate) struct SkewMessages {
     /// (cli/older_daemon.rs): `{daemon}` its release, `{build}` its commit,
     /// `{own}` this release, `{operation}`, `{fix}` the restart command.
     pub older_daemon: &'static str,
-    /// The same when the daemon did not say its build: `{own}`, `{operation}`, `{fix}`.
-    pub older_daemon_unknown: &'static str,
+    /// A daemon of a newer build refused an operation: this CLI is the stale
+    /// one. `{daemon}`, `{build}`, `{own}`, `{own_build}`, `{operation}`,
+    /// `{fix}` this command run with the daemon's own CLI.
+    pub newer_daemon: &'static str,
+    /// The same when the daemon does not name its CLI (no `{fix}`).
+    pub newer_daemon_no_cli: &'static str,
+    /// A daemon of another build, order unknown: `{daemon}`, `{build}`,
+    /// `{own}`, `{own_build}`, `{operation}`.
+    pub other_build_daemon: &'static str,
+    /// The same when the daemon did not say its build: `{own}`, `{own_build}`, `{operation}`.
+    pub unknown_daemon: &'static str,
     /// `{build}` of a daemon that has no build stamp.
     pub unknown_build: &'static str,
 }
@@ -64,7 +73,10 @@ pub(super) const ENGLISH: SkewMessages = SkewMessages {
     remote_build: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; fix: {fix}",
     remote_build_no_ssh: "cmux: this socket reaches a daemon on another machine that runs build {daemon} (this CLI is build {own}); a remote daemon's CLI is never run from here; install build {own} of cmux-tui on that machine",
     older_daemon: "daemon {daemon} ({build}) is older than this cmux {own} and does not know {operation}; run `{fix}` to upgrade it, terminals are kept",
-    older_daemon_unknown: "the daemon is older than this cmux {own} and does not know {operation}; run `{fix}` to upgrade it, terminals are kept",
+    newer_daemon: "daemon {daemon} ({build}) is newer than this cmux {own} ({own_build}) and refused {operation}; run it with the daemon's own cmux: `{fix}`",
+    newer_daemon_no_cli: "daemon {daemon} ({build}) is newer than this cmux {own} ({own_build}) and refused {operation}; run it with the cmux of the daemon's build",
+    other_build_daemon: "daemon {daemon} ({build}) is another build than this cmux {own} ({own_build}) and refused {operation}; use the cmux of the daemon's build",
+    unknown_daemon: "the daemon refused {operation} and did not say its build; it may be another build than this cmux {own} ({own_build}); `cmux daemon status` shows its build",
     unknown_build: "unknown build",
 };
 
@@ -88,6 +100,9 @@ pub(super) const JAPANESE: SkewMessages = SkewMessages {
     remote_build: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。修正: {fix}",
     remote_build_no_ssh: "cmux: このソケットの先は別のマシンのデーモンで、ビルド {daemon} で動いています (この CLI はビルド {own})。リモートのデーモンの CLI はここからは実行しません。そのマシンに cmux-tui のビルド {own} をインストールしてください",
     older_daemon: "デーモン {daemon} ({build}) はこの cmux {own} より古く、{operation} を知りません。`{fix}` を実行してアップグレードしてください。ターミナルは保持されます",
-    older_daemon_unknown: "デーモンはこの cmux {own} より古く、{operation} を知りません。`{fix}` を実行してアップグレードしてください。ターミナルは保持されます",
+    newer_daemon: "デーモン {daemon} ({build}) はこの cmux {own} ({own_build}) より新しく、{operation} を拒否しました。デーモン自身の cmux で実行してください: `{fix}`",
+    newer_daemon_no_cli: "デーモン {daemon} ({build}) はこの cmux {own} ({own_build}) より新しく、{operation} を拒否しました。デーモンと同じビルドの cmux で実行してください",
+    other_build_daemon: "デーモン {daemon} ({build}) はこの cmux {own} ({own_build}) と別のビルドで、{operation} を拒否しました。デーモンと同じビルドの cmux を使ってください",
+    unknown_daemon: "デーモンは {operation} を拒否し、ビルドを報告しませんでした。この cmux {own} ({own_build}) と別のビルドの可能性があります。`cmux daemon status` でビルドを確認できます",
     unknown_build: "不明なビルド",
 };
