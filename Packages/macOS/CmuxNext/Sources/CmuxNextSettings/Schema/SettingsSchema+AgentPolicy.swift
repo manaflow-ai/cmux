@@ -42,10 +42,15 @@ extension SettingsSchema {
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
         .union(BrowserAppSettingsSchema.descriptors.map(\.id))
         // The edited-files card (looks only).
-        .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
+        .union(AgentPaneEditedFilesSettingsSchema.descriptors.map(\.id))
 .union(["agentPane.zoom"]) // display-only agent surface zoom
-        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
-        .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
+        // The composer's visual choices (looks only); send behavior remains a user-only choice.
+        .union([AgentPaneComposerSetting.showContextUsagePath, AgentPaneComposerSetting.composerRingPath,
+                AgentPaneComposerSetting.showDictationPath, AgentPaneComposerSetting.spellCheckingPath,
+                AgentPaneComposerSetting.attachmentViewPath, AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
+        // The Chief chat's bubble style, its colors and whether it shows the Feed (looks only).
+        .union([HomeChiefBubbleStyleSetting.key, HomeFeedRowsSetting.key]
+            + HomeBubbleColorsSetting.roles.map { (HomeBubbleColorsSetting.configPath + [$0]).joined(separator: ".") })
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -271,11 +276,11 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
-        .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        .merging(ChiefRoutingSettingsSchema.descriptors.map(\.id).map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         // How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).
-        .merging(ChiefPermissionSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        .merging(ChiefPermissionSettingsSchema.descriptors.map(\.id).map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
-        .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        .merging(ChiefSidebarSettingsSchema.descriptors.map(\.id).map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 

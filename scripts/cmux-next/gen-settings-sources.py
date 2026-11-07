@@ -52,7 +52,8 @@ name, a syntax example). A row:
                  enum (cases from the values in camel case, or each choice's swift_case; doc from
                  note) into <file>Choices*.generated.swift, at most 3 per file. generated false: a
                  hand-written enum (it has logic, more cases, or lives in another module); the
-                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it;
+                 descriptor names its cases (`Enum.case.rawValue`) and the default is typed by it
+                 (its name may be nested: `Owner.Enum`);
                  module names the module that declares it when that is not CmuxNextSettings (the
                  generated files `public import` it).
                  Absent: plain string values, plus a `values` constant.
@@ -299,6 +300,73 @@ SECTIONS = [
                   "editorDefaults": ("defaultsRows", "EditorSettingsSchema")},
         "joined": "descriptors",
     },
+    {
+        "source": "schemas/settings/source/agent-pane.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPane.generated.swift",
+        "type": "AgentPaneSettingsSchema",
+        "lists": {"agentPane": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-edited-files.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneEditedFiles.generated.swift",
+        "type": "AgentPaneEditedFilesSettingsSchema",
+        "lists": {"editedFiles": ("descriptors", "AgentPaneEditedFilesSetting")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-composer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneComposer.generated.swift",
+        "type": "AgentPaneComposerSettingsSchema",
+        "lists": {"composer": ("descriptors", "AgentPaneComposerSetting")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-zoom.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneZoom.generated.swift",
+        "type": "AgentPaneZoomSettingsSchema",
+        "lists": {"zoom": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/agent-defaults.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentDefaults.generated.swift",
+        "type": "AgentDefaultsSettingsSchema",
+        "lists": {"agentDefaults": ("descriptors", "AgentDefaultsSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/hang-reports.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+HangReports.generated.swift",
+        "type": "HangReportsSettingsSchema",
+        "lists": {"hangReports": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/home.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Home.generated.swift",
+        "type": "HomeSettingsSchema",
+        "lists": {"messagesServer": ("serverRows", None), "chiefChat": ("chiefChatRows", None), "attachments": ("attachmentRows", None), "sidebar": ("sidebarRows", None), "chiefPet": ("chiefPetRows", None), "chiefDock": ("chiefDockRows", None), "chiefEngine": ("engineRows", None)},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/chief-reactions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefReactions.generated.swift",
+        "type": "ChiefReactionSettingsSchema",
+        "lists": {"chiefReactions": ("descriptors", "ChiefReactionSettings")},
+    },
+    {
+        "source": "schemas/settings/source/chief-permission.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefPermission.generated.swift",
+        "type": "ChiefPermissionSettingsSchema",
+        "lists": {"chiefPermission": ("descriptors", "ChiefPermissionSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/chief-routing.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefRouting.generated.swift",
+        "type": "ChiefRoutingSettingsSchema",
+        "lists": {"chiefRouting": ("descriptors", "ChiefRoutingSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/chief-sidebar.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ChiefSidebar.generated.swift",
+        "type": "ChiefSidebarSettingsSchema",
+        "lists": {"chiefSidebar": ("descriptors", "ChiefSidebarSettingsSchema")},
+    },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
@@ -307,6 +375,8 @@ ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choice
               "palette_shown", "swift_enum", "swift_owner"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
 TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*$")
+# A hand-written enum may be nested in another type (`AgentPaneReplySetting.OutsideRoots`).
+NESTED_TYPE = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*(\.[A-Z][A-Za-z0-9]*)*$")
 # Each source kind and its SettingKind case (None: the case takes arguments, built in kind_swift).
 KINDS = {"toggle": ".toggle", "number": None, "choice": None, "choice_or_number": None, "choice_or_url": None,
          "color": ".color", "sound": ".sound", "url": ".url", "host_list": ".hostList", "folder_list": ".folderList",
@@ -539,7 +609,8 @@ def check_row(src, row, seen_keys, idents):
     enum = row.get("swift_enum")
     if enum is not None:
         if kind not in CHOICE_KINDS or not isinstance(enum, dict) or set(enum) - {"name", "generated", "module"} \
-                or not TYPE.match(enum.get("name", "")) or not isinstance(enum.get("generated", True), bool) \
+                or not isinstance(enum.get("generated", True), bool) \
+                or not (TYPE if enum.get("generated", True) else NESTED_TYPE).match(enum.get("name", "")) \
                 or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
             fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
