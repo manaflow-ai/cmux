@@ -3771,6 +3771,96 @@ mod tests {
         );
     }
 
+    /// A daemon whose relay ticket command fails in `script` way: it starts,
+    /// serves a local admin request while the relay retries, and stops.
+    #[cfg(unix)]
+    fn assert_daemon_serves_while_relay_ticket_fails(script: &str, timeout: Duration) {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let attempts = directory.path().join("attempts");
+        let command = directory.path().join("ticket");
+        write_executable(
+            &command,
+            format!("#!/bin/sh\necho attempt >> '{}'\n{script}\n", attempts.display()),
+        );
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "relay-ticket-fails".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
+                workspace_http: None,
+                relays: vec![RelayDaemonOptions {
+                    endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
+                    slot: "relay-ticket-fails".into(),
+                    credentials: RelayCredentialSource::command_with_timeout(
+                        &command,
+                        Vec::<String>::new(),
+                        timeout,
+                    ),
+                }],
+                carrier_grant_config: None,
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+                local_sockets: Vec::new(),
+            },
+        )
+        .expect("a failing relay ticket command stopped the daemon from starting");
+        let info = runtime.info().clone();
+        let requests = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let status = requests.block_on(cmux_remote::admin::call_admin(
+            &info.admin_socket,
+            &cmux_remote::admin::AdminRequest::Status,
+        ));
+        assert!(status.is_ok(), "the daemon did not serve a local request: {status:?}");
+
+        // The credential backoff starts at 1 s and doubles: a second attempt
+        // comes within about 3 s.
+        let deadline =
+            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(15));
+        let count = || fs::read_to_string(&attempts).map(|text| text.lines().count()).unwrap_or(0);
+        while count() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the relay registration did not retry the ticket command ({} attempts)",
+                count()
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!runtime.is_finished(), "the daemon stopped while the relay ticket failed");
+        let status = requests.block_on(cmux_remote::admin::call_admin(
+            &info.admin_socket,
+            &cmux_remote::admin::AdminRequest::Status,
+        ));
+        assert!(status.is_ok(), "the daemon stopped serving local requests: {status:?}");
+
+        runtime.shutdown().unwrap();
+        assert!(!info.admin_socket.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_serves_locally_and_retries_when_relay_ticket_command_exits_1() {
+        assert_daemon_serves_while_relay_ticket_fails(
+            "echo 'carrier ticket: agent answered 503' >&2\nexit 1",
+            Duration::from_secs(10),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_serves_locally_and_retries_when_relay_ticket_command_hangs() {
+        assert_daemon_serves_while_relay_ticket_fails(
+            "echo 'waiting on the agent' >&2\nexec sleep 30",
+            Duration::from_millis(200),
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn daemon_startup_refuses_failed_authorization_finalization() {
