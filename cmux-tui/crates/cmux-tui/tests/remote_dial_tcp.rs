@@ -49,7 +49,8 @@ async fn start_daemon(state: &Path) -> Daemon {
 
 /// A daemon that accepts the session and then never answers it, so the
 /// client's workspace and route setup waits forever.
-async fn start_silent_daemon(state: &Path) -> Daemon {
+/// The daemon and a receiver that fires once it has accepted the session.
+async fn start_silent_daemon(state: &Path) -> (Daemon, tokio::sync::oneshot::Receiver<()>) {
     let auth = AuthDatabase::load_or_create(state.join("daemon"), "dial-tcp", true).unwrap();
     let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
     let websocket = serve_direct_websocket_with_options(
@@ -61,11 +62,13 @@ async fn start_silent_daemon(state: &Path) -> Daemon {
     .await
     .unwrap();
     let endpoint = format!("ws://{}/v1/link", websocket.local_addr());
+    let (session_tx, session_rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn_local(async move {
         let _connection = accepted.recv().await;
+        let _ = session_tx.send(());
         std::future::pending::<()>().await;
     });
-    Daemon { endpoint, websocket }
+    (Daemon { endpoint, websocket }, session_rx)
 }
 
 fn dial_tcp(fixture: &Path, endpoint: &str, host: &str, port: u16) -> Command {
@@ -200,11 +203,16 @@ async fn dial_tcp_exits_on_sigterm_during_setup() {
         .run_until(async {
             tokio::time::timeout(Duration::from_secs(60), async {
                 let fixture = tempdir().unwrap();
-                let daemon = start_silent_daemon(fixture.path()).await;
-                let child =
+                let (daemon, session) = start_silent_daemon(fixture.path()).await;
+                let mut child =
                     dial_tcp(fixture.path(), &daemon.endpoint, "127.0.0.1", 22).spawn().unwrap();
-                // Long enough to be past connect and waiting on setup.
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                // SIGTERM only once the daemon holds the session: the client is
+                // past connect and waiting on setup, not failing early.
+                tokio::time::timeout(STEP_TIMEOUT, session)
+                    .await
+                    .expect("dial-tcp never reached the daemon")
+                    .unwrap();
+                assert!(child.try_wait().unwrap().is_none(), "dial-tcp exited before setup");
                 let pid = child.id().expect("dial-tcp exited before setup").to_string();
                 let killed = Command::new("kill").args(["-TERM", &pid]).status().await.unwrap();
                 assert!(killed.success());
@@ -231,14 +239,29 @@ async fn dial_tcp_exits_on_sigterm_during_a_stalled_handshake() {
         let fixture = tempdir().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("ws://{}/v1/link", listener.local_addr().unwrap());
+        // The listener reports the first handshake bytes it reads, so SIGTERM
+        // comes only once the client is inside its dial, never after an early
+        // startup failure that would also exit nonzero.
+        let (handshake_tx, handshake_rx) = tokio::sync::oneshot::channel();
         let held = tokio::spawn(async move {
+            let mut handshake_tx = Some(handshake_tx);
             let mut streams = Vec::new();
-            while let Ok((stream, _)) = listener.accept().await {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut first = [0_u8; 1];
+                if stream.read_exact(&mut first).await.is_ok()
+                    && let Some(tx) = handshake_tx.take()
+                {
+                    let _ = tx.send(());
+                }
                 streams.push(stream);
             }
         });
-        let child = dial_tcp(fixture.path(), &endpoint, "127.0.0.1", 22).spawn().unwrap();
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut child = dial_tcp(fixture.path(), &endpoint, "127.0.0.1", 22).spawn().unwrap();
+        tokio::time::timeout(STEP_TIMEOUT, handshake_rx)
+            .await
+            .expect("dial-tcp sent no handshake bytes")
+            .unwrap();
+        assert!(child.try_wait().unwrap().is_none(), "dial-tcp exited during its dial");
         let pid = child.id().expect("dial-tcp exited during its dial").to_string();
         let killed = Command::new("kill").args(["-TERM", &pid]).status().await.unwrap();
         assert!(killed.success());
