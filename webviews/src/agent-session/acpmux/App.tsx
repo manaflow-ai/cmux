@@ -485,6 +485,7 @@ import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
 import { avatarRows } from "./header/avatarRow";
+import { chatMini, miniRow, readChatMini, showInMini, useChatMini } from "./header/miniRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
@@ -8137,16 +8138,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
-  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  // The session's own avatar (its cards and sender chip draw it): Set Chat Avatar… draws it, and the
+  // menu offers Remove Chat Avatar with one.
   const avatarSrc = useAgentAvatar(snapshot.sessionId);
   const avatar = avatarRows(
-    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    { sessionId: snapshot.sessionId, avatar: avatarSrc },
     {
       set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
       remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
     },
     t,
   );
+  // What the host's mini shows (the Chief or one chat): the menu's Show in Mini row reads it.
+  useChatMini(quick ? undefined : snapshot.sessionId);
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8565,6 +8569,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       tools,
       [
         ...avatar,
+        ...(quick
+          ? []
+          : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         ...remove,
@@ -10802,7 +10809,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={readTabState}
+                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />
