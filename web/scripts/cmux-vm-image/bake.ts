@@ -361,7 +361,8 @@ export function snapshotReadyCommand(root = ""): string {
     "pgrep -f '[a]cpmux daemon run' >/dev/null",
     `for f in ${files}; do if [ -e "$f" ]; then echo "per-machine file in the snapshot: $f" >&2; exit 1; fi; done`,
     `state=${sq(root)}"$CMUX_TUI_HOME/.local/state"`,
-    'held="$(find "$state/cmux/remote" -name identity.json 2>/dev/null; ls "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper" 2>/dev/null)"',
+    // `|| true`: ls exits 2 for a missing file, which would end the && chain with no message.
+    'held="$({ find "$state/cmux/remote" -name identity.json; ls "$state/cmux-tui/sessions/machine-id" "$state/cmux-tui/sessions/resource-effect-pepper"; } 2>/dev/null || true)"',
     'if [ -n "$held" ]; then echo "per-machine identity in the snapshot: $held" >&2; exit 1; fi',
     "echo snapshot-ready",
   ].join(" && ");
