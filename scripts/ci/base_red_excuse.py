@@ -70,6 +70,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from datetime import datetime, timedelta
@@ -178,19 +179,22 @@ class GitHub(_evidence.GitHub):
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
                                        stdout=subprocess.PIPE, stderr=errors)
+            # A read blocks while gh sends nothing: the deadline kills gh, which ends the read (router-review F1
+            # of #37969: a stalled download held the whole run's deadline, not ARTIFACT_SECONDS).
+            deadline = threading.Timer(ARTIFACT_SECONDS, process.kill)
+            deadline.start()
             try:
-                kept, end = 0, time.monotonic() + ARTIFACT_SECONDS
+                kept = 0
                 while chunk := process.stdout.read(1 << 20):
                     kept += len(chunk)
                     if kept > ARTIFACT_MAX_BYTES:
                         raise Refused(f"artifact {artifact} is over {ARTIFACT_MAX_BYTES} bytes")
-                    if time.monotonic() > end:
-                        raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
                     output.write(chunk)
-                process.wait(timeout=max(1, end - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read") from None
+                process.wait()
+                if not deadline.is_alive():
+                    raise Refused(f"artifact {artifact} took over {ARTIFACT_SECONDS} seconds to read")
             finally:
+                deadline.cancel()
                 if process.poll() is None:
                     process.kill()
                     process.wait()

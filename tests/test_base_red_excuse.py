@@ -4890,6 +4890,18 @@ class GalleryBaseLoadCrash(unittest.TestCase):
                     with self.assertRaisesRegex(excuse.Refused, "artifact 7 is over"):
                         reader.artifact_file(REPO, 7, "health.json")
 
+    def test_an_artifact_download_that_stalls_ends_at_its_deadline(self):
+        with tempfile.TemporaryDirectory() as where:
+            gh = Path(where) / "gh"
+            gh.write_text("#!/bin/sh\nexec sleep 30\n")  # sends nothing, never exits
+            gh.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"PATH": f"{where}:{os.environ['PATH']}"}), \
+                    unittest.mock.patch.object(excuse, "ARTIFACT_SECONDS", 0.2):
+                started = excuse.time.monotonic()
+                with self.assertRaisesRegex(excuse.Refused, "took over 0.2 seconds"):
+                    excuse.GitHub().artifact_file(REPO, 7, "health.json")
+                self.assertLess(excuse.time.monotonic() - started, 5)
+
 
 if __name__ == "__main__":
     unittest.main()
