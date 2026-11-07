@@ -38,6 +38,13 @@ struct SpringFrameNoWindowPassTests {
         /// Diagnosis: the layout in a container placed by frame (autoresizing mask) that a constraint of an Auto Layout
         /// sibling refers to (the label's leading edge pinned to the container's).
         case constraintReferencedContainer
+        /// Diagnosis (control): a plain content view with the layout by autoresizing mask, no constraint in the window.
+        case titledPlain
+        /// Diagnosis: a sibling of the layout (placed by frame) holds a label pinned inside it: the constraints live in
+        /// the sibling's subtree only, as the sidebar's do.
+        case constraintInSiblingSubtree
+        /// Diagnosis: as `constraintSibling`, with the layout not translating its mask and no constraint of its own.
+        case constraintSiblingLayoutNoMask
 
         var description: String { rawValue }
 
@@ -91,6 +98,36 @@ struct SpringFrameNoWindowPassTests {
                 label.translatesAutoresizingMaskIntoConstraints = false
                 content.addSubview(label)
                 NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                                             label.topAnchor.constraint(equalTo: content.topAnchor)])
+            case .titledPlain:
+                let content = NSView(frame: rect)
+                window.contentView = content
+                layout.frame = content.bounds
+                layout.autoresizingMask = [.width, .height]
+                content.addSubview(layout)
+            case .constraintInSiblingSubtree:
+                let content = NSView(frame: rect)
+                window.contentView = content
+                layout.frame = content.bounds
+                layout.autoresizingMask = [.width, .height]
+                content.addSubview(layout)
+                let side = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+                content.addSubview(side)
+                let label = NSTextField(labelWithString: "x")
+                label.translatesAutoresizingMaskIntoConstraints = false
+                side.addSubview(label)
+                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: side.leadingAnchor),
+                                             label.topAnchor.constraint(equalTo: side.topAnchor)])
+            case .constraintSiblingLayoutNoMask:
+                let content = NSView(frame: rect)
+                window.contentView = content
+                layout.translatesAutoresizingMaskIntoConstraints = false
+                layout.frame = content.bounds
+                content.addSubview(layout)
+                let label = NSTextField(labelWithString: "x")
+                label.translatesAutoresizingMaskIntoConstraints = false
+                content.addSubview(label)
+                NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: content.leadingAnchor),
                                              label.topAnchor.constraint(equalTo: content.topAnchor)])
             }
             return window
