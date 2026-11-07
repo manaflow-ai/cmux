@@ -250,9 +250,10 @@ pub unsafe extern "C" fn cmux_sdk_subscribe(
 }
 
 /// The stream's next event within `timeout_ms` (0 waits without a bound):
-/// `{"item": {"sequence", "cursor", "value"}}`, `{"end": {"reason", ...}}`
-/// once it ended, `{"timed_out": true}` with the stream still open, or an
-/// error envelope.
+/// `{"item": {"sequence", "cursor", "value"}}`; `{"end": {"reason",
+/// "cursor", "recovery", "error"}}` once it ended (a gap or error end
+/// included, its cursor and error kept); `{"timed_out": true}` with the
+/// stream still open; or an error envelope.
 ///
 /// # Safety
 /// `stream` is a live stream handle; `out` is valid for writes.
@@ -275,11 +276,14 @@ pub unsafe extern "C" fn cmux_sdk_next(
         let reply = match polled {
             Ok(StreamPoll::Item(item)) => json!({"item": {
                 "sequence": item.sequence,
-                "cursor": item.cursor.map(|c| json!({"generation": c.generation, "revision": c.revision.to_string()})),
+                "cursor": item.cursor.as_ref().map(cursor_json),
                 "value": item.value,
             }}),
             Ok(StreamPoll::End) => json!({"end": end_json(&stream)}),
             Ok(StreamPoll::TimedOut) => json!({"timed_out": true}),
+            // A gap or error end comes back as an error; it is still the
+            // stream's end, with its cursor, recovery and error.
+            Err(_) if stream.end().is_some() => json!({"end": end_json(&stream)}),
             Err(error) => failure(&error),
         };
         *out = bytes(&reply);
@@ -384,6 +388,23 @@ fn failure(error: &Error) -> Value {
             fields.insert("retryable".into(), json!(retryable));
             code.clone()
         }
+        Error::ConfirmationRequired { details, .. } => {
+            let panes: Vec<&str> = details.closes_panes.iter().map(|pane| pane.as_str()).collect();
+            fields.insert(
+                "details".into(),
+                json!({"confirmation_token": details.confirmation_token,
+                       "revision": details.revision.to_string(), "closes_panes": panes}),
+            );
+            "confirmation.required".into()
+        }
+        Error::StreamEnded { reason, recovery, error } => {
+            let cause = error.as_deref().map(|cause| failure(cause)["error"].clone());
+            fields.insert(
+                "details".into(),
+                json!({"reason": reason, "recovery": recovery, "error": cause}),
+            );
+            "stream.ended".into()
+        }
         Error::MutationTransport { idempotency_key, .. } => {
             fields.insert("idempotency_key".into(), json!(idempotency_key));
             "mutation.transport".into()
@@ -409,7 +430,18 @@ fn end_json(stream: &ResourceStream) -> Value {
         StreamEndReason::Gap => "gap",
         StreamEndReason::Error => "error",
     };
-    json!({"reason": reason, "recovery": end.recovery})
+    let cursor = end.cursor.as_ref().map(cursor_json);
+    let error = end.error.as_ref().map(|error| {
+        json!({"code": error.code, "message": error.message,
+               "details": error.details.deserialize::<Value>().unwrap_or(Value::Null),
+               "retryable": error.retryable})
+    });
+    json!({"reason": reason, "cursor": cursor, "recovery": end.recovery, "error": error})
+}
+
+/// A cursor as the wire has it: the revision is a decimal string.
+fn cursor_json(cursor: &cmux::Cursor) -> Value {
+    json!({"generation": cursor.generation, "revision": cursor.revision.to_string()})
 }
 
 fn guard(body: impl FnOnce() -> i32) -> i32 {

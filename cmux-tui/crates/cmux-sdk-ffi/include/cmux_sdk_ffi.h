@@ -130,9 +130,10 @@ int32_t cmux_sdk_subscribe(const CmuxSdkClient *client,
 
 /*
  The stream's next event within `timeout_ms` (0 waits without a bound):
- `{"item": {"sequence", "cursor", "value"}}`, `{"end": {"reason", ...}}`
- once it ended, `{"timed_out": true}` with the stream still open, or an
- error envelope.
+ `{"item": {"sequence", "cursor", "value"}}`; `{"end": {"reason",
+ "cursor", "recovery", "error"}}` once it ended (a gap or error end
+ included, its cursor and error kept); `{"timed_out": true}` with the
+ stream still open; or an error envelope.
 
  # Safety
  `stream` is a live stream handle; `out` is valid for writes.
