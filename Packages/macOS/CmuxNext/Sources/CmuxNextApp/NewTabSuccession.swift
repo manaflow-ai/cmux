@@ -76,18 +76,16 @@ struct NewTabSuccession {
         expire(after: Self.orderLimit)
     }
 
-    /// Where `open`'s new tab goes among `others` (the pane's tabs but it): after the anchor the strip shows it after; while that is an earlier
-    /// open's tab not yet moved into its slot, after that open's anchor, so both land in order. Nil once the open ended or its anchor left.
-    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? {
-        guard let opens = active[ObjectIdentifier(pane)]?.map({ $0.resolving(pane) }), let mine = opens.first(where: { $0.expiry === open }) else { return nil }
-        guard var id = mine.before else { return others.prefix { $0.pinned }.count }
-        for _ in opens.indices {
-            guard let tab = others.first(where: { $0.id == id.rawValue }) else { return nil }
-            guard let earlier = opens.first(where: { $0.claimed == id }), let before = earlier.before, let anchor = others.first(where: { $0.id == before.rawValue }),
-                  others.filter { $0 !== tab }.newTabSlot(after: anchor) != others.firstIndex(where: { $0 === tab }) else { return others.newTabSlot(after: tab) }
-            id = before
-        }
-        return others.first { $0.id == id.rawValue }.flatMap { others.newTabSlot(after: $0) }
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once the open ended.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)]?.first { $0.expiry === open }.map { open in open.before.map { open.resolved($0, in: pane) }.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { others.newTabSlot(after: $0) } ?? others.prefix { $0.pinned }.count } }
+
+    /// Whether `open`'s tab goes after an earlier open's tab that the daemon has not moved into its slot yet: its move waits for that one, so
+    /// the two land in order (computed against the end, the second went after the first where it still was and stayed before it).
+    static func waits(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Bool {
+        guard let opens = active[ObjectIdentifier(pane)]?.map({ $0.resolving(pane) }), let id = opens.first(where: { $0.expiry === open })?.before,
+              let tab = others.first(where: { $0.id == id.rawValue }), let earlier = opens.first(where: { $0.claimed == id && $0.page == nil }),
+              let anchor = earlier.before.flatMap({ before in others.first { $0.id == before.rawValue } }) else { return false }
+        return others.filter { $0 !== tab }.newTabSlot(after: anchor) != others.firstIndex { $0 === tab }
     }
 
     /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.

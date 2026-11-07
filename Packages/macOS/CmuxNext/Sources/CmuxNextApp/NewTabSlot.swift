@@ -123,23 +123,25 @@ enum NewTabSlot {
         services.locateTab(model: tab)?.1
     }
 
-    /// Moves the tab `find` returns from `pane` to the final index `index`
-    /// gives (from the pane's other tabs) once the pane lists it.
+    /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane lists it and
+    /// `index` has one (nil: an earlier new tab it goes after is not in its slot yet, or its anchor left).
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices,
                               find: @escaping @MainActor (PaneModel) -> TabModel?, index: @escaping @MainActor ([TabModel]) -> Int?) {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
+        let ready = { @MainActor () -> Bool in locate().map { tab, pane in index(pane.tabs.filter { $0 !== tab }) != nil } ?? false }
         services.registry.track(Task { @MainActor in
-            let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil }) where found { return true }
-                return false
+            // Listed (up to `listLimit`), then in order after an earlier new tab (up to that open's own limit, when it ends).
+            for listing in [true, false] {
+                let met = Task { @MainActor () -> Bool in
+                    for await found in ObservationStream({ listing ? locate() != nil : ready() }) where found { return true }
+                    return false
+                }
+                let bound = DemandTimer(owner: "NewTabSlot.listed")
+                bound.schedule(after: listing ? listLimit : NewTabSuccession.orderLimit) { @MainActor in met.cancel() }
+                _ = await met.value
+                bound.cancel()
             }
-            let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.schedule(after: listLimit) { @MainActor in
-                listed.cancel()
-            }
-            let found = await listed.value
-            bound.cancel()
-            guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
+            guard let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
             TabMoves.move(tab, to: pane, index: final, services: services)
             return nil
@@ -149,9 +151,9 @@ enum NewTabSlot {
     /// The final index for `target` among `others` (the pane's tabs but the new one), nil when its anchor left. The start is right after the pinned tabs.
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
-        // The open's live anchor first (re-anchored, chained, the strip's), then the one it began with or the daemon's tab that stand-in became.
-        case .after(let anchor): pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) } ?? others.newTabSlot(after: anchor)
-            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { others.newTabSlot(after: $0) } }
+        // Nil (wait) while it goes after an earlier open's tab not in its slot yet; then its anchor, the daemon's tab that stand-in became, or the re-anchor.
+        case .after(let anchor): pane.map { NewTabSuccession.waits(in: $0, by: open, among: others) } == true ? nil : others.newTabSlot(after: anchor)
+            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { others.newTabSlot(after: $0) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
         case .start: others.prefix { $0.pinned }.count
         }
     }
