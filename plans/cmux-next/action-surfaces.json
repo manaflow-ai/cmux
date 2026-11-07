@@ -28299,37 +28299,6 @@
       "args" : [
 
       ],
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-show-in-mini",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "agentPane.showInMini",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Show in Mini",
-      "title_key" : "action.agentPane.showInMini",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
       "cli" : "offered",
       "cli_name" : "agent archive-chat",
       "context_menu" : "offered",
@@ -42775,6 +42744,44 @@
       "palette_suggested" : null,
       "title" : "Chief: Look at Screen Now",
       "title_key" : "action.chief.screenShare.look",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action capture-open",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "5",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "capture.open",
+      "main_menu" : "view",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Capture…",
+      "title_key" : "action.capture.open",
       "title_table" : "ActionCatalog"
     },
     {
@@ -59166,6 +59173,10 @@
     {
       "name" : "historyRow",
       "source" : "CmuxNextHistory\/HistoryPageRow.swift"
+    },
+    {
+      "name" : "taskAssignee",
+      "source" : "CmuxNextTasks\/Views\/AssigneeMenu.swift"
     }
   ],
   "version" : 1
