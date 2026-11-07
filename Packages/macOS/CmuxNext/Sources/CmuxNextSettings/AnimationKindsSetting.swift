@@ -11,18 +11,23 @@ public nonisolated struct AnimationKindsSetting: Sendable, Equatable {
     /// Kinds whose `ui.animations.<kind>` is true.
     public var enabled: Set<MotionKind> = AnimationKindsSetting.defaultEnabled
     /// `ui.animations.bounce`.
-    public var bounce: MotionBounce = AnimationKindsSetting.bounceFallback
+    public var bounce: MotionBounce = AnimationKindsSetting.bounceDefault
 
-    /// The kinds on when cmux.json does not name them: new tabs and new workspaces.
-    public static let defaultEnabled: Set<MotionKind> = [.newTab, .newWorkspace]
+    /// The kinds on when cmux.json does not name them (new tabs and new workspaces): each kind's
+    /// default, generated from schemas/settings/source/appearance.json with the paths.
+    public static let defaultEnabled = Set(MotionKind.allCases.filter(isOnByDefault))
 
-    public init(enabled: Set<MotionKind> = AnimationKindsSetting.defaultEnabled, bounce: MotionBounce = AnimationKindsSetting.bounceFallback) {
+    private static func isOnByDefault(_ kind: MotionKind) -> Bool {
+        switch kind {
+        case .newTab: newTabDefault
+        case .newWorkspace: newWorkspaceDefault
+        }
+    }
+
+    public init(enabled: Set<MotionKind> = AnimationKindsSetting.defaultEnabled, bounce: MotionBounce = AnimationKindsSetting.bounceDefault) {
         self.enabled = enabled
         self.bounce = bounce
     }
-
-    public static let bouncePath = ["ui", "animations", "bounce"]
-    public static let bounceFallback: MotionBounce = .none
 
     /// `ui.animations.<kind>`.
     public static func path(_ kind: MotionKind) -> [String] { ["ui", "animations", kind.rawValue] }
@@ -40,7 +45,7 @@ public nonisolated struct AnimationKindsSetting: Sendable, Equatable {
             }
             if on { enabled.insert(kind) } else { enabled.remove(kind) }
         }
-        var bounce = bounceFallback
+        var bounce = bounceDefault
         if let value = root.value(at: bouncePath) {
             if let text = value.stringValue, let parsed = MotionBounce(rawValue: text) {
                 bounce = parsed

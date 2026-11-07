@@ -14,7 +14,7 @@ import { ChevronRight } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { AgentCard } from "./AgentCard";
-import { elapsed, running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, useNow } from "./SubagentGroup";
+import { elapsed, running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, useNow } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { SubsessionContext, useSenderChat, type SubsessionState } from "./subsessions";
 

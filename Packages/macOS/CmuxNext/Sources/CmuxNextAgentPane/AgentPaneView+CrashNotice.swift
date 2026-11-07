@@ -20,6 +20,7 @@ extension AgentPaneView {
     /// reload policy kept by the page host.
     func pageCrashed(reloading: Bool) {
         model.sessionInfo.pageLoaded()
+        model.hostGlass.pageLoaded()
         guard !reloading else {
             dictation.handle(.cancel)
             return
@@ -30,6 +31,7 @@ extension AgentPaneView {
     private func contentEnded(_ termination: PageTermination) {
         model.sessionInfo.pageLoaded()
         model.setToastAvoidance(nil)
+        model.hostGlass.pageLoaded()
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
         let retries = crashRetry.ended(self)

@@ -17,6 +17,21 @@ const SERVICE: &str = "com.cmuxterm.app.next.carrier-noise-key";
 #[cfg(target_os = "macos")]
 const ACCOUNT: &str = "device";
 
+/// The device's lasting carrier identity, for `cmux carrier key --public`:
+/// on a Mac the Keychain item dial and serve use, made the same way when it
+/// does not exist yet. Elsewhere there is none (each dial makes its own), so
+/// no key printed there could match a later dial's.
+pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
+    #[cfg(target_os = "macos")]
+    {
+        device_identity()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("this platform keeps no device key: each dial makes its own".into())
+    }
+}
+
 /// The device's carrier identity.
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]

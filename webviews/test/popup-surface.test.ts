@@ -7,8 +7,8 @@
 // only under Reduce Transparency is it that solid popup surface again, unblurred. Floating surfaces
 // that are not popups keep the solid surface. The two
 // web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
-// 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
-// frosted glass instead (tooltip-surface.test.ts).
+// 5 px radius, 2×8 padding (compact since #35205), a separator hairline and the caption font;
+// since 2026-10-14 they are frosted glass instead (tooltip-surface.test.ts).
 //
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
@@ -327,7 +327,7 @@ ${tooltips}`,
               id,
               ink: TEXT,
               radius: "5px",
-              padding: "4px 8px",
+              padding: "2px 8px",
               border: `1px solid ${SEPARATOR}`,
               font: "11px/14px",
               shadow: true,

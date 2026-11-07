@@ -169,6 +169,25 @@ import Testing
         #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
     }
 
+    /// Leo, 2026-11-07: "If someone's, like, successfully imported it" it should not ask again. After
+    /// cookies came over, Show Import Cookies Banner changes nothing: the setting stays and no card shows.
+    @Test func theShowActionAsksNothingAfterAnImport() async throws {
+        let h = try await make()
+        // The app's service saves the import record in the standard defaults: put it back for the next tests.
+        let key = BrowserImportOfferState.defaultsKey
+        let saved = UserDefaults.standard.data(forKey: key)
+        defer {
+            h.tearDown()
+            if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
+        h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
+        #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try h.storedBannerValue() == false, "the action turned the banner back on after cookies came over")
+        #expect(!h.services.onboarding.browserImportOffer.shownThisLaunch)
+    }
+
     /// Only cookies coming over ends the banner: a bookmarks-only import keeps offering it.
     @Test func onlyACookieImportEndsTheBanner() {
         var state = BrowserImportOfferState()
@@ -176,6 +195,26 @@ import Testing
         #expect(state.offers(Self.personalPage), "bookmarks and history alone keep the cookie banner")
         state.recordImport(ImportCounts(cookies: 3))
         #expect(!state.offers(Self.personalPage), "cookies came over: the banner is done")
+    }
+
+    /// Leo, 2026-11-07: "why does it keep asking? ... If someone's, like, successfully imported it".
+    /// Cookies that came over through Import Cookies from Browser (`cmux browser import-cookies`, the
+    /// palette, an agent's run the person allowed) end the banner too, across launches, and close a
+    /// card on screen; a run that wrote nothing keeps it.
+    @Test func cookiesImportedByTheImportCookiesCommandEndTheBannerForGood() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let defaults = Self.freshDefaults()
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        offer.importFinished(ImportCounts(cookies: 0))
+        #expect(offer.state.offers(Self.personalPage), "a run that wrote no cookie keeps the banner")
+        #expect(page.chrome.currentCookieImportCard != nil)
+        offer.importFinished(ImportCounts(cookies: 42))
+        #expect(!offer.state.offers(Self.personalPage), "cookies came over: the banner is done")
+        #expect(page.chrome.currentCookieImportCard == nil, "and the card on screen goes")
+        let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!nextLaunch.state.offers(Self.personalPage), "never again, also after a relaunch")
     }
 
     /// The old offer (bookmarks, history and passwords) was a different card: its answer does not

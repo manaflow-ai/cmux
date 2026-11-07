@@ -16,7 +16,12 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { adoptionPlan, keepAdoptedTail, sessionAdoption } from "../src/agent-session/acpmux/newtab/adoption";
+import {
+  adoptionPlan,
+  carriedAnchor,
+  keepAdoptedTail,
+  sessionAdoption,
+} from "../src/agent-session/acpmux/newtab/adoption";
 import { keptTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
@@ -175,6 +180,32 @@ test("a subagent's pane reveals the subagent first and reads no reading place of
   // A chat opened in a tab (any other adoption) reads where its reader left it, then shows its turn.
   expect(adoptionPlan({ sessionId: "s-1" })).toEqual({ readsAnchor: true, revealsFirst: false });
   expect(adoptionPlan({ sessionId: "s-1", revealTurn: "turn-4" })).toEqual({ readsAnchor: true, revealsFirst: false });
+});
+
+test("an adopt event that carries the tab's place opens the chat there without asking the host", () => {
+  // A sidebar open awaited `chat.scrollAnchor.get` (a host round trip raced against 250 ms) before its
+  // switch; the host now puts the place in the event, as it puts the tail.
+  const place = { rowId: "user-42", offset: 120.5 };
+  const carried = sessionAdoption({ sessionId: "s-1", scrollAnchor: place })!;
+  expect(carried).toEqual({ sessionId: "s-1", scrollAnchor: place });
+  expect(adoptionPlan(carried)).toEqual({ readsAnchor: false, revealsFirst: false });
+  expect(carriedAnchor(carried)).toEqual({ sessionId: "s-1", ...place });
+  // None kept (null): opened at its latest message, still without asking.
+  const none = sessionAdoption({ sessionId: "s-1", scrollAnchor: null })!;
+  expect(none).toEqual({ sessionId: "s-1", scrollAnchor: null });
+  expect(adoptionPlan(none)).toEqual({ readsAnchor: false, revealsFirst: false });
+  expect(carriedAnchor(none)).toBeUndefined();
+  // Not said, or not a place: the page asks, as before.
+  for (const value of [undefined, "row", 4, {}, { rowId: "", offset: 1 }, { rowId: "r", offset: Number.NaN }]) {
+    const adoption = sessionAdoption({ sessionId: "s-1", scrollAnchor: value })!;
+    expect(adoption).toEqual({ sessionId: "s-1" });
+    expect(adoptionPlan(adoption).readsAnchor).toBe(true);
+  }
+  // A subagent's pane still reads no place, carried or not.
+  expect(adoptionPlan({ sessionId: "s-1", revealTurn: "subagent:a", scrollAnchor: place })).toEqual({
+    readsAnchor: false,
+    revealsFirst: true,
+  });
 });
 
 test("the adopted page draws the tail its adopt event carries in that event's own turn", async () => {
