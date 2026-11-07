@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // Leo 2026-10-21: a long prompt collapses as Claude's does. A 2,000-line prompt from the chat's
-// history draws its first ten lines (the last ones fading out under a mask) over Show more, so its
-// bubble is at most about ten lines tall; Show more opens it in place and Show less closes it.
+// history draws its first thirty lines (the last ones fading out under a mask) over Show more, so its
+// bubble is at most about thirty lines tall; Show more opens it in place and Show less closes it.
 // The row's estimated height is its drawn one, so nothing below it moves when it mounts. A short
 // prompt draws as before.
 //
@@ -134,7 +134,7 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("a 2,000-line prompt from history draws at most about ten lines tall, then opens and closes", async () => {
+  test("a 2,000-line prompt from history draws at most about thirty lines tall, then opens and closes", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     await page.goto(url());
     await page.getByText("Fix it", { exact: true }).waitFor();
@@ -163,10 +163,11 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
       });
     const closed = await measure();
     expect(closed.lineHeight).toBeGreaterThan(10);
-    // At most ~10 lines: ten, with no part of an eleventh.
-    expect(closed.height).toBeLessThanOrEqual(10 * closed.lineHeight + 1);
-    expect(closed.height).toBeGreaterThanOrEqual(9 * closed.lineHeight);
-    expect(closed.bubble).toBeLessThan(12 * closed.lineHeight + 40);
+    // At most ~30 lines (promptCollapse.ts COLLAPSED_PROMPT_LINES): thirty, with no part of a
+    // thirty-first.
+    expect(closed.height).toBeLessThanOrEqual(30 * closed.lineHeight + 1);
+    expect(closed.height).toBeGreaterThanOrEqual(29 * closed.lineHeight);
+    expect(closed.bubble).toBeLessThan(32 * closed.lineHeight + 40);
     // The last lines fade under a mask, not a solid cover.
     expect(closed.mask).toContain("gradient");
 
@@ -211,7 +212,7 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
           .map((animation) => animation.finished.catch(() => undefined)),
       ),
     );
-    expect((await measure()).height).toBeLessThanOrEqual(10 * closed.lineHeight + 1);
+    expect((await measure()).height).toBeLessThanOrEqual(30 * closed.lineHeight + 1);
 
     // The short prompt draws whole, with no toggle and no fade.
     const short = page.locator("article[data-row-id='user-5']");
