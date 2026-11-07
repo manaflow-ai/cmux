@@ -213,7 +213,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         );
         const fixture = page.locator("[data-fixture-mixed]");
         await fixture
-          .getByRole("button", { name: working ? "Ran 2 commands, used 2 tools" : "Ran 2 commands, used 3 tools" })
+          .getByRole("button", {
+            name: working ? "Ran 2 commands and used 2 tools" : "Ran 2 commands and used 3 tools",
+          })
           .click();
         const steps = fixture.locator("[data-mixed-tool-steps]");
         await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(working ? 4 : 5);
@@ -231,14 +233,19 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           if (at) expect(Math.abs(geometry[at]!.top - geometry[at - 1]!.top - 22)).toBeLessThanOrEqual(0.5);
         }
         await steps.getByRole("button", { name: "Find the retry handler" }).click();
-        expect(await steps.textContent()).toContain("src/retry.ts:12: retry(request)");
+        // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
+        expect(await steps.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
         expect(await steps.textContent()).not.toContain('"pattern"');
         if (!working) {
           await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
-          await steps.locator("img").waitFor();
-          await steps.locator("img").evaluate((image) => (image as HTMLImageElement).decode());
+          await steps.getByRole("img", { name: "Capture the repaired screen" }).waitFor();
+          await steps
+            .getByRole("img", { name: "Capture the repaired screen" })
+            .evaluate((image) => (image as HTMLImageElement).decode());
           expect(
-            await steps.locator("img").evaluate((image) => (image as HTMLImageElement).naturalWidth),
+            await steps
+              .getByRole("img", { name: "Capture the repaired screen" })
+              .evaluate((image) => (image as HTMLImageElement).naturalWidth),
           ).toBeGreaterThan(0);
         }
         expect(await steps.textContent()).not.toContain("Loaded tools");

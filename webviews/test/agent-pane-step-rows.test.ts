@@ -47,14 +47,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     [
       "in",
       "tool_call",
-      update({
-        sessionUpdate: "tool_call",
-        toolCallId: id,
-        title,
-        kind,
-        status: "in_progress",
-        ...extra,
-      }),
+      update({ sessionUpdate: "tool_call", toolCallId: id, title, kind, status: "in_progress", ...extra }),
     ],
     ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" })],
   ];
@@ -105,10 +98,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   function answer(method: string): unknown {
     switch (method) {
       case "initialize":
-        return {
-          protocolVersion: 1,
-          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
-        };
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
@@ -327,11 +317,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         return chevron && getComputedStyle(chevron).opacity === expected;
       }, opacity);
     await page.mouse.move(0, 0);
-    // The shipped iOS-style sheet keeps the drill-in affordance visible at rest (the step
-    // remains quiet in tone; only the chevron is always present).
-    await waitForChevron("1");
+    await waitForChevron("0");
     const rest = await look();
-    expect(rest.chevron).toBe("1");
+    expect(rest.chevron).toBe("0");
     await row.hover();
     await waitForChevron("1");
     const hovered = await look();

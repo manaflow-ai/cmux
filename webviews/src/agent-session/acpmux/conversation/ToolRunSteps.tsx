@@ -31,7 +31,8 @@ const RunStep = memo(
         {item.tool ? (
           mcpCall(item.tool) ? (
             <McpCallRow item={item} />
-          ) : toolGroupKind(item.tool) === "edits" ? (
+          ) : toolGroupKind(item.tool) === "edits" && item.tool.diffs?.length ? (
+            // As toolGroups draws a lone edit: its own group only with a diff, so one without keeps its title.
             <ToolGroupRow
               kind="edits"
               items={own}

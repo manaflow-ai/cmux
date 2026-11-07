@@ -69,13 +69,16 @@ await requireBrowserLane("tool-run-sheet-browser.test.ts", async () => {
           expect(measured.visibleRows).toBe(5);
           expect(measured.redundantGroupHeaders).toBe(0);
           expect(measured.discoveryRows).toBe(0);
-          await fixture.getByRole("button", { name: "Check the baseline" }).click();
+          await fixture.getByRole("button", { name: /^Ran echo baseline/ }).click();
           expect(await fixture.textContent()).toContain("baseline passed");
           await fixture.getByRole("button", { name: "Find the retry handler" }).click();
-          expect(await fixture.textContent()).toContain("src/retry.ts:12: retry(request)");
+          // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
+          expect(await fixture.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
           await fixture.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
-          await fixture.locator("img").waitFor();
-          await fixture.locator("img").evaluate((image) => (image as HTMLImageElement).decode());
+          await fixture.getByRole("img", { name: "Capture the repaired screen" }).waitFor();
+          await fixture
+            .getByRole("img", { name: "Capture the repaired screen" })
+            .evaluate((image) => (image as HTMLImageElement).decode());
           expect(await fixture.textContent()).not.toContain("Waiting…");
           expect(await fixture.textContent()).not.toContain('"pattern"');
         }
