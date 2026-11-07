@@ -247,7 +247,7 @@ fn toggle_children_flips_the_creators_collapse() {
 fn toggle_children_on_a_row_without_children_changes_nothing() {
     let sections = tree(vec![loose("a"), loose("b")]);
     let reply = edit(&EditRequest {
-        sections: sections.clone(),
+        sections,
         intent: Intent::ToggleChildren { id: "a".into() },
         prunes: true,
     });
@@ -258,7 +258,7 @@ fn toggle_children_on_a_row_without_children_changes_nothing() {
 fn attaching_a_row_already_under_its_creator_changes_nothing() {
     let sections = tree(vec![loose("a"), loose("b<a"), loose("c<a")]);
     let reply = edit(&EditRequest {
-        sections: sections.clone(),
+        sections,
         intent: Intent::Attach { ids: ids(&["b"]), creator: "a".into() },
         prunes: true,
     });
