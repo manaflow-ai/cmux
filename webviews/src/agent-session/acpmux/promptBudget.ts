@@ -83,16 +83,21 @@ export function fitPromptBudget(
 /// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:
 /// the prompt is over `budget` even with every saved original linked, and an image still uploading
 /// its original would let it fit. Never for a prompt that fits: it goes at once, its originals
-/// staying for the next prompt.
+/// staying for the next prompt. Except an image whose original is the point (`needsOriginal`: a
+/// capture over the image cap, whose preview is a reduced copy): the send waits for it at any size.
 export function awaitsOriginals(
   input: string,
   attachments: readonly ComposerAttachment[],
   uploading: (id: string) => boolean,
   options: InlineReadOptions = {},
   budget = PROMPT_INLINE_BUDGET,
+  needsOriginal: (id: string) => boolean = () => false,
 ): boolean {
-  if (!attachments.some((chip) => chip.kind === "image" && chip.data && !chip.originalPath && uploading(chip.id)))
-    return false;
+  const waiting = attachments.filter(
+    (chip) => chip.kind === "image" && chip.data && !chip.originalPath && uploading(chip.id),
+  );
+  if (waiting.length === 0) return false;
+  if (waiting.some((chip) => needsOriginal(chip.id))) return true;
   const fitted = fitPromptBudget(input, [...attachments], options, budget);
   return inlineBytes(promptBlocks(input, fitted, options)) > budget;
 }

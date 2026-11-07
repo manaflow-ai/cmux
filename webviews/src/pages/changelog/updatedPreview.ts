@@ -9,7 +9,7 @@
 import { changeItems, mergedView, readableChanges, readableUpdate } from "./model";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { isGenericEntry } from "./updateSummary";
+import { hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
 
 /** One row of the preview: the change's title, and what its description adds (absent: none). */
 export interface PreviewEntry {
@@ -18,9 +18,6 @@ export interface PreviewEntry {
   detail?: string;
   category?: WhatsNewCategory;
 }
-
-/** The most rows the preview lists; the full page has every change. */
-export const PREVIEW_LIMIT = 40;
 
 /** The rest on the card before the preview opens: the app's hover-card dwell
     (HoverCardTiming.showDelay), so passing over the card on the way to the footer opens nothing. */
@@ -31,7 +28,8 @@ export const PREVIEW_GRACE_MS = 180;
 
 /** The update's changes as the preview lists them: the notes of every build the update spans (each
     change once, newest build first), else what the host sent for the installed build. Internal work
-    and the generic "Fixes and improvements" entry stay out, as on the card. */
+    and the generic "Fixes and improvements" entry stay out, as on the card. Every change is listed
+    (the list scrolls; #37615 F5): the preview promises the whole update. */
 export function previewEntries(
   data: UpdateHighlights,
   span: ReleaseNotes[] | undefined,
@@ -41,17 +39,21 @@ export function previewEntries(
   const seen = new Set<string>();
   const add = (entry: PreviewEntry) => {
     const key = entry.title.trim().toLowerCase();
-    if (!key || seen.has(key) || rows.length >= PREVIEW_LIMIT || isGenericEntry(entry.id, entry.title)) return;
+    if (!key || seen.has(key) || isGenericEntry(entry.id, entry.title)) return;
     seen.add(key);
     rows.push(entry);
   };
   if (span && span.length > 0) {
-    const view = mergedView(span, language);
+    // The generic entry leaves by its source identity before mergedView localizes its title: in
+    // another language its title is not the English one (#37615 F1).
+    const view = mergedView(span.map(withoutGenericEntry), language);
     const items = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((group) => group.items)];
     for (const item of items)
       add({ id: item.id, title: item.title, detail: item.summary || undefined, category: item.category });
-    // A build with no reviewed entries reads its commits' readable titles, as the card's summary does.
+    // A build with no reviewed entries reads its commits' readable titles, as the card's summary
+    // does; one with reviewed entries reads those alone (#37615 F4).
     for (const build of span) {
+      if (hasCuratedChanges(build)) continue;
       readableChanges(changeItems(build)).changes.forEach((change, index) =>
         add({ id: `${build.build}-${index}`, title: change.title, detail: change.description || undefined }),
       );
@@ -63,6 +65,13 @@ export function previewEntries(
     add({ id: item.id, title: item.title, detail: item.summary ?? undefined, category: item.category });
   }
   return rows;
+}
+
+/** A build's notes without the generic What's New entry (``isGenericWhatsNewEntry``). */
+function withoutGenericEntry(notes: ReleaseNotes): ReleaseNotes {
+  const document = notes.whatsNew;
+  if (!document?.entries.some(isGenericWhatsNewEntry)) return notes;
+  return { ...notes, whatsNew: { ...document, entries: document.entries.filter((e) => !isGenericWhatsNewEntry(e)) } };
 }
 
 export interface IntentTimers {

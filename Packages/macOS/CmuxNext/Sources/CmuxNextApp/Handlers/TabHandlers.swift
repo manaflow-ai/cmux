@@ -67,27 +67,25 @@ enum TabHandlers {
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, clicked) = ctx.tab(invocation) else { return }
             let ids = ctx.actingTabs(invocation, pane, clicked)
-            // What each tab duplicates as is Rust's (cmux-window-rules `tabs::duplicate`); nil: only page tabs.
-            guard let actions = duplicates(ids, in: pane, ctx), actions.count == ids.count else { return ctx.refuse(RefusalStrings.pageTabOpensOnce) }
+            let (actions, refusal) = duplicates(ids, in: pane, ctx)
+            if let refusal { return ctx.refuse(refusal) }
             for (id, action) in zip(ids, actions) {
                 switch action {
                 case "browser":
                     // Same engine as the original (cookies live in one engine), next to it, with its history.
                     if let tab = pane.tab(id) { BrowserTabDuplicate(pane: pane).open(tab) }
                 case "localBrowser": pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
-                case "agent": pane.duplicateAgentTab(id.rawValue, then: NewTabSlot.placing(after: pane.tab(id), services: ctx.services, then: nil))
+                case "agent": pane.duplicateAgentTab(id.rawValue, then: NewTabSlot.placing(after: pane.tab(id), joins: true, services: ctx.services, then: nil))
                 case "terminal":
-                    // Right after the original, as a browser tab's duplicate goes (BrowserTabDuplicate).
-                    pane.newTerminalTab(cwd: pane.tab(id)?.cwd, then: NewTabSlot.placing(after: pane.tab(id), services: ctx.services, then: nil))
-                default: continue // one tab per page per window: the page is already there
+                    // Right after the original, in its group, as a browser tab's duplicate goes (BrowserTabDuplicate).
+                    pane.newTerminalTab(cwd: pane.tab(id)?.cwd, then: NewTabSlot.placing(after: pane.tab(id), joins: true, services: ctx.services, then: nil))
+                default: continue // one tab per page per window: the page is already there; another Mac's chat stays there
                 }
             }
         })
-        // A page tab alone (or a selection of only page tabs) has nothing to duplicate.
+        // A page tab or another Mac's chat alone (or a selection of only those) has nothing to duplicate.
         ctx.setTargetReason("duplicateTab") { invocation in
-            ctx.tab(invocation).flatMap { pane, clicked in
-                duplicates(ctx.actingTabs(invocation, pane, clicked), in: pane, ctx) == nil ? RefusalStrings.pageTabOpensOnce : nil
-            }
+            ctx.tab(invocation).flatMap { pane, clicked in duplicates(ctx.actingTabs(invocation, pane, clicked), in: pane, ctx).refusal }
         }
         ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
         // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
@@ -106,14 +104,15 @@ enum TabHandlers {
         })
     }
 
-    /// What Duplicate Tab does with each of `ids` (Rust's `tabs::duplicate`), nil when it refuses.
-    private static func duplicates(_ ids: [StripTabID], in pane: PaneController, _ ctx: AppActionContext) -> [String]? {
-        WindowRules().duplicate(ids.map { id in
+    /// What Duplicate Tab does with each of `ids` (Rust's `tabs::duplicate`), else why it copies none. Another Mac's chat is skipped as a page is (its session never leaves that Mac).
+    private static func duplicates(_ ids: [StripTabID], in pane: PaneController, _ ctx: AppActionContext) -> (actions: [String], refusal: String?) {
+        let chats = ctx.services.agentTabs, actions = WindowRules().duplicate(ids.map { id in
             let tab = pane.tab(id)
             return WindowRules.DuplicateFacts(browser: tab?.kind == .browser, localBrowser: id.rawValue.hasPrefix(LocalBrowserTab.prefix),
                                               agent: ctx.services.agentTabs.isAgentTab(id.rawValue),
                                               localPage: id.rawValue.hasPrefix(LocalPageTab.prefix), page: tab?.page != nil)
-        })
+        })?.enumerated().map { $1 == "agent" && chats.lookup(ids[$0].rawValue)?.record.host != chats.localHost ? "elsewhere" : $1 } ?? []
+        return actions.contains { !["skip", "elsewhere"].contains($0) } ? (actions, nil) : ([], actions.contains("elsewhere") ? RefusalStrings.agentTabOtherHost : RefusalStrings.pageTabOpensOnce)
     }
 
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {

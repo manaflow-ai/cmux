@@ -69,6 +69,10 @@ const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+/// How often a client's startup wait looks at the shutdown flag, so SIGTERM or
+/// SIGINT ends a dial that is still connecting instead of waiting out its
+/// startup timeout (an ssh `ProxyCommand` must exit when ssh does).
+const STARTUP_SIGNAL_POLL: Duration = Duration::from_millis(100);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
 const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
@@ -668,20 +672,30 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
-        }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
-                startup_timeout.as_secs()
-            ));
+    let deadline = std::time::Instant::now() + startup_timeout;
+    let ready = loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
+            Ok(Ok(ready)) => break ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if crate::shutdown_requested() => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup interrupted by a signal"));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if !left.is_zero() => {}
+            Err(error) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s: {error}",
+                    startup_timeout.as_secs()
+                ));
+            }
         }
     };
     Ok(ClientRuntimeHandle {

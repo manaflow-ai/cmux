@@ -794,6 +794,29 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
+  await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+}
+
+/**
+ * acpmux (started in wireCmuxTui) read the login shell before the model plane existed, and a clone resumes that
+ * process from the snapshot. Its cache's fingerprint (the startup files) cannot see the model-plane file they source,
+ * so nothing re-reads it: Codex started without the edge's placeholder key (gateway-e2e run 42382330319). Drop the
+ * cache and restart acpmux so the snapshot holds a daemon that read the final login shell; clean.py then drops the
+ * cache this read writes, so a cold boot reads its own. `grep -q` checks the key's name only, never a value.
+ */
+export function acpmuxLoginEnvRefreshCommand(): string {
+  const user = 'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER"';
+  return [
+    cmuxTuiLayoutSelector(),
+    'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-login-env-no-service; exit 0; fi',
+    'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
+    'rm -f "$cache"',
+    `${user} systemctl --user restart acpmux.service`,
+    'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
+    'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
+    'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
+    "echo acpmux-login-env-fresh",
+  ].join(" && ");
 }
 
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
