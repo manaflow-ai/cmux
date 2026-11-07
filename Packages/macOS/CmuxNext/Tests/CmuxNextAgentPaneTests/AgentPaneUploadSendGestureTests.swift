@@ -82,7 +82,8 @@ struct AgentPaneUploadSendGestureTests {
 
     /// A transient staged-begin failure gives only that same attachment one short-lived retry
     /// credit. The timer retry therefore does not surface the transport's gesture refusal, while
-    /// a different attachment still needs a real gesture.
+    /// a different attachment still needs a real gesture. This also covers a timer retry after
+    /// the native transport has already spent the original upload credit.
     @Test func aFailedBeginCanRetryWithoutAuthorizingAnotherAttachment() async {
         let model = AgentPaneModel(host: NoHost())
         var attempts = 0
