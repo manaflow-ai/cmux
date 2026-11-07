@@ -250,7 +250,7 @@ where
     host_reader.abort();
 }
 
-/// Time `bytes` from host to viewer on a fresh stream.
+/// Mbit/s from host to viewer on a fresh stream, over `bytes` or 60 s.
 async fn bulk<H, V>(mut host: H, mut viewer: V, bytes: usize) -> Option<f64>
 where
     H: AsyncWrite + Unpin + Send + 'static,
@@ -269,7 +269,7 @@ where
     });
     let mut buf = vec![0u8; 64 * 1024];
     let mut got = 0usize;
-    let read = timeout(Duration::from_secs(120), async {
+    let read = timeout(Duration::from_secs(60), async {
         while got < bytes {
             match viewer.read(&mut buf).await {
                 Ok(0) | Err(_) => break,
@@ -279,8 +279,9 @@ where
     })
     .await;
     writer.abort();
-    (read.is_ok() && got == bytes)
-        .then(|| (bytes as f64 * 8.0) / started.elapsed().as_secs_f64() / 1e6)
+    // A transfer still going at the limit reports what arrived by then.
+    let _ = read;
+    (got > 0).then(|| (got as f64 * 8.0) / started.elapsed().as_secs_f64() / 1e6)
 }
 
 async fn run_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
@@ -421,6 +422,11 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
         let (clock, record, pending, args) =
             (clock.clone(), record.clone(), pending_echo.clone(), args.clone());
         tokio::spawn(async move {
+            // The stream starts on the viewer's first input, as a viewer's
+            // request starts one; before the handshake a datagram is lost.
+            if host.recv_from().await.is_none() {
+                return;
+            }
             let interval = Duration::from_secs(1) / args.fps.max(1);
             let mut next = Instant::now();
             let mut seq = 0u32;

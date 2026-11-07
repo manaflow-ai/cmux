@@ -20,7 +20,7 @@ fps="${FPS:-60}"
 frame="${FRAME_BYTES:-3500}"
 keyframe="${KEYFRAME_BYTES:-200000}"
 bulk="${BULK_BYTES:-16777216}"
-profiles="${PROFILES:-clean:0:0 rtt50:50:0 rtt50-loss1:50:1 rtt150-loss1:150:1 rtt150-loss3:150:3}"
+profiles="${PROFILES:-clean:0:0 rtt50:50:0 rtt150:150:0 rtt50-loss1:50:1 rtt150-loss1:150:1 rtt150-loss3:150:3}"
 
 cargo build --release -q -p cmux-wg --example remote_stream_bench
 bin="${CARGO_TARGET_DIR:-target}/release/examples/remote_stream_bench"
