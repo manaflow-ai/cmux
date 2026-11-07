@@ -1,4 +1,4 @@
-# Browser chrome: toolbar, omnibar, suggestions, Page Info and the Import Cookies card
+# Browser chrome: toolbar, omnibar, suggestions and Page Info
 
 The browser pane's chrome in React, over the native page engine: the toolbar strip, the omnibar
 with its page-info chip and bookmark star, the suggestion card under the bar, and the Page Info
@@ -17,8 +17,9 @@ windows.
   `CmuxNextBrowser/Resources/Localizable.xcstrings` (toolbar) and `PageInfo.xcstrings` (Page Info,
   chip); `scripts/pages/gen-strings.mjs` writes `generated/strings.json`.
 - Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`,
-  `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate`, `browser-chrome.cookie-import`
-  (area Browser chrome, Experimental until the React chrome ships). Each has a Look option.
+  `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate` (area Browser chrome,
+  Experimental until the React chrome ships). Each has a Look option.
+- The Import Cookies card (its own section below): gallery `browser-chrome.cookie-import`, same area, with a Look option.
 
 The native sources these match: `UI/OmnibarStyle.swift`, `OmnibarMetrics.swift`,
 `BrowserToolbarLayout.swift`, `BrowserToolbarButton.swift`, `BrowserToolbarPolicy.swift`,
