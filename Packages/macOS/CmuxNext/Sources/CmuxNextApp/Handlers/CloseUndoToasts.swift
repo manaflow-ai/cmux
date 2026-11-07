@@ -144,6 +144,16 @@ final class CloseUndoToasts {
         let parts = (undoToasts?.pageDecidedCloses.absorb(resolved) ?? resolved).map { part in (pane: part.pane, ids: part.ids.filter { !pending.contains($0) }) }.filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
+        // The kind is chosen once, over every pane of the workspace: its last tabs close the workspace, at once, through
+        // Close Workspace's one path (`WorkspaceCloseFlow`, as the row's close button runs it), so nothing in it moves.
+        if let workspace = first.workspace?.workspace, parts.allSatisfy({ $0.pane.workspace?.workspace === workspace }), TabCloseKind(panes: workspace.screens.flatMap(\.panes).map { model in
+            let closing = parts.filter { $0.pane.pane === model }.flatMap(\.ids)
+            return (!closing.isEmpty, services.paneController(for: model).map { TabCloseGuard.empties($0, closing: closing) } ?? model.tabs.isEmpty)
+        }, home: workspace.isAnyHome) == .workspace {
+            var run = user ? ActionInvocation(closingRow: workspace.id) : ActionInvocation(target: .init(kind: .workspace, id: workspace.id), origin: ActionRunScope.current?.origin ?? .cli).confirmed()
+            run.closesRowOnly = true
+            _ = services.registry.perform("closeWorkspace", invocation: run.onMachine(daemon.machineID)); return
+        }
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
         let panes = parts.map { part in (pane: { @MainActor [weak pane = part.pane] in pane }, ids: part.ids) }
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen

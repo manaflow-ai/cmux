@@ -2,6 +2,12 @@
 //! Native surface ids never come from the phone. Discovery binds them to the
 //! VM's stored agent tabs; pages and records retain their original ACP sequence
 //! numbers. This adapter grants no approval, mode, filesystem or process API.
+//!
+//! `session/new` starts a Claude chat on the machine's own acpmux the way the
+//! Mac does: a `registry:` agent tab in the machine's first workspace (one is
+//! made when there is none), then `agent-session-start` with no folder (the
+//! machine makes the chat's own folder) and policy `ask`. The phone names no
+//! folder, harness other than Claude, model, MCP server, mode or policy.
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -10,6 +16,11 @@ use std::time::{Duration, Instant};
 const MAX_PENDING: usize = 32;
 const MAX_SESSIONS: usize = 1024;
 const DEADLINE: Duration = Duration::from_secs(15);
+/// acpmux may start the agent process first (the phone's Mac `session/new` allows 90 s).
+const START_DEADLINE: Duration = Duration::from_secs(90);
+/// The only agent a phone starts on a Cloud machine: its default mode asks before acting,
+/// so the prompt preflight below admits the new chat.
+const PHONE_START_HARNESS: &str = "claude";
 
 #[derive(Default)]
 pub(crate) struct Effects {
@@ -27,6 +38,11 @@ enum Reply {
     Page { session: String, surface: u64, info: bool },
     Prepare { session: String, surface: u64, command: Value, kind: Simple },
     Simple { session: String, surface: u64, kind: Simple },
+    /// `session/new`: the tree, then (when it has no workspace) a new one, the tab, the start.
+    NewTree,
+    NewWorkspace { registry: String },
+    NewTab,
+    Start { surface: u64 },
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +57,7 @@ struct Pending {
     phone_id: Option<Value>,
     reply: Reply,
     at: Instant,
+    deadline: Duration,
 }
 
 pub(crate) struct Adapter {
@@ -71,9 +88,10 @@ impl Adapter {
         if phone_id.is_some() && self.pending.values().any(|p| p.phone_id == phone_id) {
             return error(phone_id, -32600, "ACP request id is already pending");
         }
+        let deadline = if matches!(reply, Reply::Start { .. }) { START_DEADLINE } else { DEADLINE };
         self.next += 1;
         command["id"] = json!(self.next);
-        self.pending.insert(self.next, Pending { phone_id, reply, at: Instant::now() });
+        self.pending.insert(self.next, Pending { phone_id, reply, at: Instant::now(), deadline });
         Effects { to_native: vec![command], ..Effects::default() }
     }
 
@@ -103,6 +121,12 @@ impl Adapter {
                     return Ok(error(id, -32602, "Cloud session list has no continuation cursor"));
                 }
                 return Ok(self.call(json!({"cmd":"list-workspaces"}), id, Reply::Directory));
+            }
+            "session/new" => {
+                if let Some(refusal) = new_session_refusal(params) {
+                    return Ok(error(id, -32602, refusal));
+                }
+                return Ok(self.call(json!({"cmd":"list-workspaces"}), id, Reply::NewTree));
             }
             "_acpmux/attach" | "_acpmux/events" | "_acpmux/info" | "_acpmux/detach" | "session/prompt"
             | "session/cancel" => {}
@@ -192,7 +216,12 @@ impl Adapter {
         if response.get("ok") != Some(&json!(true)) {
             let message =
                 response.get("error").and_then(Value::as_str).unwrap_or("Cloud daemon refused the request");
-            return Ok(error(pending.phone_id, -32000, message));
+            let mut out = error(pending.phone_id, -32000, message);
+            // A start the machine refused leaves no empty chat tab behind.
+            if let Reply::Start { surface } = pending.reply {
+                out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+            }
+            return Ok(out);
         }
         let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
         let phone = pending.phone_id;
@@ -244,6 +273,62 @@ impl Adapter {
                     ));
                 }
                 Ok(self.call(command, phone, Reply::Simple { session, surface, kind }))
+            }
+            Reply::NewTree => {
+                let Some(registry) =
+                    data.get("registry_id").and_then(Value::as_str).filter(|r| !r.is_empty())
+                else {
+                    return Ok(error(phone, -32000, "Cloud machine did not name its workspace store"));
+                };
+                let registry = registry.to_owned();
+                match chat_workspace(&data) {
+                    Some(workspace) => Ok(self.new_tab(phone, &registry, workspace)),
+                    None => Ok(self.call(
+                        json!({"cmd":"create-workspace"}),
+                        phone,
+                        Reply::NewWorkspace { registry },
+                    )),
+                }
+            }
+            Reply::NewWorkspace { registry } => match data.get("workspace").and_then(Value::as_u64) {
+                Some(workspace) => Ok(self.new_tab(phone, &registry, workspace)),
+                None => Ok(error(phone, -32000, "Cloud machine did not make a workspace")),
+            },
+            Reply::NewTab => {
+                let Some(surface) = data.get("surface").and_then(Value::as_u64) else {
+                    return Ok(error(phone, -32000, "Cloud machine did not make the chat tab"));
+                };
+                // The machine's own acpmux starts the chat with policy `ask`, in a folder it
+                // makes for it; the owner word lets it start on this owned machine at all.
+                let start = json!({"cmd":"agent-session-start","surface":surface,
+                    "harness":PHONE_START_HARNESS,"vm_kind":"owner"});
+                Ok(self.call(start, phone, Reply::Start { surface }))
+            }
+            Reply::Start { surface } => {
+                let Some(session) = data
+                    .get("session")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty() && s.len() <= 160)
+                else {
+                    return Ok(error(phone, -32000, "Cloud machine did not start the chat"));
+                };
+                // The directory refuses a machine past MAX_SESSIONS chats; a start past it would
+                // drop this channel at the next refresh, so it closes its tab instead.
+                if self.tabs.len() >= MAX_SESSIONS && !self.tabs.contains_key(session) {
+                    let mut out = error(phone, -32000, "Cloud machine has too many chats");
+                    out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+                    return Ok(out);
+                }
+                let summary = json!({"sessionId":session,"name":"","harness":PHONE_START_HARNESS,
+                    "updatedAt":now_ms()});
+                self.tabs.insert(session.to_owned(), Tab { surface, summary: summary.clone() });
+                self.surface_sessions.insert(surface, session.to_owned());
+                // The phone lists the chat now, before its next directory read.
+                let listed = json!({"jsonrpc":"2.0","method":"_acpmux/session_changed",
+                    "params":{"sessionId":session,"session":summary,"kind":"created"}});
+                let mut out = answer(phone, json!({"sessionId":session}));
+                out.to_phone.insert(0, listed);
+                Ok(out)
             }
             Reply::Simple { session, surface, kind } => {
                 if matches!(kind, Simple::Detach) {
@@ -297,22 +382,98 @@ impl Adapter {
         })
     }
 
+    /// The phone left: every start still waiting closes its empty tab, since no one will open it.
+    pub(crate) fn abandon(&mut self) -> Effects {
+        let mut out = Effects::default();
+        for (_, pending) in self.pending.drain() {
+            if let Reply::Start { surface } = pending.reply {
+                out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+            }
+        }
+        out
+    }
+
     pub(crate) fn expire(&mut self) -> Effects {
         let now = Instant::now();
         let expired = self
             .pending
             .iter()
-            .filter(|(_, p)| now.duration_since(p.at) >= DEADLINE)
+            .filter(|(_, p)| now.duration_since(p.at) >= p.deadline)
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         let mut out = Effects::default();
         for id in expired {
             if let Some(pending) = self.pending.remove(&id) {
                 out.to_phone.extend(error(pending.phone_id, -32000, "Cloud chat request timed out").to_phone);
+                // A start that never answered leaves no empty chat tab behind either.
+                if let Reply::Start { surface } = pending.reply {
+                    out.to_native.push(json!({"cmd":"close-surface","surface":surface}));
+                }
             }
         }
         out
     }
+}
+
+impl Adapter {
+    fn new_tab(&mut self, phone: Option<Value>, registry: &str, workspace: u64) -> Effects {
+        let tab = json!({"cmd":"new-conversation-tab","workspace":workspace,
+            "agent_session":{"host":format!("registry:{registry}"),"harness":PHONE_START_HARNESS}});
+        self.call(tab, phone, Reply::NewTab)
+    }
+}
+
+/// Why a phone `session/new` is refused, if it is: it may carry only the ACP fields a client
+/// always sends (`cwd` is ignored, `mcpServers` must be empty) and acpmux's `harness` and
+/// `policy` when they name Claude and `ask`.
+fn new_session_refusal(params: &Value) -> Option<&'static str> {
+    let object = params.as_object()?;
+    if object.keys().any(|key| !matches!(key.as_str(), "cwd" | "mcpServers" | "_meta")) {
+        return Some("Cloud chats from a phone take no other options");
+    }
+    if object.get("mcpServers").is_some_and(|m| m.as_array().is_none_or(|m| !m.is_empty())) {
+        return Some("Cloud chats from a phone take no MCP servers");
+    }
+    if object.get("_meta").is_some_and(|m| m.as_object().is_none_or(|m| m.keys().any(|k| k != "acpmux"))) {
+        return Some("Cloud chats from a phone take no other options");
+    }
+    let acpmux = params.pointer("/_meta/acpmux");
+    if acpmux.is_some_and(|a| {
+        a.as_object().is_none_or(|a| a.keys().any(|k| !matches!(k.as_str(), "harness" | "policy")))
+    }) {
+        return Some("Cloud chats from a phone take no other options");
+    }
+    let harness = acpmux.and_then(|a| a.get("harness"));
+    if harness.is_some_and(|h| h.as_str() != Some(PHONE_START_HARNESS)) {
+        return Some("A phone starts Claude chats on a Cloud machine");
+    }
+    let policy = acpmux.and_then(|a| a.get("policy"));
+    if policy.is_some_and(|p| p.as_str() != Some("ask")) {
+        return Some("Cloud chats from a phone ask before acting");
+    }
+    None
+}
+
+/// The workspace a phone's new chat goes in: the active ordinary workspace (`kind` `normal`, or
+/// none from an older daemon), else the first ordinary one; a home or app workspace is skipped.
+fn chat_workspace(tree: &Value) -> Option<u64> {
+    let ordinary = tree
+        .get("workspaces")?
+        .as_array()?
+        .iter()
+        .filter(|w| w.get("kind").is_none_or(|k| k.is_null() || k == "normal"))
+        .collect::<Vec<_>>();
+    ordinary
+        .iter()
+        .find(|w| w.get("active") == Some(&json!(true)))
+        .or_else(|| ordinary.first())
+        .and_then(|w| w.get("id")?.as_u64())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn page_command(cmd: &str, surface: u64, params: &Value) -> Value {
@@ -605,5 +766,130 @@ mod tests {
         assert_eq!(a.expire().to_phone.len(), MAX_PENDING);
         assert!(respond(&mut a, &first.to_native[0], json!({"workspaces":[]})).to_phone.is_empty());
         assert_eq!(phone(&mut a, 100, "_acpmux/sessions", json!({})).to_native.len(), 1);
+    }
+
+    fn refuse(a: &mut Adapter, command: &Value, message: &str) -> Effects {
+        a.native(json!({"id":command["id"],"ok":false,"error":message})).unwrap()
+    }
+
+    /// `session/new` in a machine that has workspaces: the tab goes in the active ordinary one.
+    fn start_chat(a: &mut Adapter, id: u64) -> Value {
+        let tree = phone(a, id, "session/new", json!({"cwd":"/","mcpServers":[],
+            "_meta":{"acpmux":{"harness":"claude","policy":"ask"}}}));
+        assert_eq!(tree.to_native[0]["cmd"], "list-workspaces");
+        let tab = respond(a, &tree.to_native[0], json!({"registry_id":"reg-1","workspaces":[
+            {"id":1,"kind":"home","active":false,"screens":[]},
+            {"id":3,"kind":"app","active":false,"screens":[]},
+            {"id":4,"kind":"normal","active":false,"screens":[]},
+            {"id":5,"kind":"normal","active":true,"screens":[]}]}));
+        assert_eq!(tab.to_native[0]["cmd"], "new-conversation-tab");
+        assert_eq!(tab.to_native[0]["workspace"], 5);
+        assert_eq!(tab.to_native[0]["agent_session"], json!({"host":"registry:reg-1","harness":"claude"}));
+        let start = respond(a, &tab.to_native[0], json!({"surface":31}));
+        start.to_native[0].clone()
+    }
+
+    #[test]
+    fn a_phone_starts_a_claude_chat_in_the_machine_store_and_can_prompt_it() {
+        let mut a = adapter();
+        let start = start_chat(&mut a, 2);
+        // No folder, model, policy or MCP server from the phone: the machine picks the folder and
+        // starts with policy `ask`.
+        assert_eq!(start, json!({"cmd":"agent-session-start","id":start["id"],"surface":31,
+            "harness":"claude","vm_kind":"owner"}));
+        assert_eq!(a.pending.values().next().unwrap().deadline, START_DEADLINE);
+        let started =
+            respond(&mut a, &start, json!({"surface":31,"session":"sess_new","conversation":"conv_1"}));
+        assert_eq!(started.to_phone[0]["method"], "_acpmux/session_changed");
+        assert_eq!(started.to_phone[0]["params"]["session"]["sessionId"], "sess_new");
+        assert_eq!(started.to_phone[1], json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_new"}}));
+        // The new chat is in the directory before the next refresh, so the phone prompts it at once.
+        let asked = phone(&mut a, 3, "session/prompt", json!({"sessionId":"sess_new",
+            "prompt":[{"type":"text","text":"hi"}],"_meta":{"acpmux":{"promptId":"p-1"}}}));
+        assert_eq!(asked.to_native[0]["cmd"], "agent-session-attach");
+        assert_eq!(asked.to_native[0]["surface"], 31);
+    }
+
+    #[test]
+    fn a_machine_with_no_ordinary_workspace_gets_one_for_the_chat() {
+        let mut a = adapter();
+        let tree = phone(&mut a, 2, "session/new", json!({}));
+        let made = respond(&mut a, &tree.to_native[0],
+            json!({"registry_id":"reg-1","workspaces":[{"id":1,"kind":"home","active":true}]}));
+        assert_eq!(made.to_native[0]["cmd"], "create-workspace");
+        let tab = respond(&mut a, &made.to_native[0], json!({"workspace":9,"key":"k"}));
+        assert_eq!(tab.to_native[0]["cmd"], "new-conversation-tab");
+        assert_eq!(tab.to_native[0]["workspace"], 9);
+    }
+
+    #[test]
+    fn a_refused_start_closes_its_empty_tab_and_tells_the_phone() {
+        let mut a = adapter();
+        let start = start_chat(&mut a, 2);
+        let refused = refuse(&mut a, &start, "agent_session.acpmux_unavailable");
+        assert_eq!(refused.to_phone[0]["id"], 2);
+        assert_eq!(refused.to_phone[0]["error"]["message"], "agent_session.acpmux_unavailable");
+        assert_eq!(refused.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+        assert!(a.surface_sessions.is_empty());
+    }
+
+    #[test]
+    fn a_phone_start_names_no_other_agent_policy_server_or_option() {
+        let mut a = adapter();
+        for params in [
+            json!({"_meta":{"acpmux":{"harness":"codex"}}}),
+            json!({"_meta":{"acpmux":{"policy":"auto"}}}),
+            json!({"mcpServers":[{"name":"x","command":"sh"}]}),
+            json!({"mcpServers":"sh"}),
+            json!({"model":"opus"}),
+            json!({"_meta":{"acpmux":{"harness":"claude","model":"opus"}}}),
+            json!({"_meta":{"acpmux":{"mode":"bypassPermissions"}}}),
+            json!({"_meta":{"acpmux":{"harness":7}}}),
+            json!({"_meta":{"acpmux":"claude"}}),
+            json!({"_meta":{"other":{}}}),
+        ] {
+            let out = phone(&mut a, 2, "session/new", params.clone());
+            assert!(out.to_native.is_empty(), "{params}");
+            assert_eq!(out.to_phone[0]["error"]["code"], -32602, "{params}");
+        }
+    }
+
+    #[test]
+    fn a_start_that_times_out_closes_its_empty_tab() {
+        let mut a = adapter();
+        start_chat(&mut a, 2);
+        for p in a.pending.values_mut() {
+            p.at = Instant::now() - START_DEADLINE;
+        }
+        let out = a.expire();
+        assert_eq!(out.to_phone[0]["id"], 2);
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+    }
+
+    #[test]
+    fn a_start_past_the_session_cap_closes_its_tab_instead_of_listing_it() {
+        let mut a = adapter();
+        let start = start_chat(&mut a, 2);
+        for n in 0..MAX_SESSIONS {
+            a.tabs.insert(format!("s-{n}"), Tab { surface: 1000 + n as u64, summary: json!({}) });
+        }
+        let out = respond(&mut a, &start, json!({"session":"new-chat"}));
+        assert_eq!(out.to_phone[0]["id"], 2);
+        assert_eq!(out.to_phone[0]["error"]["message"], "Cloud machine has too many chats");
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+        assert_eq!(a.tabs.len(), MAX_SESSIONS);
+        assert!(!a.surface_sessions.contains_key(&31));
+    }
+
+    #[test]
+    fn a_phone_that_leaves_mid_start_closes_its_empty_tab() {
+        let mut a = adapter();
+        start_chat(&mut a, 2);
+        let out = a.abandon();
+        assert!(out.to_phone.is_empty());
+        assert_eq!(out.to_native, vec![json!({"cmd":"close-surface","surface":31})]);
+        assert!(a.pending.is_empty());
+        // Nothing else was waiting: nothing to close.
+        assert!(a.abandon().to_native.is_empty());
     }
 }
