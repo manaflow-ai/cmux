@@ -22,6 +22,11 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     /// Whether the label draws (tests).
     public var showsLabel: Bool { !isCompact }
 
+    /// Whether the chip's word has its whole frame (glyphs and line padding) inside the chip (tests).
+    public var wordFits: Bool {
+        label.frame.width >= label.naturalSize.width && label.frame.minX >= icon.frame.maxX && label.frame.maxX <= bounds.maxX
+    }
+
     /// Whether it draws as the row's icon: narrower than the chip.
     public var isCompact: Bool { bounds.width + 0.5 < chipSize.width }
 
@@ -84,9 +89,13 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
             layer?.cornerRadius = 0
         } else {
             icon.frame = NSRect(x: Metrics.space2, y: ((bounds.height - glyphSize) / 2).rounded(), width: glyphSize, height: glyphSize)
-            let text = label.intrinsicContentSize
-            label.frame = NSRect(x: icon.frame.maxX + Metrics.space1, y: ((bounds.height - text.height) / 2).rounded(),
-                                 width: max(0, bounds.width - icon.frame.maxX - Metrics.space1 - Metrics.space2), height: text.height)
+            // The label's frame holds its text plus the cell's line padding on each side (`naturalSize`), as a
+            // stack view placed it by its alignment rect: the glyphs start `space1` after the icon and end
+            // `space2` before the chip's edge.
+            let frame = label.naturalSize
+            let padding = (frame.width - label.intrinsicContentSize.width) / 2
+            label.frame = NSRect(x: icon.frame.maxX + Metrics.space1 - padding, y: ((bounds.height - frame.height) / 2).rounded(),
+                                 width: frame.width, height: frame.height)
             layer?.cornerRadius = Metrics.chipCornerRadius(height: bounds.height)
         }
         applyColors()
