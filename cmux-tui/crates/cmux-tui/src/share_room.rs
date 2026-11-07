@@ -1,7 +1,8 @@
 //! The hosted room link shares are provisioned in (cmux-platform's `ChatShareRoom`, design
 //! chat-multiplayer.md 4.3). `CMUX_SHARE_ROOM_URL` in the daemon's environment wins (empty turns
 //! share links off); otherwise each build uses the room of the cmux API it signs in to: DEV the
-//! development room, staging and classic NIGHTLY the staging room, release and RC production.
+//! development room, staging and classic NIGHTLY the staging room, release and RC production, each
+//! at its short share host (`share.cmux.dev`), so the links it makes read cleanly.
 //! NEXT app bundles use the runtime selection before these legacy defaults;
 //! an empty override still disables sharing, but a URL cannot mix environments.
 //! A standalone daemon (no app bundle) has none: its share links have no URL, as before the
@@ -12,7 +13,9 @@
 //! as the room (an install token with a `kid`): the room verifies it against that API's keys.
 
 use cmux_agent_pane_policy::build_identity::BuildKind;
-use cmux_tui_core::cloud_conversations::platform::{DEVELOPMENT, PRODUCTION, STAGING};
+use cmux_cloud_environment::{
+    DEVELOPMENT_SHARE as DEVELOPMENT, PRODUCTION_SHARE as PRODUCTION, STAGING_SHARE as STAGING,
+};
 
 pub(crate) const ENV: &str = "CMUX_SHARE_ROOM_URL";
 
