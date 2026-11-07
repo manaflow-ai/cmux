@@ -3619,7 +3619,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        await ctx.click({ role: "button", name: "Show all 21 lines" });
+        // The reader clicks the row's words, at its start: the row is the block's whole width
+        // (ExpandRow.tsx), and with the card at the view's foot its centre sits under Jump to latest.
+        ctx.find({ role: "button", name: "Show all 21 lines" });
+        await ctx.click({ selector: ".cv-edit-diff .cv-output-more .cv-expand-row__label" });
         await ctx.waitFor(
           () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
         );
