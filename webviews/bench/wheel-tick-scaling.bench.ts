@@ -86,10 +86,11 @@ async function tickRun({
       };
       channel.port2.postMessage(0);
     });
-  const perfUrl = "/src/agent-session/acpmux/perf.ts";
+  // The pane server's root is src/agent-session/acpmux (vite.config.acpmux-pane.mjs).
+  const perfUrl = "/perf.ts";
   type PerfModule = typeof import("../src/agent-session/acpmux/perf");
   const { acpmuxPerf } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
-  const intentUrl = "/src/agent-session/acpmux/conversation/userScroll.ts";
+  const intentUrl = "/conversation/userScroll.ts";
   type IntentModule = typeof import("../src/agent-session/acpmux/conversation/userScroll");
   const { userScrollIntent } = (await import(/* @vite-ignore */ intentUrl)) as IntentModule;
 
@@ -115,7 +116,7 @@ async function tickRun({
   acpmuxPerf.resetFrames();
   let streaming = true;
   if (live) {
-    const mockUrl = "/src/agent-session/acpmux/mock.ts";
+    const mockUrl = "/mock.ts";
     type MockModule = typeof import("../src/agent-session/acpmux/mock");
     const { MockAcpmuxSocket } = (await import(/* @vite-ignore */ mockUrl)) as MockModule;
     if (!MockAcpmuxSocket.live) return { error: "no mock daemon" };
