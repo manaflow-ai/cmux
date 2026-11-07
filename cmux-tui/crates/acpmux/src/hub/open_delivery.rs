@@ -301,7 +301,8 @@ impl Hub {
         for record in &proof.records {
             let at = seq(record)?;
             let params = json!({"sessionId": pin.session, "afterSeq": at - 1, "limit": 1});
-            let page = peer.request(crate::rpc::method::MUX_EVENTS, params).await.ok()?;
+            let page =
+                peer.request_on(crate::rpc::method::MUX_EVENTS, params, Some(link.1)).await.ok()?;
             let events = page.get("events").and_then(Value::as_array)?;
             if !same_record(record, events.first()) {
                 return Some(false);
@@ -316,17 +317,17 @@ impl Hub {
     }
 
     /// The owner's copy of peer `peer`'s session `session`, generation `generation`, wrote
-    /// `records` to disk: the deliveries pinned to it take their prompts' records as proof.
-    /// Called on the copies' thread after the write (`peer_snapshot.rs`); blocks only on the
-    /// outbox's own write.
+    /// `records` to disk, which came on link `link` (review of #37284 at 98b4575a, F4: the
+    /// write's own link, never the one the peer is on when the write runs): the deliveries
+    /// pinned to it take their prompts' records as proof. Called on the copies' thread after the
+    /// write (`peer_snapshot.rs`); blocks only on the outbox's own write.
     pub(crate) fn proof_written(
         &self,
         peer: &str,
         session: &str,
-        generation: u64,
+        (generation, link): (u64, (u64, u64)),
         records: &[Value],
     ) {
-        let link = self.peer(peer).map_or((0, 0), |p| (p.generation, p.link_epoch()));
         for path in take_written(&self.outbox, (peer, session, generation), records, link) {
             let _ = std::fs::remove_file(path);
         }

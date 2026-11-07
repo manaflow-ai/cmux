@@ -1337,7 +1337,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, records| told.lock().unwrap().push(records))
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
     };
     let mut store =
         Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));

@@ -306,7 +306,11 @@ impl Hub {
                 let mut done = false;
                 for wait in RETRY_WAITS {
                     let Some(to) = on_link() else { return };
-                    let answer = to.request("_acpmux/journal_restore", params.clone()).await;
+                    // On this link's epoch only (review of #37284 at 98b4575a, F1): a link
+                    // replaced since the check never carries it to the next machine.
+                    let answer = to
+                        .request_on("_acpmux/journal_restore", params.clone(), Some(link.1))
+                        .await;
                     if on_link().is_none() {
                         return;
                     }

@@ -220,9 +220,10 @@ enum Op {
 }
 
 /// Told, after a copy's write, the records of prompts' lives that came since its last write and
-/// the write put on disk (never one a bound cut before it): the copy's key, its generation and
+/// the write put on disk (never one a bound cut before it): the copy's key, its generation, the
+/// newest link those records came on (never the link the peer is on when the write runs) and
 /// the records (`open_delivery.rs`: their deliveries keep them as proof).
-pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Vec<Value>) + Send + Sync>;
+pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>) + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -556,6 +557,8 @@ struct Kept {
     /// The seqs of records of prompts' lives that came since its last write: the ones still held
     /// are told once written ([`Written`]).
     fresh: BTreeSet<u64>,
+    /// The newest link `fresh`'s records came on.
+    fresh_link: Option<Link>,
 }
 
 impl Kept {
@@ -576,6 +579,7 @@ impl Kept {
             failures,
             used,
             fresh,
+            fresh_link: None,
         }
     }
 }
@@ -1081,6 +1085,7 @@ impl Store {
             h.summary = row;
             self.charge(key);
         }
+        self.came_on(key, page.link);
         self.add(key, page.records);
     }
 
@@ -1108,7 +1113,16 @@ impl Store {
             c.head.last_seq = c.head.last_seq.max(seq);
             c.head.host_last_seq = c.head.host_last_seq.max(seq);
         }
+        self.came_on(key, link);
         self.add(key, vec![record]);
+    }
+
+    /// Records that the records `key`'s copy takes next came on `link`: its next write tells
+    /// the newest link its fresh records came on ([`Written`]).
+    fn came_on(&mut self, key: &Key, link: Link) {
+        if let Some(c) = self.copies.get_mut(key) {
+            c.fresh_link = c.fresh_link.max(Some(link));
+        }
     }
 
     /// Adds `records` to `key`'s loaded copy, keeps it within its bounds and the memory bound,
@@ -1502,19 +1516,20 @@ impl Store {
             (c.due, c.retry, c.failures) = (None, None, 0);
             // Only what this write held: a record a bound cut before it is on no disk here.
             let fresh = std::mem::take(&mut c.fresh);
+            let link = c.fresh_link.take().unwrap_or_default();
             let records: Vec<Value> = c
                 .records
                 .as_ref()
                 .map(|held| fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
                 .unwrap_or_default();
             if let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) {
-                told = Some((generation, records));
+                told = Some((generation, link, records));
             }
         }
-        if let Some((generation, records)) = told {
+        if let Some((generation, link, records)) = told {
             let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if let Some(hook) = hook {
-                hook(key, generation, records);
+                hook(key, generation, link, records);
             }
         }
         self.trim_memory(None);

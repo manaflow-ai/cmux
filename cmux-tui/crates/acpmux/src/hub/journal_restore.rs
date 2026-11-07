@@ -21,13 +21,17 @@
 //!   the chat was purged, replaced under its id, or has another `createdAt`), `turn_lock` (at
 //!   most [`TURN_LOCK_WITHIN`], else `busy`), `admit` (check and set `restoring`; `restore_lease`
 //!   inside it), `log_load`, `append_lock`. Nothing takes them the other way.
-//! - States: idle; `restoring` (no turn, claim or reservation; every new prompt waits for
-//!   `restore_done`); held (a try stopped short: still `restoring`, for the owner's next try, at
+//! - States: idle (prompts may wait in the queue); `restoring` (no turn or claim; every new
+//!   prompt waits for `restore_done`); held (a try stopped short: still `restoring`, for the owner's next try, at
 //!   most [`RESTORE_HOLD`], then the hold lapses, logged at warn); settled.
 //! - Writes: only past where the journal ends. Afterwards the journal's end and the meta's
 //!   counts are read back from disk, never counted in memory, so a retry writes no seq twice.
 //!   Short of the last record, or any flush error, answers `append_failed`: the owner keeps its
-//!   copy and tries again. The try that finishes settles the log as a restart's load does.
+//!   copy and tries again. The try that finishes settles the log as a restart's load does: the
+//!   queue is rebuilt whole from the log, never merged; the restored prompts go first, then the
+//!   machine's own that still wait; one the restored records settled is withdrawn. A chat whose
+//!   log a deferred start has not read yet is read first, so the gate opens only after the
+//!   settle.
 //! - On the owner (`peer_snapshot/restore.rs`): every step of a restore, each try and each change
 //!   to its copy, goes only on the link and of the generation it started on; a copy that holds
 //!   records past the machine's end stays, across a gap too, and goes back.
@@ -110,12 +114,15 @@ impl Hub {
         let resumed = {
             let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
             let held = session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if session.turn().is_some() || session.queued() > 0 || session.turn_claimed() {
+            // Prompts may wait in its queue (a machine back on a disk that held one): the log
+            // rebuilds the queue whole once the records are in (`log_load.rs`
+            // `settle_restored`). A running or claimed turn refuses it.
+            if session.turn().is_some() || session.turn_claimed() {
                 if held.is_some() {
                     // Never so while held (every prompt waits); kept as it was, to be safe.
                     *session.restore_lease.lock().unwrap_or_else(|e| e.into_inner()) = held;
                 }
-                return Err(refused("busy", "a turn runs or waits here", &session));
+                return Err(refused("busy", "a turn runs here", &session));
             }
             session.restoring.store(true, Ordering::SeqCst);
             held.is_some()
@@ -148,9 +155,14 @@ impl Hub {
         records: Vec<EventRecord>,
         resumed: bool,
     ) -> Result<Value, RpcError> {
-        // Under the log's load lock: a first read of the log comes before (and is read again
-        // below) or after (and reads the restored records itself).
+        // The chat's log is read first, now, when a deferred start has not read it yet (review
+        // of #37284 at 98b4575a, F3): the restore settles the log it writes into, and only then
+        // lets a prompt in. A log that still does not read refuses it, writing nothing.
+        self.load_session_log(session);
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+        if !*loaded {
+            return Err(refused("busy", "this chat's log is not read yet", session));
+        }
         let (at, failed, flush_failed) = {
             let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(session);
@@ -236,8 +248,15 @@ impl Hub {
         // continued, the queue rebuilt; what they start waits for the lock. A try that goes on
         // after one that stopped short settles what that one wrote too.
         let restored = last > at || resumed;
-        if *loaded && restored {
-            self.settle_restored(session);
+        if restored {
+            // The prompts the restore queued: they go ahead of the machine's own.
+            let from_copy = records
+                .iter()
+                .filter(|r| r.seq > after && r.kind == "queued")
+                .filter_map(|r| r.msg.get("promptId").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect();
+            self.settle_restored(session, &from_copy);
         }
         drop(loaded);
         tracing::info!(session = %session.id, after, last, "journal restored from the owner's copy");

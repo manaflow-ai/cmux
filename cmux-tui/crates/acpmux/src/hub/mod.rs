@@ -1100,11 +1100,12 @@ impl Hub {
         // them as proof (`open_delivery.rs`).
         {
             let weak = Arc::downgrade(&hub);
-            let written: peer_snapshot::Written = Arc::new(move |key, generation, records| {
-                if let Some(hub) = weak.upgrade() {
-                    hub.proof_written(&key.0, &key.1, generation, &records);
-                }
-            });
+            let written: peer_snapshot::Written =
+                Arc::new(move |key, generation, link, records| {
+                    if let Some(hub) = weak.upgrade() {
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records);
+                    }
+                });
             *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
         }
         if loading {

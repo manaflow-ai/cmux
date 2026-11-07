@@ -216,7 +216,16 @@ impl Hub {
     /// and continued, and what it had queued waits here again. The caller holds `log_load`.
     /// Every projection a restart's load rebuilds from the log (`load_session_log`) is rebuilt
     /// here, but for a host to adopt (none runs for it here) and a copy's first start.
-    pub(super) fn settle_restored(self: &Arc<Self>, session: &Arc<Session>) {
+    ///
+    /// The queue is rebuilt whole from the log, never merged with the one the machine had
+    /// (review of #37284 at 98b4575a, F2): a prompt the restored records settled leaves it; one
+    /// still waiting keeps its own entry (and the task that runs it); the restored records' own
+    /// prompts (`from_copy`) go first, then the machine's, each in their order.
+    pub(super) fn settle_restored(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        from_copy: &std::collections::HashSet<String>,
+    ) {
         if let Err(error) = self.restore_ownership_epoch(session) {
             session.invalidate_ownership_epoch();
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
@@ -224,7 +233,14 @@ impl Hub {
         self.restore_transfer_authority(session);
         let continued = self.mark_unknown_outcome(session);
         self.settle_subagent_retries(session);
+        let before: Vec<super::queue::QueuedPrompt> = {
+            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            let before = std::mem::take(&mut *queue);
+            session.queued.fetch_sub(before.len() as u64, Ordering::SeqCst);
+            before
+        };
         self.restore_queue(session);
+        self.replace_queue(session, before, from_copy);
         self.drop_unsent_subagent_retries(session);
         super::message_events::recover_message_events(self, session);
         if let Some(prompt_id) = continued {
@@ -234,6 +250,53 @@ impl Hub {
             self.resume_restored(std::slice::from_ref(session));
             self.resume_agent_pair_drains();
         }
+    }
+
+    /// After `restore_queue` rebuilt `session`'s queue from its log: each prompt that was in the
+    /// queue before (`before`) and still waits keeps that entry, not the rebuilt one, so the task
+    /// that runs it is the only one; each one the log settled since is withdrawn (its waiting
+    /// prompt answers, and it never runs). Then `from_copy`'s prompts go first.
+    fn replace_queue(
+        &self,
+        session: &Arc<Session>,
+        mut before: Vec<super::queue::QueuedPrompt>,
+        from_copy: &std::collections::HashSet<String>,
+    ) {
+        let order = {
+            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
+            for q in queue.iter_mut() {
+                let Some(i) = before.iter().position(|b| b.prompt_id == q.prompt_id) else {
+                    continue;
+                };
+                // The rebuilt entry's outcome and restored marks go: the kept one has its own.
+                if let Some(at) = ledger.iter().rposition(|(id, _)| *id == q.prompt_id)
+                    && ledger.iter().filter(|(id, _)| *id == q.prompt_id).count() > 1
+                {
+                    ledger.remove(at);
+                }
+                if let Some(at) = restored.iter().rposition(|(id, _)| *id == q.prompt_id) {
+                    restored.remove(at);
+                }
+                *q = before.remove(i);
+            }
+            let ids = |queue: &[super::queue::QueuedPrompt]| -> Vec<String> {
+                queue.iter().map(|q| q.prompt_id.clone()).collect()
+            };
+            let old = ids(&queue);
+            queue.sort_by_key(|q| !from_copy.contains(&q.prompt_id));
+            let new = ids(&queue);
+            (new != old).then_some(new)
+        };
+        for gone in before {
+            tracing::info!(session = %session.id, prompt = %gone.prompt_id, "a restore settled a queued prompt; withdrawn");
+            gone.withdraw.notify_one();
+        }
+        if let Some(order) = order {
+            self.append(session, "mux", "queue_order", json!({"order": order}));
+        }
+        session.queue_moved.notify_waiters();
     }
 
     /// After adoption: every chat whose agent host ran at the start and has no agent now. Its
