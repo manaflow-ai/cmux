@@ -89,4 +89,17 @@ import Testing
         let clicked = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
         #expect(clicked == first, "a click on ws-1 moved the new row: \(clicked), was \(first)")
     }
+
+    /// A new row (no slot yet) lists while a member the document stopped placing goes back in its slot.
+    @Test func aNewRowListsWhileAMemberIsHeld() {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4"])
+        let docSections = SidebarDocSections(document: { nil })
+        docSections.newRowsPlace = { .below(Self.id("ws-3", in: store)) }
+        let before = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
+        let grown = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4", "ws-new"])
+        let placing = Self.members.filter { $0 != "ws-merge" }
+        let during = Self.layout(docSections.sections(Self.projection(members: placing), session: Self.session, workspaces: grown.workspaces))
+        #expect(during.dropLast() == before.dropLast(), "the held member left its group: \(during), was \(before)")
+        #expect(during.last == "ws-3,ws-new,ws-4", "the new row does not list below ws-3: \(during)")
+    }
 }
