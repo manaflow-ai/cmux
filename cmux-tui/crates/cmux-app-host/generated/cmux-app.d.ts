@@ -121,7 +121,7 @@ declare namespace Cmux {
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
   type DiffComment = Record<string, Cmux.JsonValue>
-  type DiffCommentsDeleteResult = { deleted: number }
+  type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
   type EgressHost = string
@@ -917,7 +917,7 @@ interface CmuxGlobal {
   diff: {
     comments: {
       /** `diff.comments.delete` (mutation, scope `diff:write`) */
-      delete: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string> }, Cmux.MutationResult<Cmux.DiffCommentsDeleteResult>>
+      delete: CmuxOp<{ machine?: string; session?: string; root: string; ids: Array<string>; versions?: Record<string, string> }, Cmux.MutationResult<Cmux.DiffCommentsDeleteResult>>
       /** `diff.comments.list` (read, scope `diff:read`) */
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
