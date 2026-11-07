@@ -141,10 +141,10 @@ final class BrowserImportOfferService {
         shownThisLaunch = false
     }
 
-    /// A finished import (this offer's or File > Import from Browser): once
-    /// data came over, the offer never shows again.
-    func importFinished(_ summary: ImportSummary) {
-        update { $0.recordImport(summary.counts) }
+    /// A finished import (any path, Import Cookies included): once cookies came over, it never shows again (Leo 2026-11-07).
+    func importFinished(_ counts: ImportCounts) {
+        update { $0.recordImport(counts) }
+        if state.imported { shownOn?.hideCookieImportOffer() }
     }
 
     /// `debug.browser_import_offer reset`: back to a fresh Mac's state, the setting on again.

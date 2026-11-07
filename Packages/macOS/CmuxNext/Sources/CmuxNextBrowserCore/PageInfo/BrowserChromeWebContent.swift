@@ -20,4 +20,6 @@ public protocol BrowserChromeWebContent: AnyObject {
 /// The surfaces the browser chrome draws in React.
 public enum BrowserChromeWebPage: String, Sendable {
     case pageInfo = "page-info"
+    /// The Import Cookies card at the bottom of a page (`BrowserCookieImportCard`).
+    case cookieImport = "cookie-import"
 }
