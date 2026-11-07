@@ -28,11 +28,14 @@ is sampled again as `purged-N` (one count per run, so `idle-N` is an unpurged ap
 
 --release-hidden-chats MINUTES measures lossless discard of hidden agent chats (Leo, 2026-11-07:
 "if it really isn't being used after a while, can't things be more aggressive?"): the app runs with
-`agents.hiddenChats.discard` on and `agents.hiddenChats.discardAfterMinutes` MINUTES. After the
-count's `idle-N` sample it waits for the hidden chats to be released, samples `released-N` with the
-live Chromium page count, then shows the --restore-chats oldest workspaces one at a time and times
-each chat back on screen with the app's own chat-open trace (`debug.chat_open_trace`: first content,
-first kept image, longest empty run). One count per run, like --purge-hidden.
+the app runs with discard off until the count's `idle-N` sample, then the bench writes
+`agents.hiddenChats.discard` on and `agents.hiddenChats.discardAfterMinutes` MINUTES into its cmux.json
+(the app follows the file), so the baseline holds no released chat. It waits for the hidden chats to be
+released, samples `released-N` with the live Chromium page count, then shows the --restore-chats oldest
+workspaces one at a time and times each chat back on screen with the app's own chat-open trace
+(`debug.chat_open_trace`: first content, first kept image, longest empty run). The trace binds only to
+a chat that loads again; a chat whose page stayed live shows at once and is counted as `live`, not
+timed. One count per run, like --purge-hidden.
 
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
@@ -400,7 +403,9 @@ def restore_chats(app: App, workspaces: list[str], count: int) -> dict:
         })
     content = [o["first_content_ms"] for o in opens if isinstance(o.get("first_content_ms"), (int, float))]
     empty = [o["longest_empty_ms"] for o in opens if isinstance(o.get("longest_empty_ms"), (int, float))]
-    return {"opens": opens, "n": len(content), "timed_out": sum(1 for o in opens if o.get("timed_out")),
+    live = sum(1 for o in opens if o.get("timed_out") and o.get("first_content_ms") is None)
+    return {"opens": opens, "n": len(content), "live": live,
+            "timed_out": sum(1 for o in opens if o.get("timed_out")) - live,
             "first_content_p50_ms": percentile(content, 0.5), "first_content_p95_ms": percentile(content, 0.95),
             "longest_empty_p50_ms": percentile(empty, 0.5), "longest_empty_p95_ms": percentile(empty, 0.95),
             "with_image": sum(1 for o in opens if o.get("first_image_ms") is not None)}
@@ -789,6 +794,8 @@ def main():
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
         parser.error("--purge-hidden and --release-hidden-chats take one --workspaces count; run each count on its own")
+    if args.release_hidden_chats > 0 and args.socket:
+        parser.error("--release-hidden-chats launches the app itself (it writes the setting into the launch's cmux.json); drop --socket")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -803,9 +810,6 @@ def main():
     else:
         extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
         config = json.loads(args.config)
-        if args.release_hidden_chats > 0:
-            config = merged(config, {"agents": {"hiddenChats": {"discard": True,
-                                                                "discardAfterMinutes": args.release_hidden_chats}}})
         launched, socket_path, scratch = launch(bundle, config, extra)
         app_pid = launched
     app = App(bundle, socket_path)
@@ -853,6 +857,9 @@ def main():
                 settle_and_sample(f"purged-{count}")["purge"] = purge
             if args.release_hidden_chats > 0:
                 before = cef_page_count(app)
+                discard = {"agents": {"hiddenChats": {"discard": True, "discardAfterMinutes": args.release_hidden_chats}}}
+                with open(os.path.join(scratch, "cmux.json"), "w") as out:
+                    json.dump(merged(config, discard), out)
                 # test script: the hidden chats come due after the setting's minutes (plus the planner's slack)
                 time.sleep(args.release_hidden_chats * 60 + 30)
                 result = settle_and_sample(f"released-{count}")

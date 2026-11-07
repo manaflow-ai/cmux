@@ -108,6 +108,10 @@ for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+    if "cef_pages" in s:
+        print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
+if "restore" in data:
+    print(f"PERF-IDLE-RESTORE {json.dumps({k: v for k, v in data['restore'].items() if k != 'opens'})}")
 PY
 fi
 exit "$status"
