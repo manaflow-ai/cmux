@@ -179,6 +179,7 @@ pub mod trust;
 pub mod trust_auto;
 pub mod tui;
 pub mod turn_attestation;
+mod usage_record;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;

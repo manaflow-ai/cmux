@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextCompat
 public import CmuxNextSettings
 import os
 
@@ -17,9 +18,16 @@ import os
 /// let fields = await reporter.counts().json
 /// ```
 public final class ActionBudgetReporter: Sendable {
+    /// A reader of every run besides the ledger (opt-in usage recording): called off the main
+    /// actor with each batch, and with the runs ``counts()`` folds in between batches.
+    public typealias RunSink = @Sendable ([ActionTimingSample]) -> Void
+
     /// Every run's latency per report id and entrypoint.
     public let ledger: ActionBudgetLedger
+    /// The report id of each action (no user text in a report), for a ``RunSink`` that names runs.
+    public let naming: ActionReportNaming
     private let monitor: ActionBudgetMonitor
+    private let sink: SinkSlot
     private let tasks: [Task<Void, Never>]
 
     /// Starts reading `monitor`'s runs.
@@ -36,10 +44,16 @@ public final class ActionBudgetReporter: Sendable {
     public init(monitor: ActionBudgetMonitor, naming: ActionReportNaming, overBudget: HangLog?, sampling: Bool, logsRuns: Bool) {
         let ledger = ActionBudgetLedger(budgetMilliseconds: Double(monitor.budgetNanos) / 1_000_000, naming: naming)
         self.ledger = ledger
+        self.naming = naming
         self.monitor = monitor
+        let sink = SinkSlot()
+        self.sink = sink
         let batches = monitor.batches()
-        var tasks = [Task.detached(priority: .utility) {
-            for await batch in batches { await ledger.note(batch) }
+        var tasks = [Task.detached(priority: .utility) { [sink] in
+            for await batch in batches {
+                sink.current?(batch)
+                await ledger.note(batch)
+            }
         }]
         if logsRuns {
             let slow = monitor.samples(everyRun: false)
@@ -60,11 +74,20 @@ public final class ActionBudgetReporter: Sendable {
         for task in tasks { task.cancel() }
     }
 
+    /// Hands every run from now on to `sink` as well as the ledger (nil: stops). One sink at a
+    /// time: a newer one replaces it. A batch already being read may still reach the old one.
+    ///
+    /// - Parameter sink: The reader, or nil.
+    public func setRunSink(_ sink: RunSink?) {
+        self.sink.lock.withLock { $0 = sink }
+    }
+
     /// The report's counters now: the runs since the monitor's last batch are folded in first, so
     /// none recorded before the call is missing (a batch already handed over but not yet folded
     /// lands in the next call).
     public func counts() async -> ActionBudgetCounts {
         let (unbatched, dropped) = await MainActor.run { [monitor] in (monitor.takeUnbatched(), monitor.droppedRunCount) }
+        if !unbatched.isEmpty { sink.current?(unbatched) }
         await ledger.note(unbatched)
         return await ledger.snapshot(dropped: Int(clamping: dropped))
     }
@@ -98,6 +121,13 @@ public final class ActionBudgetReporter: Sendable {
             })
             return .object(members)
         }
+    }
+
+    /// The one ``RunSink``, shared by the batch task and ``setRunSink(_:)``.
+    private final class SinkSlot: Sendable {
+        let lock = Mutex<RunSink?>(nil)
+        /// The sink now, read under the lock and called outside it, so a set or clear never waits on a call.
+        var current: RunSink? { lock.withLock { $0 } }
     }
 
     /// The registry's pipeline counts as JSON.

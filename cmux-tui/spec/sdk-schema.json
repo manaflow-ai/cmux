@@ -10088,6 +10088,42 @@
     }
    },
    "additional_properties": false
+  },
+  "UsageRecordResult": {
+   "kind": "object",
+   "fields": {
+    "written": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "UsageSetEnabledResult": {
+   "kind": "object",
+   "fields": {
+    "on": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "dir": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -26096,6 +26132,79 @@
    "stream": null,
    "constraints": [
     "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
+   ]
+  },
+  "usage-record": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "source": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       {
+        "format": "writer stem token, e.g. app-nightly; any other text records as other"
+       }
+      ]
+     },
+     "events": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       {
+        "format": "JSON array text of {at, ev} usage records (cmux-usage Event)"
+       }
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "UsageRecordResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Opt-in usage recording: interaction shape only, never content. Writes nothing while recording is off (written is 0).",
+    "A batch with any unknown field or event refuses whole, with nothing written. Ids are hashed with this install's salt."
+   ]
+  },
+  "usage-set-enabled": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "UsageSetEnabledResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Switching off keeps what was recorded; nothing is deleted."
    ]
   },
   "put-blob": {

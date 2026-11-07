@@ -37,6 +37,7 @@ mod terminal;
 mod terminal_input;
 pub(crate) mod terminal_respawn;
 mod update_notice;
+mod usage_recording;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
@@ -71,6 +72,7 @@ pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
 pub(crate) use update_notice::UpdateNoticeMessages;
+pub(crate) use usage_recording::UsageRecordingMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
@@ -165,6 +167,7 @@ pub(crate) struct Catalog {
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
     pub live_code: LiveCodeMessages,
+    pub usage_recording: UsageRecordingMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -188,6 +191,7 @@ static ENGLISH: Catalog = Catalog {
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
     live_code: live_code::ENGLISH,
+    usage_recording: usage_recording::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -225,6 +229,7 @@ static JAPANESE: Catalog = Catalog {
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
     live_code: live_code::JAPANESE,
+    usage_recording: usage_recording::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,

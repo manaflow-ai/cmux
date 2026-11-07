@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
+/* cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2. */
 
 
 import type * as T from "./types.js";
@@ -2936,6 +2936,19 @@ export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
 }
 export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface UsageRecordRequest extends CmuxRequestBase {
+  cmd: "usage-record";
+  "events": string;
+  "source": string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface UsageSetEnabledRequest extends CmuxRequestBase {
+  cmd: "usage-set-enabled";
+  "on": boolean;
+}
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -3259,6 +3272,8 @@ export type CmuxRequest =
   | UrlOpenClaimRequest
   | UrlOpenResultRequest
   | UrlOpenSubscribeRequest
+  | UsageRecordRequest
+  | UsageSetEnabledRequest
   | VtStateRequest
   | WaitForRequest
   | WsListenRequest
@@ -5593,6 +5608,22 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: null;
     stream: "subscribe";
+  };
+  "usage-record": {
+    request: UsageRecordRequest;
+    result: T.UsageRecordResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "usage-set-enabled": {
+    request: UsageSetEnabledRequest;
+    result: T.UsageSetEnabledResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
   };
   "vt-state": {
     request: VtStateRequest;

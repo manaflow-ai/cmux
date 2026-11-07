@@ -62,6 +62,7 @@ members = [
     "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
+    "crates/cmux-usage",
     "crates/cmux-pty",
     "crates/cmux-holder",
     "crates/cmux-flow-trace",
@@ -278,6 +279,7 @@ cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
+cmux-usage = { path = "crates/cmux-usage" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }

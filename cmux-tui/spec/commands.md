@@ -570,6 +570,50 @@ before it, so a command that finished just before the delete is deleted
 too. Rows are zeroed (`secure_delete`); the worker then checkpoints the WAL
 (see `set-terminal-command-history`).
 
+### usage-record
+
+| Field | Value |
+| --- | --- |
+| name | `usage-record` |
+| status | implemented |
+| since | protocol 12 |
+
+Appends one batch of the app's opt-in usage events (crate `cmux-usage`: the
+shape of how cmux is used, never content) to `<usage dir>/<source>.jsonl`.
+The verified cmux app only (the `frontend` actor: a role-main Unix connection
+whose code signature or install key was proved in `client-hello`); any other
+client is refused.
+
+Params: `{source: string, events: string}`. `source` is the writer's file stem
+(`app-nightly`, `app-dev`); text that is not a plain identifier is recorded as
+`other`. `events` is the text of a JSON array of `{at: u64 ms, ev: Event}`.
+Result: `{written: u32}`.
+
+While recording is off (no `<usage dir>/enabled`), nothing is written and
+`written` is 0. A batch with any unknown field or event kind is refused whole
+(`bad request`), with nothing written. Ids are hashed with this install's salt
+before they are written. The usage dir is `CMUX_USAGE_DIR`, else
+`~/Library/Application Support/cmux/usage` on macOS, else
+`$XDG_STATE_HOME/cmux/usage`. Each file rolls to `.1` past 4 MiB.
+
+### usage-set-enabled
+
+| Field | Value |
+| --- | --- |
+| name | `usage-set-enabled` |
+| status | implemented |
+| since | protocol 12 |
+
+Switches opt-in usage recording on or off, from the person's own choice in the
+app, after its setting and per-Mac consent. The verified cmux app only (the
+`frontend` actor); any other client (an agent in a pane, a script, the `cmux`
+CLI, a remote or WebSocket peer) is refused, so none can switch recording on
+behind the person's choice.
+
+Params: `{on: boolean}`. Result: `{on: boolean, dir: string}`, `dir` being the
+usage dir. On writes the `enabled` marker and makes the folder and salt if
+needed; off removes the marker and keeps what was recorded.
+
 ### server-stats
 
 | Field | Value |

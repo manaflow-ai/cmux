@@ -1393,14 +1393,33 @@ impl Hub {
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
         // between (`shutdown.rs` `settle_ends`).
-        let detached = {
+        let (detached, began) = {
             let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
             let taken = self.take_turn(session, turn_id, in_place);
             let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
+            // When it started and its tool calls, for usage recording (`usage_record.rs`).
+            let began = taken.as_ref().filter(|_| took).map(|t| (t.started_at, t.doing.tool_calls));
             if took {
                 *session.ending.lock().unwrap_or_else(|e| e.into_inner()) = taken;
             }
-            !took
+            (!took, began)
+        };
+        // Taken at every end, so a turn's count is its own whether or not recording is on.
+        let subagents = session.subagents.lock().unwrap_or_else(|e| e.into_inner()).take_started();
+        let record_turn = |msg: &Value| {
+            self.usage.record(|| {
+                let harness =
+                    session.read_meta(|m| m.family.clone().unwrap_or_else(|| m.harness.clone()));
+                let (started_at, tool_calls) = began.map_or((None, 0), |(at, n)| (Some(at), n));
+                crate::usage_record::turn_event(
+                    &session.id,
+                    &harness,
+                    msg,
+                    started_at,
+                    tool_calls,
+                    subagents,
+                )
+            });
         };
         let ending = EndUnderWay { hub: self, session, turn_id };
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
@@ -1609,6 +1628,7 @@ impl Hub {
                         .iter()
                         .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
                         .reduce(u64::saturating_add);
+                    record_turn(&msg);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
@@ -1658,6 +1678,7 @@ impl Hub {
                             o.insert("errorSource".into(), json!("acpmux"));
                         }
                     }
+                    record_turn(&msg);
                     self.write_turn_result(session, msg, git);
                 }
             }

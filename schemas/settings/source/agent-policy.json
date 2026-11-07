@@ -1305,6 +1305,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this Mac records how cmux is used (local counts and timings, never content): the person's choice only.",
+      "keys": [
+        "diagnostics.usageRecording"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86.
+// cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -4187,6 +4187,19 @@ pub type UrlOpenSubscribeResult = T::GuestUrlSubscribeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageRecordRequest {
+    pub events: String,
+    pub source: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsageSetEnabledRequest {
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
 }
@@ -5907,6 +5920,14 @@ impl CmuxClient {
 
     pub fn url_open_subscribe(&mut self, request: UrlOpenSubscribeRequest) -> Result<CmuxStream> {
         self.execute_stream(&URL_OPEN_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn usage_record(&mut self, request: UsageRecordRequest) -> Result<T::UsageRecordResult> {
+        self.execute(&USAGE_RECORD_METADATA, &request)
+    }
+
+    pub fn usage_set_enabled(&mut self, request: UsageSetEnabledRequest) -> Result<T::UsageSetEnabledResult> {
+        self.execute(&USAGE_SET_ENABLED_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

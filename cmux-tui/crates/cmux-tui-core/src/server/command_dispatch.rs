@@ -98,6 +98,8 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
+        Command::UsageRecord(params) => cmd_usage::record(mux, client, &params),
+        Command::UsageSetEnabled(params) => cmd_usage::set_enabled(mux, client, &params),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),

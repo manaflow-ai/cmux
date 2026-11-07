@@ -214411,6 +214411,530 @@
           }
         }
       }
+    },
+    "settings.group.usageRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الاستخدام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilježenje korištenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrering af brug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsaufzeichnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage Recording"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registro de uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de l’utilisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrazione dell’utilizzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況の記録"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការកត់ត្រាការប្រើប្រាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 기록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrering av bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejestrowanie użycia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registro de uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись использования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การบันทึกการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım Kaydı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запис використання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi lại cách sử dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情况记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情況記錄"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.usageRecording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الاستخدام على هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilježi korištenje na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrér brug på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung auf diesem Mac aufzeichnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record Usage on This Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar el uso en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer l’utilisation sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra l’utilizzo su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacで使用状況を記録"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កត់ត្រាការប្រើប្រាស់នៅលើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 사용 기록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrer bruk på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejestruj użycie na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar o uso neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывать использование на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกการใช้งานบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’te Kullanımı Kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записувати використання на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi lại cách sử dụng trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 Mac 上记录使用情况"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 Mac 上記錄使用情況"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.usageRecording.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقى على هذا الـ Mac. بلا أسماء ملفات أو نصوص أو عناوين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostaje na ovom Macu. Bez imena datoteka, teksta i adresa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bliver på denne Mac. Ingen filnavne, tekst eller adresser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bleibt auf diesem Mac. Keine Dateinamen, Texte oder Adressen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stays on this Mac. No file names, text or addresses."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se queda en este Mac. Sin nombres de archivo, texto ni direcciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reste sur ce Mac. Aucun nom de fichier, texte ni adresse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resta su questo Mac. Nessun nome di file, testo o indirizzo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacの中だけに保存。ファイル名、テキスト、アドレスは含みません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅលើ Mac នេះប៉ុណ្ណោះ។ គ្មាន​ឈ្មោះ​ឯកសារ អត្ថបទ ឬ​អាសយដ្ឋាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에만 저장됩니다. 파일 이름, 텍스트, 주소는 포함하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blir på denne Macen. Ingen filnavn, tekst eller adresser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zostaje na tym Macu. Bez nazw plików, tekstu i adresów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fica neste Mac. Sem nomes de arquivos, texto ou endereços."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остаётся на этом Mac. Без имён файлов, текста и адресов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อยู่บน Mac เครื่องนี้เท่านั้น ไม่มีชื่อไฟล์ ข้อความ หรือที่อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’te kalır. Dosya adı, metin veya adres yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Залишається на цьому Mac. Без назв файлів, тексту й адрес."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ lưu trên máy Mac này. Không có tên tệp, văn bản hay địa chỉ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅保存在此 Mac 上。不含文件名、文本或地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅保存在此 Mac 上。不含檔案名稱、文字或位址。"
+          }
+        }
+      }
+    },
+    "settings.diagnostics.usageRecording.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتفظ بسجل محلي لطريقة استخدامك cmux: هل أنت في طرفية أو متصفح أو محادثة وكيل، وأي الأوامر تعمل وهل بدأت من مفتاح أو نقرة أو سطر الأوامر، وكم تستغرق، وأعداد النوافذ والأجزاء وعلامات التبويب المفتوحة. لا يتضمن أبدًا أسماء ملفات أو عناوين ويب أو عناوين نوافذ أو نص الطرفية أو المحادثة أو أي شيء تكتبه. يبقى السجل على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vodi lokalni zapis o tome kako koristite cmux: jeste li u terminalu, pregledniku ili chatu s agentom, koje se komande pokreću i da li tipkom, klikom ili iz CLI-ja, koliko traju te broj otvorenih prozora, okna i kartica. Nikada ne sadrži imena datoteka, web adrese, naslove, tekst terminala ili chata, niti išta što kucate. Zapis ostaje na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fører en lokal registrering af, hvordan du bruger cmux: om du er i en terminal, en browser eller en agentchat, hvilke kommandoer der køres, og om det sker fra en tast, et klik eller CLI’en, hvor lang tid de tager, og antal åbne vinduer, ruder og faner. Den indeholder aldrig filnavne, webadresser, titler, terminal- eller chattekst eller noget, du skriver. Registreringen bliver på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führt lokal Buch darüber, wie du cmux nutzt: ob du in einem Terminal, einem Browser oder einem Agent-Chat bist, welche Befehle laufen und ob per Taste, Klick oder CLI, wie lange sie dauern, und wie viele Fenster, Bereiche und Tabs offen sind. Enthält nie Dateinamen, Webadressen, Titel, Terminal- oder Chattext oder etwas, das du eingibst. Die Aufzeichnung bleibt auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps a local record of how you use cmux: whether you are in a terminal, a browser or an agent chat, which commands run and whether from a key, a click or the CLI, how long they take, and counts of open windows, panes and tabs. It never includes file names, web addresses, titles, terminal or chat text, or anything you type. The record stays on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda un registro local de cómo usas cmux: si estás en una terminal, un navegador o un chat con un agente, qué comandos se ejecutan y si desde una tecla, un clic o la CLI, cuánto tardan y cuántas ventanas, paneles y pestañas hay abiertos. Nunca incluye nombres de archivo, direcciones web, títulos, texto de la terminal o del chat, ni nada que escribas. El registro se queda en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tient un registre local de votre utilisation de cmux : si vous êtes dans un terminal, un navigateur ou une discussion avec un agent, quelles commandes s’exécutent et si c’est depuis une touche, un clic ou la CLI, leur durée, et le nombre de fenêtres, volets et onglets ouverts. Il ne contient jamais de noms de fichiers, d’adresses web, de titres, de texte du terminal ou des discussions, ni rien de ce que vous tapez. Le registre reste sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiene un registro locale di come usi cmux: se sei in un terminale, in un browser o in una chat con un agente, quali comandi vengono eseguiti e se da un tasto, un clic o dalla CLI, quanto durano e quante finestre, riquadri e schede sono aperti. Non include mai nomi di file, indirizzi web, titoli, testo del terminale o della chat, né nulla di ciò che digiti. Il registro resta su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxの使い方をローカルに記録します：ターミナル、ブラウザ、エージェントチャットのどれを使っているか、どのコマンドがキー、クリック、CLIのどれから実行されたか、その所要時間、開いているウインドウ、ペイン、タブの数。ファイル名、Webアドレス、タイトル、ターミナルやチャットのテキスト、入力した内容は一切含みません。記録はこのMacの中に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាកំណត់ត្រាក្នុងម៉ាស៊ីនអំពីរបៀបដែលអ្នកប្រើ cmux៖ ថាតើអ្នកនៅក្នុងទែមីណាល់ កម្មវិធីរុករក ឬការជជែកជាមួយភ្នាក់ងារ ពាក្យបញ្ជាណាដែលដំណើរការ និងថាវាចាប់ផ្តើមពីគ្រាប់ចុច ការចុច ឬ CLI រយៈពេលដែលវាប្រើ និងចំនួនបង្អួច ផ្ទាំង និងផ្ទាំងរុករកដែលបើក។ វាមិនដែលរួមបញ្ចូលឈ្មោះឯកសារ អាសយដ្ឋានវេប ចំណងជើង អត្ថបទទែមីណាល់ ឬការជជែក ឬអ្វីដែលអ្នកវាយឡើយ។ កំណត់ត្រានៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 사용 방식을 이 Mac에 기록합니다: 터미널, 브라우저, 에이전트 채팅 중 어디에 있는지, 어떤 명령이 키, 클릭, CLI 중 무엇으로 실행되었는지, 걸린 시간, 열린 창, 패널, 탭의 수. 파일 이름, 웹 주소, 제목, 터미널이나 채팅 텍스트, 입력한 내용은 절대 포함하지 않습니다. 기록은 이 Mac에만 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fører en lokal oversikt over hvordan du bruker cmux: om du er i en terminal, en nettleser eller en agentchat, hvilke kommandoer som kjøres og om det skjer fra en tast, et klikk eller CLI-en, hvor lang tid de tar, og antall åpne vinduer, ruter og faner. Den inneholder aldri filnavn, nettadresser, titler, terminal- eller chattekst eller noe du skriver. Oversikten blir på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prowadzi lokalny zapis tego, jak używasz cmux: czy jesteś w terminalu, przeglądarce czy czacie z agentem, które polecenia są uruchamiane i czy klawiszem, kliknięciem czy z CLI, jak długo trwają oraz ile okien, paneli i kart jest otwartych. Nigdy nie zawiera nazw plików, adresów internetowych, tytułów, tekstu terminala ani czatu, ani niczego, co wpisujesz. Zapis zostaje na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém um registro local de como você usa o cmux: se você está em um terminal, um navegador ou um chat com um agente, quais comandos são executados e se a partir de uma tecla, um clique ou da CLI, quanto tempo levam e quantas janelas, painéis e abas estão abertos. Nunca inclui nomes de arquivos, endereços da web, títulos, texto do terminal ou do chat, nem nada que você digite. O registro fica neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ведёт локальную запись того, как вы используете cmux: находитесь ли вы в терминале, браузере или чате с агентом, какие команды выполняются и как — клавишей, щелчком или из CLI, сколько они занимают времени и сколько открыто окон, панелей и вкладок. Запись никогда не содержит имён файлов, веб-адресов, заголовков, текста терминала или чата и ничего из того, что вы вводите. Запись остаётся на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บบันทึกในเครื่องว่าคุณใช้ cmux อย่างไร: คุณอยู่ในเทอร์มินัล เบราว์เซอร์ หรือแชทกับเอเจนต์ คำสั่งใดทำงานและเริ่มจากปุ่ม การคลิก หรือ CLI ใช้เวลานานเท่าใด และจำนวนหน้าต่าง แพน และแท็บที่เปิดอยู่ ไม่มีชื่อไฟล์ ที่อยู่เว็บ ชื่อเรื่อง ข้อความในเทอร์มินัลหรือแชท หรือสิ่งที่คุณพิมพ์ บันทึกจะอยู่บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’i nasıl kullandığının yerel bir kaydını tutar: bir terminalde mi, bir tarayıcıda mı yoksa bir ajan sohbetinde mi olduğun, hangi komutların bir tuşla, tıklamayla ya da CLI’dan çalıştığı, ne kadar sürdükleri ve açık pencere, bölme ve sekme sayıları. Asla dosya adı, web adresi, başlık, terminal ya da sohbet metni veya yazdığın herhangi bir şeyi içermez. Kayıt bu Mac’te kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Веде локальний запис того, як ви користуєтеся cmux: чи ви в терміналі, браузері чи чаті з агентом, які команди виконуються і як — клавішею, клацанням чи з CLI, скільки вони тривають і скільки відкрито вікон, панелей і вкладок. Запис ніколи не містить назв файлів, вебадрес, заголовків, тексту термінала чи чату або будь-чого, що ви вводите. Запис залишається на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu một bản ghi cục bộ về cách bạn dùng cmux: bạn đang ở terminal, trình duyệt hay cuộc trò chuyện với agent, lệnh nào chạy và chạy từ phím, cú nhấp hay CLI, mất bao lâu, cùng số cửa sổ, ô và tab đang mở. Bản ghi không bao giờ chứa tên tệp, địa chỉ web, tiêu đề, văn bản trong terminal hay cuộc trò chuyện, hay bất cứ thứ gì bạn gõ. Bản ghi chỉ ở trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本机记录你如何使用 cmux：你在终端、浏览器还是代理聊天中，运行了哪些命令以及它们来自按键、点按还是 CLI，耗时多久，以及打开的窗口、窗格和标签页数量。绝不包含文件名、网址、标题、终端或聊天文本，或你输入的任何内容。记录只保存在此 Mac 上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本機記錄你如何使用 cmux：你在終端機、瀏覽器還是代理聊天中，執行了哪些指令以及它們來自按鍵、點按還是 CLI，耗時多久，以及開啟的視窗、窗格和標籤頁數量。絕不包含檔案名稱、網址、標題、終端機或聊天文字，或你輸入的任何內容。記錄只保存在此 Mac 上。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

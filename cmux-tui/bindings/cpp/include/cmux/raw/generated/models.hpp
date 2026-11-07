@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
+inline constexpr std::string_view kProtocolIrSha256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -244,6 +244,8 @@ struct TerminalResources;
 struct TerminalResourcesResult;
 struct TerminalResumeCommandResult;
 struct Tree;
+struct UsageRecordResult;
+struct UsageSetEnabledResult;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
 struct VtStateResult;
@@ -589,6 +591,8 @@ struct UrlOpenRequest;
 struct UrlOpenClaimRequest;
 struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
+struct UsageRecordRequest;
+struct UsageSetEnabledRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct WsListenRequest;
@@ -6110,6 +6114,28 @@ struct UrlOpenSubscribeRequest {
     friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
 };
 
+struct UsageRecordRequest {
+    std::string events{};
+    std::string source{};
+    friend bool operator==(const UsageRecordRequest&, const UsageRecordRequest&) = default;
+};
+
+struct UsageRecordResult {
+    std::uint32_t written{};
+    friend bool operator==(const UsageRecordResult&, const UsageRecordResult&) = default;
+};
+
+struct UsageSetEnabledRequest {
+    bool on{};
+    friend bool operator==(const UsageSetEnabledRequest&, const UsageSetEnabledRequest&) = default;
+};
+
+struct UsageSetEnabledResult {
+    std::string dir{};
+    bool on{};
+    friend bool operator==(const UsageSetEnabledResult&, const UsageSetEnabledResult&) = default;
+};
+
 struct ViewportPaneWidthResult {
     float width{};
     friend bool operator==(const ViewportPaneWidthResult&, const ViewportPaneWidthResult&) = default;
@@ -7628,6 +7654,18 @@ template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageRecordResult> {
+    static Result<Json> encode(const UsageRecordResult& value);
+    static Result<UsageRecordResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageSetEnabledResult> {
+    static Result<Json> encode(const UsageSetEnabledResult& value);
+    static Result<UsageSetEnabledResult> decode(const Json& value);
 };
 
 template <>
@@ -9698,6 +9736,18 @@ template <>
 struct Codec<UrlOpenSubscribeRequest> {
     static Result<Json> encode(const UrlOpenSubscribeRequest& value);
     static Result<UrlOpenSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageRecordRequest> {
+    static Result<Json> encode(const UsageRecordRequest& value);
+    static Result<UsageRecordRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UsageSetEnabledRequest> {
+    static Result<Json> encode(const UsageSetEnabledRequest& value);
+    static Result<UsageSetEnabledRequest> decode(const Json& value);
 };
 
 template <>

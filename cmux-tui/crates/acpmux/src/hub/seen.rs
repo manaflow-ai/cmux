@@ -12,6 +12,7 @@ impl Hub {
     pub fn attach_count(&self, session: &Session, delta: i32, visible: bool) {
         // A client letting go starts the idle period; one arriving resets it.
         self.touch(session);
+        let was_shown = self.shown(session);
         let n = delta.unsigned_abs() as usize;
         if delta > 0 {
             session.attached.fetch_add(n, Ordering::SeqCst);
@@ -27,6 +28,7 @@ impl Hub {
                 let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
             }
         }
+        self.record_view(session, was_shown);
         // Leaving the chat or coming back to it (`away_recap.rs`).
         self.recap_visibility(session);
         // The git watch follows the chats clients hold (`git_watch.rs`).
@@ -37,6 +39,7 @@ impl Hub {
 
     /// An attached client starts or stops showing the chat.
     pub fn set_visible(&self, session: &Session, visible: bool) {
+        let was_shown = self.shown(session);
         let less = |v: usize| Some(v.saturating_sub(1));
         if visible {
             let _ = session.hidden.fetch_update(Ordering::SeqCst, Ordering::SeqCst, less);
@@ -44,8 +47,21 @@ impl Hub {
         } else {
             session.hidden.fetch_add(1, Ordering::SeqCst);
         }
+        self.record_view(session, was_shown);
         self.recap_visibility(session);
         self.events.changed();
+    }
+
+    /// Usage recording (`usage_record.rs`): the chat went from shown in some client to hidden in
+    /// all of them, or back. An attach or a toggle that leaves it as it was records nothing.
+    fn record_view(&self, session: &Session, was_shown: bool) {
+        let on = self.shown(session);
+        if on != was_shown {
+            self.usage.record(|| cmux_usage::Event::View {
+                session: cmux_usage::Id::new(session.id.as_str()),
+                on,
+            });
+        }
     }
 
     /// Some attached client shows the chat, so a turn ending now is seen.

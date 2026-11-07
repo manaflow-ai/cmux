@@ -1468,6 +1468,16 @@ public abstract class GeneratedCmuxClient {
         return openStream(Commands.URL_OPEN_SUBSCRIBE, request.toWire());
     }
 
+    public final UsageRecordResult usageRecord(UsageRecordRequest request) throws CmuxException {
+        Object result = execute(Commands.USAGE_RECORD, request.toWire());
+        return UsageRecordResult.fromWire(result);
+    }
+
+    public final UsageSetEnabledResult usageSetEnabled(UsageSetEnabledRequest request) throws CmuxException {
+        Object result = execute(Commands.USAGE_SET_ENABLED, request.toWire());
+        return UsageSetEnabledResult.fromWire(result);
+    }
+
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {
         Object result = execute(Commands.VT_STATE, request.toWire());
         return VtStateResult.fromWire(result);

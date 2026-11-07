@@ -84,6 +84,9 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// Subagents that started running (live) since [`SubagentTree::take_started`] last read it:
+    /// a turn's count for usage recording (`usage_record.rs`).
+    started: u32,
 }
 
 #[derive(Debug, Default)]
@@ -332,6 +335,11 @@ impl SubagentTree {
         self.running.len()
     }
 
+    /// The subagents that started since the last call, and starts the count again.
+    pub fn take_started(&mut self) -> u32 {
+        std::mem::take(&mut self.started)
+    }
+
     /// Follows every running subagent through one live update's events: one that runs joins
     /// (keeping the first label any event gives it), any that ends leaves.
     fn note_running(&mut self, events: &[Value]) {
@@ -363,7 +371,10 @@ impl SubagentTree {
                         slot.1 = label;
                     }
                 }
-                None => self.running.push((id.to_owned(), label)),
+                None => {
+                    self.running.push((id.to_owned(), label));
+                    self.started = self.started.saturating_add(1);
+                }
             }
         }
     }
