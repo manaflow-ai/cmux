@@ -38,7 +38,7 @@ test("the plus registry puts attach first, then the composer's actions, then the
     "Attach Window…",
     "Plan mode",
     "Goal",
-    "Choose project",
+    "Choose folder",
     "Mention a file or folder",
     "Commands and skills…",
     "Search files",

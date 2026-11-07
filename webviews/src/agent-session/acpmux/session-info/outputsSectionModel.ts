@@ -4,7 +4,8 @@ import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
 import type { AcpmuxRow } from "../model";
 
-/// Rows shown before Show more, as Changes (`CHANGES_SHOWN`).
+/// Rows shown before Show more. A fold that would hold back one row shows it instead: "Show 1 more"
+/// costs the row it saves (Lucas, 2026-11-05, Session Info lab: "output should be fold at 5").
 export const OUTPUTS_SHOWN = 5;
 const LINK = /https?:\/\/[^\s"'<>)\]`]+/g;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;

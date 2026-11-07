@@ -20,6 +20,7 @@ import { Icon } from "../icons/Icon";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
 import { pullRequestRef } from "./pullRequestCardModel";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -72,6 +73,12 @@ export function PullRequestCardBody({
   const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
+  // The host is still reading (or has not answered the card's own ask yet: no answer, or only the
+  // chip's cache-only one): its rows are held at their size, so the card opens at about the size
+  // it ends at and no row pops in under the pointer (Leo 2026-11-06). A reader that is never asked
+  // (read only) or a host with nothing to say draws none.
+  const readOnly = useTranscriptReadOnly();
+  const waiting = !read && !readOnly && (answer === undefined || answer.reading || answer.cacheOnly === true);
   const title = read?.title || known.title;
   const state = read?.state || known.state;
   const now = Date.now();
@@ -91,7 +98,8 @@ export function PullRequestCardBody({
       {head?.(title || reference, glyph)}
       <div className="acpmux-pr-card__body">
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
-        <Status state={state} read={read} t={t} />
+        {waiting && !state ? <Placeholder row="status" /> : <Status state={state} read={read} t={t} />}
+        {waiting && <Placeholder row="who" />}
         {read?.author && (
           <div className="acpmux-pr-card__who">
             <Monogram login={read.author} />
@@ -103,6 +111,7 @@ export function PullRequestCardBody({
             )}
           </div>
         )}
+        {waiting && <Placeholder row="changes" />}
         <Changes read={read} t={t} />
         <div className="acpmux-pr-card__facts">
           {!head && glyph}
@@ -117,11 +126,47 @@ export function PullRequestCardBody({
             <span className="acpmux-pr-card__ref">{reference}</span>
           )}
         </div>
+        {waiting && <Placeholder row="branches" />}
         <Secondary read={read} t={t} />
         <Freshness answer={answer} now={now} t={t} language={language} />
       </div>
     </>
   );
+}
+
+/// One row the host's answer fills, held at its height while the host reads: the row's own class
+/// (so its line height and gaps are the real row's) around static muted bars, hidden from screen
+/// readers (the "reading…" line says it). No shimmer: nothing moves while the card waits.
+function Placeholder({ row }: { row: "status" | "who" | "changes" | "branches" }) {
+  const bar = (size: "s" | "m" | "l") => <span className="acpmux-pr-card__bar" data-size={size} />;
+  switch (row) {
+    case "status":
+      return (
+        <div className="acpmux-pr-card__status" data-placeholder={row} aria-hidden="true">
+          {bar("s")}
+        </div>
+      );
+    case "who":
+      return (
+        <div className="acpmux-pr-card__who" data-placeholder={row} aria-hidden="true">
+          <span className="acpmux-pr-card__monogram" />
+          {bar("m")}
+        </div>
+      );
+    case "changes":
+      return (
+        <div className="acpmux-pr-card__changes" data-placeholder={row} aria-hidden="true">
+          <div className="acpmux-pr-card__counts">{bar("s")}</div>
+          <div className="acpmux-pr-card__breakdown">{bar("m")}</div>
+        </div>
+      );
+    case "branches":
+      return (
+        <div className="acpmux-pr-card__branches" data-placeholder={row} aria-hidden="true">
+          {bar("l")}
+        </div>
+      );
+  }
 }
 
 function Status({ state, read, t }: { state: string | undefined; read: LinkedPullRequest | undefined; t: Translate }) {

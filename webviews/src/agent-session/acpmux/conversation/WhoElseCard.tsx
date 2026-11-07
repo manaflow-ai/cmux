@@ -30,13 +30,17 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
   );
   const answer = call.answer;
   const sessions = answer?.sessions ?? [];
+  // Sessions acpmux left out of its answer (past its row cap) count in the line, but no row can
+  // show them: "N more" opens only the rows the answer holds, and a note names the rest.
+  const omitted = answer?.more ?? 0;
+  const total = sessions.length + omitted;
   const line = call.pending
     ? t("whoElse.looking")
-    : sessions.length === 0
+    : total === 0
       ? t("whoElse.none")
-      : t(sessions.length === 1 ? "whoElse.one" : "whoElse.many", { count: String(sessions.length) });
+      : t(total === 1 ? "whoElse.one" : "whoElse.many", { count: String(total) });
   const shown = open ? sessions : sessions.slice(0, ROWS_SHOWN);
-  const hidden = sessions.length - shown.length + (answer?.more ?? 0);
+  const hidden = sessions.length - shown.length;
   return (
     <div className="cv-who-else" data-who-else="" data-count={sessions.length}>
       <div className={`cv-tool cv-who-else__line${call.pending ? " is-live" : " is-strong"}`}>
@@ -63,6 +67,9 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
           {t("whoElse.more", { count: String(hidden) })}
           <ChevronRight size={12} className="cv-tool__chevron cv-rotor" />
         </button>
+      )}
+      {omitted > 0 && (hidden === 0 || open) && (
+        <div className="cv-who-else__note">{t("whoElse.omitted", { count: String(omitted) })}</div>
       )}
       {answer && answer.unreached.length > 0 && (
         <div className="cv-who-else__note">{t("whoElse.unreached", { hosts: answer.unreached.join(", ") })}</div>

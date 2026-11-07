@@ -6,7 +6,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { StreamOptions } from "./streamDebug";
-import type { LoadRunOptions } from "./loadDebug";
+import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
@@ -76,6 +76,8 @@ export type AcpmuxDebug = {
   loadSeed(turns?: number): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
+  loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -115,6 +117,8 @@ export function createAcpmuxDebug(
     /// `fields`: the snapshot fields a fixture's rows need beside them (a waiting steer's `newestOwnSteer`).
     replaceRows(rows: AcpmuxRow[], fields?: SeedSnapshotFields): void;
     rowCount(): number;
+    /// The shown transcript's row ids (loadDebug.ts `loadTick` tells the history from the new turn).
+    rowIds?(): string[];
     sessionId?(): string | undefined;
     automation?: automation.AutomationHost;
   },
@@ -415,6 +419,10 @@ export function createAcpmuxDebug(
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async loadTick(options = {}) {
+      const { loadTick } = await import("./loadDebug");
+      return loadTick({ sessionId: () => host.sessionId?.(), rowIds: () => host.rowIds?.() ?? [] }, options);
     },
   };
 }

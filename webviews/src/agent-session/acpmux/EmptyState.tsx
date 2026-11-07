@@ -8,7 +8,7 @@ export type EmptyStateProjects = {
   /// The chat's project folder; none in no project (the agent-home folder).
   current?: string;
   currentPeer?: string;
-  /// The chat is in no project (its agent-home folder): Do not work in a project is checked.
+  /// The chat is in no project (its agent-home folder): No folder is checked.
   noProject?: boolean;
   onPick(cwd: string, peer?: string): void;
   onBrowse?(): void;

@@ -410,7 +410,8 @@ export function isDraftCall(tool: Tool): boolean {
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    !tool.description &&
+    // A description alone is still nothing to show: the row reads as its command, never as Bash's
+    // description (toolPaths.ts toolLabel).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -456,11 +457,12 @@ export function toolGroupLabel(
   switch (kind) {
     case "commands": {
       // A finished run whose background tasks ended leads with them, as Claude Code desktop's
-      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
+      // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
       if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
-      const text = [finished, ran].join(t("toolRun.separator"));
+      const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);
     }
     case "reads": {
@@ -527,7 +529,8 @@ export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunS
   return stretches;
 }
 
-/// An entry a folded run keeps in sight beside its summary lines: a coordination card, or a file
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else
+/// works on these files among them), or a file
 /// change still waiting for its permission (toolGroups.ts `awaitsPermission`). Other edits fold with
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
@@ -539,7 +542,8 @@ export function staysInSight(group: ToolGroup): boolean {
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
     group.type === "agentCall" ||
-    group.type === "dispatch"
+    group.type === "dispatch" ||
+    group.type === "whoElse"
   )
     return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one

@@ -17,7 +17,7 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
-import { formatDuration } from "./turns";
+import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
 import { compactTokens, hasTokens, tokenDetail } from "./turnTokensModel";
@@ -228,7 +228,8 @@ export function Thinking({
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
-  const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
+  // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
+  const own = total && ownMs !== undefined ? spanDuration(t, ownMs) : undefined;
   const elapsed = own ?? turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts

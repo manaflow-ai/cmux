@@ -86,7 +86,7 @@ for (const [harness, calls] of Object.entries(HARNESS_CALLS)) {
 
     test("the five calls summarize alike", () => {
       expect(toolRunSummary(t, harnessItems(harness as FixtureHarness))).toBe(
-        "Read a file, ran 2 searches, searched the web",
+        "Read a file, ran 2 searches, and performed 2 other actions",
       );
     });
   });

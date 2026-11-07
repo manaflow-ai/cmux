@@ -24,7 +24,7 @@ import CoreGraphics
 /// Row title and detail text size and weight do not change with density (Interface Size and
 /// `sidebar.textSize` own the text size); `sidebar.textSize` (``SidebarTextSize``) adds its
 /// `rowStep` to every row and header height here, on top of any density. A group header's name
-/// takes the rows' title size, semibold (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
+/// takes the rows' title size and regular weight (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.
@@ -40,11 +40,8 @@ enum SidebarDensityTokens {
     /// A one-line workspace row, group header or band row.
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
-    /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
-    static var rowHeightWithSubtitle: CGFloat {
-        SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
-    }
+    /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
+    static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.

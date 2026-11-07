@@ -35,6 +35,7 @@ import {
   ended,
   changesOrder,
 } from "./changesSectionModel";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
@@ -81,15 +82,18 @@ export function ChangesSection({
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="changes">
-        {shown.map((pr) => (
-          <PullRequestRow
-            key={pr.url}
-            pr={pr}
-            live={statuses[pr.url] ?? {}}
-            onOpenBeside={onOpenBeside}
-            onDismiss={onDismiss}
-          />
-        ))}
+        <WindowedRows
+          items={shown}
+          render={(pr) => (
+            <PullRequestRow
+              key={pr.url}
+              pr={pr}
+              live={statuses[pr.url] ?? {}}
+              onOpenBeside={onOpenBeside}
+              onDismiss={onDismiss}
+            />
+          )}
+        />
       </ul>
       {folds && (
         <button

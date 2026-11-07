@@ -241,6 +241,17 @@ export default componentEntry<UrlChipProps>({
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
+    // The host is still reading a pull request it has never read: the card opens at once at about
+    // its full size, placeholder rows holding the state, author, change and branch lines the
+    // answer fills in (Leo 2026-11-06: hover cards that are fast, with nothing popping in).
+    "pull-request-reading": {
+      chipHost: prHost({ pullRequest: null, reading: true }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview [data-placeholder]"));
+      },
+    },
     "pull-request-stale": {
       // GitHub would not answer (a rate limit): the card keeps the pull request and says how old
       // the copy is, instead of showing an error where the pull request should be.

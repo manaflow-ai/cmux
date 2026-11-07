@@ -5,6 +5,7 @@ import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import type { MadeFile } from "./attachmentIntakeModel";
 import { isLargePaste, PASTE_FILE_CHARS, PASTED_TEXT_NAME, pastedTextAttachment, pastedTextFile } from "../pastedText";
+import { remember } from "./pasteMarks";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes
 /// through the host (`pane.edit`), which runs the web view's own paste. The prompt field keeps its
@@ -40,6 +41,9 @@ export function usePastedChips(
   /// How a held block pasted again opens its chip: the composer's own open (ComposerBox's inline
   /// hook), which keeps the chip for an undo first, as a click on the chip does. Unset, `expand`.
   const opens = useRef<((id: string) => void) | undefined>(undefined);
+  /// The pastes that went into the draft as text (a chip's text put back too): the prompt sends
+  /// each one still in it as pasted (pasteMarks.ts).
+  const pastes = useRef<string[]>([]);
   // Any paste ends Paste as Plain Text's turn, one of only files or images too (the field took a
   // text paste before this, at the document, hears it).
   useEffect(() => {
@@ -81,6 +85,7 @@ export function usePastedChips(
   return {
     expanding,
     opens,
+    pastes,
     /// Paste as Plain Text is starting: its paste goes in as text.
     plainPaste() {
       plainUntil.current = performance.now() + PLAIN_PASTE_MS;
@@ -98,7 +103,10 @@ export function usePastedChips(
         attachFile({ name: PASTED_TEXT_NAME, type: "text/plain", file: pastedTextFile(text) });
         return true;
       }
-      if (raw() || !isLargePaste(text)) return false;
+      if (raw() || !isLargePaste(text)) {
+        pastes.current = remember(pastes.current, text);
+        return false;
+      }
       const same = attachments.current.find((held) => held.kind === "pasted" && held.text === text);
       if (same) {
         (opens.current ?? expand)(same.id);

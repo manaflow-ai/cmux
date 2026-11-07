@@ -28,6 +28,7 @@ import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, type PendingAttachment } from "./attachmentIntakeModel";
+import { RemoveGlyph } from "./RemoveGlyph";
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
   attachments,
@@ -169,9 +170,7 @@ function PendingChip({
       aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
       onClick={() => onCancel(chip.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   // A video (a screen recording) is the square its poster will fill, like an image's tile; only
@@ -248,14 +247,17 @@ export function RetryButton({
   );
 }
 
-/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile.
+/// How much of a file streaming to the chat's machine is there: a ring that fills, on its tile. The
+/// `<progress>` is for assistive technology only, hidden by the strip's own class: the agent pane
+/// does not load the pages' global `.visually-hidden`, so with it the native bar drew beside the
+/// ring, a lone progress bar at the composer's top left (Leo, 2026-11-06, a picture sent under load).
 export function UploadProgress({ value, name, size = 16 }: { value: number; name: string; size?: number }) {
   const percent = Math.round(value * 100);
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   return (
     <>
-      <progress className="visually-hidden" aria-label={name} max={100} value={percent} />
+      <progress className="acpmux-attachment-voiceover-only" aria-label={name} max={100} value={percent} />
       <svg className="acpmux-attachment-progress" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
         <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
         <circle
@@ -335,9 +337,7 @@ export function AttachmentChip({
       aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   const remove = (

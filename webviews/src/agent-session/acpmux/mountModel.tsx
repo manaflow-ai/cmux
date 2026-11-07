@@ -1,3 +1,5 @@
+// The pane's stylesheets (mount.tsx) load first, before any module that reads them.
+import "./mount";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp, type InitialChat } from "./App";
 import { PaneBoundary } from "./PaneBoundary";
@@ -12,6 +14,7 @@ import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
+import { installToastRoom } from "./toastRoom";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
@@ -42,6 +45,8 @@ installDragOut(document);
       installLiveBackground(document, arm),
     );
 }
+// The app's toasts keep a band at the pane's foot that the chat stays above (toastRoom.ts).
+installToastRoom(document);
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change

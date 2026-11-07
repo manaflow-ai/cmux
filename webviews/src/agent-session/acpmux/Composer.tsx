@@ -21,6 +21,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -121,6 +122,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { markPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -255,7 +257,17 @@ type Props = {
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
-  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
+  /// `gesture`: a send held for its files (a pasted image still being read) goes with the gesture
+  /// `onBindSendGesture` bound at its Enter or click; without one the send binds its own as it goes.
+  onSend(
+    text: string,
+    attachments?: ComposerAttachment[],
+    steer?: boolean,
+    gesture?: SendGesture,
+  ): boolean | void | Promise<unknown>;
+  /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
+  /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
+  onBindSendGesture?(): SendGesture | undefined;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -429,6 +441,7 @@ export function Composer({
   headerCwd,
   chips: Chips,
   onSend,
+  onBindSendGesture,
   onStop,
   onQueueRemove,
   onQueueCancelEdit,
@@ -630,10 +643,11 @@ export function Composer({
   // Whether Esc stops a turn on a double press (escapeStop.ts).
   const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
-  // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
-  // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
+  // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
+  // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
+  // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLook();
-  const quietActions = plainFooter;
+  const quietActions = plainFooter && look !== "codex";
   const usage = compactingUsage(
     snapshot.summary?.usage,
     snapshot.summary?.usageStats,
@@ -642,7 +656,7 @@ export function Composer({
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
-  const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  const submitNow = useRef<(force: boolean, steer?: boolean, gesture?: SendGesture) => boolean>(() => false);
   /// Set while the send a finished dictation session waited for goes (send, below).
   const dictationEnded = useRef(false);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
@@ -720,12 +734,20 @@ export function Composer({
         attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id),
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
+  const bindHeldSend = () => onBindSendGesture?.();
+  const holdForAttachments = useSendWhenAttached<SendGesture>(
+    loading + videoReading,
+    sessionId,
+    unsettled + videoReading,
+    bindHeldSend,
+  );
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
-  const holdForOriginals = useSendWhenOriginals(
+  const holdForOriginals = useSendWhenOriginals<SendGesture>(
     attachments.filter((attachment) => originalUploads.has(attachment.id)).length,
     sessionId,
+    bindHeldSend,
   );
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
@@ -1353,7 +1375,8 @@ export function Composer({
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers);
   };
-  const send = (force: boolean, steer = false): boolean => {
+  /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`).
+  const send = (force: boolean, steer = false, kept?: SendGesture): boolean => {
     // A send waiting for its images' originals is this one's to replace: whatever this one does
     // (it goes, waits again, runs a command or stops), the earlier one never goes on its own.
     holdForOriginals(false, () => undefined);
@@ -1374,7 +1397,7 @@ export function Composer({
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
         try {
-          submitNow.current(force, steer);
+          submitNow.current(force, steer, kept);
         } finally {
           dictationEnded.current = false;
         }
@@ -1501,12 +1524,13 @@ export function Composer({
       }
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
         awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
-        () => submitNow.current(force, steer),
+        (gesture) => submitNow.current(force, steer, gesture),
+        kept,
       )
     )
       return false;
@@ -1522,8 +1546,11 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = placed.attachments;
-    const taken = onSend(placed.text, sent, steer);
+    // Each paste still in the text as pasted goes as a pasted block, never as typed words
+    // (composer/pasteMarks.ts); a slash command's text stays the command.
+    const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sent = marked.attachments;
+    const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -1856,8 +1883,8 @@ export function Composer({
     ) {
       event.preventDefault();
       const typed = typedWords().trim() !== "";
-      const sendAndOpen = () => {
-        const sent = submitNow.current(false, steersAlways);
+      const sendAndOpen = (gesture?: SendGesture) => {
+        const sent = submitNow.current(false, steersAlways, gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -2292,9 +2319,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
-      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
-      // through a turn, in both looks.
+      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       <button
         key="send"
         ref={sendButton}

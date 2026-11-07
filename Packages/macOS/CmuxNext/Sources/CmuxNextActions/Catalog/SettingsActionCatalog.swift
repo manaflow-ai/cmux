@@ -145,6 +145,20 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
                 category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
             ),
+            // Swift live mode (docs/cmux-next/live-code.md): a tagged build restarts into the live code
+            // build of its commit and back, sessions kept. The CLI is `cmux live start|stop --swift`.
+            ActionDescriptor(
+                id: "liveSwift.start",
+                title: String(localized: "action.liveSwift.start", defaultValue: "Start Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "hot swap", "swift", "patch", "interposable", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
+            ActionDescriptor(
+                id: "liveSwift.stop",
+                title: String(localized: "action.liveSwift.stop", defaultValue: "Stop Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "swift", "normal build", "optimized", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "updates.whatsNew",
                 title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
@@ -544,6 +558,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
                 keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
                 category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),

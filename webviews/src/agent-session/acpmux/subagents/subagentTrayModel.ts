@@ -9,3 +9,10 @@ export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string
   const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
   return step ? `${progress} · ${step.content}` : progress;
 }
+
+/// The header's plan part for an earlier turn's list: "Earlier plan · 2 of 5", naming no step, as
+/// none is at work in this turn.
+export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
+  const done = plan.filter((entry) => entry.status === "completed").length;
+  return `${t("plan.earlier.short")} · ${t("plan.hat", { done, total: plan.length })}`;
+}

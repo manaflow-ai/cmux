@@ -1,6 +1,7 @@
 import { useContext, useMemo, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { SubsessionContext } from "../subagents/subsessions";
 import { useTranscriptReadOnly } from "./readOnly";
+import { openSessionAttributes } from "./menuParts";
 import {
   agentRef,
   knownSessionRef,
@@ -30,6 +31,7 @@ export function agentLinkProps(
   query: string | undefined,
   target: SessionRefTarget | null | undefined,
   open: ((sessionId: string) => void) | undefined,
+  sender = false,
 ) {
   const prefetch = query && target === undefined ? () => void resolveSessionRef(query) : undefined;
   const onClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
@@ -54,6 +56,8 @@ export function agentLinkProps(
   };
   return {
     "data-session-ref": target ? "" : undefined,
+    // Once it names the reader's chat, its right-click is that chat's menu, its link rows kept.
+    ...(target && open ? openSessionAttributes(target.sessionId, sender) : {}),
     onPointerEnter: prefetch,
     onFocus: prefetch,
     onClick,
@@ -70,5 +74,5 @@ export function useAgentLinkClick(href: string) {
   const live = !readOnly && open !== undefined && sessionRefsResolve() && ref?.kind === "link";
   const query = live ? ref.query : undefined;
   const target = useSessionRef(query, false);
-  return query ? agentLinkProps(query, target, open) : NO_PROPS;
+  return query ? agentLinkProps(query, target, open, subsessions?.openSender !== undefined) : NO_PROPS;
 }

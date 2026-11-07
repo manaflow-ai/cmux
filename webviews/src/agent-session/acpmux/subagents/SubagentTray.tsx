@@ -126,7 +126,7 @@ import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
-import { planHead } from "./subagentTrayModel";
+import { earlierPlanHead, planHead } from "./subagentTrayModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -166,6 +166,7 @@ export const SubagentTray = memo(function SubagentTray({
   enters = false,
   chat,
   plan,
+  planEarlier = false,
   onTuck,
   tuckSide = "middle",
 }: {
@@ -208,6 +209,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
   /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
   plan?: readonly AcpmuxPlanEntry[];
+  /// `plan` is an earlier turn's list with steps left, carried while the running turn has none of its
+  /// own (turns.ts `earlierTurnPlan`): the header reads "Earlier plan · 2 of 5", the list says why.
+  planEarlier?: boolean;
   /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
   /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
   /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
@@ -431,7 +435,7 @@ export const SubagentTray = memo(function SubagentTray({
   const named = !open && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
-  const planText = planned ? planHead(t, plan) : "";
+  const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
   const workText = items.length + finished.length === 0 ? "" : named ? shownNames.join(" · ") : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
   const moreCount = items.length - shownNames.length;
@@ -613,7 +617,7 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The plan's checklist over what runs, the turn's own work first. */}
           {planned && (
             <div className="acpmux-running-tray__plan">
-              <PlanList entries={plan} />
+              <PlanList entries={plan} earlier={planEarlier} />
             </div>
           )}
           <ul ref={listRef} id={listId} className="acpmux-running-tray__list">

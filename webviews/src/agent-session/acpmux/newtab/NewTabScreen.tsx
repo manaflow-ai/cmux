@@ -140,7 +140,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  /// `noProject`: No folder was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
@@ -399,7 +399,7 @@ export function NewTabScreen(props: Props) {
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
-  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
@@ -1609,7 +1609,7 @@ export function NewTabScreen(props: Props) {
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
-    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // project pick: the chat starts in that folder, so No folder ends, and the
     // headline, the location row and the send all name it. A machine alone keeps the choice.
     if (next?.folder) setNone(false);
     setMachine(next);

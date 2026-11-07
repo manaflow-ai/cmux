@@ -67,14 +67,32 @@ import {
   DISMISS_KEEPERS,
   SESSION_INFO_TOGGLE,
   toolCallIds,
+  openOutputFile,
 } from "./sessionInfoModel";
-import { MemoSessionInfoSections, SessionInfoPanel } from "./SessionInfo";
+import { MemoSessionInfoPanel, MemoSessionInfoSections } from "./SessionInfo";
 import { subagentsIn } from "../subagents/subagentRows";
+import { useCountedRender } from "../perfRender";
+import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
+import { useChangeCounts, type ReadChanges } from "./changeCounts";
+import { useStepAside } from "./stepAside";
+import { usageEntries } from "./usageEntries";
+import { useAlsoHere } from "./alsoHereSectionModel";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
 const SESSION_INFO_COLUMN = "--acpmux-session-info-column";
+/// How far the column moves left while it pushes (sessionInfo.css --acpmux-session-info-shift).
+const SESSION_INFO_ROOM = "--acpmux-session-info-room";
+/// The animated column shift itself (sessionInfo.css, a registered custom property).
+const SHIFT = "--acpmux-session-info-shift";
+/// Whether the chat's column is sliding now (its shift's transition runs on the shell's main).
+const columnSliding = (shell: HTMLElement) => {
+  const main = shell.querySelector<HTMLElement>(":scope > .acpmux-main");
+  // Reading the animations brings the page's styles up to date first, so a slide set a moment ago runs.
+  if (!main || typeof main.getAnimations !== "function") return false;
+  return main.getAnimations().some((animation) => (animation as CSSTransition).transitionProperty === SHIFT);
+};
 
 /// AppKit's top is in page CSS pixels, below the same header or shared tab row as the web panel.
 function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number): number {
@@ -150,6 +168,26 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
   return room;
 }
 
+/// Whether the chat's pane has no room for Session Info beside a readable chat (sessionInfoFits),
+/// followed as the pane resizes and as the side panel opens or closes (`beside`) while `live`;
+/// undefined until measured. One ResizeObserver on the shell, set state only when the answer flips.
+function useNarrowPane(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): boolean | undefined {
+  const [narrow, setNarrow] = useState<boolean>();
+  useLayoutEffect(() => {
+    if (!shell || !live) return;
+    const measure = () => {
+      const width = paneRoom(shell).width;
+      if (width > 0) setNarrow(!sessionInfoFits(width));
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [shell, live, beside]);
+  return narrow;
+}
+
 /// The header's toggle and Session Info for the chat's pane. `on` is Debug Settings
 /// `agent.sessionInfo`: off, there is neither, and the App shows its summary card instead.
 export function useSessionInfo({
@@ -172,6 +210,8 @@ export function useSessionInfo({
   onSetRunningLimit,
   workflows,
   onOpenFolder,
+  readChanges,
+  onOpenChanges,
   onSaveEnvironment,
   onShowCall,
   subagent,
@@ -246,6 +286,10 @@ export function useSessionInfo({
   };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
+  /// Reads the chat folder's git changes for Environment's Changes row (changeCounts.ts), with
+  /// `onOpenChanges` opening the chat folder's diff beside the chat.
+  readChanges?: ReadChanges;
+  onOpenChanges?: () => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
   onSaveEnvironment?: () => Promise<unknown>;
   /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
@@ -281,7 +325,7 @@ export function useSessionInfo({
   reveal?: (section: SessionInfoSectionId) => void;
 } {
   const t = useT();
-  const { sessionInfo: on, pullRequest } = useHeaderState();
+  const { sessionInfo: on, pullRequest, lit } = useHeaderState();
   // This pane's state is its chat's: a relaunched pane shows Session Info as it left it, and a
   // toggle in another pane never reaches it (sessionInfoState.ts).
   // The chat's state is read from its first frame (`useSessionInfoOpen(paneSession)`), before the bind,
@@ -306,7 +350,28 @@ export function useSessionInfo({
     setAsked(false);
     setSuppressed(false);
   }
-  const shown = sessionInfoShown({ on, open, suppressed, covered });
+  // Aside while what one of its rows opened shows (stepAside.ts): the folder, Changes, an output.
+  const stepAside = useStepAside(lit, shell);
+  const backFromAside = stepAside.cancel;
+  // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
+  const scopeId = subagent?.agent.id;
+  useEffect(() => backFromAside(), [scopeId, backFromAside]);
+  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
+  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
+  // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
+  // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
+  const narrow = useNarrowPane(shell, on, beside);
+  const roomyShown = sessionInfoShown({ on, open, suppressed: suppressed || stepAside.aside, covered });
+  const [narrowWas, setNarrowWas] = useState(narrow);
+  if (narrowWas !== narrow) {
+    setNarrowWas(narrow);
+    // Narrowed while it showed: it stays (the first measure is a start, not a narrowing).
+    if (narrow && narrowWas === false && roomyShown) setAsked(true);
+    // Room again: a popover's click-away or a cramped moment no longer holds it.
+    if (!narrow && narrowWas) setSuppressed(false);
+  }
+  const shown = roomyShown && !(narrow && !asked);
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
@@ -318,6 +383,7 @@ export function useSessionInfo({
   const stableReadPromptImage = useStableCallback(readPromptImage);
   const stableOnOpenDocument = useStableCallback(onOpenDocument);
   const stableOnOpenFolder = useStableCallback(onOpenFolder);
+  const stableOnOpenChanges = useStableCallback(onOpenChanges);
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
@@ -349,10 +415,11 @@ export function useSessionInfo({
       onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
+      backFromAside();
       setAsked(true);
       setSessionInfoOpen(true);
     });
-  }, [on, label, onBeforeOpen]);
+  }, [on, label, onBeforeOpen, backFromAside]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -385,6 +452,7 @@ export function useSessionInfo({
       onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
+      backFromAside();
       setAsked(true);
       setSessionInfoOpen(true);
     }
@@ -393,6 +461,7 @@ export function useSessionInfo({
     onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
+    backFromAside();
     setAsked(true);
     setSessionInfoSection(section, true);
     setSessionInfoOpen(true);
@@ -421,6 +490,8 @@ export function useSessionInfo({
         openedOutputAt={openedOutputAt}
         asked={asked}
         onSuppress={suppress}
+        onStepAside={stepAside.step}
+        onStepBack={backFromAside}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -436,6 +507,8 @@ export function useSessionInfo({
         // A subagent's prompt images live in its own chat, which this reader does not reach.
         readPromptImage={subagent ? undefined : stableReadPromptImage}
         onOpenFolder={stableOnOpenFolder}
+        readChanges={subagent ? undefined : readChanges}
+        onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
@@ -490,6 +563,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   openedOutputAt,
   asked = false,
   onSuppress,
+  onStepAside,
+  onStepBack,
   registry,
   subagents,
   sessions,
@@ -504,6 +579,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenImage,
   readPromptImage,
   onOpenFolder,
+  readChanges,
+  onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
   remoteControl,
@@ -536,6 +613,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   asked?: boolean;
   /// That diff's split left no room for the chat beside Session Info: Session Info steps aside.
   onSuppress: () => void;
+  /// A row opened something (the folder, Changes, an output): Session Info hides until it is gone
+  /// (stepAside.ts); `onStepBack` brings it back at once (the host refused the open).
+  onStepAside: () => void;
+  onStepBack: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -560,6 +641,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
   readPromptImage?: (id: string) => Promise<string | undefined>;
   onOpenFolder?: (path: string) => void;
+  /// Reads the chat folder's git changes for Environment's Changes row (changeCounts.ts), with
+  /// `onOpenChanges` opening the chat folder's diff beside the chat.
+  readChanges?: ReadChanges;
+  onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
@@ -575,6 +660,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   scope?: SubagentScope;
 }) {
   onRender?.();
+  useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
   const native = useNativeSessionInfoHost();
   const t = useT();
@@ -588,6 +674,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");
+  // The computer use card beside the chat narrows its column (the placement effect's pin follows it).
+  const preview = useComputerUsePreview() !== null;
+  // Leaving: the column slides back while the panel slides out (sessionInfo.css).
+  const leaving = !native && !!presence.leaving;
   const drawn = native ? shown : presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
@@ -613,22 +703,24 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const panelWidth = push ? pushedWidth(paneWidth, width) : width;
   const room = push ? pushedRoom(paneWidth, panelWidth, column, overflow, pushes(display.sessionInfo)) : 0;
   // How far the panel reaches into the chat's right edge: Find's bar keeps clear of it (sessionInfoClear).
-  const clear = sessionInfoClear(panelWidth, room);
-  const cramped = findBarCramped(paneWidth - room, clear);
-  // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT).
-  const popover = sessionInfoPopover(paneHeight, overChat);
-  // Open only from a saved state (a new chat, a relaunch), it waits for the person where it would lie
-  // over a narrow chat (sessionInfoFits) at its first measured frame, or be a popover at any time: it
-  // steps aside until the toggle, a running line's count or the palette opens it, and opened it lies
-  // over the chat above the composer (cmuxterm-hq#6137: a new chat in a 370px pane opened with the panel
-  // over its Retry). One already showing stays as a split narrows the pane, over the chat from 648px down.
-  const measuredOnce = useRef(false);
+  // The web panel floats over the chat's whole width (its column moves left instead), so the chat's
+  // right edge is the pane's; the App's native panel still takes its room from the chat.
+  const chatRoom = native ? room : 0;
+  const clear = sessionInfoClear(panelWidth, chatRoom);
+  const cramped = findBarCramped(paneWidth - chatRoom, clear);
+  // In a short pane, over the chat it is a popover that a click elsewhere hides (POPOVER_BELOW_HEIGHT);
+  // in a narrow one too (useSessionInfo `narrow`).
+  const popover = sessionInfoPopover(paneHeight, overChat) || (overChat && !sessionInfoFits(paneWidth));
+  // Open only from a saved state (a new chat, a relaunch), it waits for the person where it would be a
+  // popover: it steps aside until the toggle, a running line's count or the palette opens it
+  // (cmuxterm-hq#6137: a new chat in a 370px pane opened with the panel over its Retry). A narrow pane
+  // holds it in useSessionInfo before it draws.
+  // Only a short pane's popover: a narrow pane's is held or kept by useSessionInfo, whose observer can
+  // run after this one (a panel showing as the pane narrows must stay, as a popover).
   useLayoutEffect(() => {
     if (!drawn || paneWidth <= 0) return;
-    const first = !measuredOnce.current;
-    measuredOnce.current = true;
-    if (!asked && (popover || (first && !sessionInfoFits(paneWidth)))) onSuppress();
-  }, [drawn, paneWidth, popover, asked, onSuppress]);
+    if (!asked && sessionInfoPopover(paneHeight, overChat)) onSuppress();
+  }, [drawn, paneWidth, paneHeight, overChat, asked, onSuppress]);
   useEffect(() => {
     const doc = shell?.ownerDocument;
     if (!native || !drawn || !popover || !doc) return;
@@ -647,28 +739,50 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const dockHeight = useDockHeight(shell, drawn && stopsAboveComposer);
   const tabRowHeight = useTabRow().height;
   const sessionInfoTop = sessionInfoTopOffset(tabRowHeight);
+  // The column slides only as the panel comes in or leaves (sessionInfo.css data-session-info-sliding);
+  // a resize, or a stage that changes with the pane's width, moves it at once, in the frame the pane
+  // has its new size, as the rest of the chat moves (agent-pane-running-layout.test.ts).
+  const wasDrawn = useRef(false);
   // The placement marker: a pushed column narrows the transcript and not the header
   // (sessionInfo.css). Floating moves nothing.
   useLayoutEffect(() => {
     if (!shell) return;
     if (!drawn) {
+      wasDrawn.current = false;
       delete shell.dataset.sessionInfoChatPlacement;
+      delete shell.dataset.sessionInfoLeaving;
+      delete shell.dataset.sessionInfoSliding;
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
+      shell.style.removeProperty(SESSION_INFO_ROOM);
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.sessionInfoChatPlacement = push ? "push" : "overlay";
     // Pushing, the transcript's column keeps the width it has in the whole pane on every frame of the
     // slide, and only moves left (pushKeepsColumn, sessionInfo.css).
+    // Beside the computer use card (App.tsx data-cu-preview on the chat), the column the chat has
+    // closed keeps the card's reserve at its end: pinned at that width, opening rewraps no line.
+    const reserve = shell.querySelector(":scope > .acpmux-main[data-cu-preview]") ? COMPUTER_USE_PREVIEW_RESERVE : 0;
     if (push && paneWidth > 0)
-      shell.style.setProperty(SESSION_INFO_COLUMN, `${transcriptColumn(paneWidth, column).width}px`);
+      shell.style.setProperty(SESSION_INFO_COLUMN, `${transcriptColumn(paneWidth, column, reserve).width}px`);
     else shell.style.removeProperty(SESSION_INFO_COLUMN);
+    // How far the column moves left (sessionInfo.css --acpmux-session-info-shift): the room, back to 0
+    // as the panel leaves, so the column slides back with it. The native panel's room is a flex item.
+    const shift = push && !native && !leaving ? room : 0;
+    const opening = !wasDrawn.current;
+    wasDrawn.current = true;
+    if (push && !native && (opening || leaving)) shell.dataset.sessionInfoSliding = "";
+    // A change that is no open or leave (a resize, a stage the new width picks) after the slide ended:
+    // no transition, even before the slide's transitionend has come.
+    else if ("sessionInfoSliding" in shell.dataset && !columnSliding(shell)) delete shell.dataset.sessionInfoSliding;
+    shell.style.setProperty(SESSION_INFO_ROOM, `${shift}px`);
+    shell.toggleAttribute("data-session-info-leaving", leaving);
     shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
-  }, [shell, drawn, push, paneWidth, column]);
+  }, [shell, drawn, push, paneWidth, column, native, leaving, room, preview]);
   // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar). Its
   // own effect, so a width drag only moves the bar and fires no chat layout event per frame.
   useLayoutEffect(() => {
@@ -691,17 +805,37 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     shell.addEventListener(FIND_OPEN_EVENT, away);
     return () => shell.removeEventListener(FIND_OPEN_EVENT, away);
   }, [shell, drawn, cramped, asked, onSuppress]);
+  // The slide's end: the column's own transition, else the panel's (a slide that moved nothing).
+  useEffect(() => {
+    const main = shell?.querySelector<HTMLElement>(":scope > .acpmux-main");
+    if (!shell || !main) return;
+    const ended = (event: TransitionEvent) => {
+      if (!("sessionInfoSliding" in shell.dataset)) return;
+      if (event.target === main ? event.propertyName === SHIFT : !columnSliding(shell))
+        delete shell.dataset.sessionInfoSliding;
+    };
+    shell.addEventListener("transitionend", ended);
+    shell.addEventListener("transitioncancel", ended);
+    return () => {
+      shell.removeEventListener("transitionend", ended);
+      shell.removeEventListener("transitioncancel", ended);
+    };
+  }, [shell]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
+      delete shell.dataset.sessionInfoSliding;
       delete shell.dataset.sessionInfoChatPlacement;
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
+      shell.style.removeProperty(SESSION_INFO_ROOM);
+      delete shell.dataset.sessionInfoLeaving;
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
-  useUnderSessionInfo(shell, drawn, push, FLOAT_MARGIN, sessionInfoTop, push ? room : undefined);
+  // The web panel floats at the pane's right, pushing or not; the native one's room is in the chat's row.
+  useUnderSessionInfo(shell, drawn, push && native, FLOAT_MARGIN, sessionInfoTop, push && native ? room : undefined);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
   // Measured before paint, so a panel that would cover the chat never draws a frame over it. Again
@@ -715,10 +849,27 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     }
     if (!shell || !reading || wide) return;
     // The chat's drawn width, not the room's target: while the push slides in, the chat is still wider.
-    const drawnChat = shell.querySelector<HTMLElement>(":scope > .acpmux-main")?.getBoundingClientRect().width ?? 0;
-    const next = chatContentOverflow(shell, drawnChat > 0 ? Math.min(paneWidth, drawnChat) : paneWidth - room, column);
-    setOverflow((current) => (next > current ? next : current));
-  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length]);
+    const main = shell.querySelector<HTMLElement>(":scope > .acpmux-main");
+    const drawnChat = main?.getBoundingClientRect().width ?? 0;
+    // The web panel's chat keeps the pane's width and its column slides (sessionInfo.css): measured
+    // where the column is drawn now, not where the slide ends. Against the slide's end, the rows still
+    // at their old place read as overflow, which asked for more room, until the push gave way to lying
+    // over the chat.
+    const shiftNow = main
+      ? Number.parseFloat(
+          main.ownerDocument.defaultView?.getComputedStyle(main).getPropertyValue("--acpmux-session-info-shift") ?? "",
+        ) || 0
+      : 0;
+    const next = chatContentOverflow(
+      shell,
+      push && !native ? paneWidth - shiftNow : drawnChat > 0 ? Math.min(paneWidth, drawnChat) : paneWidth - room,
+      column,
+      push ? paneWidth : undefined,
+    );
+    // Only a larger reading sets it: an unchanged one would still draw the panel once (React runs the
+    // component before it bails out), once per streamed row while it pushes.
+    if (next > overflow) setOverflow((current) => (next > current ? next : current));
+  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length, push, overflow, native]);
   const scopedAgent = scope?.agent;
   // What the sections list keeps its identity while it holds the same things (sameValue.ts): a snapshot
   // is new objects on every streamed token, and the sections (MemoSessionInfoSections) then skip it.
@@ -767,6 +918,12 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       [drawn, scopedAgents, rows, views],
     ),
   );
+  // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
+  const edits = useChangeCounts(
+    readChanges,
+    drawn,
+    `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`,
+  );
   const chatRows = snapshot.rows;
   const transcriptTasks = useSameValue(
     useMemo(
@@ -785,33 +942,73 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
   );
   // The rest of what the sections take from the snapshot and the App, kept the same way.
-  const allSessions = useSameValue(scope ? undefined : snapshot.sessions);
+  // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
+  // time any chat anywhere changes (its status, its indicator, its time), which drew every section
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
+  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  const everyChat = drawn && !scope ? snapshot.sessions : undefined;
+  const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
+  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
-  const sameGrants = useSameValue(scope ? undefined : grants);
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
-  const onOpenSubagent = useStableCallback(subagents?.onOpen);
-  const onOpenSession = useStableCallback(sessions?.onOpen);
+  // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
+  // steps aside for it as for the folder and Changes, and is back once that pane closes (Lucas,
+  // 2026-11-06: "clicking on a subagent will close the session info summary menu, like how it does for
+  // files and changes"). One shown here in place moves the panel to its scope, which brings it back.
+  const openSubagentOwn = useStableCallback(subagents?.onOpen);
+  const openSessionOwn = useStableCallback(sessions?.onOpen);
+  const openWorkflowAgentOwn = useStableCallback(workflows?.onOpenAgent);
+  const onOpenSubagent = useMemo(
+    () =>
+      openSubagentOwn &&
+      ((id: string) => {
+        onStepAside();
+        openSubagentOwn(id);
+      }),
+    [openSubagentOwn, onStepAside],
+  );
+  const onOpenSession = useMemo(
+    () =>
+      openSessionOwn &&
+      ((sessionId: string) => {
+        onStepAside();
+        openSessionOwn(sessionId);
+      }),
+    [openSessionOwn, onStepAside],
+  );
+  const onOpenWorkflowAgent = useMemo(
+    () =>
+      openWorkflowAgentOwn &&
+      ((agent: WorkflowAgent) => {
+        onStepAside();
+        openWorkflowAgentOwn(agent);
+      }),
+    [openWorkflowAgentOwn, onStepAside],
+  );
   const onStopWorkflow = useStableCallback(workflows?.onStop);
-  const onOpenWorkflowAgent = useStableCallback(workflows?.onOpenAgent);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
   // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
-  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
-  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery: the same rows until one is added, the gallery
-  // changes or the panel lists another agent, not each streamed token's copy.
+  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
+  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
+  // panel lists another agent, not each streamed token's copy.
   const listing = scope?.agent.id;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing });
+  const working = snapshot.isWorking;
+  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
   if (
     galleryRows.current.length !== rows.length ||
     galleryRows.current.artifacts !== artifacts ||
-    galleryRows.current.listing !== listing
+    galleryRows.current.listing !== listing ||
+    galleryRows.current.working !== working
   )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing };
+    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -829,29 +1026,42 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // again. By default it stays, pushing or, under 648px, over the chat above the composer.
   const roomy = !pushes(display.sessionInfo) || sessionInfoFits(paneWidth);
   const roomyRef = useRef(roomy);
-  // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`). The panel
-  // then steps aside when it lies over the chat, at the click or once the tab's split narrows the pane,
-  // so the chat and its new tab are what show, never the card over them (Leo, 2026-10-27: "why am i
-  // sent to a whole new thing instead of a tab opening on the right?").
-  const openedFolderAt = useRef(0);
+  // Environment's project opens in Files as a tab right of the chat (App.tsx `onOpenFolder`), its
+  // Changes the folder's diff there, and an Outputs file in cmux's file pages: Session Info steps aside
+  // so what the row opened is what shows, and comes back once it is closed (stepAside.ts; Leo,
+  // 2026-10-27: "why am i sent to a whole new thing instead of a tab opening on the right?").
   const openFolder = useMemo(
     () =>
       onOpenFolder &&
       ((path: string) => {
-        openedFolderAt.current = Date.now();
+        onStepAside();
         onOpenFolder(path);
-        if (overChat) onSuppress();
       }),
-    [onOpenFolder, overChat, onSuppress],
+    [onOpenFolder, onStepAside],
   );
-  useEffect(() => {
-    if (overChat && Date.now() - openedFolderAt.current < SPLIT_SETTLE_MS) onSuppress();
-  }, [overChat, onSuppress]);
+  const openChanges = useMemo(
+    () =>
+      onOpenChanges &&
+      (() => {
+        onStepAside();
+        onOpenChanges();
+      }),
+    [onOpenChanges, onStepAside],
+  );
+  const openOutputPath = useCallback(
+    (path: string) => {
+      onStepAside();
+      // A refused open (no gesture, a denied path, a missing file) shows nothing: the panel is back.
+      void openOutputFile(path).then((opened) => {
+        if (!opened) onStepBack();
+      });
+    },
+    [onStepAside, onStepBack],
+  );
   useEffect(() => {
     const was = roomyRef.current;
     roomyRef.current = roomy;
-    const opened = Math.max(openedOutputAt.current, openedFolderAt.current);
-    if (was && !roomy && Date.now() - opened < SPLIT_SETTLE_MS) onSuppress();
+    if (was && !roomy && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
   }, [roomy, openedOutputAt, onSuppress]);
   // AppKit is above the page. Existing page popovers temporarily take the pane and restore it on close.
   if (native)
@@ -944,15 +1154,16 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     );
   if (!drawn) return null;
   return (
-    <SessionInfoPanel
+    <MemoSessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={panelWidth}
       placement={push ? "push" : "overlay"}
-      overlap={push ? panelWidth + FLOAT_MARGIN - room : 0}
+      overlap={0}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
       under={sessionInfoTop}
-      side={push ? 0 : side}
+      // Floating or pushing, it stays left of a side panel beside the chat (its width).
+      side={side}
       foot={stopsAboveComposer ? dockHeight : undefined}
       onDismiss={popover ? onSuppress : undefined}
       presence={presence}
@@ -966,11 +1177,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         machineName={machineName}
         peerKinds={peerKinds}
         repository={repository}
-        // A subagent's view lists its own things: the grants are the chat's.
-        grants={sameGrants}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
-        links={links}
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
@@ -990,7 +1198,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenWorkflowAgent={onOpenWorkflowAgent}
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
-        allSessions={allSessions}
+        usageSessions={usageSessions}
+        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1000,11 +1209,13 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         sections={sections}
         onSection={setSessionInfoSection}
         onOpenSourceFile={onOpenSourceFile}
-        onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
         readPromptImage={readPromptImage}
         onOpenFolder={openFolder}
+        edits={edits}
+        onOpenChanges={openChanges}
+        onOpenOutputFile={openOutputPath}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
@@ -1014,6 +1225,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
-    </SessionInfoPanel>
+    </MemoSessionInfoPanel>
   );
 });

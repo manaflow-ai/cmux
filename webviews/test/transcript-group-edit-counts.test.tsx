@@ -81,7 +81,7 @@ test("a run's summary line sums its edits: green added, red removed", async () =
   );
   const line = summary();
   expect(line.getAttribute("aria-expanded")).toBe("false");
-  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Edited 2 files, ran a command");
+  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Edited 2 files and ran a command");
   // a.ts: +2 -1; notes.md: +2.
   expect(line.querySelector(".cv-tool__counts .cv-edit-diff__add")?.textContent).toBe("+4");
   expect(line.querySelector(".cv-tool__counts .cv-edit-diff__del")?.textContent).toBe("-1");

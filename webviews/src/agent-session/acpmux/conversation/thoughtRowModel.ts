@@ -18,8 +18,9 @@ export const thoughtLayout = {
     const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.thoughtFoldThreshold;
     return value === "viewport" || value === "codex" ? value : "every";
   },
-  /// The Debug choice `agentPane.debug.thoughtHeader`: a folded thought reads "Thought for 12s"
-  /// unless the app sets `data-thought-header="preview"`, "Thought" and its first line (#20948).
+  /// The Debug choice `agentPane.debug.thoughtHeader`: an opened thought reads "Thought for 12s"
+  /// unless the app sets `data-thought-header="preview"`, "Thought" alone (#20948). Folded, it
+  /// reads its words either way.
   header: (): ThoughtHeader =>
     typeof document !== "undefined" && document.documentElement.dataset.thoughtHeader === "preview"
       ? "preview"
@@ -31,6 +32,23 @@ export const thoughtLayout = {
 
 export type ThoughtHeader = "duration" | "preview";
 export type ThoughtFoldThreshold = "every" | "viewport" | "codex";
+
+/// The most of a thought its closed row holds: more than the widest row shows, and short enough to
+/// be the button's name a screen reader reads (a thought can be thousands of characters).
+export const THOUGHT_LINE_CHARS = 240;
+
+/// One line of a thought's words for its closed row: every line without Codex's heading marks, its
+/// breaks as spaces, at most THOUGHT_LINE_CHARS; the row cuts it with an ellipsis.
+export function thoughtLine(text: string): string {
+  // Only the start of a long thought is read: the line never needs more.
+  const line = text
+    .slice(0, THOUGHT_LINE_CHARS * 4)
+    .split("\n")
+    .map(thoughtPreview)
+    .filter(Boolean)
+    .join(" ");
+  return line.length > THOUGHT_LINE_CHARS ? `${line.slice(0, THOUGHT_LINE_CHARS).trimEnd()}\u2026` : line;
+}
 
 /// The folded line's text: the thought's first line without Codex's heading marks (`#`, `**`).
 export function thoughtPreview(text: string): string {

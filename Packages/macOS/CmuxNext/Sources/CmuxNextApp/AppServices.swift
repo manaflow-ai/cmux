@@ -28,6 +28,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
 import CmuxNextAppCore
@@ -120,7 +121,7 @@ final class AppServices {
     private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
-                                                                  deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure)
+                                                                  deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture, configuration: environment.cloudConfiguration)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
@@ -158,14 +159,14 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's hub-joined machines (`cmux machine list`); signed out, no service: a read empties them.
+    /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
         guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
-    }).following(signIn: { [weak self] in self?.cloud.auth.isSignedIn ?? false })
+    }).following(account: { [weak self] in self?.cloud.auth.accountKey })
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
@@ -192,6 +193,8 @@ final class AppServices {
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
     let openPanel = MadeAheadOpenPanel()
+    /// Live code's watcher (Debug and bench, CMUX_LIVE_CODE_DIR or Labs > Live Code); windows show its badge.
+    let liveCode = LiveCode.fromEnvironment()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
@@ -206,11 +209,11 @@ final class AppServices {
     let browserStores: BrowserSharedStores
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
-    /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
+    /// Every terminal's grid sender: a view's reported grid in its turn, one in flight, a held one on a frame.
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
@@ -421,7 +424,7 @@ final class AppServices {
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch, heldKeyReplay: heldKeyReplay)  // first read in init (no IUO)
     /// Where a creation hold's keys run again (``HeldKeyReplay``): `AppDelegate` passes `NSApp.sendEvent`.
     private let heldKeyReplay: HeldKeyReplay
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, memoryPressure: memoryPressure)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -592,7 +595,7 @@ final class AppServices {
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(echoesPlacementShift: true, mainWork: mainWork)
         // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
         daemon.installRecovery()
         self.launchReveal = launchReveal

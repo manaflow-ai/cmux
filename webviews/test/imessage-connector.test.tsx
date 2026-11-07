@@ -69,7 +69,12 @@ test("a Mac browser without a native bridge has no iMessage connector", async ()
     root = createRoot(container);
     root.render(<SessionInfo more />);
   });
-  expect(container.querySelector('[data-section="connectors"]')).toBeNull();
+  // Connectors always shows, folded: with nothing to list, one plain line that reads None.
+  const connectors = container.querySelector<HTMLElement>('section[data-section="connectors"]')!;
+  expect(connectors.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe(
+    translate("sessionInfo.none"),
+  );
+  expect(connectors.querySelector(".ui-disclosure-trigger")).toBeNull();
   expect(container.textContent).not.toContain(translate("imessage.unavailable"));
 });
 

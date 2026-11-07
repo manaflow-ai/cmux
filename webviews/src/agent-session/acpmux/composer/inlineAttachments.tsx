@@ -22,6 +22,7 @@ import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
+import { RemoveGlyph } from "./RemoveGlyph";
 
 type Options = {
   field: RefObject<MarkdownFieldHandle | null>;
@@ -315,9 +316,7 @@ const InlineChip = memo(function InlineChip({
       aria-label={t(pending && !pending.failed ? "composer.cancelAttachment" : "composer.removeAttachment", { name })}
       onClick={() => (attachment ? onRemove(id) : onCancel(id))}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   if (!attachment)

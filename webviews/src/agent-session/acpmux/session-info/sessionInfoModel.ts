@@ -1,5 +1,6 @@
 import { type ChatColumn } from "../chatWidth";
-import { type AcpmuxRow, transcriptColumn, transcriptColumnSpan } from "../model";
+import { type AcpmuxRow, transcriptColumn } from "../model";
+import { tryChipHost } from "../chips/host";
 
 export type SessionInfoPlacement = "push" | "overlay";
 
@@ -108,11 +109,19 @@ export const sessionInfoStage = (
   overflow = 0,
 ): SessionInfoStage => {
   if (!pushes(placement)) {
+    // Wherever the column fits beside the whole panel, the chat moves left and centers in what the panel
+    // leaves, a wide pane too, as Codex's does (Lucas, 2026-11-06: "we need to make sure that the chat is
+    // centered when the session info is open"): floating in a wide gutter left it 348px from the pane's
+    // left and 20px from the panel at 1500px. A handoff review's wide form and a short pane's popover
+    // keep their own places.
+    const all = pushedWidth(pane.width, width) + FLOAT_MARGIN;
+    if (!wide && pane.width > 0 && !sessionInfoPopover(pane.height, true) && pushKeepsColumn(pane.width, all, column))
+      return "push";
     if (!sessionInfoOverChat(pane.width, width + (wide ? 0 : Math.max(0, overflow)), column, wide)) return "float";
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
 };
 
 /// The shell's room Find in Chat's bar keeps from the chat's right edge (conversation.css .acpmux-find__bar).
@@ -140,20 +149,22 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
+// While it pushes, the page pins the column to its whole-pane width and centers it, unrounded, in the
+// chat beside the panel (sessionInfo.css): so a push keeps the column whenever that width and the two
+// minimum page edges fit in the chat. The column's own width scales with the pane between its 720px
+// floor and 800px cap, and the old exact-width check refused every push there, so the panel lay over
+// the prompts instead (Lucas, 2026-11-06: "we should also shift the chat to the left so that the
+// session summary doesnt overlap with prompts", as Codex's panel shifts its chat).
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
-    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
-    // Default placement still steps in 8s and keeps its existing exact-width guard.
-    (allowGridRounding
-      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
-      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
-    // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
-    // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
-    // 2026-11-03: "if it would need to be then session info should be an overlay").
-    transcriptColumnSpan(paneWidth - room, column) === transcriptColumnSpan(paneWidth, column));
+    paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset);
+
+/// Where the pinned column (its whole-pane width, `pinned`) ends in a chat `chatWidth` wide: centered,
+/// unrounded, never nearer the chat's sides than the page edge (sessionInfo.css).
+const pinnedColumnEnd = (chatWidth: number, pinned: number, edge: number) =>
+  chatWidth - Math.max(edge, (chatWidth - pinned) / 2);
 
 /// Whether Session Info pushes the chat aside (sessionInfoStage `push`).
 export const sessionInfoPushes = (
@@ -182,15 +193,20 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   // Panel widths are user-controlled and may be any pixel value. Keep the panel's own 8px inset exact
   // instead of rounding the whole room up: an odd drag width must not leave a gap (#33865).
   if (full) return all;
+  // Pushed, the column keeps its whole-pane width, centered in the chat (pinnedColumnEnd).
+  const pinned = transcriptColumn(paneWidth, column).width;
+  const edge = transcriptColumn(0, column).inset;
+  // Wherever the pinned column fits beside the whole panel, it takes the whole room: the chat is
+  // centered in what the panel leaves, as Codex's is (Lucas, 2026-11-06: "we need to make sure that
+  // the chat is centered when the session info is open, currently its a bit too shifted to the right").
+  if (paneWidth - all >= pinned + 2 * edge) return all;
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
-  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
-  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
-  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
-  // run once per layout of the panel.
+  if (paneWidth - all <= 0 || pinnedColumnEnd(paneWidth - all, pinned, edge) > end) return all;
+  // Else the least room, in steps of 8, whose column still ends by `end`. At most about 70 steps, run once
+  // per layout of the panel.
   let room = 8;
-  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
+  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
   return room >= panel ? all : room;
@@ -203,10 +219,21 @@ const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
 /// when it stays inside. Read while the panel floats (the chat has the pane's full width) or pushes by
 /// less than its full room (pushedRoom), with the chat's width now; the caller keeps the largest reading
 /// until the panel closes, so a push it causes never undoes it.
-export function chatContentOverflow(shell: HTMLElement, chatWidth: number, column?: ChatColumn): number {
+/// While pushed (`pinnedFrom`, the pane's width), the column is the pinned one, its whole-pane width
+/// centered in the chat (pinnedColumnEnd): measured against the chat's own narrower column, every row
+/// read as reaching past it, and the push took more room than it needed.
+export function chatContentOverflow(
+  shell: HTMLElement,
+  chatWidth: number,
+  column?: ChatColumn,
+  pinnedFrom?: number,
+): number {
   if (chatWidth <= 0) return 0;
   const left = shell.getBoundingClientRect().left;
-  const end = columnEnd(chatWidth, column);
+  const end =
+    pinnedFrom && pinnedFrom > chatWidth
+      ? pinnedColumnEnd(chatWidth, transcriptColumn(pinnedFrom, column).width, transcriptColumn(0, column).inset)
+      : columnEnd(chatWidth, column);
   let reach = 0;
   for (const element of shell.querySelectorAll<HTMLElement>(CHAT_CONTENT)) {
     const { right, width } = element.getBoundingClientRect();
@@ -271,3 +298,7 @@ export const DISMISS_KEEPERS =
 /// The tool calls in `rows`, by id.
 export const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+
+/// An Outputs file opens as the reply's path chip opens it (`link.openPath`); false when the host
+/// refused it.
+export const openOutputFile = (path: string) => tryChipHost("link.openPath", { path });

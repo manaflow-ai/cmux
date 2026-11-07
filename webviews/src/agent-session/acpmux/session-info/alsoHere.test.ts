@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
 import { expect, test } from "bun:test";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { alsoHere, ALSO_HERE_WINDOW_MS } from "./alsoHere";
+import { alsoHere, alsoHereExpiry, ALSO_HERE_WINDOW_MS } from "./alsoHere";
 import { alsoHereRow } from "./alsoHereSectionModel";
 
 const NOW = 10 * ALSO_HERE_WINDOW_MS;
@@ -66,4 +66,15 @@ test("a row names a peer's chat with its machine", () => {
     why: "branch",
   });
   expect(row).toMatchObject({ sessionId: "x", title: "big-red/crate split", harness: "codex", state: "running" });
+});
+
+test("the list redraws when its next idle chat goes a day old, and a running one never ages out", () => {
+  const here = { cwd: "/w/cmux-a" };
+  const idle = chat("idle", { ...here, status: "idle", activityAt: NOW - 60_000 });
+  const busy = chat("busy", { ...here, activityAt: NOW - 2 * 60_000 });
+  const rows = alsoHere("me", [ME, idle, busy], NOW);
+  const at = alsoHereExpiry(rows, NOW);
+  expect(at).toBe(NOW - 60_000 + ALSO_HERE_WINDOW_MS + 1);
+  expect(alsoHere("me", [ME, idle, busy], at).map((r) => r.entry.sessionId)).toEqual(["busy"]);
+  expect(alsoHereExpiry(alsoHere("me", [ME, busy], NOW), NOW)).toBe(NOW + ALSO_HERE_WINDOW_MS);
 });

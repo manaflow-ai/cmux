@@ -19,6 +19,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 
 import { rememberTrayOpen } from "./trayFoldMemory";
+import { pullTabCountText } from "./trayPullTabModel";
 export function TrayPullTab({
   chat,
   waiting,
@@ -68,7 +69,7 @@ export function TrayPullTab({
         ) : (
           running > 0 && (
             <span className="acpmux-tray-pull__count" aria-hidden="true">
-              {running}
+              {pullTabCountText(running)}
             </span>
           )
         )}

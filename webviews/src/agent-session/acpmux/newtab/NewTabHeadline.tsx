@@ -18,7 +18,7 @@ export type NewTabHeadlineProps = {
   projects: Project[];
   /// The folder a prompt starts in (the composer's project); none in no project.
   folder?: string;
-  /// Do not work in a project was picked: it is checked in the menu.
+  /// No folder was picked: it is checked in the menu.
   noProject: boolean;
   /// The machine the chat starts on (the location row's pick, else this Mac's name); none names no
   /// machine, as before.

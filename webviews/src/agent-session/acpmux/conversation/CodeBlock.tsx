@@ -4,7 +4,7 @@
 import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { isDiagram } from "./codeShape";
 import { highlightsCode } from "./highlightLimits";
-import { PlainCode } from "./StreamingCode";
+import { PlainCode, PlainCodeLines } from "./StreamingCode";
 import { loadHighlightedCode } from "./codeBlockModel";
 
 export type CodeBlockProps = {
@@ -20,6 +20,26 @@ export type CodeBlockProps = {
 };
 
 const HighlightedCode = lazy(() => loadHighlightedCode().then((module) => ({ default: module.HighlightedCode })));
+const HighlightedLines = lazy(() =>
+  import("./HighlightedLines").then((module) => ({ default: module.HighlightedLines })),
+);
+
+/// A file's bare lines (a read's peek, FileResultCard.tsx), highlighted by `path`'s language in the
+/// same chunk as the fenced card; plain while it loads and past the highlight limits.
+export function CodeLines({ code, path }: { code: string; path: string }) {
+  const plain = (
+    <div className="cv-filepeek__lines">
+      <PlainCodeLines code={code} />
+    </div>
+  );
+  return highlightsCode(code) ? (
+    <Suspense fallback={plain}>
+      <HighlightedLines code={code} path={path} />
+    </Suspense>
+  ) : (
+    plain
+  );
+}
 
 /**
  * Fenced code card. A fence over the highlight limits (highlightLimits.ts) and an unlabeled

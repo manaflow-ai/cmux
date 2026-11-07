@@ -111,12 +111,6 @@ const GROUPS: &[Group] = &[
                 "Text that hands the machine to someone else",
                 "マシンを他の人に引き継ぐためのテキスト",
             ),
-            verb(
-                "share-machine",
-                "{target} [--teammate USER_ID] [--revoke]",
-                "Share a team machine's chats with a teammate (no --teammate lists them)",
-                "チームのマシンのチャットをチームメイトと共有（--teammate なしで一覧表示）",
-            ),
         ],
     },
     Group {
@@ -161,9 +155,9 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "open-desktop",
-                "{target} [--viewer web]",
-                "Show the machine's desktop in a browser tab",
-                "マシンのデスクトップをブラウザタブに表示",
+                "{target} [--viewer rd|web]",
+                "Show the machine's desktop in a new workspace",
+                "マシンのデスクトップを新しいワークスペースに表示",
             ),
             verb(
                 "setup-github",
@@ -543,7 +537,7 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --timeout SECONDS  How long --wait waits (default 900)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
-plus reply with --wait.
+plus reply with --wait, and new_machine: true when this run made the machine.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json

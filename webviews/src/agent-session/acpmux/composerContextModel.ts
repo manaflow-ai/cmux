@@ -4,7 +4,7 @@ export const CONTEXT_LABELS = {
   local: "composer.thisMac",
   chooseComputer: "composer.chooseComputer",
   chooseFolder: "composer.chooseFolder",
-  chooseFolderMenu: "composer.chooseFolderMenu",
+  chooseFolderMenu: "composer.addFolder",
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
@@ -13,7 +13,7 @@ export const CONTEXT_LABELS = {
   newChatHere: "composer.newChatHere",
   machine: "composer.machine",
   chooseMachine: "composer.chooseMachine",
-  noProject: "composer.noProject",
+  noProject: "project.noFolder",
   environment: "composer.environment",
 } as const;
 

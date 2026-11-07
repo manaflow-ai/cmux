@@ -3,7 +3,7 @@ import { numberedImageLabels } from "../imageLabel";
 import { NativeError } from "../nativeError";
 import type { SummarySource } from "../summary/sessionSummary";
 
-export const SOURCES_SHOWN = 5;
+export const SOURCES_SHOWN = 4;
 // Native tab refusal preserves the gesture, so the validated editor route can retry.
 export async function openSourceFile(
   path: string,

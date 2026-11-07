@@ -14,6 +14,9 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! the machine bootstrap, machine config and create retry rules
+//! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
+//! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -24,19 +27,24 @@
 //! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
 //! per input event and per motion frame),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
+//! the sidebar's drop rules per drag (`cmux_sidebar_drag_*`,
+//! `cmux_sidebar_tab_drag_*`, `cmux_sidebar_base_y`, [`drag_handle`]: the rows
+//! cross once per drag, each move with numbers only),
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), and the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
 //! per scroll event and frame).
 
-use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
+use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
+mod cloud_bootstrap;
 mod cloud_config;
+pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -164,6 +172,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_edits" => {
+                let request: sidebar_edits::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
@@ -366,6 +379,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
+            }
+            operation if cloud_bootstrap::handles(operation) => {
+                cloud_bootstrap::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

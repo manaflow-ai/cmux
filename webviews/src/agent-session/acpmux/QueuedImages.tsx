@@ -19,6 +19,8 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { formatDuration } from "./chips/replyMediaModel";
 import { PlayTriangle } from "./conversation/icons";
 import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } from "./queuedImagesModel";
+import { RemoveGlyph } from "./composer/RemoveGlyph";
+
 export function QueuedImages({
   images,
   videos,
@@ -219,9 +221,7 @@ function QueuedImage({
             onRemove();
           }}
         >
-          <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-            <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <RemoveGlyph />
         </button>
       )}
     </span>

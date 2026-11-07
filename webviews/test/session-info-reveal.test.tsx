@@ -25,7 +25,7 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -174,6 +174,8 @@ const localChat = chat([
     [tool("Edit src/fetch.ts", "edit", "completed", { diffs: [{ path: `${CWD}/src/fetch.ts`, newText: "a\n" }] })],
     3,
   ),
+  // The report the reply links: Outputs lists it (chatOutputs.ts), so the reveal has a section.
+  assistant("Wrote [fetch-report.pdf](/tmp/fetch-report.pdf).", 2),
 ]);
 
 let reveal: ((section: "outputs") => void) | undefined;

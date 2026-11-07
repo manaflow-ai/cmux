@@ -139,6 +139,7 @@ public final class LayoutRootView: NSView {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
+        var focusRingEarned: Bool
         var dimsInactive: Bool
         var style: LayoutStyle
         var gestureActive: Bool
@@ -345,7 +346,8 @@ public final class LayoutRootView: NSView {
             $0.style != snapshot.style || $0.scrollbar != snapshot.scrollbar || $0.rowOps != snapshot.rowOps
         } ?? true
         let chromeChanged = sharedChanged || previous.map {
-            $0.focused != snapshot.focused || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
+            $0.focused != snapshot.focused || $0.focusRingEarned != snapshot.focusRingEarned
+                || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
         } ?? true
         let scrollChanged = previous.map {
             $0.focused != snapshot.focused || $0.centerMode != snapshot.centerMode || $0.gestureActive != snapshot.gestureActive
@@ -369,14 +371,15 @@ public final class LayoutRootView: NSView {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.isHidden = !isActive
-                // In the window before its first frame: the frame reconciles the screen, which takes
-                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
+                // At its size and in the window before its one first pass (`update(layout:)` below): that pass takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out. Neither the size
+                // nor the join lays it out (`ScreenContentView.setFrameSize`, `viewDidChangeBackingProperties`).
+                view.frame = bounds
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
-                view.frame = bounds
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -394,7 +397,7 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -672,6 +675,15 @@ public final class LayoutRootView: NSView {
                 // No frames run while parked or away: a resize drag's pages lay out now (`ScreenContentView+ResizeGesture`).
                 view.finishResizeGesture()
             }
+            // A screen switch in flight lands too, as `landMotion` lands it: the flag below must not drop while a screen
+            // still slides, and the show must not restart a slide nobody saw.
+            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+            applyScreenFrames()
+            // Settled: the motion ended for its observers (the window's divider catchers and page geometry, the still
+            // work), as a landing frame ends it. Without this the flag stayed set through the park, nothing landed
+            // after it, and the catchers never moved off the old dividers (Leo 2026-11-06: a closed split's pane
+            // stayed unclickable).
+            setLayoutInMotion(false)
         }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
@@ -687,7 +699,7 @@ public final class LayoutRootView: NSView {
             driver.attach(to: self)
             if screenViews.values.contains(where: { $0.hasMotion || $0.activeDrag?.waiting == true })
                 || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }
@@ -703,7 +715,8 @@ extension LayoutRootView: ParkingObserver {}
 extension LayoutRootView.Snapshot {
     /// Everything the view reads from `model` now; in `observe`, the observation tracks every property it reads.
     init(_ model: LayoutModel) {
-        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane, dimsInactive: model.dimsInactivePanes,
+        self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
+                  focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
                   revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
