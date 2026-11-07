@@ -109,7 +109,7 @@ pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
             [] => Resolved::Refused(refusal(
                 "cloud.no_machines",
                 "you have no Cloud VMs",
-                "cmux machine new",
+                "cmux vm new",
                 json!({}),
             )),
             _ => Resolved::Refused(refusal(

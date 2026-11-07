@@ -8,7 +8,7 @@
 /// Verbs the app still answers that `cmux cloud --help` no longer lists: the
 /// old spelling of a `cmux machine` verb (cmuxterm-hq docs/naming.md).
 /// `cmux cloud <verb> --help` still describes each and names the new one.
-const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux machine new")];
+const HIDDEN: &[(&str, &str)] = &[("new-machine", "cmux vm new")];
 
 /// The CLI's own Cloud verb, not an app action: start a chat and send it a prompt
 /// (cloud_start_chat.rs).
@@ -438,7 +438,7 @@ QUICK START
 
   Machines:
   cmux cloud ls --json
-  cmux machine new --size small --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud status dev
   cmux cloud pause dev
@@ -472,7 +472,7 @@ const INTRO_JA: &str = "\
 
   マシン:
   cmux cloud ls --json
-  cmux machine new --size small --json
+  cmux vm new --size small --json
   cmux cloud exec --target machine:MACHINE_ID --command 'uname -a' --json
   cmux cloud status dev
   cmux cloud pause dev

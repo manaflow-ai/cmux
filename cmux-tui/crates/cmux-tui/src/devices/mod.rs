@@ -31,11 +31,17 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
+       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
+       cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app.";
+  cmux device add HOST (no --yes) opens Add Device in the cmux app.
+  `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
+  Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] = &["list", "ls", "remove", "rm", "audit", "network", "invite", "help"];
+const VERBS: &[&str] =
+    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -87,7 +93,7 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "network" => show_network(args),
         _ => {
             println!("{USAGE}");
-            return if verb == "help" { 0 } else { 2 };
+            return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };
         }
     };
     match result {
