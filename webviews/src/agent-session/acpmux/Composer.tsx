@@ -119,6 +119,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { markPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -1584,8 +1585,11 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = placed.attachments;
-    const taken = onSend(placed.text, sent, steer, kept);
+    // Each paste still in the text as pasted goes as a pasted block, never as typed words
+    // (composer/pasteMarks.ts); a slash command's text stays the command.
+    const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sent = marked.attachments;
+    const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
