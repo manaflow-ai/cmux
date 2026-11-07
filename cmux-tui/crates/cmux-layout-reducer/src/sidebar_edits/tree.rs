@@ -109,7 +109,7 @@ fn container(
     for (at, flag) in hidden.iter_mut().enumerate() {
         *flag = at < hide_until;
         if !*flag && collapsed(at) {
-            hide_until = hide_until.max(end[at]);
+            hide_until = hide_until.max(end.get(at).copied().unwrap_or(count));
         }
     }
     // Guides, from the bottom up: `follows[c]` says whether the first shown
@@ -117,13 +117,16 @@ fn container(
     let mut follows = [false; MAX_DEPTH + 1];
     let mut guides: Vec<Vec<Guide>> = vec![Vec::new(); count];
     for at in (0..count).rev() {
-        if hidden[at] {
+        if hidden.get(at).copied().unwrap_or(true) {
             continue;
         }
-        let d = shown[at].unwrap_or(0);
-        if shown[at].is_some() {
-            guides[at] = (1..=d)
-                .map(|column| match (column == d, follows[column]) {
+        let row_shown = shown.get(at).copied().flatten();
+        let d = row_shown.unwrap_or(0);
+        if row_shown.is_some()
+            && let Some(row_guides) = guides.get_mut(at)
+        {
+            *row_guides = (1..=d)
+                .map(|column| match (column == d, follows.get(column).copied().unwrap_or(false)) {
                     (true, true) => Guide::Branch,
                     (true, false) => Guide::End,
                     (false, true) => Guide::Line,
@@ -132,24 +135,24 @@ fn container(
                 .collect();
         }
         for (column, flag) in follows.iter_mut().enumerate().skip(d) {
-            *flag = shown[at].is_some() && column == d;
+            *flag = row_shown.is_some() && column == d;
         }
     }
     (0..count)
         .map(|at| {
             let ws = links.get(at).copied().flatten()?;
             let d = shown.get(at).copied().flatten()?;
-            let descendants = end[at].saturating_sub(at + 1);
+            let descendants = end.get(at).copied().unwrap_or(at).saturating_sub(at + 1);
             Some(TreeRow {
                 id: ws.id.clone(),
                 section: section.clone(),
                 group: group.cloned(),
                 depth: u8::try_from(d).unwrap_or(u8::MAX),
                 indent: indent.saturating_mul(u32::try_from(d).unwrap_or(u32::MAX)),
-                guides: std::mem::take(&mut guides[at]),
+                guides: guides.get_mut(at).map(std::mem::take).unwrap_or_default(),
                 has_children: descendants > 0,
                 collapsed_count: if collapsed(at) { descendants } else { 0 },
-                hidden: hidden[at],
+                hidden: hidden.get(at).copied().unwrap_or(false),
             })
         })
         .collect()

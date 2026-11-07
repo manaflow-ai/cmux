@@ -98,7 +98,9 @@ pub(super) fn parents(links: &[Link<'_>]) -> Vec<Option<usize>> {
             if state.get(row).copied() != Some(0) {
                 break;
             }
-            state[row] = 1;
+            if let Some(flag) = state.get_mut(row) {
+                *flag = 1;
+            }
             path.push(row);
             at = parents.get(row).copied().flatten();
         }
@@ -108,11 +110,15 @@ pub(super) fn parents(links: &[Link<'_>]) -> Vec<Option<usize>> {
             && let Some(from) = path.iter().position(|&walked| walked == row)
         {
             for &looped in path.get(from..).unwrap_or_default() {
-                parents[looped] = None;
+                if let Some(parent) = parents.get_mut(looped) {
+                    *parent = None;
+                }
             }
         }
         for &walked in &path {
-            state[walked] = 2;
+            if let Some(flag) = state.get_mut(walked) {
+                *flag = 2;
+            }
         }
     }
     parents
@@ -141,10 +147,14 @@ pub(super) fn nesting(links: &[Link<'_>], parents: &[Option<usize>]) -> Nesting 
             _ => 0,
         };
         for closed in open.drain(keep..) {
-            end[closed] = at;
+            if let Some(row_end) = end.get_mut(closed) {
+                *row_end = at;
+            }
         }
         if link.is_some() {
-            depth[at] = Some(open.len());
+            if let Some(row_depth) = depth.get_mut(at) {
+                *row_depth = Some(open.len());
+            }
             open.push(at);
         }
     }
