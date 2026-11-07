@@ -159,9 +159,9 @@ export type PendingAttachment = {
   /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
   /// above and then they land to where they should be").
   size?: { width: number; height: number };
-  /// An image whose header is still being read (a few bytes, well within the paste's frame): its tile
-  /// is held, zero wide and unseen, so it first shows at its thumbnail's size, never a stand-in width.
-  /// Until the next frame at most; one whose header does not answer by then shows at the stand-in.
+  /// An image whose header is still being read (a few bytes, a frame or two): its tile is held, zero
+  /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
+  /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
 };
 
@@ -173,20 +173,26 @@ export function imageShape(size: { width: number; height: number } | undefined):
   return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
 }
 
-/// Reads `file`'s pixel size from its header and answers it to `done` once: by the next frame
-/// (requestAnimationFrame runs before that frame paints, so a tile held for it shows in the same
-/// frame), or undefined then if the header has not answered; a size that comes later still answers.
+/// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
+/// in memory, read in a frame or two (the page's first read of one can take a few frames).
+const HEADER_WAIT_MS = 120;
+
+/// Reads `file`'s pixel size from its header and answers it to `done`: when the header answers, or
+/// undefined after HEADER_WAIT_MS if it has not (the tile then shows at its stand-in width); a size
+/// that comes after that still answers.
 function sizeFromHeader(file: File, done: (size: { width: number; height: number } | undefined) => void) {
   let answered = false;
   const answer = (size: { width: number; height: number } | undefined) => {
     if (answered && !size) return;
     answered = true;
+    clearTimeout(deadline);
     done(size);
   };
+  // timeout: a header read that never answers (an unreadable file) must not hold its tile unseen.
+  const deadline = setTimeout(() => answer(undefined), HEADER_WAIT_MS);
   void imageSize(file)
     .catch(() => undefined)
     .then((size) => answer(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
-  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => answer(undefined));
 }
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once

@@ -254,7 +254,7 @@
   min-width: 48px;
   max-width: 128px;
 }
-/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, a frame at most): held
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
    zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
 :is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
   visibility: hidden;
