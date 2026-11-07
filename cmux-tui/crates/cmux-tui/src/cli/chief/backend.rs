@@ -141,21 +141,20 @@ impl ChatClient {
         before: Option<u64>,
         page: Option<u32>,
     ) -> Result<(Vec<Value>, bool), LinkError> {
-        let mut params = json!({"conversation": conversation});
-        if let Some(before) = before {
-            params["before_started_at"] = json!(before);
-        }
-        let value = match self.owner {
-            Owner::Local => {
-                params["limit"] = json!(page.unwrap_or(200).min(200));
-                self.link.command("conversation-runs", params)?
-            }
-            Owner::Cloud => {
-                params["agent"] = json!(agent);
-                params["limit"] = json!(page.unwrap_or(100).min(100));
-                self.link.command("cloud-conversation-runs", params)?
-            }
+        let (cmd, limit) = match self.owner {
+            Owner::Local => ("conversation-runs", page.unwrap_or(200).min(200)),
+            Owner::Cloud => ("cloud-conversation-runs", page.unwrap_or(100).min(100)),
         };
+        let mut params = serde_json::Map::new();
+        params.insert("conversation".into(), json!(conversation));
+        params.insert("limit".into(), json!(limit));
+        if let Some(before) = before {
+            params.insert("before_started_at".into(), json!(before));
+        }
+        if self.owner == Owner::Cloud {
+            params.insert("agent".into(), json!(agent));
+        }
+        let value = self.link.command(cmd, Value::Object(params))?;
         let runs = value.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
         Ok((runs, value.get("has_more").and_then(Value::as_bool).unwrap_or(false)))
     }
