@@ -13,6 +13,7 @@ import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
 import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
+import { withSentShapes } from "./conversation/imageEntries";
 /// `placed`: the composer put the prompt's attachments in its text (`inlinePrompt`), so this part
 /// sits in the composer's order; acpmux keeps it (hub/prompt_images.rs) and the sent bubble draws
 /// only such a prompt in its recorded order (conversation/UserBubble.tsx). A prompt sent in the
@@ -177,13 +178,15 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
           : {}),
       };
     }
-    return part.kind === "image" && old?.kind === "image"
-      ? {
-          ...part,
-          attachmentId: old.attachmentId,
-          ...(part.blockIndex === undefined && old.blockIndex !== undefined ? { blockIndex: old.blockIndex } : {}),
-        }
-      : part;
+    if (part.kind !== "image" || old?.kind !== "image") return part;
+    // The pane's own bytes and their size, so the echo draws the image at the shape it landed with
+    // (conversation/imageEntries.ts withSentShapes).
+    const [shaped] = withSentShapes([part], [old]);
+    return {
+      ...shaped!,
+      attachmentId: old.attachmentId,
+      ...(part.blockIndex === undefined && old.blockIndex !== undefined ? { blockIndex: old.blockIndex } : {}),
+    };
   });
 }
 /// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
