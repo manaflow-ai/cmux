@@ -14,7 +14,7 @@ protocol ConductorImportDaemon {
     func closeWorkspace(_ key: WorkspaceKey) async throws
     /// `project.add`.
     func addProject(path: String, idempotencyKey: String) async throws
-    /// `project.update` `worktree`: the project's worktree recipe.
+    /// `project.update` `worktree`: the project's worktree recipe, unless one is already saved.
     func saveRecipe(_ recipe: ConductorImportPlan.Recipe, idempotencyKey: String) async throws
     /// `conductor_import.record`.
     func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,
@@ -47,7 +47,8 @@ struct LiveConductorImportDaemon: ConductorImportDaemon {
 
     func saveRecipe(_ recipe: ConductorImportPlan.Recipe, idempotencyKey: String) async throws {
         try await ProjectStateClient(connection: connection)
-            .saveWorktreeRecipe(path: recipe.projectPath, worktree: recipe.worktree, idempotencyKey: idempotencyKey)
+            .saveWorktreeRecipe(path: recipe.projectPath, worktree: recipe.worktree, keepSaved: true,
+                                idempotencyKey: idempotencyKey)
     }
 
     func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,

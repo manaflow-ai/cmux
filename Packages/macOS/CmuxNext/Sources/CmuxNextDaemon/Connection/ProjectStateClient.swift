@@ -77,11 +77,14 @@ public struct ProjectStateClient: Sendable {
         }, as: ResourceMutationResult<JSONValue>.self)
     }
 
-    /// Saves the project's worktree recipe (`project.update` `worktree`).
-    public func saveWorktreeRecipe(path: String, worktree: JSONValue, idempotencyKey: String) async throws {
+    /// Saves the project's worktree recipe (`project.update` `worktree`). With `keepSaved`, the
+    /// daemon leaves a recipe the project already has as it is.
+    public func saveWorktreeRecipe(path: String, worktree: JSONValue, keepSaved: Bool = false,
+                                   idempotencyKey: String) async throws {
+        var params: [String: JSONValue] = ["path": .string(path), "worktree": worktree]
+        if keepSaved { params["keep_saved_worktree"] = .bool(true) }
         _ = try await connection.resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "project.update",
-                                    params: ["path": .string(path), "worktree": worktree],
+            ResourceRequestEnvelope(id: id, operation: "project.update", params: params,
                                     idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
     }

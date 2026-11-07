@@ -107,8 +107,9 @@ public struct ConductorImport {
                 failedProjects.append(project.repoID)
             }
         }
-        // Each project's worktree recipe, as the preview showed it. One that cannot be saved
-        // fails the run at its end; the others and the workspaces still come over.
+        // Each project's worktree recipe, as the preview showed it, unless the user saved one since
+        // (the daemon checks and saves in one step). One that cannot be saved fails the run at its
+        // end; the others and the workspaces still come over.
         for (project, recipe) in plan.recipes where !failedProjects.contains(project.repoID) {
             do {
                 try await daemon.saveRecipe(recipe, idempotencyKey: "conductor-import-\(run)-recipe-\(project.repoID)")

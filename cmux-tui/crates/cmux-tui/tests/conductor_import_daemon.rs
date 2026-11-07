@@ -239,4 +239,24 @@ fn conductor_import_plans_a_worktree_recipe_and_keeps_a_saved_one() {
     let again = daemon.plan();
     assert!(again["plan"]["projects"][0]["recipe"].is_null(), "{again}");
     assert_eq!(again["plan"]["projects"][0]["recipe_kept"], true, "{again}");
+
+    // A recipe the user saves after the preview wins over the import's save.
+    let theirs = json!({"setup": "make", "include": [".env.local"]});
+    daemon
+        .send("project.update", json!({"path": path, "worktree": theirs}), Some("user"))
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
+    let import = json!({"path": path, "worktree": recipe_of(&recipe), "keep_saved_worktree": true});
+    daemon
+        .send("project.update", import, Some("import"))
+        .unwrap_or_else(|error| panic!("project.update: {error}"));
+    let listed = daemon
+        .send("project.list", json!({}), None)
+        .unwrap_or_else(|error| panic!("project.list: {error}"));
+    assert!(listed.to_string().contains(".env.local"), "{listed}");
+    assert!(!listed.to_string().contains("bun install"), "{listed}");
+}
+
+/// The saved form of a planned recipe: its commands and include, without its project.
+fn recipe_of(planned: &Value) -> Value {
+    json!({"setup": planned["setup"], "include": planned["include"]})
 }
