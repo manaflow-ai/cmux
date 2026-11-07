@@ -609,6 +609,7 @@ test("the machine back with a slow read of the records it missed draws no hole w
   chat.daemon().down = false;
   chat.daemon().announce();
   await until(() => (chat.daemon().heldReads?.length ?? 0) > 0, "the gap read");
+  // fixed-wait: the read must stay out past a switch's 1.5 s hold, which runs on real timers.
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   const held = chat.daemon().heldReads ?? [];
   chat.daemon().heldReads = undefined;
