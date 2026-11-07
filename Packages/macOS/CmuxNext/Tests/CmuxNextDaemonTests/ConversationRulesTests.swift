@@ -117,15 +117,21 @@ struct ConversationRulesTests {
                                                            progress: { value in reported.values.withLock { $0.append(value) } })
             #expect(stored.byteCount == original.count)
             let calls = try #require(try await connection.request(CapturedChunks()).arrayValue)
-            let sent = calls.map { $0.arrayValue ?? [] }
-            #expect(sent == [[.string("original"), .number(0), .number(Double(chunk))],
-                             [.string("original"), .number(Double(chunk)), .number(Double(chunk))],
-                             [.string("original"), .number(Double(2 * chunk)), .number(1000)],
-                             [.string("preview"), .number(0), .number(Double(preview.count))]])
+            let sent: [String] = calls.map { call in
+                let fields = call.arrayValue ?? []
+                let piece = fields.first?.stringValue ?? "?"
+                let numbers = fields.dropFirst().map { Int($0.doubleValue ?? -1) }
+                return "\(piece) \(numbers.map(String.init).joined(separator: " "))"
+            }
+            let expected: [String] = ["original 0 \(chunk)", "original \(chunk) \(chunk)", "original \(2 * chunk) 1000",
+                                      "preview 0 \(preview.count)"]
+            #expect(sent == expected)
             let progress = reported.values.withLock { $0 }
-            #expect(progress.count == 5 && progress.last == 1)
-            let sending = Array(progress.dropLast())
-            #expect(sending.allSatisfy { $0 <= 0.99 } && sending == sending.sorted())
+            #expect(progress.count == 5)
+            #expect(progress.last == 1)
+            let sending: [Double] = Array(progress.dropLast())
+            #expect(sending.allSatisfy { $0 <= 0.99 })
+            #expect(sending == sending.sorted())
 
             let destination = directory.appendingPathComponent("read.bin")
             let mimeType = try await client.downloadAttachment(conversation: "c", hash: "h", variant: .original, to: destination)
