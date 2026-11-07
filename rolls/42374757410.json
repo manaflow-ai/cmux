@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42374757410",
+  "recorded_at": "2026-11-07T13:05:20Z",
+  "reason": "cmux-tui cee4c356a8d7 changes the image's cmux-tui (pinned 2d7a228cbd4e)",
+  "dry_run": false,
+  "cmux_tui": "cee4c356a8d77d68353caa6ac91733f33e606df5",
+  "fixes": [
+    {
+      "sha": "cee4c356a8d77d68353caa6ac91733f33e606df5",
+      "mergedAt": "2026-11-07T04:44:29-08:00",
+      "subject": "Shared chats: a link guest (no account) is always view-only (#37766)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T13:05:20Z",
+    "snapshot_id": "sh-6afa52d9d8a44b729fc38fa6f80c40cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42374757410): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "67dd7d80143e96cef636769a939a858938c0a075",
+    "image": "cloud-native-auto-cee4c356-42374757410-1",
+    "revision": "ci-42374757410-1",
+    "at": "2026-11-07T13:05:20Z"
+  },
+  "rolled_back": false
+}
