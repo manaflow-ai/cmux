@@ -260,7 +260,9 @@ impl Mux {
         let facts = inspect::inspect(&catalog, home);
         let plan = plan::plan(&catalog, &facts, &ledger, &open);
         let mut value = json!({"found": found, "plan": plan});
-        self.place_recipes(&mut value["plan"]["projects"]);
+        if let Some(projects) = value.get_mut("plan").and_then(|plan| plan.get_mut("projects")) {
+            self.place_recipes(projects);
+        }
         Ok(value)
     }
 
@@ -280,20 +282,21 @@ impl Mux {
                     .collect())
             })
             .unwrap_or_default();
-        for project in projects.as_array_mut().into_iter().flatten() {
-            if project["recipe"].is_null() {
+        let projects = projects.as_array_mut().into_iter().flatten();
+        for project in projects.filter_map(Value::as_object_mut) {
+            if project.get("recipe").is_none_or(Value::is_null) {
                 continue;
             }
-            let Some(path) = project["path"].as_str().map(PathBuf::from) else {
-                project["recipe"] = Value::Null;
+            let Some(path) = project.get("path").and_then(Value::as_str).map(PathBuf::from) else {
+                project.insert("recipe".into(), Value::Null);
                 continue;
             };
             let path = std::fs::canonicalize(&path).unwrap_or(path).to_string_lossy().into_owned();
             if saved.contains(&path) {
-                project["recipe"] = Value::Null;
-                project["recipe_kept"] = Value::Bool(true);
-            } else {
-                project["recipe"]["project_path"] = Value::String(path);
+                project.insert("recipe".into(), Value::Null);
+                project.insert("recipe_kept".into(), Value::Bool(true));
+            } else if let Some(recipe) = project.get_mut("recipe").and_then(Value::as_object_mut) {
+                recipe.insert("project_path".into(), Value::String(path));
             }
         }
     }
