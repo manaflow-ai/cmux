@@ -61680,6 +61680,74 @@
 
       ],
       "category" : "agents",
+      "cliName" : "action agent-pane-show-in-mini",
+      "computed" : {
+        "canonical_action_id" : "agentPane.showInMini",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "id" : "agentPane.showInMini",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "agent",
+        "chat",
+        "mini",
+        "pet",
+        "chief",
+        "floating",
+        "avatar",
+        "coordinator"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pip",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Show in Mini",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "agents",
       "cliName" : "agent archive-chat",
       "computed" : {
         "canonical_action_id" : "agentPane.archiveChat",

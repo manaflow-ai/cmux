@@ -435,7 +435,12 @@ public final class AgentPaneView: NSView {
         super.layout()
         let frame = topBar.contentFrame(in: bounds)
         let shown = holdsPageAway ? Self.awayFrame(of: frame) : frame
-        if let page { page.frame = shown } else { webView.frame = shown }
+        if let page {
+            let moved = page.frame != shown
+            page.frame = shown
+            // Held away and back (an adopted chat drew), or resized: the native holes follow the page.
+            if moved { applyNativeRects() }
+        } else { webView.frame = shown }
         placeChromiumMove(at: frame)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
         layoutSessionInfo()

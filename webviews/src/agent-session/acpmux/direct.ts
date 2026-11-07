@@ -6425,6 +6425,11 @@ export class AcpmuxDirectClient {
     if (this.askedQuestions.has(permissionId)) this.repliedWhileAsked.add(permissionId);
   }
 
+  /// The decline for that reply failed: the question still waits, and a later Skip reads as one.
+  unmarkAnsweredInChat(permissionId: string): void {
+    this.repliedWhileAsked.delete(permissionId);
+  }
+
   /// The person wrote a prompt of their own: a question waiting now, or one declined just before it,
   /// was answered in the chat rather than on its card (Leo, 2026-11-07: "what happens if they respond
   /// to it in another way, right?"). The composer hat declines a waiting question for a typed reply
@@ -10365,6 +10370,9 @@ export class AcpmuxDirectClient {
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
   /// agent refused, a take-over that failed): a toast, never a transcript line.
   transient(text: string): void {
+    // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
+    // about a pane that is gone: neither the new pane's toasts nor a line.
+    if (this.closed) return;
     if (this.toastSink) this.toastSink(text);
     else this.notice(text);
   }
@@ -11239,6 +11247,7 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
+    this.toastSink = undefined;
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
