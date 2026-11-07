@@ -373,6 +373,33 @@ test("a pane-wide row's tooltip anchors at its words and stays out of the tab ro
   expect(tip.style.top).toBe(`${48 + 22 + UI_TOOLTIP_GAP}px`);
 });
 
+/// Leo, 2026-11-07 (Trace-ID ask-11b77f340e): closing a tab in a tight pane moved the chat's tools up under a pointer
+/// that did not move. An element the page lays out under a still pointer gets the engine's `pointerover` too; its
+/// tooltip waits for the pointer to move, and then shows for what is under it.
+test("a layout that moves a control under a still pointer shows nothing until the pointer moves", async () => {
+  const doc = page(`<button id="tool" title="Session Info"></button><div id="rest"></div>`);
+  const tool = doc.getElementById("tool")!;
+  const at = (type: string, target: Element, x: number) =>
+    target.dispatchEvent(new dom!.window.MouseEvent(type, { bubbles: true, screenX: x, screenY: 40 }));
+  // The pointer rests over the row's empty part.
+  at("pointerover", doc.getElementById("rest")!, 500);
+  at("pointermove", doc.getElementById("rest")!, 500);
+  // The tools land under it: the same point, no move.
+  at("pointerover", tool, 500);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip");
+  expect(tip === null || tip.hidden).toBe(true);
+  // An engine's synthetic move at the same point is no move either.
+  at("pointermove", tool, 500);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden ?? true).toBe(true);
+  // A real move over the tool shows its tooltip.
+  at("pointermove", tool, 502);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.hidden).toBe(false);
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")?.textContent).toBe("Session Info");
+});
+
 test("a timestamp's tooltip under an open Find bar flips below its row, never over the bar", async () => {
   // Leo 2026-11-07: a message time's "Nov 7, 2026, 12:05 AM" drawn over the find bar. The bar
   // (ChatFindBar.tsx) registers its bottom, 52px down, in ui/popupInset.ts while it shows.
