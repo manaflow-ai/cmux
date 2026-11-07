@@ -437,9 +437,7 @@ export const PreviewCard = React.forwardRef<
           {pending ? (
             <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
           ) : (
-            <span className="acpmux-minimap__prompt">
-              {prompt}
-            </span>
+            <span className="acpmux-minimap__prompt">{prompt}</span>
           )}
           {bookmark && (
             <Button
@@ -536,13 +534,7 @@ export const PreviewCard = React.forwardRef<
   );
 });
 
-function PreviewSender({
-  sender,
-  fallback,
-}: {
-  sender: NonNullable<MinimapTurnMetadata["sender"]>;
-  fallback: string;
-}) {
+function PreviewSender({ sender, fallback }: { sender: NonNullable<MinimapTurnMetadata["sender"]>; fallback: string }) {
   const identity = useSenderIdentity(sender, React.useContext(PromptMarksSession));
   return identity.known ? <SenderIdentityLabel identity={identity} /> : <>{fallback}</>;
 }
