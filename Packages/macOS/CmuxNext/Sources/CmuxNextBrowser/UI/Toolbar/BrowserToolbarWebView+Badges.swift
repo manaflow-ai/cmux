@@ -91,22 +91,6 @@ public struct OmnibarDebugSnapshot: Sendable, Equatable {
     public var copyText: String?
 }
 
-/// A synthesized mouse gesture over the omnibar text (`debug.mouse`).
-public struct OmnibarDebugMouse: Sendable {
-    public enum Button: Sendable { case left, right }
-    public var character: Int
-    public var dragTo: Int?
-    public var clickCount: Int
-    public var button: Button
-
-    public init(character: Int, dragTo: Int? = nil, clickCount: Int = 1, button: Button = .left) {
-        self.character = character
-        self.dragTo = dragTo
-        self.clickCount = clickCount
-        self.button = button
-    }
-}
-
 /// Where the suggestion card is, as automation reads it (`debug.omnibar`).
 public struct OmnibarDebugCard: Sendable, Equatable {
     /// The card is its own child panel of the browser window (always, since the card is a page).
@@ -164,11 +148,5 @@ extension BrowserToolbarWebView {
         guard popup.isVisible, popup.rowKinds.indices.contains(index) else { return false }
         send(BrowserToolbarHostEvent.rowClick(index, meta: false, shift: false, alt: false))
         return true
-    }
-
-    /// Synthesized presses over the field are not supported: the field is the page's `<input>`;
-    /// drive it with `debug.omnibar_type` or real events. Returns the error.
-    public func debugMouse(_ gesture: OmnibarDebugMouse) -> String? {
-        "the omnibar field is a web page input: use debug.omnibar_type"
     }
 }
