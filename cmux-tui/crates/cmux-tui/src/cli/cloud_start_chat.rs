@@ -520,7 +520,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 
 /// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
 /// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
-/// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
+/// failure after that says it in `details` (`machine_id`, `new_machine: true`). A caller (the start matrix) may
+/// delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut made = None;
     let mut timed = Timed::new(runner);
@@ -539,6 +540,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
+                // A failure after this run made its machine names it, so the caller can delete it.
+                if let Some(id) = made {
+                    details.insert("machine_id".to_owned(), json!(id));
+                    details.insert("new_machine".to_owned(), json!(true));
+                }
             }
         }
     }
