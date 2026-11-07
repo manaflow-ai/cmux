@@ -186035,133 +186035,133 @@
       }
     },
     "turn.tokens.detail": {
-      "comment": "Agent pane: the hover on a turn's split tokens (↓ 12.4K out ↑ 3.9M in). {output} is what the model wrote, {input} the fresh input, {cacheRead} and {cacheWrite} the prompt cache's reads and writes, each a compact count (12.4K, 3.8M).",
+      "comment": "Agent pane: the hover on a turn's split tokens (↓ 12.4K out ↑ 3.9M in), one count per row: keep the three line breaks. {output} is what the model wrote, {input} the fresh input, {cacheRead} and {cacheWrite} the prompt cache's reads and writes, each a compact count (12.4K, 3.8M).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المخرجات {output} · مدخلات جديدة {input} · قراءات ذاكرة التخزين المؤقت {cacheRead} · كتابات ذاكرة التخزين المؤقت {cacheWrite}"
+            "value": "المخرجات {output}\nمدخلات جديدة {input}\nقراءات ذاكرة التخزين المؤقت {cacheRead}\nكتابات ذاكرة التخزين المؤقت {cacheWrite}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Izlaz {output} · novi ulaz {input} · čitanja iz keša {cacheRead} · upisi u keš {cacheWrite}"
+            "value": "Izlaz {output}\nNovi ulaz {input}\nČitanja iz keša {cacheRead}\nUpisi u keš {cacheWrite}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Output {output} · nyt input {input} · cachelæsninger {cacheRead} · cacheskrivninger {cacheWrite}"
+            "value": "Output {output}\nNyt input {input}\nCachelæsninger {cacheRead}\nCacheskrivninger {cacheWrite}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ausgabe {output} · neue Eingabe {input} · Cache-Lesezugriffe {cacheRead} · Cache-Schreibzugriffe {cacheWrite}"
+            "value": "Ausgabe {output}\nNeue Eingabe {input}\nCache-Lesezugriffe {cacheRead}\nCache-Schreibzugriffe {cacheWrite}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output {output} · fresh input {input} · cache reads {cacheRead} · cache writes {cacheWrite}"
+            "value": "Output {output}\nFresh input {input}\nCache reads {cacheRead}\nCache writes {cacheWrite}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salida {output} · entrada nueva {input} · lecturas de caché {cacheRead} · escrituras de caché {cacheWrite}"
+            "value": "Salida {output}\nEntrada nueva {input}\nLecturas de caché {cacheRead}\nEscrituras de caché {cacheWrite}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sortie {output} · nouvelle entrée {input} · lectures du cache {cacheRead} · écritures du cache {cacheWrite}"
+            "value": "Sortie {output}\nNouvelle entrée {input}\nLectures du cache {cacheRead}\nÉcritures du cache {cacheWrite}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Output {output} · nuovo input {input} · letture dalla cache {cacheRead} · scritture nella cache {cacheWrite}"
+            "value": "Output {output}\nNuovo input {input}\nLetture dalla cache {cacheRead}\nScritture nella cache {cacheWrite}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "出力 {output} · 新規入力 {input} · キャッシュ読み取り {cacheRead} · キャッシュ書き込み {cacheWrite}"
+            "value": "出力 {output}\n新規入力 {input}\nキャッシュ読み取り {cacheRead}\nキャッシュ書き込み {cacheWrite}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លទ្ធផល {output} · ការបញ្ចូលថ្មី {input} · ការអានឃ្លាំងសម្ងាត់ {cacheRead} · ការសរសេរឃ្លាំងសម្ងាត់ {cacheWrite}"
+            "value": "លទ្ធផល {output}\nការបញ្ចូលថ្មី {input}\nការអានឃ្លាំងសម្ងាត់ {cacheRead}\nការសរសេរឃ្លាំងសម្ងាត់ {cacheWrite}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "출력 {output} · 새 입력 {input} · 캐시 읽기 {cacheRead} · 캐시 쓰기 {cacheWrite}"
+            "value": "출력 {output}\n새 입력 {input}\n캐시 읽기 {cacheRead}\n캐시 쓰기 {cacheWrite}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utdata {output} · ny inndata {input} · hurtigbufferlesinger {cacheRead} · hurtigbufferskrivinger {cacheWrite}"
+            "value": "Utdata {output}\nNy inndata {input}\nHurtigbufferlesinger {cacheRead}\nHurtigbufferskrivinger {cacheWrite}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wyjście {output} · nowe wejście {input} · odczyty z pamięci podręcznej {cacheRead} · zapisy do pamięci podręcznej {cacheWrite}"
+            "value": "Wyjście {output}\nNowe wejście {input}\nOdczyty z pamięci podręcznej {cacheRead}\nZapisy do pamięci podręcznej {cacheWrite}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Saída {output} · entrada nova {input} · leituras do cache {cacheRead} · gravações no cache {cacheWrite}"
+            "value": "Saída {output}\nEntrada nova {input}\nLeituras do cache {cacheRead}\nGravações no cache {cacheWrite}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вывод {output} · новый ввод {input} · чтения из кэша {cacheRead} · записи в кэш {cacheWrite}"
+            "value": "Вывод {output}\nНовый ввод {input}\nЧтения из кэша {cacheRead}\nЗаписи в кэш {cacheWrite}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอาต์พุต {output} · อินพุตใหม่ {input} · การอ่านแคช {cacheRead} · การเขียนแคช {cacheWrite}"
+            "value": "เอาต์พุต {output}\nอินพุตใหม่ {input}\nการอ่านแคช {cacheRead}\nการเขียนแคช {cacheWrite}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çıktı {output} · yeni girdi {input} · önbellek okumaları {cacheRead} · önbellek yazmaları {cacheWrite}"
+            "value": "Çıktı {output}\nYeni girdi {input}\nÖnbellek okumaları {cacheRead}\nÖnbellek yazmaları {cacheWrite}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вивід {output} · новий ввід {input} · читання з кешу {cacheRead} · записи в кеш {cacheWrite}"
+            "value": "Вивід {output}\nНовий ввід {input}\nЧитання з кешу {cacheRead}\nЗаписи в кеш {cacheWrite}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đầu ra {output} · đầu vào mới {input} · lượt đọc bộ nhớ đệm {cacheRead} · lượt ghi bộ nhớ đệm {cacheWrite}"
+            "value": "Đầu ra {output}\nĐầu vào mới {input}\nLượt đọc bộ nhớ đệm {cacheRead}\nLượt ghi bộ nhớ đệm {cacheWrite}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "输出 {output} · 新输入 {input} · 缓存读取 {cacheRead} · 缓存写入 {cacheWrite}"
+            "value": "输出 {output}\n新输入 {input}\n缓存读取 {cacheRead}\n缓存写入 {cacheWrite}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "輸出 {output} · 新輸入 {input} · 快取讀取 {cacheRead} · 快取寫入 {cacheWrite}"
+            "value": "輸出 {output}\n新輸入 {input}\n快取讀取 {cacheRead}\n快取寫入 {cacheWrite}"
           }
         }
       }
