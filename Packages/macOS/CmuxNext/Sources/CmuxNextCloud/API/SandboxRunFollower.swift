@@ -139,7 +139,9 @@ public final class SandboxRunFollower {
             var heard = self?.now() ?? Date()
             // wakeup-allow: a long-poll, each pass one /wait call the server holds (10 s for a Run, 25 s for a hand-off); a failure waits a Backoff delay
             while !Task.isCancelled {
-                guard let self, let next = self.step(Event(on: "poll", id: id, heard: heard))?.wait else { return }
+                guard let self else { return }
+                guard let polled = self.step(Event(on: "poll", id: id, heard: heard)) else { return self.rulesFailed(id) }
+                guard let next = polled.wait else { return }
                 let began = ContinuousClock.now
                 var answer = Event(on: "answer", id: id)
                 var data = Data()
@@ -155,7 +157,7 @@ public final class SandboxRunFollower {
                     answer.failed = true
                 }
                 answer.cancelled = Task.isCancelled
-                guard let reply = self.step(answer, answer: data) else { return }
+                guard let reply = self.step(answer, answer: data) else { return self.rulesFailed(id) }
                 if reply.heard == true { heard = self.now() }
                 switch reply.next {
                 case "again":
@@ -199,6 +201,12 @@ public final class SandboxRunFollower {
         case "forget": onForget?(effect.ids ?? [])
         default: break
         }
+    }
+
+    /// The rules gave no answer (an FFI failure): the poll ends and its waiters get an error, so no
+    /// send hangs on a poll nothing drives.
+    private func rulesFailed(_ id: String) {
+        endPoll(id, error: CloudAPIError.decoding("the cloud task rules did not answer"))
     }
 
     private func endPoll(_ id: String, error: any Error) {
