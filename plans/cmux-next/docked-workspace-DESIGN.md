@@ -208,10 +208,12 @@ it have no tabbar, ensure cmd shift p actions for it too".
 - Open Chief Dock (`home.openChiefDock`, Cmd-I, rebindable, in the palette; New Agent Chat keeps Cmd-J S) docks
   Home at `home.chiefDock.edge` (left by default; right, top, bottom in Settings > Chief > Chief Dock and
   cmux-next.json) and focuses its message box; run again it only focuses it.
-- A workspace, tab, agent link or subagent pill clicked in the Chief while Home fills the window arms the dock
-  (`WindowDockActions.chiefLinkWillOpen`, `WindowDockFrame.armChiefDock`): the show that follows docks Home first, so Home's content
-  controller and view stay mounted (same instance: draft, selection, scroll kept) and the target goes on the stage.
-  The arm lapses after 10 s, so a later sidebar pick never docks Home. `home.chiefDock.openBeside` (on) turns it off.
+- No link click docks the Chief (cmux#37372, user 2026-11-06: "opening a subagent must never re-dock Chief"): a
+  workspace, tab, agent or `cmux://` link or a subagent chip clicked in the Chief replaces Home on the stage, as a
+  sidebar pick does. Only Open Chief Dock docks it. The link arm (`chiefLinkWillOpen`, `armChiefDock`) and its
+  setting `home.chiefDock.openBeside` are gone (retired in `schemas/settings/retired-keys.json`).
+- Undock Chief (`home.undockChief`, palette, the Chief pane's more menu, `cmux home undock-chief`) sends the docked
+  Chief back to the sidebar; the stage keeps its workspace and takes the keys when the Chief had them.
 - A stage switch never touches a dock: the docked view is not hidden, moved or re-mapped (W8 extended to switches).
 - Per dock, the Home Chief pane's no-tab-bar mode: a pane of the dock showing one tab draws no tab bar; a second tab
   dragged in brings it back (`WindowDocks.Dock.hidesTabBar`, read in `PaneController.structure`).

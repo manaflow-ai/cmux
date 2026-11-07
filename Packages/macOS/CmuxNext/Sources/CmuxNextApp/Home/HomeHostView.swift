@@ -172,8 +172,7 @@ final class HomeHostView: PaneMotionFollowingView {
         transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             guard let services else { return }
-            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
-            WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
+            // No link docks the Chief (cmux#37372): it docks only when the person asks (Open Chief Dock, Cmd-I).
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
         // A link chip's hover card: the app's one coordinator, the target's live facts.

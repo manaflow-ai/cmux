@@ -1,6 +1,7 @@
 // The window dock (user 2026-11-05): a dock region of the window frame (plans/cmux-next/docked-workspace-DESIGN.md)
 // that any pane moves into and out of, with the Home Chief pane's no-tab-bar mode per dock. The Chief window dock
-// is one: Open Chief Dock (Cmd-I) docks Home's Chief at `home.chiefDock.edge` and focuses it. Titles live in
+// is one: Open Chief Dock (Cmd-I) docks Home's Chief at `home.chiefDock.edge` and focuses it; Undock Chief
+// (cmux#37372) sends it back to the sidebar. Titles live in
 // LayoutActions.xcstrings.
 
 nonisolated extension LayoutActionCatalog {
@@ -12,6 +13,9 @@ nonisolated extension LayoutActionCatalog {
                 .window, "sidebar.left", cli: "home open-chief-dock",
                 keywords: ["chief", "dock", "window", "home", "chat", "side", "left", "focus", "open"], targets: window,
                 defaultShortcut: Shortcut("i", modifiers: [.command]), surfaces: [.palette, .keyboard]),
+            row("home.undockChief", String(localized: "action.home.undockChief", defaultValue: "Undock Chief", table: "LayoutActions", bundle: .module),
+                .window, "sidebar.left", cli: "home undock-chief",
+                keywords: ["chief", "dock", "undock", "unpin", "window", "home", "chat", "side", "left", "close", "hide"], targets: window),
             row("window.movePaneToDock", String(localized: "action.window.movePaneToDock", defaultValue: "Move Pane to Dock", table: "LayoutActions", bundle: .module),
                 .pane, "rectangle.lefthalf.inset.filled.arrow.left", cli: "pane move-to-dock",
                 keywords: ["pane", "dock", "window", "move", "pin", "side", "frame"], targets: [.pane]),

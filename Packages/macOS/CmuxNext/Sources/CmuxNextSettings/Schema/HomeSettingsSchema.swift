@@ -107,13 +107,6 @@ nonisolated enum HomeSettingsSchema {
                 ]),
                 default: .string(ChiefDockSetting.defaultEdge), keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
             ),
-            SettingDescriptor(
-                ChiefDockSetting.openBesidePath, section: .home, group: SettingsText.keyed("settings.group.chiefDock", "Chief Dock"),
-                title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Keep Chief Docked When Opening Workspaces"),
-                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help",
-                                         "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."),
-                kind: .toggle, default: .bool(ChiefDockSetting.defaultOpenBeside), keywords: ["chief", "dock", "window", "links", "workspace", "beside", "home"]
-            ),
             // Settings > Chief's Chiefs card draws it as its Engine row (ChiefsCard.tsx).
             SettingDescriptor(
                 HomeChiefEngineSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefEngine", "Engine"),

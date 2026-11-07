@@ -18,8 +18,6 @@ public protocol WindowDockFrame: AnyObject {
     var frameShownWorkspaceID: String? { get }
     /// The workspaces this window lists.
     var frameMembers: [String] { get }
-    /// The Chief dock armed by a link from the Chief (``ChiefDockLeave``). In memory only.
-    var chiefDockOnLeave: ChiefDockLeave? { get set }
     /// Shows workspace `id` in this window; `thisWindow` keeps it here even when another window lists it.
     func frameShow(_ id: String, thisWindow: Bool)
     /// Opens a new workspace in this window (in `cwd`, or the focused workspace's directory); its id, nil on failure.

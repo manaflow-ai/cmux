@@ -32,5 +32,7 @@ extension SettingsSchema {
         "labs.classicHome": "Home is the workspace with the Chief docked on the left",
         // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
         "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // A link or subagent chip clicked in the Chief must never dock it (cmux#37372).
+        "home.chiefDock.openBeside": "no link docks the Chief; dock it with Open Chief Dock (Cmd-I) and undock it with Undock Chief",
     ]
 }

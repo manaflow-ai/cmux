@@ -4,7 +4,7 @@ import CmuxNextLayout
 /// The window frame's dock actions (plans/cmux-next/docked-workspace-DESIGN.md): Dock Workspace
 /// Left/Right/Top/Bottom, Undock Workspace, Float Docked Workspace, Toggle Left/Right/Top/Bottom Dock and Toggle
 /// Dock Corners, and the window dock's (user 2026-11-05) Open Chief Dock (Cmd-I), Move Pane to Dock, Move Dock to
-/// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar and Focus Dock. Every entry point (palette,
+/// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar, Focus Dock and Undock Chief (cmux#37372). Every entry point (palette,
 /// keyboard, CLI verb, MCP, `action.run`) ends in one ``WindowDockFrame`` operation, which changes window view
 /// state in this turn: no await, no daemon round trip (a dock on an empty edge, Move Pane to Dock with no dock and
 /// Open Chief Dock with no Home yet make their workspace in tracked background work). Off (Debug Settings
@@ -20,17 +20,6 @@ public struct WindowDockActions {
     public func bind(into registry: ActionRegistry) {
         bindDockedWorkspaces(into: registry)
         bindWindowDock(into: registry)
-    }
-
-    /// A link clicked in the Chief (a workspace, tab or subagent link, or a subagent pill; user 2026-11-05: "bring
-    /// me to workspace, but with the chief still on the left"): with `home.chiefDock.openBeside` on, `frame` (the
-    /// window showing Home) arms its Chief dock first (``WindowDockFrame/armChiefDock(home:edge:now:)``), so the
-    /// workspace the link shows goes on the stage while Home stays docked, its view and state untouched. A link
-    /// that shows nothing else in this window (a tab right of Home, another window) leaves the arm to lapse.
-    public func chiefLinkWillOpen(in frame: (any WindowDockFrame)?) {
-        guard host.chiefDockOpensBeside, let frame, let shown = frame.frameShownWorkspaceID,
-              host.chiefHome(in: frame.frameWindowID) == shown else { return }
-        frame.armChiefDock(home: shown, edge: host.chiefDockEdge)
     }
 
     private func bindDockedWorkspaces(into registry: ActionRegistry) {
@@ -80,6 +69,14 @@ public struct WindowDockActions {
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
             guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
             return Self.openChiefDock(in: frame, host, registry)
+        }
+        registry.bindEffect("home.undockChief") { invocation in
+            guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
+            guard let frame = host.dockFrame(invocation) else { return .refused(RefusalStrings.noWindowOpen) }
+            guard let home = host.chiefHome(in: frame.frameWindowID), frame.undockChief(home) else {
+                return .refused(RefusalStrings.chiefNotDocked)
+            }
+            return .done
         }
         registry.bindEffect("window.movePaneToDock") { invocation in
             guard LayoutTunables.dockedWorkspaces.value else { return .refused(RefusalStrings.dockedWorkspacesOff) }
