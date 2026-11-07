@@ -72,7 +72,7 @@ test("a step that ran under a second says its time, never a floored 0s", () => {
   const live = line([prompt, run(bash!)]);
   // The line names the command, never Bash's description (Codex parity).
   expect(live).toMatchObject({ doing: "echo ready", doingDone: true, doingForMs: 856 });
-  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready 856ms · 32s");
+  expect(drawn(live, prompt.at + 32_000)).toBe("echo ready step 856ms · turn 32s");
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -103,7 +103,7 @@ test("thinking that streamed under a second says its time; one dated chunk has n
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
   expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · 32s");
+  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
   const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
   expect(single.thoughtMs).toBeUndefined();
   expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");

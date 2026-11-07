@@ -17,6 +17,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
 import { compactingLine } from "./compactingLine.experiment";
+import { liveLineTimes } from "./liveLineTimes.experiment";
 import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
@@ -319,13 +320,29 @@ export function Thinking({
         ? doneMs
         : undefined;
   // Under a second it says its milliseconds, as the step's own row does ("856ms"), never "0s".
-  const own = total && ownMs !== undefined ? (compacting ? formatDuration(ownMs) : spanDuration(t, ownMs)) : undefined;
+  // Two bare durations never stand side by side: each is named, "step 3s · turn 21s" (Leo's capture,
+  // 2026-11-07, of "python3 - <<'EOF' 3s · 21s · 549 tokens"; liveLineTimes.experiment.ts).
+  const timesLook = experimentArm(liveLineTimes);
+  const ownTime =
+    timesLook !== "turn" && total && ownMs !== undefined
+      ? compacting
+        ? formatDuration(ownMs)
+        : spanDuration(t, ownMs)
+      : undefined;
+  // Only a finished step's time is named "step": the summed thinking beside "Thinking" (or a
+  // compaction's clock beside its words) already reads as that word's.
+  const own =
+    ownTime && timesLook === "labelled" && doing !== undefined ? t("turn.live.stepTime", { time: ownTime }) : ownTime;
+  // The turn's clock after it: named when labelled, only in the step time's tooltip on hover.
+  const turnClock =
+    own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+  const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting
     ? compactLook === "own" && compactMs !== undefined
       ? formatDuration(compactMs)
       : compactLook === "turn"
-        ? own
+        ? (own ?? turnTime)
         : undefined
     : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
@@ -451,15 +468,19 @@ export function Thinking({
               />
             )}
           </output>
-          {elapsed && <span className={own ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
+          {elapsed && (
+            <span className={own ? "cv-worked__own" : "cv-worked__time"} title={turnTitle}>
+              {elapsed}
+            </span>
+          )}
         </span>
       )}
-      {own && !waiting && (
+      {own && !waiting && timesLook !== "hover" && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__time">{turnTime}</span>
+          <span className="cv-worked__time">{turnClock}</span>
         </span>
       )}
       {showTokens && (
