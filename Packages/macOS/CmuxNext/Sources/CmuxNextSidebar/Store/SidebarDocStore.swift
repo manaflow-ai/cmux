@@ -194,8 +194,10 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            // So does each answered Chief change at the load's revision or before it: it stops replaying too.
-            let settled = answering.union(self.answeredChief.filter { $0.value <= records.revision }.keys)
+            // So does each change answered before the load was asked for (its echo may never come; the sidebar draws
+            // names from the mirror, so a replayed rename would hide a later one), and each answered Chief change at
+            // the load's revision or before it: they stop replaying too.
+            let settled = answering.union(held).union(self.answeredChief.filter { $0.value <= records.revision }.keys)
             let rejected = settled.flatMap { mirror.reject($0) }
             // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
             // change put back) is settled; one it replays stays pending.
