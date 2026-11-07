@@ -10305,7 +10305,6 @@ export class AcpmuxDirectClient {
     let more = true;
     const publish = (page: EventRecord[]) => {
       if (page.length === 0) return;
-      const foldsAbove = this.events.length === 0 || startsTurn(this.events[0]!);
       this.events = prependOlderEventRecords(page, this.events);
       this.sawPrompts(page);
       const crossesStop = page.some(
@@ -10315,12 +10314,7 @@ export class AcpmuxDirectClient {
           event.msg?.cancelForced === true &&
           typeof event.msg?.turnId === "string",
       );
-      if (
-        foldsAbove &&
-        !crossesStop &&
-        this.compactionFenceSeq === undefined &&
-        this.retiredCompactionTurnId === undefined
-      )
+      if (!crossesStop && this.compactionFenceSeq === undefined && this.retiredCompactionTurnId === undefined)
         this.foldOlder(page);
       else this.rebuildKeepingLiveState();
       this.historyExhausted = false;

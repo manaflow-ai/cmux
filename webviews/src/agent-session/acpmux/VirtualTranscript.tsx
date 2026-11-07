@@ -3484,6 +3484,7 @@ export function VirtualTranscript({
   const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    olderScrollTarget.current = undefined;
     // Jump to latest is the reader leaving the Find match: end its hold, or the next tick pulls the
     // view back to the match and stops following again.
     revealing.current = undefined;
@@ -3569,7 +3570,12 @@ export function VirtualTranscript({
       // A new downward/neutral gesture supersedes a retained scrollbar target. Without clearing
       // it here, the reserve-drain effect would put the reader back at the loaded edge after they
       // deliberately returned toward newer messages.
-      if (!movingUp) olderScrollTarget.current = undefined;
+      if (
+        !movingUp &&
+        event !== undefined &&
+        ["wheel", "keydown", "pointerdown", "pointermove", "touchstart", "touchmove"].includes(event.type)
+      )
+        olderScrollTarget.current = undefined;
       readerUpPending.current = movingUp;
       if (jumpTarget.current !== undefined) {
         stopJump();
