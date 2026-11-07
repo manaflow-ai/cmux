@@ -155,7 +155,9 @@ fn start_words(rest: &[String]) -> Option<&[String]> {
 }
 
 /// The words after `chat` (or `chat new`); `env_target` is `CMUX_ON`, read when `--on` is
-/// absent (an empty one is unset). No setting is read: [`parse_with`] reads one.
+/// absent (an empty one is unset). No setting is read: [`parse_with`] reads one. Tests only: the
+/// CLI runs [`parse_with`].
+#[cfg(test)]
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
     parse_with(words, env_target, || None)
 }
