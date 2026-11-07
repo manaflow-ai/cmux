@@ -127,7 +127,12 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) !== drawn)
       element.setAttribute(HOST_GLASS_DRAWN_ATTRIBUTE, drawn);
   };
+  // Surfaces the App did not draw by the deadline: they keep the page's glass while they stay mounted. A
+  // surface that fell back only because host glass did not apply (the lens, Reduce Transparency, an
+  // opaque page) goes back to the App's glass when it applies again.
+  const timedOut = new WeakSet<Element>();
   const forget = (element: Element) => {
+    timedOut.delete(element);
     const timer = deadlines.get(element);
     if (timer !== undefined) clearTimeout(timer);
     deadlines.delete(element);
@@ -152,7 +157,7 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
       for (const element of elements) if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
     }, end);
   };
-  const fellBack = (element: Element) => element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "0";
+  const fellBack = (element: Element) => timedOut.has(element);
   const measure = (): string => {
     const applies = live && hostGlassApplies(doc);
     root.toggleAttribute(HOST_GLASS_ROOT_ATTRIBUTE, applies);
@@ -200,7 +205,9 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
       element,
       setTimeout(() => {
         deadlines.delete(element);
-        if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) !== "1") mark(element, "0");
+        if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "1") return;
+        timedOut.add(element);
+        mark(element, "0");
       }, HOST_GLASS_DEADLINE_MS),
     );
   };

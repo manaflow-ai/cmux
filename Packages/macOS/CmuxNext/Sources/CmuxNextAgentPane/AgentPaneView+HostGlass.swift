@@ -44,6 +44,11 @@ extension AgentPaneView {
         }
     }
 
+    /// Re-tints the open glass for a theme change (`applyTheme`): each surface reads the theme of its scope again.
+    func themeHostGlass() {
+        for view in model.hostGlass.views.values { view.applyTheme() }
+    }
+
     private func makeHostGlassContainer(below pageView: NSView) -> AgentPaneHostGlassContainer {
         let container = AgentPaneHostGlassContainer(frame: pageView.frame)
         // Under the page: its see-through pixels show the glass, and its content draws on top.

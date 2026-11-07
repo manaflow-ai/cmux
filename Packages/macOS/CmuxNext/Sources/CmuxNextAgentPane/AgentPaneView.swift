@@ -611,6 +611,7 @@ public final class AgentPaneView: NSView {
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         themeSessionInfo(tokens)
+        themeHostGlass()
         themeLoadingState(tokens)
         page?.themeSurface = surface
         if let pageEvents {

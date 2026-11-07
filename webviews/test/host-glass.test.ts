@@ -112,6 +112,28 @@ test("a late answer leaves a fallen-back surface on the page's glass, and it is 
   expect(reports.at(-1)).toEqual([]);
 });
 
+test("a surface that fell back while host glass did not apply goes back to the App's glass when it does", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const element = surface(doc);
+  await frames();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  // Reduce Transparency turns on: the page's own glass.
+  doc.documentElement.setAttribute("data-reduce-transparency", "");
+  element.style.borderTopLeftRadius = "13px";
+  await frames();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  // And off again: the App's glass, reported and drawn.
+  doc.documentElement.removeAttribute("data-reduce-transparency");
+  element.style.borderTopLeftRadius = "12px";
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("an App that refuses the report leaves every surface on the page's glass and is not asked again", async () => {
   const doc = page();
   let calls = 0;
