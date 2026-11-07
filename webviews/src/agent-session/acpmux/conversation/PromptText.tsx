@@ -1,4 +1,4 @@
-// A sent prompt's text in its bubble (UserBubble.tsx). A prompt taller than ten lines opens on
+// A sent prompt's text in its bubble (UserBubble.tsx). A prompt taller than thirty lines opens on
 // them, the last ones fading out under a mask, with Show more under them and Show less once open,
 // as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a card of its first
 // lines over the composer's label ("Pasted text · N lines · NK characters"), which opens in place. Each

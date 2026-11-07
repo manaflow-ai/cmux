@@ -11,6 +11,7 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { FileDoc, ImageIcon, PlayTriangle, Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
@@ -367,26 +368,40 @@ const InlineChip = memo(function InlineChip({
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
     const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
+    // Its right-click menu has what the strip's has (attachmentIntake.tsx `menu`): Edit in Prompt,
+    // Keep as .txt and Remove.
+    const items = [
+      { id: "open", label: t("composer.pastedText.edit"), onSelect: () => onExpand(id) },
+      ...(onKeepFile ? [{ id: "keep", label: t("composer.pastedText.keepFile"), onSelect: () => onKeepFile(id) }] : []),
+      {
+        id: "remove",
+        label: t("composer.removeAttachment", { name }),
+        separatorBefore: true,
+        onSelect: () => onRemove(id),
+      },
+    ];
     return (
-      <span
-        className="acpmux-md-inline-chip acpmux-text-card"
-        data-state="ready"
-        data-kind="file"
-        data-preview="text"
-        /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-        title={t("composer.pastedText.edit")}
-      >
-        <button
-          type="button"
-          className="acpmux-md-inline-retry acpmux-text-card__open"
-          aria-label={`${attachment.name || pasteName(text)}, ${label}`}
-          onClick={() => onExpand(id)}
+      <ContextMenu className="acpmux-attachment-menu" items={items}>
+        <span
+          className="acpmux-md-inline-chip acpmux-text-card"
+          data-state="ready"
+          data-kind="file"
+          data-preview="text"
+          /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
+          title={t("composer.pastedText.edit")}
         >
-          <TextAttachmentCard text={text} label={label} wrap />
-        </button>
-        {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
-        {remove}
-      </span>
+          <button
+            type="button"
+            className="acpmux-md-inline-retry acpmux-text-card__open"
+            aria-label={`${attachment.name || pasteName(text)}, ${label}`}
+            onClick={() => onExpand(id)}
+          >
+            <TextAttachmentCard text={text} label={label} wrap />
+          </button>
+          {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
+          {remove}
+        </span>
+      </ContextMenu>
     );
   }
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back

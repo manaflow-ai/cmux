@@ -68,7 +68,7 @@ test("a huge prompt's row is estimated as its collapsed lines, quickly", () => {
   const [huge] = [...layoutConversation([row("h", markdown(20 * 1024 * 1024))] as never, 720).heights];
   const elapsed = performance.now() - started;
   const [long] = [...layoutConversation([row("l", "A line that wraps.\n".repeat(200))] as never, 720).heights];
-  // The same collapsed height as any long prompt: ten lines and Show more.
+  // The same collapsed height as any long prompt: thirty lines and Show more.
   expect(huge).toBe(long);
   expect(huge!).toBeGreaterThanOrEqual(COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT);
   expect(elapsed).toBeLessThan(2_000);

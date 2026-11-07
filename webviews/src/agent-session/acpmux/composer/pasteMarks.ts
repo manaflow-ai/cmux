@@ -26,7 +26,9 @@ export const REMEMBERED_PASTES = 16;
 /// or a paste past the chip's size. Never an ordinary paste, however many lines it has.
 export function marksPaste(text: string): boolean {
   const body = text.trim();
-  return body !== "" && (isLargePaste(body) || readsAsAgent(body));
+  // The size as the chip measured it (pastedChips.ts `take`): untrimmed, so a paste that was a chip
+  // stays marked when Edit in Prompt puts it back as text.
+  return body !== "" && (isLargePaste(text) || readsAsAgent(body));
 }
 
 /// `pastes` remembered with `text` added, oldest dropped past REMEMBERED_PASTES. The same text

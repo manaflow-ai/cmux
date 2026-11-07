@@ -89,7 +89,8 @@ export function usePastedChips(
     if (!attachFile || chip?.kind !== "pasted" || chip.text === undefined) return;
     attachments.current = attachments.current.filter((held) => held.id !== id);
     setAttachments((current) => current.filter((held) => held.id !== id));
-    field.current?.removeInline(id);
+    // The caret goes to where the chip was, so the file is placed there, wherever the caret was.
+    field.current?.removeInline(id, true);
     attachFile({ name: PASTED_TEXT_NAME, type: "text/plain", file: pastedTextFile(chip.text) });
   };
   return {

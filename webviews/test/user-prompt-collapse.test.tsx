@@ -195,8 +195,8 @@ try {
   });
 
   test("measuring a long prompt confirms its initial clamp without a second commit", () => {
-    measuredPrompt(240, ({ render, commits, measurements }) => {
-      const text = lines(12);
+    measuredPrompt(640, ({ render, commits, measurements }) => {
+      const text = lines(32);
       render(text);
       expect(measurements()).toBeGreaterThan(0);
       expect(body().textContent).toBe(text);
@@ -206,11 +206,11 @@ try {
     });
   });
 
-  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
+  test("a measured prompt folds and unfolds when its width crosses thirty lines", () => {
     measuredPrompt(20, ({ render, resize }) => {
-      const text = "word ".repeat(12).trim();
+      const text = "word ".repeat(32).trim();
       render(text);
-      resize(240);
+      resize(640);
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
       resize(40);
@@ -221,15 +221,15 @@ try {
   });
 
   test("new content ignores the previous prompt measurement and still follows later resize", () => {
-    measuredPrompt(240, ({ render, resize }) => {
+    measuredPrompt(640, ({ render, resize }) => {
       render("A short guess that wraps in a narrow bubble");
       expect(body().classList.contains("is-clamped")).toBe(true);
       // Same mounted component, different text: the old short guess must not override a new
       // long guess, and the new measurement must be able to correct that guess either way.
       resize(40);
-      render(lines(12));
+      render(lines(32));
       expect(toggle()).toBeNull();
-      resize(240);
+      resize(640);
       expect(body().classList.contains("is-clamped")).toBe(true);
       render("Replacement short text");
       expect(body().classList.contains("is-clamped")).toBe(true);
@@ -243,7 +243,7 @@ try {
     resetTranscriptDisclosure();
     const text = lines(2000);
     render(prompt("user-1", text));
-    expect(COLLAPSED_PROMPT_LINES).toBe(10);
+    expect(COLLAPSED_PROMPT_LINES).toBe(30);
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(body().classList.contains("is-faded")).toBe(true);
     // The whole prompt stays in the bubble: select and Find read all of it; only its height is clamped.
@@ -551,7 +551,7 @@ try {
     try {
       act(() => root.unmount());
       root = createRoot(host);
-      render(prompt("user-fold-style", lines(20)));
+      render(prompt("user-fold-style", lines(40)));
       expect(durationReads).toBe(0);
       click(toggle()!);
       expect(body().classList.contains("is-clamped")).toBe(false);
@@ -591,11 +591,11 @@ try {
       }
     };
     try {
-      render(prompt("user-short-geometry", "word ".repeat(12).trim()));
+      render(prompt("user-short-geometry", "word ".repeat(32).trim()));
       expect(toggle()).toBeNull();
       expect(observers.size).toBeGreaterThan(0);
       // A later font load or narrower pane wraps the same mounted prompt past ten lines.
-      drawnHeight = 240;
+      drawnHeight = 640;
       act(() => {
         for (const changed of observers) changed();
       });

@@ -554,7 +554,8 @@
 }
 .cv-user__text.is-clamped {
   display: block;
-  max-height: calc(var(--cv-line-height) * 10);
+  /* promptCollapse.ts COLLAPSED_PROMPT_LINES */
+  max-height: calc(var(--cv-line-height) * 30);
   overflow: hidden;
 }
 .cv-user__text.is-faded {

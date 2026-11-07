@@ -383,6 +383,23 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
+// Review of #37516 (F2): Keep as .txt puts the file where the chip was, wherever the caret went.
+test("Keep as .txt places the file where its chip was, not at the caret", async () => {
+  const composer = await openComposer();
+  await typeDraft("before ");
+  await paste(LOG);
+  await typeDraft(" after");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => keepButton("inline")!.click());
+  await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
+  const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
+  await until(() => placed().includes(file.id), "its place");
+  const text = markdownField().value();
+  const at = text.indexOf(file.id);
+  expect(text.slice(0, at)).toContain("before");
+  expect(text.slice(at)).toContain("after");
+});
+
 // ask-42dfdea96c: an ordinary paste (Leo's own dictated paragraph, 515 characters) is the person's
 // text: no chip, no pasted block, sent as typed text is.
 const DICTATED =
@@ -400,6 +417,19 @@ test("an ordinary real paste stays inline and goes as the person's text", async 
     composer.current!.send();
   });
   expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([{ type: "text", text: DICTATED }]);
+});
+
+// ask-792a64a12f: Leo's 707-character message, dictated with no paste event, goes as his own text.
+test("a 707-character dictated message with no paste event goes as typed text", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  const text = `${DICTATED} ${DICTATED}`.slice(0, 707);
+  await act(async () => markdownField().writeText(text, 0, 0));
+  await settle();
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([{ type: "text", text: text.trim() }]);
 });
 
 test("a dictated insert is never a paste", async () => {
