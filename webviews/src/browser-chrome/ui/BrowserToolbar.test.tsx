@@ -70,7 +70,12 @@ afterEach(() => {
   dom = undefined;
 });
 
-function toolbar(sent: BrowserToolbarCommand[], badges: OmnibarBadges = {}, bookmark: "off" | "on" = "off") {
+function toolbar(
+  sent: BrowserToolbarCommand[],
+  badges: OmnibarBadges = {},
+  bookmark: "off" | "on" = "off",
+  holdsFieldFocus = false,
+) {
   return (
     <BrowserToolbar
       navigation={{ canGoBack: true, canGoForward: true, loading: false }}
@@ -79,6 +84,7 @@ function toolbar(sent: BrowserToolbarCommand[], badges: OmnibarBadges = {}, book
       onCommand={(command) => sent.push(command)}
       width={1200}
       badges={badges}
+      holdsFieldFocus={holdsFieldFocus}
     />
   );
 }
@@ -157,4 +163,17 @@ test("a page dragged out of the chip shows its title, else its URL, as the drag 
     { text: "https://example.com/b", x: 8 },
   ]);
   expect(win.document.querySelectorAll(".bc-drag-label").length).toBe(2);
+});
+
+test("while the field edits, a press on a pinned extension leaves the keys in the field", () => {
+  const sent: BrowserToolbarCommand[] = [];
+  const doc = render(toolbar(sent, {}, "off", true));
+  const action = doc.getElementById("browser.extension.action.abc")!;
+  const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+  act(() => {
+    action.dispatchEvent(down);
+  });
+  expect(down.defaultPrevented).toBe(true);
+  press(action, "click");
+  expect(sent).toEqual([{ type: "extensionAction", id: "abc" }]);
 });

@@ -381,6 +381,7 @@ function ExtensionButton({
       disabled={action.enabled === false}
       data-active={pressed || undefined}
       tabIndex={holdsFocus ? -1 : undefined}
+      onMouseDown={holdsFocus ? keepFocus : undefined}
       draggable
       onDragStart={(event) => {
         event.dataTransfer.setData(EXTENSION_DRAG, action.id);
