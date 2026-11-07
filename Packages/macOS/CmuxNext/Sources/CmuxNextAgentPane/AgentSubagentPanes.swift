@@ -16,6 +16,10 @@ import CmuxNextCompat
 @MainActor
 public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
+    /// Every subagent this chat showed a pane for: an open nobody asked for runs once per subagent, so a page built
+    /// again that takes a long-running subagent for new never brings back a pane the person closed (Leo, 2026-11-07:
+    /// "it opened up the side sub-agent chat again"). The person's own open shows it again.
+    private var shown: Set<String> = []
     private var opening: String?
     /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
     /// click while its pane opens on its own), and when: its pane takes focus once it has opened,
@@ -143,6 +147,7 @@ public final class AgentSubagentPanes {
             if focus { hooks.focus(open, false) }
             return true
         }
+        if !focus, shown.contains(agent) { return false }
         guard begin(agent, focus: focus, chat: chat, now: hooks.now()) else {
             if focus, stopWatching == nil {
                 stopWatching = hooks.watchUser { [weak self] in self?.userActed() }
@@ -166,6 +171,7 @@ public final class AgentSubagentPanes {
     /// Records the tab that shows subagent `agent`.
     public func record(_ agent: String, tab key: String) {
         tabs[agent] = key
+        shown.insert(agent)
     }
 
     private func prune(_ isOpen: (String) -> Bool) {
