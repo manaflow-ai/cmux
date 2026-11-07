@@ -10,7 +10,8 @@ struct Fixture {
     plan: PathBuf,
 }
 
-const PLAN: &str = "# Add dark mode\n\n1. Read the theme tokens\n2. Add a `dark` palette\n3. Test the toggle\n";
+const PLAN: &str =
+    "# Add dark mode\n\n1. Read the theme tokens\n2. Add a `dark` palette\n3. Test the toggle\n";
 
 fn fixture(session_folder: bool) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
@@ -20,7 +21,8 @@ fn fixture(session_folder: bool) -> Fixture {
     let slug = home.join("tmp").join("app");
     std::fs::create_dir_all(&slug).unwrap();
     std::fs::write(slug.join(PROJECT_ROOT_FILE), project.to_str().unwrap()).unwrap();
-    let plans = if session_folder { slug.join("4f1c-session").join("plans") } else { slug.join("plans") };
+    let plans =
+        if session_folder { slug.join("4f1c-session").join("plans") } else { slug.join("plans") };
     std::fs::create_dir_all(&plans).unwrap();
     let plan = plans.join("dark-mode.md");
     std::fs::write(&plan, PLAN).unwrap();
@@ -65,7 +67,8 @@ fn the_end_keeps_geminis_own_line_after_the_plan() {
     let f = fixture(false);
     let mut params = json!({"sessionId": "s", "update": gemini_call(&f.plan, "completed")});
     params["update"]["sessionUpdate"] = json!("tool_call_update");
-    params["update"]["content"] = json!([{"type": "content", "content": {"type": "text", "text": "Plan approved"}}]);
+    params["update"]["content"] =
+        json!([{"type": "content", "content": {"type": "text", "text": "Plan approved"}}]);
     assert!(with_plan_update(&mut params, &f.project, std::slice::from_ref(&f.home)));
     let content = params["update"]["content"].as_array().unwrap();
     assert_eq!(content.len(), 2);
@@ -76,7 +79,8 @@ fn the_end_keeps_geminis_own_line_after_the_plan() {
 #[test]
 fn a_permission_request_tool_call_carries_it() {
     let f = fixture(false);
-    let mut request = json!({"sessionId": "s", "toolCall": gemini_call(&f.plan, "pending"), "options": []});
+    let mut request =
+        json!({"sessionId": "s", "toolCall": gemini_call(&f.plan, "pending"), "options": []});
     assert!(with_plan(&mut request["toolCall"], &f.project, std::slice::from_ref(&f.home)));
     assert_eq!(request["toolCall"]["_meta"]["acpmux"]["plan"]["markdown"], PLAN.trim());
 }
