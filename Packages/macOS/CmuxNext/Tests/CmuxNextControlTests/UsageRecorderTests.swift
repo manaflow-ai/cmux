@@ -250,7 +250,7 @@ import Testing
                 log.calls.withLock { $0.append("set-enabled \(on)") }
             },
             record: { _, _ in })
-        ports.offRetryDelay = { _ in await Task.yield() }
+        ports.offRetryWait = { _ in await Task.yield() }
         let recorder = UsageRecorder(ports: ports, managedDisables: { false },
                                      defaults: UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard)
         recorder.apply(true)

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDaemon
 public import CmuxNextSettings
 public import Foundation
@@ -54,9 +55,10 @@ public final class UsageRecorder {
         var setEnabled: @Sendable (Bool) async throws -> Void
         /// `usage-record`: the source stem and the events text.
         var record: @Sendable (String, String) async throws -> Void
-        /// The wait before the `attempt`th retry of a failed switch-off (1, 2, 4 ... capped at 60 s).
-        var offRetryDelay: @Sendable (Int) async -> Void = { attempt in
-            try? await Task.sleep(for: .seconds(min(1 << min(attempt - 1, 6), 60)))
+        /// The wait before retrying a failed switch-off: the backoff's next step (1 s growing to 60 s).
+        var offRetryWait: @Sendable (inout Backoff) async throws -> Void = { backoff in
+            // concurrency-allow: Backoff's async sleep spaces retries after a failure; it blocks no thread
+            try await backoff.wait(owner: "usage.switch-off")
         }
     }
 
@@ -99,7 +101,7 @@ public final class UsageRecorder {
     /// The wait before sending a failed switch-off again, and how many have failed in a row. It ends
     /// when the daemon confirms off, or when the decision turns on.
     private var offRetry: Task<Void, Never>?
-    private var offFailures = 0
+    private var offBackoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     private var launchRecorded = false
     private var askedThisLaunch = false
 
@@ -264,15 +266,14 @@ public final class UsageRecorder {
 
     /// Sends the switch-off again after the next backoff.
     private func retryOff() {
-        offFailures += 1
-        let attempt = offFailures
-        let delay = ports.offRetryDelay
+        var backoff = offBackoff
+        let wait = ports.offRetryWait
         offRetry?.cancel()
         // task-owner: one wait before the next switch-off; cancelled once off is confirmed or the
         // decision turns on (cancelOffRetry), and ends with the recorder.
         offRetry = Task { [weak self] in
-            await delay(attempt)
-            guard !Task.isCancelled, let self, switchWanted == false else { return }
+            guard (try? await wait(&backoff)) != nil, !Task.isCancelled, let self, switchWanted == false else { return }
+            offBackoff = backoff
             offRetry = nil
             sendSwitch()
         }
@@ -281,7 +282,7 @@ public final class UsageRecorder {
     private func cancelOffRetry() {
         offRetry?.cancel()
         offRetry = nil
-        offFailures = 0
+        offBackoff.reset()
     }
 
     private func begin() {
