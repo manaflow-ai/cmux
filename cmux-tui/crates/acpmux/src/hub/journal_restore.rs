@@ -117,14 +117,13 @@ impl Hub {
                     break;
                 }
                 last = record.seq;
+                // What an append of it here would have counted (`append_record_locked`, the
+                // turn's start and end in `turns.rs`).
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                count_restored(&mut meta, record);
             }
             session.seq.store(last, Ordering::SeqCst);
-            {
-                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                meta.last_seq = last;
-                // The restored log may end in transcript records.
-                meta.transcript_seq = last;
-            }
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq = last;
             (last > at, failed)
         };
         let (restored, failed) = restored;
@@ -148,6 +147,29 @@ impl Hub {
         tracing::info!(session = %session.id, after, last, "journal restored from the owner's copy");
         self.update_live_session_index(session);
         Ok(json!({"sessionId": session.id, "lastSeq": last, "restored": restored}))
+    }
+}
+
+/// What a record put back changes in its chat's meta, as when it was first appended: the counts,
+/// the transcript mark, the harness failures, the turns and the last turn's outcome.
+fn count_restored(meta: &mut SessionMeta, record: &EventRecord) {
+    meta.event_count += 1;
+    meta.updated_at = meta.updated_at.max(record.at);
+    if paging::is_transcript(record) {
+        meta.transcript_seq = record.seq;
+    }
+    if record.dir != "mux" {
+        return;
+    }
+    match record.kind.as_str() {
+        "turn_started" => meta.turn_count += 1,
+        "turn_result" => {
+            meta.harness_failures.observe(&record.msg, record.seq, record.at);
+            if record.msg.get("trigger") != Some(&Value::Bool(true)) {
+                meta.last_turn = Some(super::turns::last_turn_of(&record.msg, record.at));
+            }
+        }
+        _ => {}
     }
 }
 

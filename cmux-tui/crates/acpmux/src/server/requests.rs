@@ -2102,8 +2102,15 @@ async fn dispatch_request_with_identity(
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
         // A machine started from an older disk takes back what its owner's daemon kept of a
-        // chat (`hub/journal_restore.rs`): that daemon's peer link, or this machine's socket.
-        "_acpmux/journal_restore" if !matches!(conn.origin, Origin::Peer | Origin::Local) => {
+        // chat (`hub/journal_restore.rs`): that daemon's peer link, proven by this launch's peer
+        // token, or this machine's socket. A paired client device is served as Peer too, with
+        // its own credential: it may drive chats, never write their history.
+        "_acpmux/journal_restore"
+            if !matches!(
+                (conn.origin, conn.auth),
+                (Origin::Peer, ConnAuth::PeerToken) | (Origin::Local, ConnAuth::LocalSocket)
+            ) =>
+        {
             Err(RpcError::invalid_params(
                 "_acpmux/journal_restore answers the owner's peer link and the unix socket only",
             ))

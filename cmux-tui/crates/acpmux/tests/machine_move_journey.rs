@@ -299,6 +299,26 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
     // A fresh machine starts from the older snapshot, at the same address.
     let b2 = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &snapshot).unwrap());
     b2.resume_queues();
+    // A prompt sent the moment the fresh machine's link reads ready races its restore: it waits
+    // for the restore's decision, so it never takes the seqs the restored records need.
+    let racer = {
+        let (a, mut cr) = (a.clone(), client(a.clone()).await);
+        tokio::spawn(async move {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            // The old machine's link goes first, then the fresh one's comes up.
+            while a.peers()[0]["connected"] == true {
+                assert!(Instant::now() < deadline, "the old machine's link never dropped");
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            while a.peers()[0]["connected"] != true {
+                assert!(Instant::now() < deadline, "the fresh machine never linked");
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            let race = json!({"sessionId": "b/moved", "prompt": [{"type": "text", "text": "racer"}],
+                              "_meta": {"acpmux": {"promptId": "p-race"}}});
+            cr.call(method::SESSION_PROMPT, race).await
+        })
+    };
     relay.point_at(serve(b2.clone(), &auth).await);
 
     // The waiting prompt runs there, once.
@@ -328,6 +348,11 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     };
+    tokio::time::timeout(Duration::from_secs(60), racer)
+        .await
+        .expect("the racer never ran")
+        .unwrap();
+    let events = journal(&b2, &id);
     // Every record A saw of B is in B2's journal, with its seq.
     for record in &seen {
         let seq = record["seq"].as_u64().unwrap();
@@ -339,19 +364,23 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
         );
     }
     // Every prompt A sent ran exactly once: none lost, none run twice by the redelivery.
-    for p in ["p0", "p1", "p2"] {
+    for p in ["p0", "p1", "p2", "p-race"] {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
         assert_eq!(ran, 1, "{p} ran {ran} times: {events:#?}");
     }
     // Let the redelivery settle, then count again: a late resend runs nothing more.
     tokio::time::sleep(Duration::from_secs(2)).await;
     let events = journal(&b2, &id);
-    for p in ["p0", "p1", "p2"] {
+    for p in ["p0", "p1", "p2", "p-race"] {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
         assert_eq!(ran, 1, "{p} ran {ran} times after the redelivery: {events:#?}");
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
+    // The racer ran after every restored record.
+    let restored = seen.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let raced = events.iter().find(|e| names_prompt(e, "user_message", "p-race")).unwrap();
+    assert!(raced["seq"].as_u64().unwrap() > restored, "the racer went first: {raced}");
     if fail_midway {
         assert!(!acpmux::hub::journal_restore::fail_once_armed(), "the restore never failed");
     }
@@ -359,8 +388,9 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
 
 /// A Web client of the Mac cannot write a machine's journal: `_acpmux/journal_restore` naming a
 /// peer's session is refused on the Mac, never passed on (the peer would read it as the Mac's).
+/// Nor can a paired client device, which the machine serves as a peer with its own credential.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_web_client_cannot_restore_a_peer_sessions_journal() {
+async fn a_web_client_or_a_paired_device_cannot_restore_a_journal() {
     let _ = HERMETIC;
     let home = tempfile::tempdir().unwrap();
     let auth_dir = home.path().join("b-auth");
@@ -397,7 +427,7 @@ async fn a_web_client_cannot_restore_a_peer_sessions_journal() {
             2,
             "_acpmux/journal_restore",
             json!({"sessionId": "b/moved", "createdAt": created, "afterSeq": before,
-                   "records": [forged]}),
+                   "records": [forged.clone()]}),
         )
         .to_line(),
     ];
@@ -417,4 +447,45 @@ async fn a_web_client_cannot_restore_a_peer_sessions_journal() {
     assert!(answer.get("error").is_some(), "a Web client's journal restore was taken: {answer}");
     let after = journal(&b, &id);
     assert_eq!(after.len() as u64, before, "B's journal took a Web client's records: {after:#?}");
+
+    // A paired client device reaches B as a peer too, with its own credential: refused there.
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_authed(
+        b.clone(),
+        in_rx,
+        out_tx,
+        Origin::Peer,
+        acpmux::server::ConnAuth::Device,
+    ));
+    let lines = [
+        Message::request(1, method::INITIALIZE, json!({"protocolVersion": 1})).to_line(),
+        Message::request(
+            2,
+            "_acpmux/journal_restore",
+            json!({"sessionId": id, "createdAt": created, "afterSeq": before,
+                   "records": [forged]}),
+        )
+        .to_line(),
+    ];
+    for line in lines {
+        in_tx.send(line).await.unwrap();
+    }
+    let answer = loop {
+        let line = tokio::time::timeout(Duration::from_secs(20), out_rx.recv())
+            .await
+            .expect("timeout")
+            .expect("closed");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(2)) {
+            break v;
+        }
+    };
+    assert!(answer.get("error").is_some(), "a paired device's journal restore was taken: {answer}");
+    let after = journal(&b, &id);
+    assert_eq!(
+        after.len() as u64,
+        before,
+        "B's journal took a paired device's records: {after:#?}"
+    );
 }

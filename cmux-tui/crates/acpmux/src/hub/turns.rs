@@ -1816,21 +1816,10 @@ impl Hub {
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
-        let mut last = serde_json::Map::new();
-        for k in super::views::LAST_TURN_KEYS {
-            if let Some(v) = turn_result.get(k) {
-                last.insert(k.to_owned(), v.clone());
-            }
-        }
-        last.insert("endedAt".into(), json!(now_ms()));
-        for key in ["turnCount", "turnSeq"] {
-            if let Some(value) = turn_result.get(key) {
-                last.insert(key.into(), value.clone());
-            }
-        }
+        let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+            session.meta.lock().unwrap().last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
@@ -2416,4 +2405,21 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The `lastTurn` a turn's `turn_result` message leaves on the session, ended at `ended_at`.
+pub(super) fn last_turn_of(turn_result: &Value, ended_at: u64) -> Value {
+    let mut last = serde_json::Map::new();
+    for k in super::views::LAST_TURN_KEYS {
+        if let Some(v) = turn_result.get(k) {
+            last.insert(k.to_owned(), v.clone());
+        }
+    }
+    last.insert("endedAt".into(), json!(ended_at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = turn_result.get(key) {
+            last.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(last)
 }
