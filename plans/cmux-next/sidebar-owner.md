@@ -1524,6 +1524,19 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
 
+## A relaunch's first frame has the live rows' heights (2026-11-07)
+
+- Leo 2026-11-07: "Like, it was already loaded, and then it flickered."
+- Cause: the saved sidebar kept only a row's id, machine, title, kind, brand, icon and color. A row with a second
+  line, a status block (entries, log line, progress label and bar) or a Done task status came back one line tall and
+  outside the Done fold, so the live tree's one unanimated reload changed row heights and moved every row below.
+- Fix: `SidebarWorkspaceSnapshot` also saves what sets the height and the fold: the second line's facts (folder,
+  branch, process, status, ports, pull request, notification text, last activity, the description's first line),
+  a row kind that differs from its tab's, the status block's drawn lines (at most 3 entries plus the "N more" count,
+  the log line and the progress label), the bar's fraction and the task status. Every field is optional, so older
+  snapshots still read; each text is cut to 200 characters.
+- Test: `SidebarRestoredRowHeightTests` (CmuxNextAppTests).
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
