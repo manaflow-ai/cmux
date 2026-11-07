@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42393607097",
+  "recorded_at": "2026-11-07T17:02:27Z",
+  "reason": "cmux-tui 1b4cdef44f24 changes the image's cmux-tui (pinned 985cbb69626b)",
+  "dry_run": false,
+  "cmux_tui": "1b4cdef44f246f0fe4f987928d4fd1c579177e6c",
+  "fixes": [
+    {
+      "sha": "1b4cdef44f246f0fe4f987928d4fd1c579177e6c",
+      "mergedAt": "2026-11-07T08:40:16-08:00",
+      "subject": "cmux-next diff: line comments go back to the agent (#37765)"
+    },
+    {
+      "sha": "70009a46a4addf94c4e38a662599bc1d71889b07",
+      "mergedAt": "2026-11-07T08:35:42-08:00",
+      "subject": "cmux-cookie-sync: Chrome cookie change detection in Rust, over the app FFI (step A) (#37869)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T17:02:27Z",
+    "snapshot_id": "sh-562af3d839f84e3690a30923174534f8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42393607097): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "28a8d2cd88d5c52395be417d9c6b9d810f75f0a2",
+    "image": "cloud-native-auto-1b4cdef4-42393607097-1",
+    "revision": "ci-42393607097-1",
+    "at": "2026-11-07T17:02:27Z"
+  },
+  "rolled_back": false
+}
