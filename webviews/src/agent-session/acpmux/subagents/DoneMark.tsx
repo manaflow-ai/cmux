@@ -11,7 +11,30 @@ export type DoneLook = "check" | "words" | "accent" | "time";
 
 const CHECK = rowIconSize(12);
 
-export function DoneMark({ state, time, look }: { state: string; time?: string; look: DoneLook }) {
+/// The check alone, in a finished line's Stop slot (AgentLine.tsx) or after a lone item's time in the hat's
+/// header: the same size and column as the Stop square it takes over, so nothing moves when a line ends
+/// (Leo, 2026-11-07: "instead of the done on the left, you can just put like a check mark right where this
+/// stop square would be").
+export function DoneCheck() {
+  return (
+    <span className="acpmux-done-mark__check" data-done-check aria-hidden="true">
+      <Icon name="status.check" size={CHECK} row />
+    </span>
+  );
+}
+
+export function DoneMark({
+  state,
+  time,
+  look,
+  checkInSlot = false,
+}: {
+  state: string;
+  time?: string;
+  look: DoneLook;
+  /// The `check` look draws its check in the Stop slot (`DoneCheck`), not before the time.
+  checkInSlot?: boolean;
+}) {
   if (look === "words")
     return (
       <span className="acpmux-done-mark" data-hat-done data-look={look}>
@@ -28,17 +51,14 @@ export function DoneMark({ state, time, look }: { state: string; time?: string; 
     );
   return (
     <span className="acpmux-done-mark" data-hat-done data-look={look}>
-      {look === "check" && (
-        <span className="acpmux-done-mark__check" aria-hidden="true">
-          <Icon name="status.check" size={CHECK} row />
-        </span>
-      )}
+      {look === "check" && !checkInSlot && <DoneCheck />}
       {look === "accent" ? (
         <span className="acpmux-done-mark__word">{state}</span>
       ) : (
         <span className="acpmux-agent-line__sr">{state}</span>
       )}
       {time !== undefined && <span className="acpmux-done-mark__time">{time}</span>}
+      {look === "check" && checkInSlot && time !== undefined && <DoneCheck />}
     </span>
   );
 }

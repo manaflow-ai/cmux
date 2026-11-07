@@ -18,6 +18,8 @@ import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experim
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
+import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
+import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
@@ -42,6 +44,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
+import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -107,6 +110,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartAskLook,
   agentStartLook,
   liveLineTokens,
+  compactingLine,
+  liveLineTimes,
   oneRowPerCall,
   backgroundHintRoom,
   trayPanelLook,
@@ -114,6 +119,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayStopLook,
   trayMotionLook,
   composerHatLook,
+  hatQuestionsLook,
   hatChevronLook,
   hatDoneLook,
   trayHeadLook,

@@ -18,7 +18,9 @@ import CmuxNextSettings
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat, soloTab: Bool)?
     /// The pane draws its tabs at the row's leading end; false while a lone tab hides (`PaneTabRowSharing.setTabRowTabs`).
     var tabsShown = true
-    /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
+    /// Native chrome holes, in the chat view's coordinates; Session Info adds its own overlay hole. Turned into the
+    /// page's coordinates at each apply (``AgentPaneView/applyNativeRects()``), so a page the view lays elsewhere for a
+    /// while (held away while an adopted chat draws) gets them back where it shows.
     var holes: [CGRect] = []
     /// What the pane's toolbar hole paints (``holeFill(chromium:shares:tabsShown:page:)``), set with each offer.
     public private(set) var holeFill: CGColor?
@@ -91,7 +93,7 @@ import CmuxNextSettings
         // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
         row.holeFill = holeFill(chromium: view.chromiumPage != nil, shares: shares, tabsShown: row.tabsShown,
                                 page: view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: view.surfaceKind) })
-        if let page = view.page {
+        if view.page != nil {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
             // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
             // each one is mirrored from its own maxY (a hole shorter than the row, the rim's, stays at the
@@ -101,7 +103,7 @@ import CmuxNextSettings
                                              tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
             row.holes = holes.map { hole in
                 let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
-                return page.convert(CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height), from: view)
+                return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
             }
             view.applyNativeRects()
         }
