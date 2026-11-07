@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Screen hit-testing reports hover transitions with the original event, which may be a mouse move.
 /// Keep them separate from AppKit's tracking-area callbacks and their enter/exit-only metadata.
