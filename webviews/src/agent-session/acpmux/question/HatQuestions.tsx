@@ -11,7 +11,8 @@
 // --agent-motion-move whenever what it holds changes (it arrives, a step shows a taller or shorter
 // question, the last one leaves), and the question it shows crossfades with a short slide the way
 // the step went. Leaving, the band keeps its last question until its height reaches zero, so nothing
-// pops out; with motion off the change is one frame. Arms in hatQuestions.experiment.ts.
+// pops out; with motion off the change is one frame. Questions already waiting when it mounts draw
+// at once. Arms in hatQuestions.experiment.ts.
 import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT, type StringKey } from "../i18n";
@@ -87,7 +88,15 @@ export function HatQuestions({
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
-  const [arrived, setArrived] = useState(false);
+  // Questions already waiting when the pane opens (or shows another chat, which mounts it again) are
+  // its start state, not a change: the band draws at its height at once, and eases only from the
+  // next frame on.
+  const [arrived, setArrived] = useState(() => questions.length > 0);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setSettled(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const present = drawn.length > 0;
   useLayoutEffect(() => {
     const element = inner.current;
@@ -222,6 +231,7 @@ export function HatQuestions({
       data-look={look}
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
+      data-settled={settled || undefined}
       style={{ "--acpmux-hat-questions-height": `${arrived && !leaving ? height : 0}px` } as CSSProperties}
       onTransitionEnd={(event) => {
         if (leaving && event.target === event.currentTarget) setKept([]);

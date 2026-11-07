@@ -22,6 +22,13 @@
     height var(--agent-motion-move, 180ms) var(--agent-ease-out),
     opacity var(--agent-motion-move, 180ms) var(--agent-ease-out);
 }
+/* Before its first frame the band is its start state: nothing to ease from. */
+.acpmux-hat-questions:not([data-settled]) {
+  transition: none;
+}
+.acpmux-hat-questions:not([data-settled]) .acpmux-hat-questions__question {
+  animation: none;
+}
 .acpmux-hat-questions[data-leaving] {
   opacity: 0;
 }
@@ -213,12 +220,12 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
 }
-/* The chip arm folded: a small centred pill, the mark and the count, until clicked. */
+/* The chip arm folded: a small centred chip, the mark and the count, until clicked. */
 .acpmux-hat-questions[data-folded] .acpmux-hat-questions__body {
   width: fit-content;
   margin: 0 auto;
   padding: 0;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-md, 6px);
 }
 .acpmux-hat-questions__chip {
   display: inline-flex;
@@ -227,7 +234,7 @@
   height: var(--ds-control-compact, 24px);
   padding: 0 var(--ds-space-3, 12px);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-md, 6px);
   background: none;
   color: var(--agent-muted);
   font-size: var(--text-caption);

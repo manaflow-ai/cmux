@@ -1,6 +1,5 @@
 {
   "title": "Composer hat questions: three asks wait over the composer, the pager steps to the second, a click answers it, and a typed reply withdraws the first (its record reads Answered in chat); the video shows each step, the stills the end (one question left)",
-  "fakeHarness": true,
   "steps": [
     {
       "title": "chat: a new agent chat on the fake harness",
@@ -87,7 +86,6 @@
           "action": "chat_state"
         }
       },
-      "record": "file",
       "wait": 1
     }
   ]
