@@ -204,6 +204,7 @@ test("clicking Continue sends the continue prompt through chat.send", async () =
   );
   const button = container.querySelector<HTMLButtonElement>(".cv-turn-continue")!;
   expect(button.textContent).toBe(translate("turn.continue"));
+  expect(button.getAttribute("title")).toBeNull();
   await act(async () => button.click());
   expect(calls).toEqual([["chat.send", { text: CONTINUE_PROMPT }]]);
 });

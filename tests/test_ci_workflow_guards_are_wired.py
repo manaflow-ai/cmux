@@ -85,6 +85,12 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that the nightly-next tail jobs run in the dispatched
     # post-publish run, off the push group; run it by hand after changing those jobs or their dispatch.
     "tests/test_nightly_next_tail_off_push_group.py",
+    # lane = "manual" for the same rule. It checks the single nightly-next loop: one push group, the tail in the
+    # run that published, and the retry at the newest head; run it by hand after changing decide or retry-nightly-next.
+    "tests/test_nightly_next_single_loop.py",
+    # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
+    # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
+    "tests/test_nightly_artifact_uploads_retry.py",
     # lane = "manual" for the same rule. It checks that the nightly deltas are built without the Sparkle key, off
     # the whole-Mac hold; run it by hand after changing build-nightly-deltas, generate-nightly-deltas or their scripts.
     "tests/test_nightly_deltas_keyless_prebuild.py",
