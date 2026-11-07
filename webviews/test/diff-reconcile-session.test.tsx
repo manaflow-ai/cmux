@@ -59,7 +59,11 @@ const label = createDiffViewerLabelResolver(undefined, { language: "en" });
 const source = { kind: "unstaged", repoRoot: "/repo" } as const;
 type Session = { sessionId: string; capabilityToken: string };
 
-async function reconcile(patchResponse: () => Promise<Response>) {
+async function reconcile(
+  patchResponse: () => Promise<Response>,
+  freshExtra: Record<string, unknown> = {},
+  whileStreaming?: () => void,
+) {
   const calls: [string, unknown][] = [];
   const opens: ((value: unknown) => void)[] = [];
   const transport = {
@@ -85,6 +89,7 @@ async function reconcile(patchResponse: () => Promise<Response>) {
   globalThis.fetch = (async () => (fetches++ === 0 ? new Response("") : patchResponse())) as unknown as typeof fetch;
   const config = { payload: { capabilityToken: "token", sessionSource: source } } as never;
   const actions: string[] = [];
+  const dispatched: { type: string; [key: string]: unknown }[] = [];
   const prepared: (string | undefined)[] = [];
   const patchURLs: string[] = [];
   const state = { reconciling: false, options: { collapsed: false }, generatedPaths: [] };
@@ -110,7 +115,10 @@ async function reconcile(patchResponse: () => Promise<Response>) {
       config,
       transport as never,
       label,
-      (action: { type: string }) => void actions.push(action.type),
+      (action: { type: string }) => {
+        actions.push(action.type);
+        dispatched.push(action);
+      },
       latest,
       (url: string) => void patchURLs.push(url),
       activeRef as never,
@@ -138,7 +146,12 @@ async function reconcile(patchResponse: () => Promise<Response>) {
     state.reconciling = true;
     await act(async () => root.render(<Viewer generation={2} />));
     expect(calls.map(([method]) => method)).toEqual(["sessionOpen"]);
-    await act(async () => opens.shift()!(opened("fresh")));
+    await act(async () => opens.shift()!(opened("fresh", freshExtra)));
+    if (whileStreaming) {
+      await act(async () => whileStreaming());
+      // Taken now: the unmount below closes whatever is still open.
+      return { calls: [...calls], actions, dispatched, prepared, patchURLs, active: active.current, retained: retained.current };
+    }
     // Until the reconcile ends: its new diff committed, or it failed and the shown one stays.
     for (
       let turn = 0;
@@ -147,7 +160,7 @@ async function reconcile(patchResponse: () => Promise<Response>) {
     ) {
       await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
     }
-    return { calls, actions, prepared, patchURLs, active: active.current, retained: retained.current };
+    return { calls, actions, dispatched, prepared, patchURLs, active: active.current, retained: retained.current };
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = savedFetch;
@@ -177,4 +190,57 @@ test("a reconcile that commits makes its session the active one and closes the o
   expect(result.active?.sessionId).toBe("fresh");
   expect(closed(result.calls).slice(0, 1)).toEqual(["warm"]);
   expect(result.patchURLs.at(-1)).toBe("cmux-page://cmux.diff/__patch/fresh/patch.diff");
+});
+
+// Codex review of #36808 at bd9f2c5a (BLOCK P2 and follow-ups): a reconcile's renames reach the reducer
+// with its items, its generated paths wait for the commit, and a page hidden mid-reconcile closes it.
+// The first `a.ts` must have left the stream's pending batch (at most 96 files) before the second
+// arrives, or the stream renames it in place and reports no rename.
+const added = (path: string) =>
+  [`diff --git a/${path} b/${path}`, "new file mode 100644", "--- /dev/null", `+++ b/${path}`, "@@ -0,0 +1 @@", "+x"];
+const twice = [
+  "diff --git a/a.ts b/a.ts",
+  "deleted file mode 100644",
+  "--- a/a.ts",
+  "+++ /dev/null",
+  "@@ -1 +0,0 @@",
+  "-old",
+  ...Array.from({ length: 120 }, (_, index) => added(`f${index}.ts`)).flat(),
+  ...added("a.ts"),
+  "",
+].join("\n");
+
+test("a reconcile hands its renames to the commit", async () => {
+  const result = await reconcile(async () => new Response(twice));
+  const replace = result.dispatched.find((action) => action.type === "replace-items");
+  expect(replace?.renames).toEqual([{ oldId: "a.ts", newId: "a.ts?deleted" }]);
+});
+
+test("a failed reconcile leaves the shown diff's generated paths alone", async () => {
+  const result = await reconcile(
+    async () => {
+      throw new Error("the patch could not be read");
+    },
+    { generatedPaths: ["gen/out.ts"] },
+  );
+  expect(result.actions).toContain("end-reconcile");
+  const generated = result.dispatched.filter((action) => action.type === "set-generated-paths");
+  expect(generated.map((action) => action.paths)).toEqual([[]]);
+});
+
+test("a reconcile that commits applies its generated paths before its items", async () => {
+  const result = await reconcile(async () => new Response(""), { generatedPaths: ["gen/out.ts"] });
+  const types = result.dispatched.map((action) => action.type);
+  const generated = result.dispatched.findLastIndex((action) => action.type === "set-generated-paths");
+  expect(result.dispatched[generated]?.paths).toEqual(["gen/out.ts"]);
+  expect(generated).toBeLessThan(types.indexOf("replace-items"));
+});
+
+test("a page hidden mid-reconcile closes the replacement's session too", async () => {
+  const result = await reconcile(
+    () => new Promise<Response>(() => {}),
+    {},
+    () => void dom.window.dispatchEvent(new dom.window.Event("pagehide")),
+  );
+  expect(closed(result.calls).sort()).toEqual(["fresh", "warm"]);
 });

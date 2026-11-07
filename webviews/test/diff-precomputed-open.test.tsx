@@ -177,6 +177,36 @@ test("a failed reconcile records its generation, and the reader's file that left
   expect(state.activeItemId).toBe("a.ts");
 });
 
+test("a reconcile's renames carry the reader's file and the comment draft to their new ids", () => {
+  // Codex review of #36808 at bd9f2c5a (BLOCK P2): a second entry for a path renames the first one
+  // (`a.ts` to `a.ts?deleted`, the new one is `a.ts?2`). A reconcile renamed only its staged items, so
+  // the reader on `a.ts` fell back to the first file and the draft kept an id no file has.
+  const status = createDiffViewerStatus("", { loading: false });
+  const item = (id: string) =>
+    ({ id, type: "diff", version: 0, fileDiff: { name: "a.ts", hunks: [{}] } }) as never;
+  let state = initialAppState({ payload: {} } as never, status);
+  state = reducer(state, { type: "append-items", items: [item("z.ts"), item("a.ts")] });
+  state = reducer(state, { type: "set-active-item", itemId: "a.ts" });
+  state = reducer(state, { type: "set-draft", draft: { itemId: "a.ts", side: "additions", startLine: 2, endLine: 2 } });
+  state = reducer(state, { type: "reconcile" });
+  state = reducer(state, {
+    type: "replace-items",
+    items: [item("z.ts"), item("a.ts?deleted"), item("a.ts?2")],
+    renames: [{ oldId: "a.ts", newId: "a.ts?deleted" }],
+  });
+  expect(state.activeItemId).toBe("a.ts?deleted");
+  expect(state.draft?.itemId).toBe("a.ts?deleted");
+  // Already-final ids from an old diff of the same shape are not moved by the new diff's renames.
+  state = reducer(state, { type: "set-active-item", itemId: "a.ts?2" });
+  state = reducer(state, { type: "reconcile" });
+  state = reducer(state, {
+    type: "replace-items",
+    items: [item("z.ts"), item("a.ts?deleted"), item("a.ts?2")],
+    renames: [{ oldId: "a.ts", newId: "a.ts?deleted" }],
+  });
+  expect(state.activeItemId).toBe("a.ts?2");
+});
+
 test("a later precompute with the same fingerprint gets its own first comparison", async () => {
   // Codex review of #36808 (follow-up F3): the one-check rule was keyed by the fingerprint alone, so a
   // second precompute that hashed the same skipped its check and stayed shown after later edits.
