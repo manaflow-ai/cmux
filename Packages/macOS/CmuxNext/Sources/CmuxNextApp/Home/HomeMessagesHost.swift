@@ -35,13 +35,13 @@ import MessagesLabHome
 ///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`.
 /// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
 /// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
-/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows`` or null).
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op).
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou"].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
@@ -66,6 +66,7 @@ final class HomeMessagesHostProvider: PageProvider {
     var window: () -> NSWindow? = { nil }
     /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
     let composerFiles = HomeComposerFiles()
+    let dictation = HomePageDictation()
 
     init(services: AppServices) {
         self.services = services
@@ -173,6 +174,7 @@ final class HomeMessagesHostProvider: PageProvider {
             default: needsYou?.showFeed()
             }
             return .null
+        case "dictation": return try dictation.call(params)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
@@ -207,6 +209,7 @@ final class HomeMessagesHostProvider: PageProvider {
         case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "dictation": return dictation.stream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefPlace":
             _ = services?.chiefTeleport.refresh()
             return chiefPlace.subscribe(onEvent)

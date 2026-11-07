@@ -111,6 +111,7 @@ final class HomeConversationPage: NSView {
     /// The tab closed: the page's document ends.
     func close() {
         chief.close()
+        host.dictation.close()
         page.close()
     }
 }

@@ -268,7 +268,7 @@ final class HomeChiefSurface {
                 await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
             }
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { avatar.picture.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { avatar.picture.flatMap(HomeChiefAvatars.firstFrame) }.value
             let page = if let data = avatar.picture { await HomeChiefAvatars.pagePicture(data) } else { String?.none }
             // A read for the Chief shown before (another came in since) is dropped.
             guard let self, control.brainHome == home else { return }
@@ -276,12 +276,6 @@ final class HomeChiefSurface {
             let name = control.services.home.chiefName(of: conversation) ?? ""
             made?.view.setAvatar(picture: decoded.map { NSImage(cgImage: $0, size: .zero) }, text: avatar.text ?? HomeChiefAvatar.monogram(of: name))
         }
-    }
-
-    /// The first frame of the picture `data` holds, decoded now.
-    private nonisolated static func decode(_ data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     // MARK: Stop

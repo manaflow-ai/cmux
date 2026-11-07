@@ -666,6 +666,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                "CmuxNextDictation",
             ],
             swiftSettings: daemonSwiftSettings
         ),
