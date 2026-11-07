@@ -99,6 +99,7 @@ extension SidebarListViewComponents {
         for key in hidden { rowViews[key]?.alphaValue = 0 }
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
+        SidebarPinZone.begin(self, drag)
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -120,6 +121,7 @@ extension SidebarListViewComponents {
             drag.lastY = point.y
         }
         if drag.group != nil { return updateGroupDrag(drag) }
+        SidebarPinZone.update(self, drag, at: point)
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
         let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
@@ -134,7 +136,7 @@ extension SidebarListViewComponents {
     /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
         let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
-                                     ungroupedFirst: model.ungroupedFirst)
+                                     ungroupedFirst: model.ungroupedFirst, reachesPinned: drag.reachesPinned)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
         let sections = listSections
         let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))

@@ -33,6 +33,11 @@ final class SidebarListDrag {
     /// The top section the rows would join (drop-to-pin), while the
     /// pointer is over the band above the list; the list keeps its order.
     var pinTarget: SidebarRegionDrop?
+    /// The drag reached the list's top edge: an empty Pinned shows its zone and takes the drop (`SidebarPinZone`).
+    var reachesPinned = false
+    /// Where an empty Pinned's zone opens (its header and row, in list coordinates), made at the lift; nil when
+    /// the drag opens none (`SidebarPinZone.begin`).
+    var pinZone: ClosedRange<CGFloat>?
     var target: DropTarget? {
         didSet { if case let .position(position)? = target { lastPosition = position } }
     }

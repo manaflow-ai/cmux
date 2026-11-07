@@ -7,7 +7,7 @@ import Testing
 /// super weird how when you drag ANY workspace, it shifts imediately due to that...". Every workspace drag opened
 /// an empty Pinned's header and its "Drop here to pin" row at the top as it lifted, so every row moved down by
 /// them the moment a drag started. A drag's start moves no row: the zone opens only as the pointer reaches the top
-/// edge, on the drag's spring like any gap, and takes the drop there.
+/// edge (`SidebarPinZone`), on the drag's spring like any gap, and takes the drop there.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragStartKeepsRowsTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let loose = ["a", "b", "c", "d", "e"].map(WorkspaceID.init)
@@ -117,6 +117,49 @@ import Testing
             check("move to \(dy) pt")
         }
         #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
+        list.cancelDrag()
+    }
+
+    /// Up to the top edge: the zone opens where Pinned goes and takes the drop (its row, or the drop's gap in its
+    /// place), and the rows between it and the lifted one move down together; back down, it closes.
+    @Test(arguments: [false, true]) func theTopEdgeOpensPinnedsZone(_ document: Bool) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let (list, window) = Self.list(document: document)
+        defer { window.close() }
+        let dragged = Self.dragged
+        let before = Self.ys(list, except: [dragged])
+        let (drag, start) = try Self.lift(list)
+        let zone = try #require(drag.pinZone, "no zone to open for an empty Pinned")
+        let origin = try #require(list.displayed.row(for: dragged)).y
+        let above = Self.ys(list, except: [dragged]).filter { $0.value >= zone.lowerBound - 0.5 && $0.value < origin }
+        let first = try #require(above.min { $0.value < $1.value }, "no row above the lifted one")
+        var y = start.y
+        while y > zone.lowerBound + 4 {
+            y = max(zone.lowerBound + 4, y - 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        #expect(drag.reachesPinned, "the drag reached the top edge and the zone stayed shut")
+        let moved = try #require(list.displayed.row(for: first.key)).y - first.value
+        #expect(moved >= (zone.upperBound - zone.lowerBound) / 2, "the first row moved \(moved) pt, under a zone \(zone.upperBound - zone.lowerBound) pt tall")
+        for key in above.keys {
+            let shift = (list.displayed.row(for: key)?.y ?? 0) - (before[key] ?? 0)
+            #expect(abs(shift - moved) < 0.5, "\(key) moved \(shift) pt, the first row \(moved) pt")
+        }
+        if !document {
+            guard case let .position(position)? = drag.target else { Issue.record("no drop at the top edge: \(String(describing: drag.target))"); return }
+            #expect(position.section == .pinned, "the top edge drops in \(position.section), not Pinned")
+        } else {
+            #expect(drag.docTarget != nil, "the top edge takes no drop on the document")
+        }
+
+        // Back down past the zone: it closes.
+        let down = start.y + list.metrics.rowHeight
+        while y < down {
+            y = min(down, y + 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        #expect(!drag.reachesPinned && !Self.zoneShows(list), "the zone stayed open with the pointer back under it")
         list.cancelDrag()
     }
 }

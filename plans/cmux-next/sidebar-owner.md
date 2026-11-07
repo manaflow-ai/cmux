@@ -1508,6 +1508,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
 
+## A drag's start moves no row: Pinned opens at the top edge (2026-11-07)
+
+- Leo 2026-11-07: "did we not remove or find adifferent solution for the drag here to pin yet in the sidebar? it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that..."
+- Every workspace drag (and every drag on the document) turned on `showEmptyPinned` as it lifted: an empty Pinned
+  drew its header and "Drop here to pin" row at the top, and every empty document section its drop row, so every row
+  moved down the moment a drag started.
+- Now the lift shows no new row. `SidebarPinZone` makes, at the lift, where an empty Pinned's zone would open; once
+  the pointer, moving up, reaches the top half of the first row (or above it), the zone opens there on the drag's
+  spring (rows move, the zone fades in) and takes the drop; half a row below the zone it closes again. A section the
+  drag empties still keeps its drop row in the dragged rows' place. An empty document section the drag does not
+  empty draws nothing, as at rest.
+- Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
