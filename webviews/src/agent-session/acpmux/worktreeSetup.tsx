@@ -44,8 +44,8 @@ type Repeat = (name: string, tick: () => void, every: () => number | null) => ()
 
 /** Follows the setup of the worktree at `root`: reads it now, then every second while it is live
  *  and the page is visible (`repeat`, the page clock). It stops at a final state, at the first
- *  failed read (a host that cannot answer; the line then keeps what it knew), past the host's own
- *  setup deadline, and when the returned stop runs. Reads never overlap. */
+ *  failed read (a host that cannot answer) and past the host's own setup deadline, both shown as
+ *  interrupted, and when the returned stop runs. Reads never overlap. */
 export function followWorktreeSetup(
   callNative: Native,
   root: string,
@@ -57,7 +57,16 @@ export function followWorktreeSetup(
   let since = "0";
   let output = "";
   let final = false;
+  let last: WorktreeSetupRun | undefined;
   const deadline = Date.now() + SETUP_READ_DEADLINE_MS;
+  // Reads that end before a final state end the line too, as interrupted, so it never spins on
+  // with nothing following it and always offers Dismiss.
+  const giveUp = () => {
+    if (final || stopped) return;
+    final = true;
+    const run = last ?? { state: "interrupted", output: "", outputStart: "0", outputEnd: "0" };
+    onView({ run: { ...run, state: "interrupted" }, output, read: true });
+  };
   const read = () => {
     if (stopped || inFlight || final) return;
     inFlight = true;
@@ -68,20 +77,20 @@ export function followWorktreeSetup(
         if (!answer) throw new Error("no setup");
         output = appendSetupOutput(output, since, answer.run);
         since = answer.run.outputEnd;
+        last = answer.run;
         final = isFinalSetupState(answer.run.state);
         onView({ run: answer.run, output, read: true });
       })
-      .catch(() => {
-        final = true;
-      })
+      .catch(giveUp)
       .finally(() => {
         inFlight = false;
       });
   };
   read();
-  const stop = repeat("worktree-setup", read, () =>
-    final || stopped || Date.now() > deadline ? null : SETUP_READ_INTERVAL_MS,
-  );
+  const stop = repeat("worktree-setup", read, () => {
+    if (!final && Date.now() > deadline) giveUp();
+    return final || stopped ? null : SETUP_READ_INTERVAL_MS;
+  });
   return () => {
     stopped = true;
     stop();
