@@ -421,10 +421,9 @@
           "title": "When Quitting",
           "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
           "kind": "choice",
-          "default": "ask",
+          "default": "keep",
           "group": "Quitting",
           "values": [
-            "ask",
             "keep",
             "end-keep-layout",
             "end-everything"

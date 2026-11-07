@@ -7455,7 +7455,6 @@
     },
     {
       "accepts" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
@@ -7463,13 +7462,6 @@
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.quitAsk",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.choice.quitKeep",
@@ -7496,7 +7488,7 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "keep",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.quit",
