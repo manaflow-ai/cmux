@@ -66,8 +66,14 @@ pub enum FeedEvent {
 /// when acpmux took it. The binary installs it.
 pub type ReplySender = Arc<dyn Fn(&str, &str, &str) -> bool + Send + Sync>;
 
-/// Names an item's agent, workspace and tab from the daemon's store.
-pub type PlaceResolver = Arc<dyn Fn(&FeedItem) -> Option<Place> + Send + Sync>;
+/// One read's lookup of an item's agent, workspace and tab: built from the
+/// daemon's store once per read, before the feed state lock, so naming the
+/// rows costs one pass over the tabs per read and no store lock is taken
+/// while the feed's is held.
+pub type Places = Box<dyn Fn(&FeedItem) -> Option<Place> + Send>;
+
+/// Snapshots the daemon's store into a [`Places`] lookup for one read.
+pub type PlaceResolver = Arc<dyn Fn() -> Places + Send + Sync>;
 
 /// What the client reads from its host.
 pub struct FeedDeps {
@@ -76,7 +82,8 @@ pub struct FeedDeps {
     pub mailbox: Arc<dyn Mailbox>,
     pub sink: Arc<dyn Fn(FeedEvent) + Send + Sync>,
     pub now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
-    /// Names an item's agent, workspace and tab from the daemon's store.
+    /// Snapshots the daemon's store for naming an item's agent, workspace
+    /// and tab (called once per read, with no feed lock held).
     pub place: PlaceResolver,
 }
 
@@ -306,17 +313,30 @@ impl FeedClient {
     pub fn view(&self, request: &ViewRequest) -> Value {
         self.ensure_started();
         let now = self.inner.now();
+        let places = self.places(true);
         let mut state = self.inner.lock();
         // A snooze that ended shows again with this read.
         let woke: Vec<FeedEvent> = state.mirror.tick(now).into_iter().map(view_event).collect();
-        let view = self.context(&state, now, |context| context.view(request));
+        let view = self.context(&state, now, &places, |context| context.view(request));
         drop(state);
         self.inner.emit(woke);
         view
     }
 
-    fn context<T>(&self, state: &State, now: i64, read: impl FnOnce(&ViewContext<'_>) -> T) -> T {
-        let place = |item: &FeedItem| (self.inner.deps.place)(item);
+    /// The store's place lookup for one read (none when the read shows no
+    /// rows). Taken before the feed state lock.
+    fn places(&self, rows: bool) -> Places {
+        if rows { (self.inner.deps.place)() } else { Box::new(|_| None) }
+    }
+
+    fn context<T>(
+        &self,
+        state: &State,
+        now: i64,
+        places: &Places,
+        read: impl FnOnce(&ViewContext<'_>) -> T,
+    ) -> T {
+        let place = |item: &FeedItem| places(item);
         let context = ViewContext {
             mirror: &state.mirror,
             now,
@@ -333,8 +353,9 @@ impl FeedClient {
     pub fn items(&self, ids: &[String], confirmed: bool) -> Vec<Value> {
         self.ensure_started();
         let now = self.inner.now();
+        let places = self.places(!confirmed);
         let state = self.inner.lock();
-        self.context(&state, now, |context| {
+        self.context(&state, now, &places, |context| {
             ids.iter()
                 .filter_map(|id| {
                     if confirmed {
@@ -352,6 +373,7 @@ impl FeedClient {
     pub fn list(&self, lifecycle: Option<&str>, home: Option<&str>, confirmed: bool) -> Vec<Value> {
         self.ensure_started();
         let now = self.inner.now();
+        let places = self.places(!confirmed);
         let state = self.inner.lock();
         let keep = |item: &FeedItem| {
             let lifecycle = match lifecycle {
@@ -366,7 +388,7 @@ impl FeedClient {
             };
             lifecycle && home
         };
-        self.context(&state, now, |context| {
+        self.context(&state, now, &places, |context| {
             state
                 .mirror
                 .timeline()

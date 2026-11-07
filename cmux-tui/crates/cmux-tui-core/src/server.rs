@@ -201,6 +201,7 @@ mod conversations;
 mod detached_terminals;
 mod feed_client_ops;
 mod feed_local;
+mod feed_places;
 mod frontend_browser_history;
 mod history_search;
 mod home;

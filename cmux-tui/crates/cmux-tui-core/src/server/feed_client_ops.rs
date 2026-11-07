@@ -259,6 +259,7 @@ impl Mux {
     pub(crate) fn feed_client(self: &Arc<Self>) -> &FeedClient {
         self.cloud_services().feed.get_or_init(|| {
             let sink_mux = Arc::downgrade(self);
+            let place_mux = Arc::downgrade(self);
             let feed = FeedClient::new(FeedDeps {
                 cloud: self.cloud_conversations().cloned(),
                 gh: Arc::new(ProcessGh),
@@ -287,7 +288,10 @@ impl Mux {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
                 }),
-                place: Arc::new(|_| None),
+                place: Arc::new(move || match place_mux.upgrade() {
+                    Some(mux) => mux.feed_places(),
+                    None => Box::new(|_| None),
+                }),
             });
             feed.set_reply_sender(self.cloud_services().feed_reply.get().cloned());
             feed

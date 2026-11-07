@@ -86,7 +86,7 @@ fn harness(cloud: Option<CloudConversations>) -> Harness {
             sink.lock().unwrap_or_else(PoisonError::into_inner).push(event);
         }),
         now_ms: Arc::new(|| NOW),
-        place: Arc::new(|_| None),
+        place: Arc::new(|| Box::new(|_| None)),
     });
     Harness { feed, events, gh, mailbox }
 }

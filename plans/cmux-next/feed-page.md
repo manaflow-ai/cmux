@@ -115,7 +115,11 @@ and on each `feed.view.changed`, a newer read supersedes an older reply; no poll
 - The socket is opened through the cloud link's backend with the lease's bearer
   (`CloudConversations::open_owner_wire`), so the token stays in that crate. Not
   `cmux_cloud_wire::StreamMirror`: the feed owner's events carry the changed items, not the op log.
-- Not ported: the item place (agent, workspace, tab names in `row.who` / `row.where`) needs the
-  app's store; the daemon passes none yet, so rows name only the poster. No keepalive probe on the
+- The item place (`row.who` / `row.where`): the daemon resolves `context.tab` (`tab_…` or a
+  surface id), else `context.terminal` (`term_…`), else `context.acp_session` (the bound agent chat
+  tab) to the workspace's display name, the tab's display title and its harness
+  (`server/feed_places.rs`), from one snapshot per read taken before the feed lock; else
+  `context.workspace` names the workspace alone, and an unknown id falls back to the poster. A
+  rename shows on the next read: it emits no `feed-view-changed` of its own. No keepalive probe on the
   feed socket (a dead socket is found by its close or the next send). `FeedWireEncode.post` was
   unused in Swift and is not ported.
