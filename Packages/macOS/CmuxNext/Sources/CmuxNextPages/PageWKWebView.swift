@@ -128,10 +128,29 @@ final class PageWKWebView: WKWebView {
     /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
     var onBecameFirstResponder: (() -> Void)?
 
+    /// Whether the view takes the keys now (nil: always). A page drawn in the window's chrome (the
+    /// browser toolbar) takes them only while its field edits, so a click on its buttons leaves them
+    /// where they are (``PageWebView/acceptsKeyFocus``).
+    var acceptsKeyFocus: (() -> Bool)?
+
+    override var acceptsFirstResponder: Bool {
+        if let acceptsKeyFocus { return acceptsKeyFocus() }
+        return super.acceptsFirstResponder
+    }
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { onBecameFirstResponder?() }
         return became
+    }
+
+    /// Called each time this view stops being first responder (the browser toolbar's field ends editing).
+    var onResignedFirstResponder: (() -> Void)?
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onResignedFirstResponder?() }
+        return resigned
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }

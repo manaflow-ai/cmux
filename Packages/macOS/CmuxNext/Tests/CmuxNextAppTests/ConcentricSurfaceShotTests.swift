@@ -14,7 +14,7 @@ import Testing
 /// corners, a large radius with a wide padding and a small radius, it draws a popover card with two
 /// rows and a button in it, a toast, a terminal banner, a sidebar row and the omnibar, each shape
 /// rounded with the radius its real surface reports (`PopupStyle`, `FloatingGlassStyle.toast`, a
-/// live `TerminalStatusBanner`, `SidebarDensityTokens`, `OmnibarStyle`). A surface that keeps a
+/// live `TerminalStatusBanner`, `SidebarDensityTokens`, `ToolbarRowMetrics`). A surface that keeps a
 /// fixed radius draws the same corner in every row.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ConcentricSurfaceShotTests {
     private func load(radius: Double?, padding: Double?) {
@@ -73,7 +73,7 @@ import Testing
         _ = shape(CGRect(x: 256, y: 16, width: 220, height: 44), FloatingGlassStyle.toast.cornerRadius, white: 0.3, in: base, rim: true)
         _ = shape(CGRect(x: 256, y: 76, width: 220, height: 58), TerminalStatusBanner().layer?.cornerRadius ?? 0, white: 0.24, in: base, rim: true)
         _ = shape(CGRect(x: 496, y: 16, width: 248, height: 28), SidebarDensityTokens.rowCornerRadius, white: 0.32, in: base)
-        _ = shape(CGRect(x: 496, y: 64, width: 248, height: 30), OmnibarStyle.barCornerRadius, white: 0.36, in: base, rim: true)
+        _ = shape(CGRect(x: 496, y: 64, width: 248, height: 30), ToolbarRowMetrics.cornerRadius, white: 0.36, in: base, rim: true)
         let scale: CGFloat = 2
         let context = try #require(CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
                                              bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,

@@ -1684,13 +1684,6 @@ class Sweep:
         typing_in("chat", "type.agent_composer")
         typing_in("omnibar", "type.omnibar")
 
-        def omnibar_bench():
-            if not self.show("chromium"):
-                return {"skipped": "no Chromium tab"}
-            reply = rpc("debug.omnibar_bench", {}, timeout=20)
-            return {"omnibar_click": reply if not error_of(reply) else None, "error": error_of(reply)}
-        self.interaction("click.omnibar", omnibar_bench)
-
         def scroll(context, name, sidebar=False):
             def run():
                 if context and not self.show(context):

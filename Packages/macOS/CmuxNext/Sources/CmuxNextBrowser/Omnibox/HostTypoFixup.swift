@@ -102,4 +102,9 @@ public nonisolated final class HostTypoMemory: Sendable {
     public func recordFix(of typedHost: String) {
         _ = fixed.withLock { $0.insert(typedHost.lowercased()) }
     }
+
+    /// Every host fixed so far, sorted (the toolbar page's resolver reads a copy).
+    public var all: [String] {
+        fixed.withLock { $0.sorted() }
+    }
 }

@@ -67,16 +67,6 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         return indicator
     }
 
-    /// The button for the omnibar's current presentation.
-    public static func resolve(site: PageInfoSite, chip: OmnibarPresentation.Chip) -> PageInfoIndicator {
-        switch chip {
-        case .input(let symbol): resolve(site: site, isFocused: true, editingSymbol: symbol)
-        case .page: resolve(site: site, isFocused: false, editingSymbol: nil)
-        case .keyword(let name): PageInfoIndicator(symbol: PageInfoIndicator.extensionPageSymbol, label: .keyword(name), isTriggerable: false)
-        case .engineKeyword(let label): PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, label: .keyword(label), isTriggerable: false)
-        }
-    }
-
     private static func pageIndicator(for site: PageInfoSite) -> PageInfoIndicator {
         switch site.kind {
         case .empty:

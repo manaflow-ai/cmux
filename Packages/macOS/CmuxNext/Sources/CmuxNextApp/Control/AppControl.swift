@@ -368,14 +368,6 @@ final class AppControl {
             .async("debug.palette.entries") { [weak services] call in
                 try await DebugPaletteEntries.write(call.params, services: services)
             },
-            .mainActor("debug.omnibar_mouse") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugOmnibar.mouse(call.params, services: services))
-            },
-            // One omnibar click from rest to the frame that shows focus and select-all (omnibar-mousedown-latency).
-            .async("debug.omnibar_bench") { [weak services] call in
-                await DebugOmnibarClickBench.run(call.params, services)
-            }.withDeadline(.fixed(.seconds(15))),
             // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
             .async("debug.open_panel_bench") { [weak services] call in
                 await DebugOpenPanelBench.run(call.params, services)

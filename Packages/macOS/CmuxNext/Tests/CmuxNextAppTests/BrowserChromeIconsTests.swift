@@ -73,8 +73,10 @@ import Testing
         #expect(IconCatalog.bundled.name(forSymbol: indicator.symbol) == IconName(indicator.symbol))
     }
 
-    /// The live toolbar of a Chromium tab: Back, Forward, Reload, the Extensions puzzle and every
-    /// shown toolbar button draw Chrome's icons, except cmux's own Design mode and Theme buttons.
+    /// The live toolbar of a Chromium tab: every toolbar button the row pushes to its page draws
+    /// Chrome's icon, except cmux's own Design mode and Theme buttons; Back, Forward, Reload, Stop
+    /// and the Extensions puzzle, which the page names itself (ui/BrowserToolbar.tsx), are
+    /// Chrome's too.
     @Test func liveToolbarDrawsChromesIcons() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         tab.showsExtensionToolbar = true
@@ -86,12 +88,16 @@ import Testing
         chrome.frame = window.contentLayoutRect
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
-        let icons = chrome.toolbarReport.icons
-        for key in ["back", "reload", "extensions", "button:overflow"] {
-            #expect(icons[key] != nil, "\(key) is not shown")
+        let pushed = chrome.addressBar.buttonsWire
+        #expect(pushed.contains { $0["id"] as? String == "overflow" }, "More is not pushed")
+        #expect(chrome.extensionActions.wire["shows"] as? Bool == true, "the Extensions button is not shown")
+        for button in pushed {
+            guard let id = button["id"] as? String, let icon = button["icon"] as? String, !Self.cmuxOnlyButtons.contains("button:\(id)") else { continue }
+            #expect(isChromiumIcon(IconName(icon)), "\(id) draws \(icon)")
         }
-        for (key, icon) in icons where !Self.cmuxOnlyButtons.contains(key) {
-            #expect(isChromiumIcon(icon), "\(key) draws \(icon.rawValue)")
+        for icon in ["browser.toolbar.back", "browser.toolbar.forward", "browser.toolbar.reload", "browser.toolbar.stop",
+                     "browser.toolbar.extensions"] {
+            #expect(isChromiumIcon(IconName(icon)), "\(icon)")
         }
     }
 

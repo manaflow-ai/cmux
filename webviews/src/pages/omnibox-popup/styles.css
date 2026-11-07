@@ -1,0 +1,23 @@
+/* The suggestion card's panel: transparent around the card (its shadow's room, `margin`). */
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+}
+
+#root {
+  display: block;
+}
+
+.op-card {
+  box-sizing: border-box;
+}
+
+/* The card's surface is the native panel's glass under the page (OmniboxPopupWindow): the page
+   draws only the rows over it, and the shadow in the margin around it. */
+.op-card > .bc-suggestions {
+  background: transparent;
+  box-shadow: var(--ui-popup-shadow);
+}

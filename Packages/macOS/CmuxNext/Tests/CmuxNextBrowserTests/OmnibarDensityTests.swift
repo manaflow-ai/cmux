@@ -133,7 +133,6 @@ import Testing
         func rect(_ view: NSView) -> NSRect { view.convert(view.bounds, to: nil) }
 
         func tearDown() {
-            chrome.addressBar.dismissRows()
             chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
@@ -151,10 +150,11 @@ import Testing
         DensityPreset.allCases.map { ($0, nil, nil) }
             + [(.compact, 20, 24), (.compact, 20, 10), (.comfortable, 56, 10), (.ultraCompact, nil, 24), (.comfortable, 30.4, 15.6)]
 
-    /// Long URL, "Not secure" chip, star, toolbar buttons and suggestion rows: each stays inside the
-    /// bar or the toolbar row, the field is tall enough for its text, and nothing overlaps.
+    /// The toolbar page lays the row out with the metrics the row pushes; the row holds them, the
+    /// bar sits inside it and the page area starts below it. (The page's own layout of field,
+    /// chip, star and buttons is tested in browser-chrome/toolbar.)
     @Test(arguments: cases.indices)
-    func nothingClipsOrOverlaps(index: Int) throws {
+    func theRowHoldsTheBarItPushes(index: Int) throws {
         let (preset, height, fontSize) = Self.cases[index]
         // A scoped appearance: the app-wide `shared` (and every other suite) is never touched.
         let overrides = OmnibarGlassAppearance()
@@ -162,62 +162,17 @@ import Testing
         try OmnibarGlassAppearance.$scoped.withValue(overrides) { try DensityTokens.$scoped.withValue(preset.tokens) {
             let view = Chrome()
             defer { view.tearDown() }
-            let bar = view.chrome.addressBar
-            let long = "https://example.com/" + String(repeating: "a-very-long-path-segment/", count: 40) + "?q=" + String(repeating: "x", count: 200)
-            bar.update(url: URL(string: long), security: .insecure)
-            bar.setBookmarkStar(.off)
-            view.chrome.layoutSubtreeIfNeeded()
-            bar.layoutSubtreeIfNeeded()
             let expected = OmnibarMetrics.current
             let label = "\(preset) height \(String(describing: height)) font \(String(describing: fontSize))"
-
-            let barRect = view.rect(bar), toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer)
-            #expect(barRect.height == expected.barHeight, "\(label): the bar is \(barRect.height) pt")
-            #expect(Self.inside(barRect, toolbar), "\(label): the bar \(barRect) runs out of the toolbar \(toolbar)")
+            let metrics = try #require(view.chrome.addressBar.wireState()["metrics"] as? [String: Any])
+            #expect(metrics["bar"] as? CGFloat == expected.barHeight, "\(label)")
+            #expect(metrics["fontSize"] as? CGFloat == expected.fontSize, "\(label)")
+            #expect(metrics["button"] as? CGFloat == expected.buttonSize, "\(label)")
+            let barTop = try #require(metrics["barTop"] as? CGFloat)
+            let toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer)
+            #expect(barTop >= 0 && barTop + expected.barHeight <= toolbar.height + 0.5, "\(label): the bar leaves the \(toolbar.height) pt row")
+            #expect(expected.buttonSize <= toolbar.height, "\(label): a button is taller than the row")
             #expect(page.maxY <= toolbar.minY + 0.5, "\(label): the page overlaps the toolbar")
-            #expect(bar.field.font?.pointSize == expected.fontSize, "\(label)")
-
-            let field = view.rect(bar.field), chip = view.rect(bar.chip), star = view.rect(bar.starButton)
-            #expect(Self.inside(field, barRect), "\(label): the field \(field) leaves the bar \(barRect)")
-            let font = try #require(bar.field.font)
-            // Nothing squeezes the field below the height its text asks for, and a full line of the
-            // font (ascender to descender) fits in the bar around the field's center.
-            #expect(field.height >= bar.field.intrinsicContentSize.height, "\(label): the field \(field.height) pt is squeezed")
-            #expect(font.ascender - font.descender <= barRect.height - 2 * (field.midY - barRect.midY).magnitude,
-                    "\(label): a \(font.pointSize) pt line does not fit the \(barRect.height) pt bar")
-            #expect(Self.inside(chip, barRect), "\(label): the chip \(chip) leaves the bar")
-            #expect(chip.maxX <= field.minX + 0.5, "\(label): the chip overlaps the URL")
-            #expect(!bar.starButton.isHidden, "\(label): the star shows for a bookmarkable page")
-            #expect(Self.inside(star, barRect), "\(label): the star \(star) leaves the bar")
-            #expect(field.maxX <= star.minX + 0.5, "\(label): the URL runs under the star")
-            for button in [view.chrome.backButton, view.chrome.reloadButton] {
-                let frame = view.rect(button)
-                #expect(frame.width == expected.buttonSize && frame.height == expected.buttonSize, "\(label): a button is \(frame.size)")
-                #expect(Self.inside(frame, toolbar), "\(label): a toolbar button \(frame) leaves the toolbar \(toolbar)")
-                #expect(frame.maxX <= barRect.minX + 0.5, "\(label): a button overlaps the bar")
-            }
-
-            // Editing: focus keeps the same geometry.
-            bar.focus()
-            view.chrome.layoutSubtreeIfNeeded()
-            #expect(view.rect(bar) == barRect, "\(label): editing moves the bar")
-
-            // The suggestion card: each row is the bar's height, its text and glyph inside it.
-            let suggestion = BrowserSuggestion(kind: .history, title: "A suggestion title " + String(repeating: "long ", count: 30),
-                                               detail: "detail", url: URL(string: "https://example.com/")!, score: 1)
-            bar.showRows([suggestion, suggestion], highlighted: 0)
-            let card = try #require(bar.debugCard)
-            #expect(card.isFlushUnderBar, "\(label)")
-            for row in bar.panel.rowViews {
-                row.layoutSubtreeIfNeeded()
-                #expect(row.bounds.height == expected.barHeight, "\(label): a row is \(row.bounds.height) pt")
-                #expect(Self.inside(row.label.frame, row.bounds), "\(label): a row's text \(row.label.frame) leaves \(row.bounds)")
-                #expect(Self.inside(row.icon.frame, row.bounds), "\(label): a row's glyph leaves the row")
-            }
-            let rows = bar.panel.rowViews.map { $0.convert($0.bounds, to: nil) }
-            for (upper, lower) in zip(rows, rows.dropFirst()) {
-                #expect(lower.maxY <= upper.minY + 0.5, "\(label): suggestion rows overlap")
-            }
         } }
     }
 
@@ -235,20 +190,21 @@ import Testing
         let view = Chrome()
         defer { view.tearDown() }
         let bar = view.chrome.addressBar
-        #expect(view.rect(bar).height == 28)
+        func pushed(_ key: String) -> CGFloat? { (bar.wireState()["metrics"] as? [String: Any])?[key] as? CGFloat }
+        #expect(pushed("bar") == 28)
         overrides.applySize(height: 40, fontSize: 18)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
-        #expect(view.rect(bar).height == 40)
-        #expect(bar.field.font?.pointSize == 18)
-        #expect(view.chrome.currentToolbarHeight == OmnibarStyle.toolbarHeight(scale: view.window.backingScaleFactor))
+        #expect(pushed("bar") == 40)
+        #expect(pushed("fontSize") == 18)
+        #expect(view.chrome.currentToolbarHeight == ToolbarRowMetrics.toolbarHeight(scale: view.window.backingScaleFactor))
         #expect(view.rect(view.chrome.toolbar).height == view.chrome.currentToolbarHeight)
 
         overrides.applySize(height: nil, fontSize: nil)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
-        #expect(view.rect(bar).height == 28)
-        #expect(bar.field.font?.pointSize == TypeScale.field)
+        #expect(pushed("bar") == 28)
+        #expect(pushed("fontSize") == TypeScale.field)
     }
 
     /// Lets the binding's observation re-apply (it re-arms on the next main-actor turn).

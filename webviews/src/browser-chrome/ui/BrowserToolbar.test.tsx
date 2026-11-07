@@ -1,0 +1,179 @@
+// The toolbar row's native parity (the AppKit toolbar it replaced, at e873e31e8669): long-press
+// Back and Forward for history, right-click menus on the profile and machine badges, the badges'
+// tooltips, the focus mode badge's glyph and help, the dimmer hollow star, accessibility ids and
+// extension values, and the chip's drag image.
+import { afterEach, expect, test } from "bun:test";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { BrowserToolbar, extensionLabel, HOLD_MENU_MS, setChipDragImage } from "./BrowserToolbar";
+import { resolveChip, type BrowserToolbarCommand, type OmnibarBadges } from "./toolbarModel";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+const KEYS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "MouseEvent",
+  "PointerEvent",
+  "getComputedStyle",
+  "ResizeObserver",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
+
+function install(): JSDOM {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
+  for (const key of KEYS) saved.set(key, scope[key]);
+  const win = dom.window;
+  Object.assign(scope, {
+    window: win,
+    document: win.document,
+    navigator: win.navigator,
+    Node: win.Node,
+    HTMLElement: win.HTMLElement,
+    Element: win.Element,
+    MouseEvent: win.MouseEvent,
+    PointerEvent: win.MouseEvent,
+    getComputedStyle: win.getComputedStyle,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom;
+}
+
+function render(node: ReactNode): Document {
+  const win = install().window;
+  root = createRoot(win.document.getElementById("root")!);
+  act(() => root!.render(node));
+  return win.document;
+}
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  for (const [key, value] of saved) scope[key] = value;
+  saved.clear();
+  dom?.window.close();
+  dom = undefined;
+});
+
+function toolbar(
+  sent: BrowserToolbarCommand[],
+  badges: OmnibarBadges = {},
+  bookmark: "off" | "on" = "off",
+  holdsFieldFocus = false,
+) {
+  return (
+    <BrowserToolbar
+      navigation={{ canGoBack: true, canGoForward: true, loading: false }}
+      omnibar={{ text: "example.com", chip: resolveChip(null), bookmark }}
+      extensions={{ shows: true, pinned: [{ id: "abc", name: "Reader", label: "Reader Mode", value: "3" }] }}
+      onCommand={(command) => sent.push(command)}
+      width={1200}
+      badges={badges}
+      holdsFieldFocus={holdsFieldFocus}
+    />
+  );
+}
+
+const press = (element: Element, type: string, init: MouseEventInit = {}) =>
+  act(() => {
+    element.dispatchEvent(new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...init }));
+  });
+
+test("a press on Back held past the hold time opens its history, and the release presses nothing", async () => {
+  const sent: BrowserToolbarCommand[] = [];
+  const doc = render(toolbar(sent));
+  const back = doc.querySelector('[data-toolbar-button="back"]')!;
+  press(back, "pointerdown");
+  await act(() => new Promise((resolve) => setTimeout(resolve, HOLD_MENU_MS + 50)));
+  press(back, "pointerup");
+  press(back, "click");
+  expect(sent).toEqual([{ type: "navigationMenu", direction: "back" }]);
+  // A quick press goes back, and opens no menu.
+  sent.length = 0;
+  press(back, "pointerdown");
+  press(back, "pointerup");
+  press(back, "click");
+  await act(() => new Promise((resolve) => setTimeout(resolve, HOLD_MENU_MS + 50)));
+  expect(sent).toEqual([{ type: "goBack" }]);
+});
+
+test("the profile and machine badges open their menus on a right-click too, with their help as tooltip", () => {
+  const sent: BrowserToolbarCommand[] = [];
+  const doc = render(
+    toolbar(sent, {
+      profile: { monogram: "W", name: "Work", help: "Browser profile: Work" },
+      machine: { text: "devbox", help: "localhost is devbox" },
+      focusMode: { text: "Focus Mode", help: "Press Esc twice to leave" },
+    }),
+  );
+  const profile = doc.getElementById("cmux.browser.profileBadge")!;
+  expect(profile.getAttribute("title")).toBe("Browser profile: Work");
+  expect(profile.getAttribute("aria-label")).toBe("Browser profile: Work");
+  press(profile, "contextmenu");
+  const machine = doc.querySelector('[data-rect="badge:machine"]')!;
+  expect(machine.getAttribute("aria-label")).toBe("localhost is devbox");
+  expect(machine.querySelector(".bc-badge-label")?.textContent).toBe("devbox");
+  press(machine, "contextmenu");
+  expect(sent).toEqual([{ type: "profileBadge" }, { type: "machineBadge" }]);
+  const focus = doc.getElementById("cmux.browser.focusModeBadge")!;
+  expect(focus.getAttribute("title")).toBe("Press Esc twice to leave");
+  expect(focus.querySelector('[data-icon="keyboard"]')).not.toBeNull();
+});
+
+test("controls carry the native accessibility identifiers; the hollow star is marked off", () => {
+  const doc = render(toolbar([], {}, "off"));
+  expect(doc.getElementById("cmux.browser.bookmarkStar")?.hasAttribute("data-on")).toBe(false);
+  expect(doc.getElementById("browser.extensions.button")).not.toBeNull();
+  const action = doc.getElementById("browser.extension.action.abc")!;
+  expect(action.getAttribute("aria-label")).toBe("Reader Mode, 3");
+  expect(action.getAttribute("title")).toBe("Reader");
+});
+
+test("an extension's spoken label is its name, then its badge", () => {
+  expect(extensionLabel({ id: "a", name: "Title", label: "Name", value: "12" })).toBe("Name, 12");
+  expect(extensionLabel({ id: "a", name: "Title" })).toBe("Title");
+  expect(extensionLabel({ id: "a", name: "Title", badge: { text: "4" } })).toBe("Title, 4");
+});
+
+test("a page dragged out of the chip shows its title, else its URL, as the drag image", () => {
+  const win = install().window;
+  const images: { text: string | null; x: number }[] = [];
+  const transfer = {
+    setDragImage: (element: Element, x: number) => images.push({ text: element.textContent, x }),
+  } as unknown as DataTransfer;
+  setChipDragImage(transfer, { url: "https://example.com/a", title: "Example Page" });
+  setChipDragImage(transfer, { url: "https://example.com/b", title: "  " });
+  expect(images).toEqual([
+    { text: "Example Page", x: 8 },
+    { text: "https://example.com/b", x: 8 },
+  ]);
+  expect(win.document.querySelectorAll(".bc-drag-label").length).toBe(2);
+});
+
+test("while the field edits, a press on a pinned extension leaves the keys in the field", () => {
+  const sent: BrowserToolbarCommand[] = [];
+  const doc = render(toolbar(sent, {}, "off", true));
+  const action = doc.getElementById("browser.extension.action.abc")!;
+  const down = new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+  act(() => {
+    action.dispatchEvent(down);
+  });
+  expect(down.defaultPrevented).toBe(true);
+  press(action, "click");
+  expect(sent).toEqual([{ type: "extensionAction", id: "abc" }]);
+});

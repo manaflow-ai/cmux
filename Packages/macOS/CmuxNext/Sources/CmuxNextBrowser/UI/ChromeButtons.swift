@@ -14,7 +14,7 @@ final class ChromeIconButton: ClickableButton {
     private var hover: PointerHover?
     var isHovering: Bool { hover?.isHovering ?? false }
 
-    /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
+    /// Toolbar buttons use the omnibar geometry (`OmnibarMetrics`); others the
     /// compact overlay size.
     private let isToolbar: Bool
     /// False where the tooltip would only repeat the icon's name (Back, Forward,
@@ -44,12 +44,12 @@ final class ChromeIconButton: ClickableButton {
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarMetrics.current.buttonSize : BrowserMetrics.controlHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarMetrics.current.buttonSize : BrowserMetrics.controlHeight },
         ])
         density.update { [weak self] in
             guard let self else { return }
-            layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
+            layer?.cornerRadius = isToolbar ? ToolbarRowMetrics.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
         }
         density.start()
@@ -75,7 +75,7 @@ final class ChromeIconButton: ClickableButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = iconSide?() ?? (isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
+        let side = iconSide?() ?? (isToolbar ? OmnibarMetrics.current.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
