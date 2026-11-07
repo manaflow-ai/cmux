@@ -78,7 +78,6 @@
     "agent-session/acpmux/summary/SubagentsTab.tsx#SubagentsTab",
     "agent-session/shared/AgentMark.tsx#AgentMark",
     "comments/CommentComposer.tsx#CommentComposer",
-    "comments/CommentsSection.tsx#CommentsSidebarSection",
     "comments/SavedComment.tsx#SavedComment",
     "diff-metadata.tsx#DiffHeaderMetadata",
     "file-icons.tsx#FileIcon",

@@ -238,6 +238,20 @@ final class SidebarUpdatedCardHost: NSView {
         island?.setPointerInside(hovered && card != nil)
     }
 
+    /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
+    /// or with no card, its x hides and the page hears the pointer leave, so it closes the preview and
+    /// hands the room back, and the card comes back closed (review F3 of #37615).
+    override var isHidden: Bool {
+        didSet { if isHidden, !oldValue { pointerLeft() } }
+    }
+
+    private func pointerLeft() {
+        guard isHovered else { return }
+        isHovered = false
+        setHoverShown(closeButton, false, fades: false)
+        island?.setPointerInside(false)
+    }
+
     /// The room the open hover preview needs above the slot's bottom (the card and the preview's
     /// rows); 0 while it is closed or there is no card.
     var overlayHeight: CGFloat {

@@ -113,6 +113,13 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub spawn_tool_call_id: Option<String>,
+    /// Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+    /// session?}`, decided by the daemon from the connection, never from a request value.
+    /// Null for a fork, a moved-in session and one saved before it existed; absent from a
+    /// peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub created_by: Option<crate::store::CreatedBy>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
