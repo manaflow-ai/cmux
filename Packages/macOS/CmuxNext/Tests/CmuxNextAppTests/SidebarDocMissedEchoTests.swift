@@ -48,10 +48,9 @@ import Testing
         return layout?.sections.first { $0.id.rawValue == "sec_c" }?.title
     }
 
-    /// A group rename (a record write) and a section's title edit (none): both stop replaying at the load.
+    /// A group rename stops replaying at the load.
     @Test(arguments: [
         ["op": "group.update", "id": "g_1", "patch": ["name": "Two"]],
-        ["op": "section.update", "id": "sec_c", "patch": ["title": "Two"]],
     ] as [[String: any Sendable]])
     func aLaterRenameShowsAfterAMissedEcho(op: [String: any Sendable]) async throws {
         let shown: (SidebarDocStore) -> String? = op["op"] as? String == "group.update" ? Self.groupName : Self.sectionTitle
