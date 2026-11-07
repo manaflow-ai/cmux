@@ -564,7 +564,11 @@ test("a chat with more older rows read than a kept tail holds keeps them all whe
     ...[2, 3, 4].map((part) => reply(turn * 4 + part, `turn ${turn} part ${part}. `)),
   ]).flat();
   const chat = await openChat(log);
-  while (await chat.client.loadOlder()) await flush();
+  // Two older pages of up to 400 records reach its first.
+  for (let page = 0; page < 2; page += 1) {
+    await chat.client.loadOlder();
+    await flush();
+  }
   await flush();
   const shown = chat.drawn.at(-1)!;
   expect(JSON.stringify(shown.rows)).toContain("turn 0 part 2.");
