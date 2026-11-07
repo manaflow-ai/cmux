@@ -133,8 +133,10 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !file.mimeType.startsWith("video/")
+      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
+        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+        row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
             ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
             : [],
         )

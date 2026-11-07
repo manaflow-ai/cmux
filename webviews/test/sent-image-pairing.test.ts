@@ -218,3 +218,44 @@ test("images only: the echo reuses the pane's bytes, so nothing flashes", async 
   ]);
   expect(srcs(same).map((part) => part.src)).toEqual([c.src, d.src]);
 });
+
+// Review of 9d917495: two image.png screenshots whose echo came before the pane's hash of them
+// were left unpaired, so both mounted as square slots and reshaped once priming or a read landed.
+test("two image.png screenshots echoed before the pane hashed them land at their final size, with their own bytes", async () => {
+  const { a, b, known, msg } = findingCase();
+  const shapes = (parts: PromptContentPart[] | undefined) =>
+    (parts ?? []).flatMap((part) =>
+      part.kind === "image" && (part.id === a.id || part.id === b.id)
+        ? [{ id: part.id, src: part.src, width: part.width, height: part.height }]
+        : [],
+    );
+  const first = shapes(recordedPromptParts(msg, known));
+  expect(first).toEqual([
+    { id: a.id, src: a.src, width: 1200, height: 800 },
+    { id: b.id, src: b.src, width: 600, height: 1400 },
+  ]);
+  // The echo's own `images` list, as direct.ts pairs it with the pane's row.
+  const rowImages = [a, b].map((image) => ({
+    id: image.attachment.id,
+    mimeType: "image/png",
+    name: "image.png",
+    src: image.src,
+  }));
+  const echoImages = (order: Shot[]) =>
+    order.map(
+      (image): { id: string; mimeType: string; name: string; width?: number; height?: number; src?: string } => ({
+        id: image.id,
+        mimeType: "image/png",
+        name: "image.png",
+      }),
+    );
+  const pick = (list: { src?: string; width?: number; height?: number }[]) =>
+    list.map(({ src, width, height }) => ({ src, width, height }));
+  expect(pick(images.withSentShapes(echoImages([b, a]), rowImages))).toEqual([
+    { src: b.src, width: 600, height: 1400 },
+    { src: a.src, width: 1200, height: 800 },
+  ]);
+  // Priming lands after: nothing changes shape or bytes.
+  await images.primeSentImages([a.attachment, b.attachment]);
+  expect(shapes(recordedPromptParts(msg, known))).toEqual(first);
+});

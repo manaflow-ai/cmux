@@ -13,6 +13,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { dataUrlSha256 } from "./sha256";
 
 export type ImageSize = { width: number; height: number };
 /// A sent image ready to draw: its data URL, its natural size when known, and whether the engine
@@ -234,8 +235,8 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
 /// An echoed image takes the pane's bytes only by its identity, never by its position: the echo
 /// adds a video's note and frames, so its images do not line up with the row's, and two
 /// screenshots are often both `image.png`. See `matchSentImages`. An image with no sure match (a
-/// video's frame, a preview sent as its original's link, two alike) keeps no `src` and is read by
-/// its id, which always draws its own bytes.
+/// video's frame, a preview sent as its original's link) keeps no `src` and is read by its id,
+/// which always draws its own bytes.
 export function withSentShapes<
   Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
 >(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
@@ -253,6 +254,10 @@ export function withSentShapes<
 ///   name or place (primeSentImages names them by the same SHA-256);
 /// - else by type and name, only when exactly one unclaimed sent image fits it and it is the only
 ///   echoed image without bytes that fits that one;
+/// - else, when several alike fit (two `image.png` screenshots whose echo came before the pane's
+///   hash of them), by hashing those candidates' bytes here, synchronously: acpmux's id is their
+///   SHA-256, so each echoed image takes exactly its own bytes and size and lands at its final
+///   shape, never a square slot that reshapes once priming or a read lands;
 /// - else none.
 export function matchSentImages(
   named: readonly { id: string; mimeType: string; name?: string }[],
@@ -271,12 +276,32 @@ export function matchSentImages(
     own.mimeType === image.mimeType && (!own.name || !image.name || own.name === image.name);
   const open = sent.flatMap((own, at) => (own.src && !claimed.has(at) ? [at] : []));
   const unmatched = named.flatMap((image, at) => (matches[at] ? [] : [at]));
+  const ambiguous: number[] = [];
   for (const at of unmatched) {
     const image = named[at]!;
     const candidates = open.filter((own) => fits(image, sent[own]!));
-    if (candidates.length !== 1) continue;
+    if (!candidates.length) continue;
     const own = candidates[0]!;
-    if (unmatched.filter((other) => fits(named[other]!, sent[own]!)).length !== 1) continue;
+    if (candidates.length !== 1 || unmatched.filter((other) => fits(named[other]!, sent[own]!)).length !== 1) {
+      ambiguous.push(at);
+      continue;
+    }
+    matches[at] = { src: sent[own]!.src!, sent: own };
+  }
+  if (!ambiguous.length) return matches;
+  // Only the alike candidates are hashed, each once; a hash names its bytes, never a guess.
+  const hashes = new Map<number, string | undefined>();
+  const hashOf = (own: number) => {
+    if (!hashes.has(own)) hashes.set(own, dataUrlSha256(sent[own]!.src!));
+    return hashes.get(own);
+  };
+  for (const at of ambiguous) {
+    const image = named[at]!;
+    const own = open.find(
+      (candidate) => !claimed.has(candidate) && fits(image, sent[candidate]!) && hashOf(candidate) === image.id,
+    );
+    if (own === undefined) continue;
+    claimed.add(own);
     matches[at] = { src: sent[own]!.src!, sent: own };
   }
   return matches;
