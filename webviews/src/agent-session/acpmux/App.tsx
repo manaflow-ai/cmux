@@ -48,7 +48,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
-import { OpenAppCard } from "./OpenAppCard";
+import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
@@ -9220,16 +9220,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             }
                                                             onColdOpenShown={coldOpenShown}
                                                             afterLatest={
-                                                              !childRows &&
-                                                              (trayPlacement === "after-latest-message" ||
-                                                                showOpenAppCard) ? (
-                                                                <>
-                                                                  {showOpenAppCard && (
-                                                                    <OpenAppCard ports={cloudPreviewPortList} />
-                                                                  )}
-                                                                  {trayPlacement === "after-latest-message" && trayNode}
-                                                                </>
-                                                              ) : undefined
+                                                              childRows
+                                                                ? undefined
+                                                                : afterLatestFooter(
+                                                                    showOpenAppCard ? (
+                                                                      <OpenAppCard ports={cloudPreviewPortList} />
+                                                                    ) : null,
+                                                                    trayPlacement === "after-latest-message"
+                                                                      ? trayNode
+                                                                      : null,
+                                                                  )
                                                             }
                                                             registry={registry}
                                                             githubRepository={githubRepository}
