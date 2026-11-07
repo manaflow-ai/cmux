@@ -48,7 +48,7 @@ extension AppActionContext {
     /// The window named by the target or `window` argument (`WindowState.id`),
     /// else the active window.
     func window(_ invocation: ActionInvocation) throws -> WindowController {
-        let ref = [invocation.target, invocation["window"]?.targetValue].compactMap { $0 }.first { $0.kind == .window }
+        let ref = Self.explicitTarget([invocation.target, invocation["window"]?.targetValue], kinds: [.window])
         guard let ref else {
             guard let active = activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return active
