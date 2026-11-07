@@ -25,19 +25,28 @@ use tokio::sync::mpsc;
 const FAKE_APP_SERVER: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
 
+/// `model/list` rows as Codex answers them: `id` and `model` both name the model.
+fn rows(models: Value) -> Value {
+    let mut models = models;
+    for row in models.as_array_mut().unwrap() {
+        row["id"] = row["model"].clone();
+    }
+    models
+}
+
 /// The catalog an older Codex answers: no GPT-6 yet.
 fn old_catalog() -> Value {
-    json!([
+    rows(json!([
         {"model": "gpt-5.6-terra", "displayName": "GPT-5.6-Terra", "isDefault": true},
         {"model": "gpt-5.6-luna", "displayName": "GPT-5.6-Luna"},
         {"model": "gpt-5.5", "displayName": "GPT-5.5"},
-    ])
+    ]))
 }
 
 /// The catalog the updated Codex answers: GPT-6.1 Sol first, and each older model with the
 /// `upgrade` Codex's own catalog gives it.
 fn new_catalog() -> Value {
-    json!([
+    rows(json!([
         {"model": "gpt-6.1-sol", "displayName": "GPT-6.1-Sol", "isDefault": true, "upgrade": null},
         {"model": "gpt-6-sol", "displayName": "GPT-6-Sol", "upgrade": null},
         {"model": "gpt-6-luna", "displayName": "GPT-6-Luna", "upgrade": null},
@@ -45,7 +54,7 @@ fn new_catalog() -> Value {
         {"model": "gpt-5.6-luna", "displayName": "GPT-5.6-Luna",
          "upgrade": null, "upgradeInfo": {"model": "gpt-6-luna"}},
         {"model": "gpt-5.5", "displayName": "GPT-5.5", "upgrade": "gpt-6-sol"},
-    ])
+    ]))
 }
 
 fn dir(tag: &str) -> PathBuf {
@@ -182,7 +191,17 @@ async fn a_codex_updated_behind_its_launcher_refreshes_the_models_and_their_lega
     // The older Codex: its three models are current.
     let row = codex_row(&c.call("_acpmux/models", json!({"refresh": true})).await);
     assert_eq!(strings(&row["topModels"]), ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]);
+    // The first list's announcement came during the refresh.
     c.notes.clear();
+    // A chat on the same Codex reports nothing the list lacks: no second probe.
+    let params =
+        json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "codex"}}});
+    let same = c.call("session/new", params).await;
+    assert!(same["result"]["sessionId"].is_string(), "{same}");
+    assert!(
+        !c.note(method::MUX_HARNESSES_CHANGED, Duration::from_secs(2)).await,
+        "a chat on an unchanged Codex probed its list again"
+    );
 
     // Codex is updated in place: the launcher (path, size, modification time) is unchanged.
     std::fs::write(&catalog, new_catalog().to_string()).unwrap();
@@ -192,7 +211,8 @@ async fn a_codex_updated_behind_its_launcher_refreshes_the_models_and_their_lega
 
     // A Codex chat starts on the updated Codex and reports its catalog: the live list is
     // probed again and watchers hear that the models changed.
-    let params = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "codex"}}});
+    let params =
+        json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": "codex"}}});
     let started = c.call("session/new", params).await;
     assert!(started["result"]["sessionId"].is_string(), "{started}");
     assert!(
