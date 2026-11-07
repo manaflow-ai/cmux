@@ -64,7 +64,8 @@ struct UpdatedCardHoverPreviewTests {
         let resting = host.frame
         let listBottom = sidebar.scrollView.frame.minY
         let closeOnScreen = host.convert(host.closeButton.frame, to: sidebar)
-        #expect(resting.height == 48)
+        // Whole points: a slot bottom on a half point rounds the 48 out to 49.
+        #expect(resting.height >= 48 && resting.height <= 49)
 
         host.setHovered(true)
         #expect(island.pointer == [true], "the page hears the pointer from the host's tracking area")
