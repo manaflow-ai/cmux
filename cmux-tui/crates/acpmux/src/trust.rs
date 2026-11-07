@@ -828,3 +828,7 @@ mod scope_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "trust_torn_tests.rs"]
+mod torn_tests;
