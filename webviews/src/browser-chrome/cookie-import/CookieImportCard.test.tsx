@@ -24,6 +24,8 @@ const KEYS = [
   "KeyboardEvent",
   "PointerEvent",
   "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -45,6 +47,9 @@ function render(node: React.ReactNode): Document {
     KeyboardEvent: win.KeyboardEvent,
     PointerEvent: win.MouseEvent,
     getComputedStyle: win.getComputedStyle,
+    // The Keep in sync checkbox (Base UI) schedules its state on a frame.
+    requestAnimationFrame: win.requestAnimationFrame.bind(win),
+    cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   root = createRoot(win.document.getElementById("root")!);
