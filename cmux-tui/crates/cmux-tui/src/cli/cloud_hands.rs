@@ -435,11 +435,10 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                 let mut body = json!({ "allow": allow });
                 if let (Some(install), Some(signature)) =
                     (text(request, "install"), text(request, "signature"))
+                    && let Some(fields) = body.as_object_mut()
                 {
-                    if let Some(fields) = body.as_object_mut() {
-                        fields.insert("install".into(), json!(install));
-                        fields.insert("signature".into(), json!(signature));
-                    }
+                    fields.insert("install".into(), json!(install));
+                    fields.insert("signature".into(), json!(signature));
                 }
                 let path = format!("/v1/hands/{}/approvals/{}", approval.hand, approval.id);
                 self.spawn_call(
