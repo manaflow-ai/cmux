@@ -368,6 +368,38 @@ import Testing
         #expect(await tokens.current() == 1, "a stopped launch asked for a token")
     }
 
+    /// A serve child whose run() throws (no binary there) counts as exited: its waiters resume, the launch
+    /// fails as disconnected, and the next launch starts instead of waiting forever for it.
+    @Test func aChildThatNeverRanDoesNotBlockTheNextLaunch() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ccd-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cli = folder.appendingPathComponent("cmux-tui")
+        let never = ChildProcess(executable: cli, arguments: [])
+        #expect(throws: (any Error).self) { try never.startHoldingInput() }
+        #expect(!never.isRunning)
+        #expect(await never.waitForExit() == ChildProcess.notRun)
+        for await _ in never.stderrLines {}
+
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        do {
+            _ = try await serve.socketPath()
+            Issue.record("a serve with no binary got ready")
+        } catch let error as CloudLinkError {
+            guard case .disconnected(let reason) = error else { Issue.record("not disconnected: \(error)"); return }
+            #expect(reason.hasPrefix("cmux carrier serve did not start"))
+        }
+        // The binary appears: the next connect launches it at once.
+        try "#!/bin/sh\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n"
+            .write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
+        let next = try await withDeadline(.seconds(10), label: "next serve launch") { try await serve.socketPath() }
+        #expect(next == socket)
+        await serve.stop()
+    }
+
     private actor Gate {
         private var waiter: CheckedContinuation<Void, Never>?
         private var opened = false

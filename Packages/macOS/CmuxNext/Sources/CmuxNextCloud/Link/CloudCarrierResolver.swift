@@ -201,6 +201,12 @@ public actor CloudCarrierServe {
         }
         do {
             try child.startHoldingInput()
+        } catch {
+            // It never ran (ChildProcess recorded its exit): keep no child for the next launch to wait on.
+            if self.child === child { self.child = nil }
+            throw CloudLinkError.disconnected(reason: "cmux carrier serve did not start: \(error.localizedDescription)")
+        }
+        do {
             let first = try await withDeadline(Self.readyDeadline, label: "cmux carrier serve") { () -> CloudCarrierDial.ServeLine? in
                 for await line in answers { return line }
                 return nil

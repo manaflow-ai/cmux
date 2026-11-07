@@ -157,9 +157,28 @@ package final class ChildProcess: Sendable {
             try process.run()
         } catch {
             if process.isRunning { process.terminate() }
+            // It never ran: no termination handler comes, so record the exit here (status 127, as a shell's
+            // "could not run"), end both line streams and resume every exit waiter instead of leaving them forever.
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            continuation.finish()
+            stderrContinuation.finish()
+            let waiters = state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+                state.exitStatus = Self.notRun
+                try? state.input?.close()
+                state.input = nil
+                try? state.stderrLog?.close()
+                state.stderrLog = nil
+                defer { state.exitWaiters.removeAll() }
+                return state.exitWaiters
+            }
+            for waiter in waiters { waiter.resume(returning: Self.notRun) }
             throw error
         }
     }
+
+    /// The exit status recorded for a child whose `Process.run()` threw.
+    package static let notRun: Int32 = 127
 
     /// `url` opened to append, owner only, never through a symlink (its folder made owner only when missing);
     /// nil when it cannot be. It starts empty unless a running link holds the folder's `link.lock`: a classic
