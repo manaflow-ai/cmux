@@ -220,3 +220,33 @@ test("a toast pushed up by a newer one slides from where it was", () => {
   expect(doc.querySelectorAll(".cmux-toast").length).toBe(2);
   expect(slides).toContainEqual({ serial: "1", first: "translate(0.00px, 48.00px)" });
 });
+
+// Review 5 of #37289 (F2): the fading copy's place was set from the stack's origin read while the copy
+// still sat in the bottom-anchored flow; once the copy left the flow the stack's top moved down by the
+// copy's height, and the copy with it. The origin is read with the copy out of the flow.
+test("a closed toast fades where it was", () => {
+  const view = (toasts: ToastState[]) => stack(toasts);
+  const doc = render(view([toast(1)]));
+  doc.documentElement.dataset.cmuxMotion = "reduced";
+  const proto = dom!.window.HTMLElement.prototype as unknown as {
+    animate: unknown;
+    getBoundingClientRect: () => DOMRect;
+  };
+  const box = (top: number, height: number) =>
+    ({ x: 0, y: top, top, left: 0, right: 300, bottom: top + height, width: 300, height, toJSON() {} }) as DOMRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.classList.contains("cmux-toasts")) {
+      // Bottom-anchored at 340: a toast in the flow raises its top by 40.
+      const inFlow = [...this.querySelectorAll<HTMLElement>("[data-toast-serial]")].filter(
+        (element) => element.style.position !== "absolute",
+      );
+      return box(340 - 40 * inFlow.length, 40 * inFlow.length);
+    }
+    return box(300, 40);
+  };
+  proto.animate = () => ({ onfinish: null, oncancel: null, cancel() {} });
+  act(() => root!.render(view([toast(1, { message: "again" })])));
+  act(() => root!.render(view([])));
+  const copy = doc.querySelector<HTMLElement>("[data-toast-exiting]");
+  expect(copy?.style.top).toBe("-40px");
+});
