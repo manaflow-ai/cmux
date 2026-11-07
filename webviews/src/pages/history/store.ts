@@ -58,6 +58,8 @@ export class HistoryStore {
   private unsubscribe?: () => void;
   private unpage?: () => void;
   private starting = false;
+  private subscribingChanges = false;
+  private changesUnsupported = false;
   private lifetime = 0;
 
   constructor(
@@ -133,47 +135,32 @@ export class HistoryStore {
     };
   };
 
-  /** Subscribes to changes and loads the first window. Idempotent. */
+  /** Follows the owner link, then history changes, then loads the first window. Idempotent. The
+   * link comes first so a change stream that fails now is asked for again on the next reconnect. */
   async start(): Promise<void> {
     if (!this.client || this.unsubscribe || this.unpage || this.starting) return;
     const lifetime = ++this.lifetime;
+    const alive = () => lifetime === this.lifetime;
     this.starting = true;
     try {
       try {
-        const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
-          if (lifetime === this.lifetime) void this.reload();
-        });
-        if (lifetime !== this.lifetime) {
-          unsubscribe();
-          return;
-        }
-        this.unsubscribe = unsubscribe;
-      } catch (error) {
-        if (lifetime !== this.lifetime) return;
-        // Older owners without a change stream can still answer reads.
-        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-          this.set({ connection: "disconnected", loading: false, error: message(error) });
-          return;
-        }
-      }
-      try {
         const unpage = await subscribePageStreams(this.client, {
           onConnection: (connected) => {
-            if (lifetime === this.lifetime) this.onConnection(connected);
+            if (alive()) this.onConnection(connected, alive);
           },
         });
-        if (lifetime !== this.lifetime) {
+        if (!alive()) {
           unpage();
           return;
         }
         this.unpage = unpage;
       } catch (error) {
-        if (lifetime !== this.lifetime) return;
+        if (!alive()) return;
         this.set(failure(error));
       }
-      if (lifetime === this.lifetime) await this.reload();
+      if (alive() && (await this.followChanges(alive)) && alive()) await this.reload();
     } finally {
-      if (lifetime === this.lifetime) this.starting = false;
+      if (alive()) this.starting = false;
     }
   }
 
@@ -181,21 +168,65 @@ export class HistoryStore {
     ++this.lifetime;
     ++this.generation;
     this.starting = false;
+    this.subscribingChanges = false;
+    this.changesUnsupported = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.unpage?.();
     this.unpage = undefined;
   }
 
-  /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
-  private onConnection(connected: boolean): void {
+  /** Subscribes to `history-changed` unless it already is; true when the page may read
+   * (subscribed, or an owner without the stream). A failure shows the disconnected state; the next
+   * reconnect asks again. */
+  private async followChanges(alive: () => boolean): Promise<boolean> {
+    if (!this.client) return false;
+    if (this.unsubscribe || this.changesUnsupported) return true;
+    if (this.subscribingChanges) return false;
+    this.subscribingChanges = true;
+    try {
+      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
+        if (alive()) void this.reload();
+      });
+      if (!alive()) {
+        unsubscribe();
+        return false;
+      }
+      this.unsubscribe = unsubscribe;
+      return true;
+    } catch (error) {
+      if (!alive()) return false;
+      // Older owners without a change stream can still answer reads.
+      if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
+        this.changesUnsupported = true;
+        return true;
+      }
+      this.set({ connection: "disconnected", loading: false, error: message(error) });
+      return false;
+    } finally {
+      if (alive()) this.subscribingChanges = false;
+    }
+  }
+
+  /** The host reports the owner link: down shows the disconnected state; back up (or up with no
+   * change stream yet) follows the changes again, then re-reads. */
+  private onConnection(connected: boolean, alive: () => boolean): void {
     if (!connected) {
       this.set({ connection: "disconnected", loading: false });
-    } else if (this.snapshot.connection === "disconnected") {
-      // The lost link's error would show again as a banner while the re-read is on its way.
-      this.set({ connection: "connecting", error: undefined });
-      void this.reload();
+      return;
     }
+    const wasDown = this.snapshot.connection === "disconnected";
+    if (!wasDown && (this.unsubscribe || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
+    if (wasDown) {
+      // The old stream ended with the link; ask for a fresh one. The lost link's error would show
+      // again as a banner while the re-read is on its way.
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      this.set({ connection: "connecting", error: undefined });
+    }
+    void (async () => {
+      if ((await this.followChanges(alive)) && alive()) await this.reload();
+    })();
   }
 
   setText(text: string): void {

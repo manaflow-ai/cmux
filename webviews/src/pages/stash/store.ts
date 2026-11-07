@@ -45,6 +45,10 @@ export class StashStore {
   private lifetime = 0;
   private stops: Array<() => void> = [];
   private starting = false;
+  /** The `stash-changed` subscription, apart from `stops` so a reconnect can renew it. */
+  private changes?: () => void;
+  private subscribingChanges = false;
+  private changesUnsupported = false;
   /** Whether the notice is a failed read's, which the next good read clears. */
   private noticeIsRead = false;
 
@@ -74,43 +78,33 @@ export class StashStore {
     };
   };
 
-  /** Follows stash changes and the owner link, then reads the stashes. Idempotent. */
+  /** Follows the owner link, then stash changes, then reads the stashes. Idempotent. The link
+   * comes first so a change stream that fails now is asked for again on the next reconnect. */
   async start(): Promise<void> {
     if (!this.client || this.starting || this.stops.length) return;
     const lifetime = ++this.lifetime;
     const alive = () => lifetime === this.lifetime;
     this.starting = true;
     try {
-      const keep = (stop: () => void) => (alive() ? this.stops.push(stop) : stop());
       try {
-        keep(await this.client.subscribe(StashOps.changed, () => alive() && void this.reload()));
-      } catch (error) {
-        if (!alive()) return;
-        // An owner without the change stream still answers reads.
-        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-          this.set({ connection: "disconnected", loading: false });
-          return;
-        }
-      }
-      try {
-        keep(
-          await subscribePageStreams(this.client, {
-            onConnection: (connected) => alive() && this.onConnection(connected),
-            onCommand: ({ command, text }) => {
-              if (!alive()) return;
-              if (command === "open" && text === "import") this.openImport();
-              if (command === "reset") this.setQuery("");
-              if (command === "find" || command === "focusSearch") {
-                if (typeof text === "string") this.setQuery(text);
-                document.querySelector<HTMLInputElement>(".stash-search")?.focus();
-              }
-            },
-          }),
-        );
+        const stop = await subscribePageStreams(this.client, {
+          onConnection: (connected) => alive() && this.onConnection(connected, alive),
+          onCommand: ({ command, text }) => {
+            if (!alive()) return;
+            if (command === "open" && text === "import") this.openImport();
+            if (command === "reset") this.setQuery("");
+            if (command === "find" || command === "focusSearch") {
+              if (typeof text === "string") this.setQuery(text);
+              document.querySelector<HTMLInputElement>(".stash-search")?.focus();
+            }
+          },
+        });
+        if (alive()) this.stops.push(stop);
+        else stop();
       } catch (error) {
         if (alive()) this.fail(error);
       }
-      if (alive()) await this.reload();
+      if (alive() && (await this.followChanges(alive)) && alive()) await this.reload();
     } finally {
       if (alive()) this.starting = false;
     }
@@ -120,15 +114,61 @@ export class StashStore {
     ++this.lifetime;
     ++this.generation;
     this.starting = false;
+    this.subscribingChanges = false;
+    this.changesUnsupported = false;
+    this.changes?.();
+    this.changes = undefined;
     for (const stop of this.stops.splice(0)) stop();
   }
 
-  private onConnection(connected: boolean): void {
-    if (!connected) this.set({ connection: "disconnected", loading: false });
-    else if (this.snapshot.connection === "disconnected") {
-      this.set({ connection: "connecting" });
-      void this.reload();
+  /** Subscribes to `stash-changed` unless it already is; true when the page may read (subscribed,
+   * or an owner without the stream). A failure shows the disconnected state; the next reconnect
+   * asks again. */
+  private async followChanges(alive: () => boolean): Promise<boolean> {
+    if (!this.client) return false;
+    if (this.changes || this.changesUnsupported) return true;
+    if (this.subscribingChanges) return false;
+    this.subscribingChanges = true;
+    try {
+      const stop = await this.client.subscribe(StashOps.changed, () => alive() && void this.reload());
+      if (!alive()) {
+        stop();
+        return false;
+      }
+      this.changes = stop;
+      return true;
+    } catch (error) {
+      if (!alive()) return false;
+      // An owner without the change stream still answers reads.
+      if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
+        this.changesUnsupported = true;
+        return true;
+      }
+      this.set({ connection: "disconnected", loading: false });
+      return false;
+    } finally {
+      if (alive()) this.subscribingChanges = false;
     }
+  }
+
+  /** Down shows the disconnected state; back up (or up with no change stream yet) follows the
+   * changes again, then re-reads. */
+  private onConnection(connected: boolean, alive: () => boolean): void {
+    if (!connected) {
+      this.set({ connection: "disconnected", loading: false });
+      return;
+    }
+    const wasDown = this.snapshot.connection === "disconnected";
+    if (!wasDown && (this.changes || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
+    if (wasDown) {
+      // The old stream ended with the link; ask for a fresh one.
+      this.changes?.();
+      this.changes = undefined;
+      this.set({ connection: "connecting" });
+    }
+    void (async () => {
+      if ((await this.followChanges(alive)) && alive()) await this.reload();
+    })();
   }
 
   /** Reads the stashes again; a slower older reply never replaces a newer one. */

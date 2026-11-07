@@ -14,12 +14,14 @@ import os
 ///
 /// - `cmux.history.cookie_backups.list {}` -> `{backups: [{id, site?, created_at_ms}]}`, newest first.
 /// - `cmux.history.cookie_backups.delete {ids}` -> `{confirmed, deleted}`: only on the person's own
-///   click in the page, and only after they confirm in the app's dialog (page script cannot answer
-///   it): an agent can no longer undo those clears.
+///   click in the page (each click once), and only after they confirm in the app's dialog (page
+///   script cannot answer it): an agent can no longer undo those clears.
 @MainActor
 public final class HistoryCookieBackupsPageProvider: PageProvider {
     public static let prefix = "cmux.history.cookie_backups."
     private let backups: () -> CookieBackups?
+    /// The gesture (its event's uptime) the last delete spent.
+    private var spentGesture: TimeInterval?
     /// The page view the dialog attaches to.
     public var anchor: () -> NSView? = { nil }
     /// The person's answer to the delete question (tests answer it).
@@ -39,9 +41,12 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
             guard let ids = params["ids"]?.arrayValue?.compactMap(\.stringValue), !ids.isEmpty else {
                 throw PageError.invalidParams("ids must be a non-empty array of backup ids")
             }
-            guard context.userGesture else {
+            // One click, one question: a second delete off the same gesture is refused, so a page
+            // script cannot stack confirmation dialogs on one click.
+            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
             }
+            spentGesture = event
             guard await confirm(Self.question, anchor()?.window) else { return ["confirmed": false] }
             return ["confirmed": true, "deleted": CmuxNextSettings.JSONValue(await delete(ids))]
         default:
