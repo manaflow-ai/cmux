@@ -20,6 +20,12 @@
 // glide was on (a stall), long tasks over 50 ms (Chromium), and the transcript's React and layout time
 // per frame (acpmuxPerf).
 //   bun bench/wheel-tick-scaling.bench.ts [sizes=50,500,3000] [rounds=6] [engine=chromium|webkit] [mode=still|live]
+// CMUX_TICK_INPUT=precise sends what a trackpad or a smoothing tool (Mos) sends instead: real pixel wheel
+// input (Playwright's mouse.wheel, so the browser scrolls natively), each tick 20 eased events 8 ms apart
+// over 120 px, and two fast flicks of 3,000 px. wheelGlide.ts leaves such input to the browser, so what
+// can jolt it is the page writing the scroll offset while the reader scrolls: those writes are counted
+// (js_writes, js_write_max_px: an anchor or follow correction during a scroll), and frames that moved
+// against the input (reversals). notch_events must be 0 (the glide took none of it).
 // CMUX_TICK_PROFILE=1 (Chromium) also records a CPU profile over each size's ticks and prints the
 // functions with the most self time (bench diagnostics; keep it off for timing comparisons).
 // Prints one line per size and PERF_ROW rows: wheel_tick.<engine>.<mode>.turns_<n>.work_ms (p50/p95) and
@@ -42,6 +48,8 @@ if (!SIZES.every((size) => Number.isInteger(size) && size > 0) || !Number.isInte
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`wheel-tick-scaling: unknown engine ${ENGINE}`);
 const BUDGET_120 = 1000 / 120;
 const PROFILE = process.env.CMUX_TICK_PROFILE === "1" && ENGINE === "chromium";
+const INPUT = process.env.CMUX_TICK_INPUT ?? "notch";
+if (INPUT !== "notch" && INPUT !== "precise") throw new Error(`wheel-tick-scaling: unknown input ${INPUT}`);
 const webviews = path.resolve(import.meta.dir, "..");
 
 type Summary = { p50: number; p95: number; max: number };
@@ -64,6 +72,11 @@ type SizeResult = {
   heap_mb: number | null;
   dom_nodes: number;
   spans: string;
+  notch_events: number;
+  js_writes: number;
+  js_write_max_px: number;
+  reversals: number;
+  moved_frames: number;
 };
 
 /// Runs in the page: the ticks and the frame record. Returns the size's result less its open numbers.
@@ -72,11 +85,13 @@ async function tickRun({
   session,
   live,
   pagingMs,
+  input,
 }: {
   rounds: number;
   session: string;
   live: boolean;
   pagingMs: number;
+  input: "notch" | "precise";
 }): Promise<Omit<SizeResult, "turns" | "open_ms"> | { error: string }> {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) return { error: "no transcript" };
@@ -145,8 +160,54 @@ async function tickRun({
       .finally(() => (streaming = false));
   }
 
+  // Precise input: the scroller's offset writes while the reader scrolls (a wheel event in the last
+  // 200 ms), and the wheel events the glide would have taken.
+  const glideUrl = "/wheelGlide.ts";
+  type GlideModule = typeof import("../src/agent-session/acpmux/wheelGlide");
+  const { isWheelNotch } = (await import(/* @vite-ignore */ glideUrl)) as GlideModule;
+  let lastWheel = Number.NEGATIVE_INFINITY;
+  let notchEvents = 0;
+  let jsWrites = 0;
+  let jsWriteMax = 0;
+  const onWheel = (event: WheelEvent) => {
+    lastWheel = performance.now();
+    if (isWheelNotch(event)) notchEvents += 1;
+  };
+  const offset = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+  const wrote = (before: number) => {
+    if (performance.now() - lastWheel > 200) return;
+    jsWrites += 1;
+    jsWriteMax = Math.max(jsWriteMax, Math.abs(offset.get!.call(scroller) - before));
+  };
+  if (input === "precise") {
+    scroller.addEventListener("wheel", onWheel, { passive: true });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get() {
+        return offset.get!.call(this);
+      },
+      set(value: number) {
+        const before = offset.get!.call(this);
+        offset.set!.call(this, value);
+        wrote(before);
+      },
+    });
+    for (const name of ["scrollTo", "scrollBy"] as const) {
+      const original = Element.prototype[name];
+      Object.defineProperty(scroller, name, {
+        configurable: true,
+        value(this: Element, ...args: unknown[]) {
+          const before = offset.get!.call(this);
+          (original as (...args: unknown[]) => void).apply(this, args);
+          wrote(before);
+        },
+      });
+    }
+  }
   const work: number[] = [];
   const responses: number[] = [];
+  let reversals = 0;
+  let movedFrames = 0;
   let stalls = 0;
   let ticks = 0;
   let lastTop = scroller.scrollTop;
@@ -158,8 +219,12 @@ async function tickRun({
     const next = await frame();
     acpmuxPerf.markFrame(next, false);
     frameStart = next;
-    const moved = Math.abs(scroller.scrollTop - lastTop) >= 0.5;
-    lastTop = scroller.scrollTop;
+    const top = offset.get!.call(scroller);
+    const moved = Math.abs(top - lastTop) >= 0.5;
+    if (moved) movedFrames += 1;
+    const direction = (window as unknown as { cmuxTickDirection?: number }).cmuxTickDirection ?? 0;
+    if (moved && direction && Math.sign(top - lastTop) !== direction) reversals += 1;
+    lastTop = top;
     return moved;
   };
   const tick = (lines: number) => {
@@ -197,13 +262,24 @@ async function tickRun({
       if (!moves[index] && moves.slice(0, index).includes(true) && moves.slice(index + 1).includes(true)) stalls += 1;
   };
 
-  for (let round = 0; round < rounds; round += 1) {
+  const signals = window as unknown as { cmuxTickReady?: boolean; cmuxTickInputDone?: boolean };
+  if (input === "precise") {
+    // The bench sends the input from outside the page; the frames are recorded until it is done.
+    signals.cmuxTickReady = true;
+    while (!signals.cmuxTickInputDone) await step();
+    for (let index = 0; index < 30; index += 1) await step();
+    scroller.removeEventListener("wheel", onWheel);
+    delete (scroller as unknown as Record<string, unknown>).scrollTop;
+    delete (scroller as unknown as Record<string, unknown>).scrollTo;
+    delete (scroller as unknown as Record<string, unknown>).scrollBy;
+  }
+  for (let round = 0; round < (input === "precise" ? 0 : rounds); round += 1) {
     tick(-3);
     await ride();
     tick(3);
     await ride();
   }
-  for (const direction of [-3, 3]) {
+  for (const direction of input === "precise" ? [] : [-3, 3]) {
     const moves: boolean[] = [];
     let sent = 0;
     let next = performance.now();
@@ -263,6 +339,11 @@ async function tickRun({
     heap_mb: heap === undefined ? null : Math.round(heap / 1048576),
     dom_nodes: document.getElementsByTagName("*").length,
     spans,
+    notch_events: notchEvents,
+    js_writes: jsWrites,
+    js_write_max_px: Math.round(jsWriteMax),
+    reversals,
+    moved_frames: movedFrames,
   };
 }
 
@@ -369,29 +450,62 @@ try {
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
     }
-    const run = await page.evaluate(tickRun, {
+    const running = page.evaluate(tickRun, {
       rounds: ROUNDS,
       session: seeded.session,
       live: MODE === "live",
       pagingMs: 120_000,
+      input: INPUT,
     });
+    if (INPUT === "precise") {
+      await page.waitForFunction(() => (window as unknown as { cmuxTickReady?: boolean }).cmuxTickReady, null, {
+        timeout: 180_000,
+      });
+      // A tick or a flick as a smoothing tool sends it: `events` pixel deltas 8 ms apart, easing out, `total`
+      // px in all. Deltas are fractional, never a legacy 120-unit notch. The pause between is input pacing.
+      const flick = async (total: number, events: number) => {
+        await page.evaluate((direction) => {
+          (window as unknown as { cmuxTickDirection?: number }).cmuxTickDirection = direction;
+        }, Math.sign(total));
+        const weights = Array.from({ length: events }, (_, index) => (1 - index / events) ** 2);
+        const sum = weights.reduce((a, b) => a + b, 0);
+        for (const weight of weights) {
+          await page.mouse.wheel(0, (total * weight) / sum);
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      };
+      for (let round = 0; round < ROUNDS; round += 1) {
+        await flick(-120, 20);
+        await flick(120, 20);
+      }
+      await flick(-3000, 60);
+      await flick(3000, 60);
+      await page.evaluate(() => {
+        (window as unknown as { cmuxTickInputDone?: boolean }).cmuxTickInputDone = true;
+      });
+    }
+    const run = await running;
     if (cdp) await printProfile(vite, turns, (await cdp.send("Profiler.stop")).profile);
     await page.close();
     if ("error" in run) throw new Error(`wheel-tick-scaling: ${turns} turns: ${run.error}`);
-    if (run.response_frames.p50 === 0 || run.frames < ROUNDS * 4)
+    if ((INPUT === "precise" ? run.moved_frames === 0 : run.response_frames.p50 === 0) || run.frames < ROUNDS * 4)
       throw new Error(`wheel-tick-scaling: ${turns} turns: the ticks did not move the transcript ${JSON.stringify(run)}`);
     const result = { turns, open_ms: seeded.open_ms, ...run };
     results.push(result);
     const pick = ({ p50, p95, max }: Summary) => `${p50}/${p95}/${max}`;
     console.log(
-      `wheel-tick-scaling ${ENGINE} ${MODE}${DEV ? " dev" : ""} turns=${turns} loaded_px=${result.loaded_px} history_left=${result.history_left} frames=${result.frames} ticks=${result.ticks} ` +
+      `wheel-tick-scaling ${ENGINE} ${MODE}${INPUT === "precise" ? " precise" : ""}${DEV ? " dev" : ""} turns=${turns} loaded_px=${result.loaded_px} history_left=${result.history_left} frames=${result.frames} ticks=${result.ticks} ` +
         `work=${pick(result.work)} over_120=${result.over_120} over_60=${result.over_60} ` +
         `react=${pick(result.react)} layout=${pick(result.layout)} response_frames=${pick(result.response_frames)} ` +
         `stalls=${result.stalls} long_tasks=${result.long_tasks} long_task_max=${result.long_task_max} ` +
-        `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms} spans_p95/max=${result.spans}`,
+        `heap_mb=${result.heap_mb} dom_nodes=${result.dom_nodes} open_ms=${result.open_ms} spans_p95/max=${result.spans}` +
+        (INPUT === "precise"
+          ? ` moved_frames=${result.moved_frames} reversals=${result.reversals} js_writes=${result.js_writes} js_write_max_px=${result.js_write_max_px} notch_events=${result.notch_events}`
+          : ""),
     );
     perfRow({
-      name: `wheel_tick.${ENGINE}.${MODE}.turns_${turns}.work_ms`,
+      name: `wheel_tick.${ENGINE}.${MODE}${INPUT === "precise" ? ".precise" : ""}.turns_${turns}.work_ms`,
       p50: result.work.p50,
       p95: result.work.p95,
       target: BUDGET_120,
@@ -402,7 +516,7 @@ try {
   if (results.length > 1) {
     const ratio = Math.round((last.work.p95 / Math.max(0.01, first.work.p95)) * 100) / 100;
     console.log(`wheel-tick-scaling ${ENGINE} ${MODE} scaling: turns ${first.turns} -> ${last.turns}: work p95 x${ratio}`);
-    perfRow({ name: `wheel_tick.${ENGINE}.${MODE}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
+    perfRow({ name: `wheel_tick.${ENGINE}.${MODE}${INPUT === "precise" ? ".precise" : ""}.scaling.work_p95_ratio`, p95: ratio, unit: "x", target: 1.2 });
   }
   void TARGET_MS;
 } finally {
