@@ -247,17 +247,41 @@ mod tests {
         assert_eq!(gate(&list_only, || panic!("no call in it")), Gated::Pass);
     }
 
-    /// The agent side, run through `run_with` with `cat` as the helper: whatever reaches the
-    /// helper comes back.
-    async fn through_cat(locked: bool, lines: &[&str]) -> Vec<String> {
+    /// The initialize answer of a helper that reads the screen lock right before it acts.
+    const CHECKS_LOCK: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v1":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
+    /// The same answer from a helper built before that check.
+    const OLDER: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
+
+    /// The agent side, run through `run_with` with a stand-in helper that answers `initialize`
+    /// with `answer` and echoes every other line: whatever reaches the helper comes back. The
+    /// agent sends `initialize` and reads its answer before it sends `lines`, as an MCP client
+    /// does.
+    async fn through_helper(answer: &str, locked: bool, lines: &[&str]) -> Vec<String> {
         let (mut agent, input) = tokio::io::duplex(1 << 16);
-        let (output, mut agent_out) = tokio::io::duplex(1 << 16);
+        let (output, agent_out) = tokio::io::duplex(1 << 16);
+        let script = r#"while IFS= read -r line; do case "$line" in *'"initialize"'*) printf '%s\n' "$1";; *) printf '%s\n' "$line";; esac; done"#;
+        let args = ["-c".to_owned(), script.to_owned(), "sh".to_owned(), answer.to_owned()];
+        let run = tokio::spawn(async move {
+            run_with("sh", &args, BufReader::new(input), output, move || locked).await
+        });
+        let mut agent_out = BufReader::new(agent_out);
+        agent
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{}}\n")
+            .await
+            .unwrap();
+        let mut initialized = String::new();
+        let read = agent_out.read_line(&mut initialized);
+        tokio::time::timeout(std::time::Duration::from_secs(20), read).await.unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&initialized).unwrap()["id"], 0, "{initialized}");
         let mut text = lines.join("\n");
         text.push('\n');
         agent.write_all(text.as_bytes()).await.unwrap();
         drop(agent);
-        let run = run_with("cat", &[], BufReader::new(input), output, move || locked);
-        tokio::time::timeout(std::time::Duration::from_secs(20), run).await.unwrap().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(20), run)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         let mut seen = String::new();
         tokio::io::AsyncReadExt::read_to_string(&mut agent_out, &mut seen).await.unwrap();
         seen.lines().map(str::to_owned).collect()
@@ -272,11 +296,39 @@ mod tests {
             r#"{"jsonrpc":"2.0","method":"tools/call" "#,
             r#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#,
         ];
-        let seen = through_cat(true, &lines).await;
+        let seen = through_helper(CHECKS_LOCK, true, &lines).await;
         assert!(seen.iter().all(|line| !line.contains("tools/call")), "{seen:?}");
         assert!(seen.iter().any(|line| line.contains("tools/list")), "the rest passes: {seen:?}");
-        let unlocked = through_cat(false, &lines[..1]).await;
+        let unlocked = through_helper(CHECKS_LOCK, false, &lines[..1]).await;
         assert_eq!(unlocked.len(), 1, "unlocked, the call passes: {unlocked:?}");
+        assert!(unlocked[0].contains("tools/call"), "{unlocked:?}");
+    }
+
+    /// A helper built before it read the screen lock right before it acts (review of
+    /// cmux#37239): a call that passed here unlocked could wait on consent and run after the Mac
+    /// locked. So the gate sends such a helper no call at all, locked or not, and answers each
+    /// one with a typed reason that says to update; everything else still passes.
+    #[tokio::test]
+    async fn a_helper_that_does_not_say_it_checks_the_lock_gets_no_call() {
+        let lines = [
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click"}}"#,
+            r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"type"}}"#,
+            r#"[{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"click"}}]"#,
+            r#"{"jsonrpc":"2.0","method":"tools/call" "#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+        ];
+        let seen = through_helper(OLDER, false, &lines).await;
+        assert!(seen.iter().all(|line| !line.contains("tools/call")), "{seen:?}");
+        let replies: Vec<Value> =
+            seen.iter().map(|line| serde_json::from_str(line).unwrap()).collect();
+        let first = replies.iter().find(|reply| reply["id"] == 1).expect("the call is answered");
+        assert_eq!(first["result"]["isError"], true);
+        assert_eq!(first["result"]["structuredContent"]["error"], "cua_helper_outdated");
+        let text = first["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.starts_with("cua_helper_outdated:") && text.contains("Update cmux"), "{text}");
+        let batch = replies.iter().find(|reply| reply.is_array()).expect("the batch is answered");
+        assert_eq!(batch[0]["result"]["structuredContent"]["error"], "cua_helper_outdated");
+        assert!(seen.iter().any(|line| line.contains("tools/list")), "the rest passes: {seen:?}");
     }
 
     /// The gate ends with its helper (review of cmux#37239): an agent that keeps its side open
