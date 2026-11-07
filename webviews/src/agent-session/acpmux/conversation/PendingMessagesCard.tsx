@@ -16,6 +16,7 @@ import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { bySender } from "./pendingMessages";
 import { SenderName } from "./IncomingMessageCard";
 import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { hoverMessages } from "./MessageGroupHover";
 import "./PendingMessagesCard.css";
 
 export function PendingMessagesCard({
@@ -103,6 +104,12 @@ export function PendingMessagesCard({
           onToggle={() => show(!open)}
           className="cv-pending__toggle"
           iconClassName="cv-pending__icon"
+          messages={hoverMessages(
+            (displayRows ?? rows).map((member) =>
+              member.incoming?.kind === "message" ? member.incoming.message : undefined,
+            ),
+            (displayRows ?? rows).map((member) => member.inboxThread?.count),
+          )}
         />
       </div>
       {open && (

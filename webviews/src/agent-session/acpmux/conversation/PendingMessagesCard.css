@@ -37,7 +37,9 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* The head names the sender; its lines say only what each message is. */
+/* The head names the sender; its lines say only what each message is: an agent's message on the one
+   message row (AgentMessageRow.tsx), a lane's notice on its DisclosureRow line. */
+.cv-pending__sender .cv-received > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender,
 .cv-pending__sender .cv-received > .cv-disclosure__line > .cv-received__sender {
   display: none;
 }

@@ -47,6 +47,7 @@ import {
 } from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
+import { AgentMessageRow, messagePreview } from "../conversation/AgentMessageRow";
 import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
 
 const DONE_LABEL: Record<string, StringKey> = {
@@ -193,6 +194,60 @@ function DoneLine({
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };
+  const restartButton = restart && (
+    <button
+      type="button"
+      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+      aria-label={t("subagents.restart")}
+      title={t("subagents.restart")}
+      data-tooltip-detail={t("subagents.restartDetail")}
+      onClick={() => restart(agent)}
+    >
+      <Retry size={14} />
+    </button>
+  );
+  // A finished line with its report is the one message row (conversation/AgentMessageRow.tsx), as a
+  // send and a received message are: "Subagent finished: <name>", the subagent's mark, the report's
+  // first line, and the same card that opens to the whole report as Markdown (Leo, 2026-11-07: "with
+  // the sub-agent conclusions ... They should look basically the same as the other ones"). The name
+  // opens the agent's view, as the line did; the line opens the report.
+  if (disclose)
+    return (
+      <div className="cv-tools">
+        <AgentMessageRow
+          direction="report"
+          className="cv-subagent-done-row cv-subagent-report-row"
+          attributes={{ "data-state": agent.state }}
+          lineClassName="cv-subagent-done"
+          lineAttributes={{ "data-state": agent.state }}
+          icon={
+            <AgentIdentity
+              harness={foreignHarness(agent.harness, chatHarness)}
+              tone={agentTone(agent.id)}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
+          }
+          sentence={`${before}\u0000${after}`}
+          name={name}
+          nameTitle={whole}
+          {...(open && { onOpenName: () => open(agent.id), openNameLabel: t("subagents.open", { name }) })}
+          preview={messagePreview(report ?? "")}
+          label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+          open={reportOpen}
+          onToggle={() => setReportOpen((value) => !value)}
+          meta={agent.reaction ? <ReactionMark reaction={agent.reaction} /> : undefined}
+          time={time}
+          actions={restartButton ? <span className="cv-subagent-done__actions">{restartButton}</span> : undefined}
+          body={
+            <div className="cv-subagent-done__report cv-subagent-done__markdown selectable">
+              <Markdown commits="quiet">{report}</Markdown>
+            </div>
+          }
+        />
+        <ReactionReply reaction={agent.reaction} />
+      </div>
+    );
   const inline = action && affordance !== "menu" && (
     <button
       type="button"
@@ -250,18 +305,7 @@ function DoneLine({
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {(restart || action) && (
           <span className="cv-subagent-done__actions">
-            {restart && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-                aria-label={t("subagents.restart")}
-                title={t("subagents.restart")}
-                data-tooltip-detail={t("subagents.restartDetail")}
-                onClick={() => restart(agent)}
-              >
-                <Retry size={14} />
-              </button>
-            )}
+            {restartButton}
             {action && (
               <Menu>
                 <MenuButton

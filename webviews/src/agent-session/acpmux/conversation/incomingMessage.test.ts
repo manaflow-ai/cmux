@@ -60,7 +60,8 @@ test("a report whose sender acpmux recorded by name is that agent's, from the ma
   const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
   expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
     kind: "message",
-    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+    // It only named itself: the line marks it unverified (senderIdentity.ts).
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged.", unverified: true },
   });
   // The same record with no sender is the person's.
   expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();

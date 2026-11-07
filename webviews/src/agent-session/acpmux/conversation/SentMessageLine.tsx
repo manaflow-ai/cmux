@@ -11,20 +11,11 @@
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
 // `host/name` or `host:name`); otherwise it is plain text. A shell call that also ran other
 // commands says so ("· and 2 more commands"), its whole command behind Raw: no work is hidden.
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useId,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type ReactNode, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
-import { messagePreview } from "./AgentMessageRow";
+import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope } from "./icons";
@@ -199,97 +190,79 @@ export function SentMessageLine({
       <span className="cv-agentmsg__name cv-recipient is-plain">{target}</span>
     );
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
-  const toggle = () => setOpen((value) => !value);
   const icon = state === "failed" ? <AlertCircle /> : <Envelope />;
+  // The one message row (AgentMessageRow.tsx), as a received message and a subagent's report draw:
+  // the envelope, "Sent to <recipient>", the count, the first line; opened, the message in the same
+  // card as theirs, Raw under it (Leo, 2026-11-07, on a "Sent to" row beside a received one: "why is
+  // it formatted differently from everything else?").
+  const quoted = shape === "quote" && trailing ? `“${trailing}”` : trailing; // l10n-allow: punctuation around the message's own words.
   return (
-    <>
-      {/* A div, not a button: the target inside it is a button of its own. */}
-      <div
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="button"
-        tabIndex={0}
-        className={`cv-tool is-toggle cv-subsession cv-sent${state === "sending" ? " is-live" : " is-strong"}`}
-        data-send-state={state}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={toggle}
-        onKeyDown={(event: KeyboardEvent) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-          event.preventDefault();
-          toggle();
-        }}
-      >
-        <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>{icon}</span>
-        {/* The spaces are part of the accessible sentence; flex gap supplies their visual spacing. */}
-        <span className="cv-agentmsg__sentence">
-          {before.trim() && <span className="cv-agentmsg__words">{before.trim()}</span>}
-          {before.trim() && " "}
-          {name}
-          {after.trim() && " "}
-          {after.trim() && <span className="cv-agentmsg__words">{after.trim()}</span>}
+    <AgentMessageRow
+      direction="sent"
+      className="cv-sent-row"
+      lineClassName="is-toggle cv-subsession cv-sent"
+      lineAttributes={{ "data-send-state": state }}
+      previewClassName="cv-sent__preview"
+      belowClassName="cv-sent__below"
+      icon={icon}
+      sentence={before + "\u0000" + after}
+      name={target}
+      nameSlot={name}
+      detail={
+        <>
           {more && " "}
           {more && <span className="cv-tool__detail cv-sent__more">{`· ${more}`}</span>}
-          {shape !== "arrow" && trailing && " "}
-          {shape === "quote" && trailing && (
-            // l10n-allow: punctuation around the message's own words.
-            <span className="cv-agentmsg__preview cv-sent__preview">{`“${trailing}”`}</span>
-          )}
-          {shape === "sentence" && trailing && (
-            <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>
-          )}
+          {source && " "}
           {source && (
-            <>
-              {" "}
-              <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
-                {source}
-              </code>
-            </>
+            // tooltip-allow: the whole path, which the line cuts with an ellipsis in a narrow pane
+            <code className="cv-tool__detail cv-sent__preview cv-sent__file" title={source}>
+              {source}
+            </code>
           )}
-        </span>
-        {/* No Copy on the row: a message line is no code or reply to copy (Leo, 2026-11-04: "why is
-            there even a copy button on the right here? ... let's remove copy button"). Stacked, the
-            opened message keeps its quiet Copy beside Raw. */}
-        {detail && " "}
-        {detail && (
-          <span className="cv-tool__trail">
-            <span className="cv-command__meta cv-agentmsg__status">
-              <span className="cv-row-status">{detail}</span>
-            </span>
+        </>
+      }
+      // Stacked, the first line (or the file) takes the line under the row (`below`).
+      preview={shape === "arrow" ? "" : stacked ? below || "" : quoted}
+      label={[before.trim(), target, after.trim(), more, detail].filter(Boolean).join(" ")}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      failed={state === "failed"}
+      live={state === "sending"}
+      // No Copy on the row: a message line is no code or reply to copy (Leo, 2026-11-04: "why is
+      // there even a copy button on the right here? ... let's remove copy button"). Stacked, the
+      // opened message keeps its quiet Copy beside Raw.
+      meta={
+        detail ? (
+          <span className="cv-command__meta cv-agentmsg__status">
+            <span className="cv-row-status">{detail}</span>
           </span>
-        )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
-      </div>
-      {below && (
-        // The first line, on its own line at the text column, cut there; it toggles as the row does.
-        // Its words are the opened message's, so a screen reader and Find read them there.
-        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-        <div className="cv-msgline__preview cv-sent__below" aria-hidden data-find-skip="" onClick={toggle}>
-          {text ? below : <code className="cv-sent__file">{below}</code>}
-        </div>
-      )}
-      {open && (
+        ) : undefined
+      }
+      body={
         <div id={id} className="cv-subsession__under">
           {text ? (
-            <>
-              <div className="cv-subsession__markdown selectable">
-                <AgentMessageBody text={text} commits="quiet" />
-              </div>
-              <RawToggle
-                open={rawShown}
-                onOpenChange={setRawShown}
-                actions={stacked ? <SentActions text={text} /> : undefined}
-              >
-                {raw(reveal)}
-              </RawToggle>
-            </>
+            <div className="cv-subsession__markdown selectable">
+              <AgentMessageBody text={text} commits="quiet" />
+            </div>
           ) : (
             // No words to render: the call is all there is, so it shows at once, not behind a
             // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
             <div className="cv-subsession__raw">{raw(reveal)}</div>
           )}
         </div>
-      )}
-    </>
+      }
+      under={
+        text ? (
+          <RawToggle
+            open={rawShown}
+            onOpenChange={setRawShown}
+            actions={stacked ? <SentActions text={text} /> : undefined}
+          >
+            {raw(reveal)}
+          </RawToggle>
+        ) : undefined
+      }
+    />
   );
 }
 
