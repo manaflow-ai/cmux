@@ -224,7 +224,7 @@ pub struct Guard<'a> {
 
 /// The error of a write whose [`Expect`] no longer held.
 #[derive(Debug)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "android")), allow(dead_code))]
 pub(super) struct Changed;
 
 impl std::fmt::Display for Changed {
@@ -287,10 +287,10 @@ pub fn write_allowed(lock: &super::Lock, home: &Path, path: &Path, bytes: &[u8])
     write_all_allowed(lock, home, &[(path, bytes, Expect::Anything)], &[])
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use super::commit::replace_all;
 
-#[cfg(not(unix))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn replace_all(_: &Path, _: &[Planned<'_>], _: &[Guard<'_>]) -> io::Result<()> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
+    Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }

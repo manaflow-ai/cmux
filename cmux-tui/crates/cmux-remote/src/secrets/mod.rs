@@ -7,14 +7,14 @@
 //! [`files::allowed_paths`], an item that doesn't open, one sealed more than
 //! [`WINDOW_SECS`] from now and a replayed nonce are each refused. No value reaches a log line or an error.
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod commit;
 pub mod files;
 pub mod harness;
 mod replay;
 pub mod request;
 pub mod seal;
-#[cfg(all(test, unix))]
+#[cfg(all(test, any(target_os = "linux", target_os = "android")))]
 mod tests;
 
 use std::collections::HashSet;

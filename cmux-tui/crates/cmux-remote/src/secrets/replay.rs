@@ -87,7 +87,7 @@ pub fn lock(state: &Path) -> std::io::Result<Lock> {
 
 #[cfg(not(unix))]
 pub fn lock(_: &Path) -> std::io::Result<Lock> {
-    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }
 
 pub struct Replay {
@@ -198,12 +198,12 @@ fn recovery_floor(now: u64) -> u64 {
     now.saturating_add(WINDOW_SECS).saturating_add(1)
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn save_state(state: &Path, relative: &Path, bytes: &[u8]) -> std::io::Result<()> {
     super::commit::replace_state(state, relative, bytes)
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn save_state(_: &Path, _: &Path, _: &[u8]) -> std::io::Result<()> {
-    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }

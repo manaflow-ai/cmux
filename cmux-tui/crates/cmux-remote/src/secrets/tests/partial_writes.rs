@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::super::commit::{AFTER_PLACE, BEFORE_COMMIT, BETWEEN_SWAPS, FAIL_AT, FAIL_UNDO};
+use super::super::commit::{
+    AFTER_PLACE, BEFORE_COMMIT, BETWEEN_SWAPS, FAIL_AT, FAIL_KEEP, FAIL_UNDO,
+};
 use super::super::files;
 use super::super::seal::Purpose;
 use super::{fixture, random_hex};
@@ -420,5 +422,40 @@ fn a_write_through_a_descriptor_opened_before_the_swap_is_kept() {
     assert!(
         texts.iter().any(|text| text == r#"{"theme":"through-fd"}"#),
         "the descriptor's write was lost: {texts:?}"
+    );
+}
+
+#[test]
+fn a_copy_that_cannot_be_kept_aside_is_left_in_place() {
+    use std::io::{Seek as _, Write as _};
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    let settings = fixture.home.join(".claude/settings.json");
+    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
+    let mut held = std::fs::OpenOptions::new().write(true).open(&settings).unwrap();
+    AFTER_PLACE.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |index| {
+            if index == 0 {
+                held.set_len(0).unwrap();
+                held.rewind().unwrap();
+                held.write_all(br#"{"theme":"through-fd"}"#).unwrap();
+            }
+        }));
+    });
+    // Moving the outside save aside fails: the cleanup must not remove it.
+    FAIL_KEEP.with(|fail| fail.set(true));
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    let result = fixture.secrets.install_harness_login(&item);
+    FAIL_KEEP.with(|fail| fail.set(false));
+    AFTER_PLACE.with(|hook| hook.borrow_mut().take());
+    assert_eq!(result.unwrap(), "claude");
+    let texts: Vec<String> = snapshot(&fixture.home)
+        .into_values()
+        .filter_map(|bytes| String::from_utf8(bytes).ok())
+        .collect();
+    assert!(
+        texts.iter().any(|text| text == r#"{"theme":"through-fd"}"#),
+        "the descriptor's write was removed: {texts:?}"
     );
 }
