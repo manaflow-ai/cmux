@@ -240,27 +240,49 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// acp-chief-issues.md #15 (2026-10-19 u1976): the Chief asked a headless
-/// `acpmux new --mode bypassPermissions` (then auto, acceptEdits) for a
-/// nightly job; each was refused with person_required, and the refusal
-/// sent it to the app or a preset, so it gave up. A script can still start
-/// a chat headless with no mode at all: it then runs in the person's own
-/// start mode. The refusal must say so, and that start must work.
+/// acp-chief-issues.md #15 (2026-10-19 u1976), cmux#37392: a headless
+/// `acpmux new --mode bypassPermissions` (a Chief's `cmux chat new --mode
+/// bypassPermissions` reaches the app's daemon with no caller it can prove)
+/// names the mode a start with no mode gets anyway while the person's start
+/// level is full access, so it starts in it. Under another level it is still
+/// refused, and the refusal names the start without a mode, which works.
 #[tokio::test]
-async fn a_refused_headless_mode_start_names_the_start_without_a_mode() {
+async fn a_headless_mode_start_runs_in_the_persons_full_access_and_is_refused_below_it() {
     let dir = home("headless", json!({"defaultPermissionMode": "fullAccess"}));
     let daemon = hub(&dir);
     let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let params = json!({"cwd": dir.join("work"), "mcpServers": [],
         "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
-    let r = script.call("session/new", params).await;
+    let r = script.call("session/new", params.clone()).await;
+    assert!(r.get("error").is_none(), "full access is the person's start level: {r}");
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(script.mode(&id).await, "bypassPermissions", "{r}");
+    // Another mode that skips approvals (one acpmux never starts a chat in) stays the person's.
+    let wider = json!({"cwd": dir.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "claude", "mode": "danger-full-access"}}});
+    let r = script.call("session/new", wider).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    let message = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.contains("without --mode"), "{message}");
-    // That start, with no mode, works headless in the person's start mode.
-    let (_, mode) = script.chat(&dir, "claude").await;
-    assert_eq!(mode, "bypassPermissions");
+    drop(script);
+    drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+
+    for level in ["standard", "ask"] {
+        let dir = home(&format!("headless-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": "bypassPermissions"}}});
+        let r = script.call("session/new", params).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let message = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("without --mode"), "{message}");
+        // That start, with no mode, works headless in the person's start mode.
+        let (_, mode) = script.chat(&dir, "claude").await;
+        assert_ne!(mode, "bypassPermissions", "{level}");
+        drop(script);
+        drop(daemon);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[tokio::test]
