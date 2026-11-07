@@ -1746,10 +1746,12 @@ fn move_sim_finds_the_losses_of_the_rules_before() {
 /// Under the rules of 98b4575a (review at 98b4575a, F1 to F3) some seeds send a restore or read
 /// a proof on a link that replaced the one they checked (`stale`), refuse a restore while only a
 /// queue waits (`stalled`), or run a prompt ahead of the queue a restore put back, which a log
-/// not read yet never rebuilt (`ahead`). Prints which seeds.
+/// not read yet never rebuilt (`ahead`). At least 2000 seeds. Prints which seeds.
 #[test]
 fn move_sim_finds_the_losses_of_the_rules_of_98b4575a() {
-    let (n, failed, kinds) = failures(Rules::Prior);
+    let range = seeds();
+    let range = range.start..range.end.max(range.start + 2000);
+    let (n, failed, kinds) = failures_in(Rules::Prior, range);
     eprintln!("move sim, the rules of 98b4575a: {n} seeds, {} failed {kinds:?}", failed.len());
     for f in failed.iter().take(10) {
         eprintln!("  {f}");
