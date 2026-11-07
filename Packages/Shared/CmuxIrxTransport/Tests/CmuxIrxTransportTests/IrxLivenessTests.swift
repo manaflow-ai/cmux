@@ -93,6 +93,28 @@ struct IrxLivenessTests {
         await engine.stop()
     }
 
+    @Test func backgroundKeepsTheAdmittedSessionWarm() async throws {
+        let host = try await IrxLivenessTestHost.make(behavior: .respond)
+        defer { Task { await host.stop() } }
+        let engine = IrxPeerEngine(
+            config: .init(keepaliveInterval: .milliseconds(10), keepaliveDeadline: .milliseconds(100)),
+            journal: host.journal
+        ) {
+            try await host.dial()
+        }
+        let first = try await engine.ensureSession(trigger: "test")
+        try await waitUntil { await host.probeCount >= 1 }
+        let probesBeforeBackground = await host.probeCount
+
+        await engine.setApplicationActive(false)
+
+        try await waitUntil { await host.probeCount > probesBeforeBackground }
+        #expect(await engine.currentSession()?.admit.session == first.admit.session)
+        #expect(await host.connectionCount == 1)
+        #expect(await !first.connection.isClosed)
+        await engine.stop()
+    }
+
     @Test func nativePeerDeathIsDeferredInBackgroundAndRecoveredOnForeground() async throws {
         let host = try await IrxLivenessTestHost.make(behavior: .respond)
         defer { Task { await host.stop() } }
