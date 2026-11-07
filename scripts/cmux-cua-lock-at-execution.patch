@@ -202,6 +202,75 @@ index 379762eb..8d79867a 100644
      #[tokio::test]
      async fn every_check_asks_the_consent_source_and_nothing_else() {
          use crate::machine_consent::ConsentStatus;
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
+index 565ce101..8727197b 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua/src/proxy.rs
+@@ -2584,6 +2584,64 @@ mod tests {
+         );
+     }
+ 
++    /// A new proxy in front of an older installed daemon (review of
++    /// cmux#37239, round 7): that daemon knows only `call` and runs a step
++    /// without reading the screen lock, so a step admitted while the Mac was
++    /// unlocked could run after it locked. The proxy must not send it the
++    /// step: the daemon runs nothing, and the agent gets `cua_helper_outdated`.
++    #[cfg(target_os = "macos")]
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn a_daemon_that_does_not_check_the_lock_runs_no_call() {
++        use tokio::net::UnixListener;
++
++        let directory = tempfile::tempdir().unwrap();
++        let socket = directory.path().join("older.sock");
++        let listener = UnixListener::bind(&socket).unwrap();
++        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let daemon_ran = ran.clone();
++        let daemon = tokio::spawn(async move {
++            let (mut stream, _) = listener.accept().await.unwrap();
++            let mut line = String::new();
++            BufReader::new(&mut stream).read_line(&mut line).await.unwrap();
++            let request: DaemonRequest = serde_json::from_str(line.trim()).unwrap();
++            // What a daemon built before the lock check answers.
++            let response = if request.method == "call" {
++                daemon_ran.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++                DaemonResponse::ok(serde_json::json!({"content": [], "isError": false}))
++            } else {
++                DaemonResponse::err(format!("Unknown method: {}", request.method), 65)
++            };
++            stream
++                .write_all(format!("{}\n", serde_json::to_string(&response).unwrap()).as_bytes())
++                .await
++                .unwrap();
++        });
++        let (_control_tx, control_rx) = tokio::sync::watch::channel(
++            ControlConnectionState::Ready { approval_broker_token: None },
++        );
++        let response = forward_tool_call(
++            serde_json::json!(1),
++            "get_screen_size".to_owned(),
++            serde_json::json!({}),
++            socket.to_str().unwrap(),
++            "older-daemon-session",
++            &control_rx,
++        )
++        .await;
++        tokio::time::timeout(std::time::Duration::from_secs(20), daemon)
++            .await
++            .expect("the proxy reached the daemon")
++            .unwrap();
++        let response = serde_json::to_value(response).unwrap();
++        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 0, "the older daemon ran it");
++        assert_eq!(response["result"]["isError"], true, "{response}");
++        assert_eq!(
++            response["result"]["structuredContent"]["error"],
++            "cua_helper_outdated",
++            "{response}"
++        );
++    }
++
+     #[cfg(unix)]
+     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+     async fn unsupported_client_does_not_elicit_resolve_or_retry() {
 diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
 index e6e32040..979809d7 100644
 --- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs

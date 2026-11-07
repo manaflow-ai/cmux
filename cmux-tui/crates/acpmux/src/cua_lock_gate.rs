@@ -343,6 +343,9 @@ mod tests {
 
     /// The initialize answer of a helper that reads the screen lock right before it acts.
     const CHECKS_LOCK: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v1":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
+    /// The answer of a proxy that said v1 from its own build alone, whatever helper ran its calls
+    /// (review of cmux#37239, round 7).
+    const V1_ONLY: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"experimental":{"cmux/lock-at-execution-v1":{}}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
     /// The same answer from a helper built before that check.
     const OLDER: &str = r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"cmux-cua","version":"0.8.12"}}}"#;
 
@@ -422,6 +425,23 @@ mod tests {
         assert!(text.starts_with("cua_helper_outdated:") && text.contains("Update cmux"), "{text}");
         let batch = replies.iter().find(|reply| reply.is_array()).expect("the batch is answered");
         assert_eq!(batch[0]["result"]["structuredContent"]["error"], "cua_helper_outdated");
+        assert!(seen.iter().any(|line| line.contains("tools/list")), "the rest passes: {seen:?}");
+    }
+
+    /// A v1 proxy said it checks the lock from its own build, though the calls run in a separately
+    /// installed helper that may be older (review of cmux#37239, round 7). Only v2, which the
+    /// executing process says, passes calls: a v1 proxy in front of any helper gets none.
+    #[tokio::test]
+    async fn a_proxy_that_says_only_v1_gets_no_call() {
+        let lines = [
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click"}}"#,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+        ];
+        let seen = through_helper(V1_ONLY, false, &lines).await;
+        assert!(seen.iter().all(|line| !line.contains("tools/call")), "{seen:?}");
+        let first: Value =
+            serde_json::from_str(seen.iter().find(|l| l.contains("\"id\":1")).unwrap()).unwrap();
+        assert_eq!(first["result"]["structuredContent"]["error"], "cua_helper_outdated");
         assert!(seen.iter().any(|line| line.contains("tools/list")), "the rest passes: {seen:?}");
     }
 
