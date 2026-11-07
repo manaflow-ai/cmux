@@ -20,8 +20,8 @@ function DialogRoute({ store }: { store: DialogStore }) {
     <OverlayDialog
       key={dialog.id}
       dialog={dialog}
-      onEdit={(values) => store.edit(dialog.id, values)}
-      onPress={(button, values) => store.press(dialog.id, button, values)}
+      onEdit={(values) => store.edit(dialog.id, dialog.valuesSerial ?? 0, values)}
+      onPress={(button, values) => store.press(dialog.id, dialog.valuesSerial ?? 0, button, values)}
       onLayout={onLayout}
       onPainted={() => store.painted(dialog.id)}
     />

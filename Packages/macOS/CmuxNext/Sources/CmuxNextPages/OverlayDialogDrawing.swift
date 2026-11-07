@@ -151,11 +151,13 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         switch op {
         // Answered as the person's: a dialog's page refuses page probes (the pool's `refusesProbes`), so no
         // `debug.page` call or script reaches it, while a click, a key or VoiceOver's press does.
+        // An edit or press made against older values (an older `serial`: the page had not yet taken a value
+        // automation set) leaves the host's values as they are, so a late edit never undoes that value.
         case "cmux.overlay.dialog.edit":
-            dialog.edited(Self.values(params["values"]))
+            dialog.edited(current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.press":
             guard let button = params["button"]?.stringValue else { throw PageError.invalidParams(op) }
-            dialog.press(button, values: Self.values(params["values"]))
+            dialog.press(button, values: current(params) ? Self.values(params["values"]) : [:])
         case "cmux.overlay.dialog.layout":
             // CSS px from the page's top-left, in points at the page's zoom (the interface scale); the view
             // is flipped only when AppKit's bottom-left origin is not.
@@ -270,6 +272,11 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         case .text(let text): .string(text)
         case .bool(let on): .bool(on)
         }
+    }
+
+    /// Whether the page made this call against the values the host last sent (its `serial`).
+    private func current(_ params: JSONValue) -> Bool {
+        (params["serial"]?.doubleValue ?? 0) == Double(valuesSerial)
     }
 
     static func values(_ json: JSONValue?) -> [String: CmuxDialogValue] {
