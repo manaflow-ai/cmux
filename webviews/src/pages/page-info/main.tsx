@@ -17,8 +17,11 @@ import "./styles.css";
 
 /** The card's metrics at the app's density (PageInfoStyle), in CSS px. */
 type Metrics = { width: number; row: number; rowSubtitle: number; padding: number; rowInset: number };
-/** The host's state: the bubble's model, the number of this push and the card's metrics. */
-type HostState = PageInfoModel & { revision: number; metrics?: Metrics };
+/**
+ * The host's state: the bubble's model, the number of this push, the opening it belongs to (each
+ * command names it, so the host drops one from an earlier opening) and the card's metrics.
+ */
+type HostState = PageInfoModel & { revision: number; opening: number; metrics?: Metrics };
 
 export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => void {
   let model: HostState | null = null;
@@ -35,7 +38,8 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
     applyMetrics(next.metrics);
     for (const listener of listeners) listener();
   });
-  const send = (command: PageInfoCommand) => void client.call("cmux.page-info.command", command);
+  const send = (command: PageInfoCommand, opening: number) =>
+    void client.call("cmux.page-info.command", { ...command, opening });
   // The host places the panel from the height of each state it pushed (a reopen with the same
   // height too), and resizes an open panel when the content changes height by itself.
   const report = () => {
@@ -56,7 +60,14 @@ export function mountPageInfoPage(root: HTMLElement, client: PageClient): () => 
       const card = root.querySelector<HTMLElement>(".pi-bubble");
       if (card && !card.contains(document.activeElement)) card.focus();
     }, [current]);
-    return current ? <PageInfoBubble model={current} onCommand={send} strings={strings} glass={false} /> : null;
+    return current ? (
+      <PageInfoBubble
+        model={current}
+        onCommand={(command) => send(command, current.opening)}
+        strings={strings}
+        glass={false}
+      />
+    ) : null;
   }
   const react = createRoot(root);
   react.render(

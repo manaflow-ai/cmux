@@ -44,20 +44,28 @@ struct PageInfoWireTests {
 }
 
 /// A command the bubble's page queued is for the site it showed: one that arrives after the bubble
-/// closed or the tab navigated must not act on the new site.
+/// closed, after the tab navigated, or after a reopen (on another site or the same) must not act.
 struct PageInfoPageCommandGateTests {
     private let shown = URL(string: "https://a.example/page")!
 
-    @Test func aCommandForTheShownSiteIsAccepted() {
-        #expect(PageInfoController.acceptsPageCommand(isOpen: true, openedURL: shown, current: shown))
+    @Test func aCommandFromThisOpeningForTheShownSiteIsAccepted() {
+        #expect(PageInfoController.acceptsPageCommand(isOpen: true, opening: 2, from: 2, openedURL: shown, current: shown))
     }
 
     @Test func aCommandQueuedBeforeANavigationIsDropped() {
-        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, openedURL: shown, current: URL(string: "https://b.example/")))
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, opening: 2, from: 2, openedURL: shown,
+                                                       current: URL(string: "https://b.example/")))
+    }
+
+    @Test func aCommandFromAnEarlierOpeningIsDropped() {
+        // Site A's click arrives after the bubble closed, the tab went to B and the bubble reopened.
+        let other = URL(string: "https://b.example/")!
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, opening: 3, from: 2, openedURL: other, current: other))
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, opening: 3, from: nil, openedURL: other, current: other))
     }
 
     @Test func aCommandAfterTheBubbleClosedIsDropped() {
-        #expect(!PageInfoController.acceptsPageCommand(isOpen: false, openedURL: shown, current: shown))
-        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, openedURL: nil, current: nil))
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: false, opening: 2, from: 2, openedURL: shown, current: shown))
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, opening: 2, from: 2, openedURL: nil, current: nil))
     }
 }

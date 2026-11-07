@@ -46,6 +46,9 @@ public final class PageInfoController {
     /// Counts the states sent to the page; a size report names the one it measured, so the bubble
     /// opens at the size of the newest state only.
     private var revision = 0
+    /// Counts the bubble's openings; the page names the one whose state drew the control a
+    /// command came from, so a command from an earlier opening (another site) is dropped.
+    private var opening = 0
     var windows = PageInfoWindows()
 
     init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
@@ -120,6 +123,7 @@ public final class PageInfoController {
         let site = PageInfoSite(state: tab.state)
         guard site.kind != .empty else { return }
         if !isOpen {
+            opening += 1
             openedURL = tab.state.url
             pageHadFocus = Self.pageHasFocus(tab, in: window)
             model.site = site
@@ -185,6 +189,7 @@ public final class PageInfoController {
         revision += 1
         var state = model.wireState
         state["revision"] = revision
+        state["opening"] = opening
         // The card's metrics at the current density, which the page lays its rows out with.
         state["metrics"] = ["width": PageInfoStyle.bubbleWidth, "row": PageInfoStyle.rowHeight,
                             "rowSubtitle": PageInfoStyle.rowHeightWithSubtitle, "padding": PageInfoStyle.inset / 2,
@@ -204,7 +209,8 @@ public final class PageInfoController {
         switch kind {
         case "command":
             // A command the page queued before a close or a navigation is for a site no longer shown.
-            guard Self.acceptsPageCommand(isOpen: isOpen, openedURL: openedURL, current: tab?.state.url),
+            guard Self.acceptsPageCommand(isOpen: isOpen, opening: opening, from: (params["opening"] as? NSNumber)?.intValue,
+                                          openedURL: openedURL, current: tab?.state.url),
                   let command = PageInfoCommand(wire: params) else { return }
             send(command)
         case "size":
@@ -226,10 +232,11 @@ public final class PageInfoController {
         }
     }
 
-    /// The page's commands act on the site the bubble shows: only while it is open (or opening)
-    /// and the tab is still on the address it opened for.
-    static func acceptsPageCommand(isOpen: Bool, openedURL: URL?, current: URL?) -> Bool {
-        isOpen && openedURL != nil && current == openedURL
+    /// The page's commands act on the site the bubble shows: only while it is open (or opening),
+    /// from a control this opening drew (`from`), and while the tab is still on the address it
+    /// opened for.
+    static func acceptsPageCommand(isOpen: Bool, opening: Int, from: Int?, openedURL: URL?, current: URL?) -> Bool {
+        isOpen && from == opening && openedURL != nil && current == openedURL
     }
 
     private static func pageHasFocus(_ tab: any BrowserTab, in window: NSWindow) -> Bool {
