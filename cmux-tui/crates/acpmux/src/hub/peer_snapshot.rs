@@ -1177,6 +1177,12 @@ impl Store {
             c.head.first_seq = c.head.first_seq.max(seq.saturating_add(1));
             c.head.last_seq = c.head.last_seq.max(c.head.first_seq - 1);
             c.head.from_start = false;
+            // A record of a prompt's life no write reported goes with no proof taking it (review
+            // of #37284 at 91b1343d, F1): a proof that needed it is not whole, so the copy saw
+            // every record only from past it (`open_delivery::whole`).
+            if c.fresh.remove(&seq) && !crate::hub::journal_restore::rules_of_91b() {
+                c.head.since = c.head.since.max(seq.saturating_add(1));
+            }
             cut = true;
         }
         cut

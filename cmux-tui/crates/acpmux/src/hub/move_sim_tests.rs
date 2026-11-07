@@ -28,6 +28,10 @@
 //! `Rules::Before` replays the rules of 0c98c292 (a write's report closes a delivery for good,
 //! and a copy replaced past a gap carries its `queued` and `user_message` records alone), which
 //! the review found losing prompts and resurrecting settled ones: some seeds fail under them.
+//! `Rules::Prior` replays 98b4575a's, and `Rules::Last` 91b1343d's (a removal the copy's bound
+//! cut before a write leaves its prompt's proof whole, a queued prompt runs while a restore holds
+//! the chat between tries, and a log read for a restore writes its recovery first, on a disk the
+//! machine came back on mid-turn): some seeds fail under each.
 //! Run (from `cmux-tui/`): `MOVE_SIM_SEEDS=5000 cargo test -p acpmux --lib -- move_sim --nocapture`.
 
 use super::*;
@@ -48,6 +52,10 @@ enum Rules {
     /// 98b4575a's: the owner as now; a restore and a proof's read on whatever link is up, a
     /// restore refused while a queue waits, and none settled while the log is not read yet.
     Prior,
+    /// 91b1343d's (review at 91b1343d, F1, F2 and F4): the bound cuts a record no write reported
+    /// and the copy still says it saw every record; a queued prompt runs while a restore holds
+    /// the chat between tries; a log read for a restore writes its recovery first.
+    Last,
 }
 
 struct Rng(u64);
@@ -131,6 +139,13 @@ struct Machine {
     restored_first: Vec<String>,
     /// 98b4575a's machine (`Rules::Prior`).
     old: bool,
+    /// 91b1343d's machine (`Rules::Last`).
+    last: bool,
+    /// A restore stopped short holds the chat for the owner's next try (`hold_for_next_try`),
+    /// until a try ends it or it lapses.
+    holding: bool,
+    /// Its log was read for a restore, its recovery still to run (`recover_pending`).
+    pending: bool,
     /// Prompts a disk the machine came back on ran again by itself (its own queue, before any
     /// owner spoke): the journal may hold that run and the one its owner gives back.
     ran_by_itself: HashSet<String>,
@@ -229,6 +244,18 @@ impl Machine {
         if !self.loaded {
             return;
         }
+        if self.holding {
+            if !self.last {
+                return;
+            }
+            // 91b1343d: a task that waited before the restore takes the turn lock between tries.
+            if !self.queue.is_empty() {
+                LOST.with(|l| {
+                    l.borrow_mut()
+                        .push("held: a queued prompt ran while a restore held the chat".into())
+                });
+            }
+        }
         let waiting = self.waiting();
         while !self.queue.is_empty() {
             let p = self.queue.remove(0);
@@ -247,17 +274,43 @@ impl Machine {
             self.restored_first.retain(|r| *r != p);
         }
     }
-    /// The log is read (a deferred start's lazy load): what waits in it joins the queue, after
-    /// what is there (`restore_queue`).
+    /// The log is read (a deferred start's lazy load): a turn the restart cut gets its unknown
+    /// outcome, and what waits in it joins the queue, after what is there (`restore_queue`).
     fn load(&mut self) {
         if self.loaded {
             return;
         }
         self.loaded = true;
+        self.recover();
+    }
+    /// The recovery a read log writes (`recover_log`): a turn with no result gets its unknown
+    /// outcome (`mark_unknown_outcome`); what waits joins the queue. Answers whether it wrote.
+    fn recover(&mut self) -> bool {
+        let open = self
+            .journal
+            .iter()
+            .rev()
+            .take_while(|r| r.kind != "turn_result")
+            .find(|r| r.kind == "user_message")
+            .and_then(|r| r.prompt.clone());
+        if let Some(p) = &open {
+            let (seq, at) = (self.end() + 1, self.tick());
+            self.journal.push(Rec { seq, at, kind: "turn_result", prompt: Some(p.clone()) });
+        }
         for p in self.pending() {
             if !self.queue.contains(&p) {
                 self.queue.push(p);
             }
+        }
+        open.is_some()
+    }
+    /// The hold a restore that stopped short left lapses: the recovery it owes runs.
+    fn lapse(&mut self) {
+        if !std::mem::take(&mut self.holding) {
+            return;
+        }
+        if std::mem::take(&mut self.pending) {
+            self.recover();
         }
     }
     /// The machine starts on `journal`, its log read now or later.
@@ -267,6 +320,8 @@ impl Machine {
         self.queue.clear();
         self.restored_first.clear();
         self.loaded = false;
+        self.holding = false;
+        self.pending = false;
         if loaded {
             self.load();
         }
@@ -292,27 +347,43 @@ impl Machine {
             });
             return Err("busy");
         }
-        // Its log is read first (`journal_restore.rs`, F3).
-        if !self.old {
-            self.load();
-        }
-        let at = self.end();
-        if at < after {
-            return Err("diverged");
-        }
-        for r in records.iter().filter(|r| r.seq <= at) {
-            if let Some(held) = self.journal.iter().find(|h| h.seq == r.seq)
-                && (held.at, held.kind) != (r.at, r.kind)
-            {
-                return Err("diverged");
+        // Its log is read first (`journal_restore.rs`, F3), its recovery after the records
+        // (F4); 91b1343d's wrote the recovery first.
+        let mut recovered = false;
+        if !self.old && !self.loaded {
+            if self.last {
+                self.loaded = true;
+                recovered = self.recover();
+            } else {
+                self.loaded = true;
+                self.pending = true;
             }
         }
-        for (n, r) in records.iter().filter(|r| r.seq > at).enumerate() {
-            if stop_after.is_some_and(|k| n >= k) {
-                return Err("append_failed");
+        let answer = self.write_restored(after, records, stop_after);
+        if answer == Err("diverged") && recovered {
+            LOST.with(|l| {
+                l.borrow_mut().push(
+                    "diverged: a log read for a restore wrote its recovery in the restore's seqs"
+                        .into(),
+                )
+            });
+        }
+        match answer {
+            Err("append_failed") => {
+                self.holding = true;
+                return answer;
             }
-            self.journal.push(r.clone());
-            self.by_owner.insert(r.seq);
+            Err(_) => {
+                self.holding = false;
+                if std::mem::take(&mut self.pending) {
+                    self.recover();
+                }
+                return answer;
+            }
+            Ok(_) => self.holding = false,
+        }
+        if std::mem::take(&mut self.pending) {
+            self.recover();
         }
         let from_copy: Vec<String> = records
             .iter()
@@ -341,6 +412,33 @@ impl Machine {
         }
         self.restored_first = from_copy.into_iter().filter(|p| pending.contains(p)).collect();
         Ok(self.end())
+    }
+    /// The restore's check and write (`write_restored`).
+    fn write_restored(
+        &mut self,
+        after: u64,
+        records: &[Rec],
+        stop_after: Option<usize>,
+    ) -> Result<(), &'static str> {
+        let at = self.end();
+        if at < after {
+            return Err("diverged");
+        }
+        for r in records.iter().filter(|r| r.seq <= at) {
+            if let Some(held) = self.journal.iter().find(|h| h.seq == r.seq)
+                && (held.at, held.kind) != (r.at, r.kind)
+            {
+                return Err("diverged");
+            }
+        }
+        for (n, r) in records.iter().filter(|r| r.seq > at).enumerate() {
+            if stop_after.is_some_and(|k| n >= k) {
+                return Err("append_failed");
+            }
+            self.journal.push(r.clone());
+            self.by_owner.insert(r.seq);
+        }
+        Ok(())
     }
 }
 
@@ -422,6 +520,9 @@ impl World {
                 loaded: true,
                 restored_first: vec![],
                 old: rules == Rules::Prior,
+                last: rules == Rules::Last,
+                holding: false,
+                pending: false,
                 ran_by_itself: HashSet::new(),
             },
             store,
@@ -462,7 +563,7 @@ impl World {
             let pinned = (key.0.as_str(), key.1.as_str(), generation);
             match self.rules {
                 // The hook's work (`Hub::proof_written`).
-                Rules::Now => {
+                Rules::Now | Rules::Last => {
                     let _ = od::take_written(&self.outbox, pinned, &records, link);
                 }
                 // 98b4575a: the peer's link when the write's hook runs.
@@ -658,7 +759,31 @@ impl World {
             records,
             ..Page::default()
         };
+        let ends: Vec<(u64, String)> = page
+            .records
+            .iter()
+            .filter(|r| matches!(r["kind"].as_str(), Some("turn_result" | "queue_removed")))
+            .filter_map(|r| Some((r["seq"].as_u64()?, od::prompt_of(r)?.to_owned())))
+            .collect();
         self.take(Op::Page { key: key(), page });
+        // An end the copy took, of a prompt whose delivery holds a proof, settles it as a write
+        // that reported it would, though the bound cut it before any write did (review at
+        // 91b1343d, F1): nothing the owner gives back may run it again.
+        if let Some(c) = self.store.copies.get(&key())
+            && c.head.generation == Some(self.machine.generation)
+        {
+            let last = c.head.last_seq;
+            for (seq, prompt) in ends {
+                let proven = self
+                    .outbox
+                    .open_on_peers()
+                    .iter()
+                    .any(|d| d.prompt_id() == prompt && d.proof.is_some());
+                if seq <= last && proven {
+                    self.machine.settled_seen.insert(prompt);
+                }
+            }
+        }
         // 0c98c292: a copy of this generation replaced past a gap carries its records of
         // `queued` and `user_message` from before the gap, and nothing else of their lives.
         if let Some((since, held)) = before
@@ -702,9 +827,9 @@ impl World {
             let rows = vec![(MUX.to_owned(), generation, last)];
             let (ahead, since) = self.store.ahead(PEER, rows.clone());
             let ahead = match self.rules {
-                Rules::Now | Rules::Prior => {
+                Rules::Now | Rules::Prior | Rules::Last => {
                     let proofs = od::proofs_past(&self.outbox, PEER, &rows, &since);
-                    restore::with_proofs(ahead, proofs, &rows)
+                    restore::with_proofs(ahead, proofs, &rows).0
                 }
                 Rules::Before => ahead,
             };
@@ -807,7 +932,7 @@ impl World {
         for d in self.outbox.open_on_peers() {
             let Some(pin) = d.pin.clone() else { continue };
             let step = match self.rules {
-                Rules::Now | Rules::Prior => match od::step(&d, now, link, ends) {
+                Rules::Now | Rules::Prior | Rules::Last => match od::step(&d, now, link, ends) {
                     // The machine's journal read on this link (`Hub::proof_held`); the link may
                     // flip first.
                     od::Step::Check if !self.calm && self.rng.chance(8) => {
@@ -943,7 +1068,14 @@ impl World {
             24..=35 => self.end_attempt(),
             36..=45 => self.capture(),
             46..=50 => {
-                let journal = self.machine.journal.clone();
+                let mut journal = self.machine.journal.clone();
+                // Taken during a turn: its `user_message` is on the disk, its result not yet
+                // (review at 91b1343d, F4).
+                if self.rng.chance(30)
+                    && let Some(i) = journal.iter().rposition(|r| r.kind == "user_message")
+                {
+                    journal.truncate(i + 1);
+                }
                 self.note(format!(
                     "snapshot {} (ends {})",
                     self.machine.snapshots.len(),
@@ -1003,6 +1135,8 @@ impl World {
         // As last seen before the retention runs at the new time.
         self.look();
         crate::store::CLOCK_AHEAD_MS.with(|c| c.set(c.get() + ms));
+        // A restore's hold lapses long before.
+        self.machine.lapse();
         // Any change runs the retention.
         let anything = self.outbox.list(None, 1).0.first().map(|d| d.id.clone());
         if let Some(id) = anything {
@@ -1027,8 +1161,9 @@ impl World {
         while !self.flights.is_empty() {
             self.end_attempt();
         }
-        // A deferred start's lazy load comes.
+        // A deferred start's lazy load comes; a restore's hold lapses.
         self.machine.load();
+        self.machine.lapse();
         while !self.machine.queue.is_empty() {
             self.machine.work();
         }
@@ -1116,6 +1251,7 @@ thread_local! {
 
 fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     LOST.with(|l| l.borrow_mut().clear());
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(rules == Rules::Last));
     let mut world = World::new(seed, rules);
     world.list();
     let steps = 60 + world.rng.below(140);
@@ -1125,6 +1261,7 @@ fn run(seed: u64, rules: Rules) -> (Result<(), String>, Vec<String>) {
     world.settle();
     let verdict = world.check();
     crate::store::CLOCK_AHEAD_MS.with(|c| c.set(0));
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
     (verdict, world.trace)
 }
 
@@ -1146,7 +1283,8 @@ fn failures(rules: Rules) -> (u64, Vec<String>, BTreeMap<String, usize>) {
         let mut seen = HashSet::new();
         for part in e.split(" | ") {
             let kind = part.split(": ").next().unwrap_or("other");
-            let known = ["lost", "resurrected", "twice", "stale", "stalled", "ahead"];
+            let known =
+                ["lost", "resurrected", "twice", "stale", "stalled", "ahead", "held", "diverged"];
             let kind = if known.contains(&kind) { kind } else { "other" };
             if seen.insert(kind) {
                 *kinds.entry(kind.to_owned()).or_insert(0) += 1;
@@ -1164,6 +1302,7 @@ fn move_sim_seeds_hold_the_move_invariants() {
         let rules = match std::env::var("MOVE_SIM_RULES").as_deref() {
             Ok("before") => Rules::Before,
             Ok("prior") => Rules::Prior,
+            Ok("last") => Rules::Last,
             _ => Rules::Now,
         };
         let (verdict, trace) = run(seed, rules);
@@ -1212,6 +1351,23 @@ fn move_sim_finds_the_losses_of_the_rules_of_98b4575a() {
         eprintln!("  {f}");
     }
     for kind in ["stale", "stalled", "ahead"] {
+        assert!(kinds.contains_key(kind), "no seed found {kind}");
+    }
+}
+
+/// Under the rules of 91b1343d (review at 91b1343d, F1, F2 and F4) some seeds run a prompt whose
+/// removal the bound cut before any write reported it (`resurrected`: its proof still went back
+/// whole), run a queued prompt while a restore held the chat between tries (`held`), or read a
+/// log for a restore and write its recovery in the seqs the restore needed (`diverged`). Prints
+/// which seeds.
+#[test]
+fn move_sim_finds_the_losses_of_the_rules_of_91b1343d() {
+    let (n, failed, kinds) = failures(Rules::Last);
+    eprintln!("move sim, the rules of 91b1343d: {n} seeds, {} failed {kinds:?}", failed.len());
+    for f in failed.iter().take(10) {
+        eprintln!("  {f}");
+    }
+    for kind in ["resurrected", "held", "diverged"] {
         assert!(kinds.contains_key(kind), "no seed found {kind}");
     }
 }

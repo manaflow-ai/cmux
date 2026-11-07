@@ -153,6 +153,19 @@ impl Hub {
     /// restored queue as soon as the daemon's own startup resumed the queues (`resume_queues`);
     /// one with a host is resumed there, after adoption.
     pub(super) fn load_session_log(self: &Arc<Self>, session: &Arc<Session>) {
+        self.read_log(session, true);
+    }
+
+    /// [`Self::load_session_log`] for a journal restore (`journal_restore.rs`): only the tail
+    /// is read, and nothing is written (review of #37284 at 91b1343d, F4). The recovery a load
+    /// writes (a cut turn's continuation and unknown outcome, a lost wait) would take the seqs
+    /// of the records the restore puts back: it runs after them, on the restored log
+    /// ([`Self::recover_pending`]).
+    pub(super) fn load_session_log_for_restore(self: &Arc<Self>, session: &Arc<Session>) {
+        self.read_log(session, self.at_91b());
+    }
+
+    fn read_log(self: &Arc<Self>, session: &Arc<Session>, recover: bool) {
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
         if *loaded {
             return;
@@ -173,6 +186,46 @@ impl Hub {
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
         }
         self.restore_transfer_authority(session);
+        if !recover {
+            // Read, with its recovery still to run: the restore that asked runs it.
+            session.recovery_pending.store(true, Ordering::SeqCst);
+            loaded.done();
+            return;
+        }
+        let hosted =
+            self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
+        self.recover_log(session, None);
+        loaded.done();
+        self.resume_loaded(session, hosted);
+    }
+
+    /// The recovery of a log read for a journal restore ([`Self::load_session_log_for_restore`]),
+    /// once, on the log as the restore left it: after its records went in (`from_copy`, the
+    /// prompts they queued, go ahead of the machine's own, as `settle_restored` puts them), or
+    /// when it was refused or its hold lapsed (None). The caller holds `log_load`. False when
+    /// none was pending.
+    pub(super) fn recover_pending(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        from_copy: Option<&std::collections::HashSet<String>>,
+    ) -> bool {
+        if !session.recovery_pending.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+        let hosted =
+            self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
+        self.recover_log(session, from_copy);
+        self.resume_loaded(session, hosted);
+        true
+    }
+
+    /// What reading a log writes and rebuilds past its tail: a lost wait, a cut turn's
+    /// continuation, the queue (`from_copy`'s prompts first, after a restore), and the watch.
+    fn recover_log(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        from_copy: Option<&std::collections::HashSet<String>>,
+    ) {
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             (plan.hosted.contains(&session.id), plan.waiting.contains(&session.id))
@@ -186,6 +239,9 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        if let Some(from_copy) = from_copy {
+            self.replace_queue(session, Vec::new(), from_copy);
+        }
         // A copy's first start runs none of what waited (`clone_boot.rs`).
         self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
@@ -201,7 +257,10 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             self.start_watch(session);
         }
-        loaded.done();
+    }
+
+    /// A read log's queue goes on, once the daemon's own startup resumed the queues.
+    fn resume_loaded(self: &Arc<Self>, session: &Arc<Session>, hosted: bool) {
         if self.queues_resumed.load(Ordering::SeqCst) {
             if !hosted {
                 self.resume_restored(std::slice::from_ref(session));
@@ -253,8 +312,8 @@ impl Hub {
     }
 
     /// After `restore_queue` rebuilt `session`'s queue from its log: each prompt that was in the
-    /// queue before (`before`) and still waits keeps that entry, not the rebuilt one, so the task
-    /// that runs it is the only one; each one the log settled since is withdrawn (its waiting
+    /// queue before (`before`) and still waits keeps that entry's task and handles (so the task
+    /// that runs it is the only one) and takes the rebuilt entry's content and state; each one the log settled since is withdrawn (its waiting
     /// prompt answers, and it never runs). Then `from_copy`'s prompts go first.
     fn replace_queue(
         &self,
@@ -279,7 +338,20 @@ impl Hub {
                 if let Some(at) = restored.iter().rposition(|(id, _)| *id == q.prompt_id) {
                     restored.remove(at);
                 }
-                *q = before.remove(i);
+                let kept = before.remove(i);
+                if self.at_91b() {
+                    *q = kept;
+                    continue;
+                }
+                // The task waiting on it stays its only runner, with what it waits on; what it
+                // runs and how is the log's, past an edit, a hold or an approval the restored
+                // records made (review of #37284 at 91b1343d, F3).
+                q.turn_id = kept.turn_id;
+                q.withdraw = kept.withdraw;
+                q.declined = kept.declined;
+                q.joined = kept.joined;
+                q.restored = kept.restored;
+                q.resume = kept.resume;
             }
             let ids = |queue: &[super::queue::QueuedPrompt]| -> Vec<String> {
                 queue.iter().map(|q| q.prompt_id.clone()).collect()

@@ -774,6 +774,9 @@ pub struct Hub {
     /// Tests only: pause purge after store deletion, before ID-keyed cleanup.
     #[cfg(test)]
     pub(super) purge_seam: full_access_bound::WriteSeam,
+    /// Tests only: this hub follows the rules of 91b1343d (`journal_restore::rules_of_91b`).
+    #[cfg(test)]
+    pub(super) rules_of_91b: AtomicBool,
     /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
     #[cfg(test)]
     pub(super) retry_seam: full_access_bound::WriteSeam,
@@ -1046,6 +1049,8 @@ impl Hub {
             finish_seam: Default::default(),
             #[cfg(test)]
             purge_seam: Default::default(),
+            #[cfg(test)]
+            rules_of_91b: AtomicBool::new(false),
             #[cfg(test)]
             retry_seam: Default::default(),
             #[cfg(test)]
@@ -1398,6 +1403,7 @@ impl Hub {
             admit: StdMutex::new(()),
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
+            recovery_pending: AtomicBool::new(false),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),

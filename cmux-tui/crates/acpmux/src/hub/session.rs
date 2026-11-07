@@ -133,6 +133,10 @@ pub struct Session {
     /// the number of the hold, so its lapse ends only the hold it was set for. `restoring` stays
     /// set while it is held. Taken under `admit`; a leaf lock.
     pub(super) restore_lease: StdMutex<Option<u64>>,
+    /// Its log was read for a journal restore with its recovery still to run (`log_load.rs`
+    /// `load_session_log_for_restore`): the restore runs it after its records, or when it is
+    /// refused or its hold lapses.
+    pub(super) recovery_pending: AtomicBool,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.

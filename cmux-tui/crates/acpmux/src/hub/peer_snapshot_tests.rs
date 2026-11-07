@@ -1377,7 +1377,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let rows = vec![("m1".to_owned(), 7, 3)];
     let (ahead, since) = store.ahead(PEER, rows.clone());
     let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
-    let back = restore::with_proofs(ahead, proofs, &rows);
+    let (back, _) = restore::with_proofs(ahead, proofs, &rows);
     assert_eq!(back[0].3.first().and_then(seq_of), Some(4), "the proof goes back first");
 
     // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
@@ -1403,4 +1403,76 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let lapsed = now + crate::hub::outbox::OPEN_ON_PEER_FOR_MS;
     assert_eq!(od::step(&d1, lapsed, (1, 2), &ends(7, 9)), od::Step::Lapse);
     assert_eq!(od::step(&outbox.get("d2").unwrap(), now, (1, 2), &ends(7, 9)), od::Step::Again);
+}
+
+/// What goes back to a machine on a disk that ends at 3 from a proof of p1's `queued` (seq 4),
+/// once its removal (seq 5) came and the copy's bound cut it before a write reported it; under
+/// the rules of 91b1343d when `rules_of_91b`.
+fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
+    use crate::hub::open_delivery as od;
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(rules_of_91b));
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| told.lock().unwrap().push(records))
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/m1"),
+        "request": {"sessionId": format!("{PEER}/m1"), "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": "m1", "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d);
+    keep(&mut store, "m1", 1..=3);
+    store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
+    store.write_due(None, When::Last);
+    // p1 is taken off the queue, and a turn writes past the copy's bound before the next write.
+    store.add(&key("m1"), vec![life("m1", 5, "queue_removed", "p1")]);
+    keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
+    store.write_due(None, When::Last);
+    for records in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    }
+    let rows = vec![("m1".to_owned(), 7, 3)];
+    let (_, since) = store.ahead(PEER, rows.clone());
+    let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
+    back.get("m1").map_or(vec![], |r| r.iter().filter_map(seq_of).collect())
+}
+
+/// Review of #37284 at 91b1343d, F1: a record of a prompt's life the bound cuts before a write
+/// reported it moves where the copy saw every record from past it, so the proof that needed it
+/// is not whole and nothing of it goes back. Under 91b1343d's rules the `queued` record went
+/// back without its removal, and the canceled prompt ran.
+#[test]
+fn a_removal_the_bound_cut_before_its_write_keeps_its_prompt_from_going_back() {
+    assert_eq!(back_after_a_cut_removal(true), vec![4], "91b1343d gave back the canceled prompt");
+    assert!(back_after_a_cut_removal(false).is_empty());
+}
+
+/// Review of #37284 at 91b1343d, F5: a copy and its proofs past what one restore takes are not
+/// restored, and their session comes back held (its prompts held, its deliveries open), never
+/// dropped as clear. Under 91b1343d's rules it went with nothing held.
+#[test]
+fn a_restore_past_what_one_takes_stays_held() {
+    let max = crate::hub::journal_restore::MAX_RECORDS as u64;
+    let rows = vec![("m1".to_owned(), 7, 0), ("m2".to_owned(), 7, 0)];
+    let ahead =
+        || vec![("m1".to_owned(), 7, 0, recs(1..=max - 10)), ("m2".to_owned(), 7, 0, recs(1..=3))];
+    let proofs = || HashMap::from([("m1".to_owned(), recs(max - 9..=max + 20))]);
+    let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
+    assert_eq!(back.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["m2"]);
+    assert_eq!(held, HashSet::from(["m1".to_owned()]));
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(true));
+    let (back, held) = restore::with_proofs(ahead(), proofs(), &rows);
+    crate::hub::journal_restore::RULES_OF_91B.with(|r| r.set(false));
+    assert_eq!(back.len(), 1);
+    assert!(held.is_empty(), "91b1343d dropped it and held nothing");
 }

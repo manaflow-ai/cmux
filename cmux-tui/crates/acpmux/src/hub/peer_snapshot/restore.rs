@@ -217,7 +217,8 @@ impl Store {
                 continue;
             };
             let past: Vec<Value> = records.range(last + 1..).map(|(_, r)| r.clone()).collect();
-            if !past.is_empty() && past.len() <= crate::hub::journal_restore::MAX_RECORDS {
+            // One past what one restore takes too: it stays held (`with_proofs`).
+            if !past.is_empty() {
                 out.push((key.1, generation, last, past));
             }
         }
@@ -292,13 +293,13 @@ impl Hub {
             };
             // What the open deliveries hold as proof goes back with the copy.
             let proofs = od::proofs_past(&hub.outbox, &peer, &rows, &since);
-            let ahead = with_proofs(ahead, proofs, &rows);
+            // Whether a copy is still ahead of the peer's journal: then nothing is delivered again,
+            // since a resend could take the seqs its records need. One past what a restore
+            // takes is held from the start.
+            let (ahead, mut held) = with_proofs(ahead, proofs, &rows);
             // Where each journal ends once this link's restores ran (`redeliver_open`).
             let mut ends: HashMap<String, (u64, u64)> =
                 rows.iter().map(|(s, g, l)| (s.clone(), (*g, *l))).collect();
-            // Whether a copy is still ahead of the peer's journal: then nothing is delivered again,
-            // since a resend could take the seqs its records need.
-            let mut held = HashSet::new();
             for (mux, created_at, after, records) in ahead {
                 let Some(through) = records.iter().filter_map(seq_of).max() else { continue };
                 let params = json!({"sessionId": mux, "createdAt": created_at,
@@ -368,12 +369,16 @@ impl Hub {
 
 /// `ahead` with the proofs' records (`od::proofs_past`) of each session merged in, by seq: a
 /// session whose copy is not ahead (or went) restores from them alone, after its row's
-/// `lastSeq`.
+/// `lastSeq`. A session with more than one restore takes ([`MAX_RECORDS`]) is not restored and
+/// comes back held (review of #37284 at 91b1343d, F5): its prompts stay held and its open
+/// deliveries open, until they lapse, failing visibly; it is never dropped as clear.
+///
+/// [`MAX_RECORDS`]: crate::hub::journal_restore::MAX_RECORDS
 pub(crate) fn with_proofs(
     mut ahead: Vec<Ahead>,
     proofs: HashMap<String, Vec<Value>>,
     rows: &[Row],
-) -> Vec<Ahead> {
+) -> (Vec<Ahead>, HashSet<String>) {
     for (session, records) in proofs {
         if records.is_empty() {
             continue;
@@ -391,8 +396,20 @@ pub(crate) fn with_proofs(
             ahead.push((session, *generation, *last, records));
         }
     }
-    ahead.retain(|(.., records)| records.len() <= crate::hub::journal_restore::MAX_RECORDS);
-    ahead
+    let mut held = HashSet::new();
+    ahead.retain(|(session, .., records)| {
+        let over = records.len() > crate::hub::journal_restore::MAX_RECORDS;
+        if over && !crate::hub::journal_restore::rules_of_91b() {
+            tracing::warn!(
+                session,
+                records = records.len(),
+                "a copy holds more than one restore takes; its session stays held"
+            );
+            held.insert(session.clone());
+        }
+        !over
+    });
+    (ahead, held)
 }
 
 /// Debug builds only: every read of whether a copy of `peer` is ahead fails, `n` times.

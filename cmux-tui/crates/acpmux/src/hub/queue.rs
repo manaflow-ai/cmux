@@ -831,6 +831,10 @@ impl Hub {
             let freed = self.run_slots_changed();
             tokio::pin!(freed);
             freed.as_mut().enable();
+            // Enabled before `restoring` is read, so a restore that ends in between is not missed.
+            let done = session.restore_done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
             let steer = session
                 .queue
                 .lock()
@@ -846,6 +850,16 @@ impl Hub {
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
             };
+            // A journal restore holds the chat for its whole try and the hold between tries
+            // (`journal_restore.rs`, review of #37284 at 91b1343d, F2): a prompt that waited
+            // before it began takes no turn until it ends or lapses, as a new one is admitted.
+            if session.restoring.load(Ordering::SeqCst) && !self.at_91b() {
+                drop(guard);
+                tokio::select! {
+                    () = done.as_mut() => continue,
+                    () = withdraw.notified() => return Wait::Withdrawn,
+                }
+            }
             // Prompts a failed turn holds, or that wait for the owner, wait wherever they are; the
             // first other one is next. Read with the lock held: the turn that just ended may have
             // held this one.
