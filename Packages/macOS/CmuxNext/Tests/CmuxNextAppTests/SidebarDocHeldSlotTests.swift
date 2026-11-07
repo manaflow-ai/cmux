@@ -16,7 +16,7 @@ import Testing
     static func ref(_ id: String) -> SidebarDocWorkspaceRef { SidebarDocWorkspaceRef(sessionID: session, workspaceID: id) }
 
     /// Machine section: loose `ws-1`, group `g` (members `members` in order), loose `ws-3`, the loose `after3`, `ws-4`.
-    static func projection(members: [String], after3: [String] = []) -> SidebarDocProjection {
+    static func projection(members: [String], after3: [String] = [], dropping: Set<String> = []) -> SidebarDocProjection {
         var items: [String: SidebarDocItem] = [
             "itm_1": SidebarDocItem(id: "itm_1", section: machine, body: .workspace(ref("ws-1"))),
             "itm_g": SidebarDocItem(id: "itm_g", section: machine, body: .group(name: "Leads", color: nil, icon: nil, collapsed: true)),
@@ -37,6 +37,8 @@ import Testing
             rows.append(SidebarDocRow(key: "itm_" + id, kind: "item", section: machine, item: "itm_" + id, ref: ref(id)))
         }
         rows.append(SidebarDocRow(key: "itm_4", kind: "item", section: machine, item: "itm_4", ref: ref("ws-4")))
+        rows.removeAll { $0.ref.map { dropping.contains($0.workspaceID) } ?? false }
+        for id in dropping { items["itm_" + String(id.dropFirst(3))] = nil }
         let records = SidebarDocRecords(sections: [machine: SidebarDocSection(id: machine, kind: .machine(session: session))], items: items)
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
@@ -162,5 +164,17 @@ import Testing
         docSections.newRowsPlace = { .below(Self.id("ws-a", in: store)) }
         let shown = Self.layout(docSections.sections(projection, session: Self.session, workspaces: store.workspaces))
         #expect(shown == ["ws-x", "[Leads: ws-a,ws-y,ws-b]"], "ws-y is not in Leads below ws-a: \(shown)")
+    }
+
+    /// The loose run under the group keeps its place when the document stops placing its first row, or all of it:
+    /// it never moves into the run above the group.
+    @Test(arguments: [["ws-3"], ["ws-3", "ws-4"]]) func aLooseRunUnderTheGroupStaysUnderIt(_ dropped: [String]) {
+        let store = Self.store(["ws-1"] + Self.members + ["ws-3", "ws-4"])
+        let docSections = SidebarDocSections(document: { nil })
+        docSections.newRowsPlace = { .last }
+        let before = Self.layout(docSections.sections(Self.projection(members: Self.members), session: Self.session, workspaces: store.workspaces))
+        let during = Self.layout(docSections.sections(Self.projection(members: Self.members, dropping: Set(dropped)), session: Self.session,
+                                                      workspaces: store.workspaces))
+        #expect(during == before, "without \(dropped) the rows list as \(during), not \(before)")
     }
 }
