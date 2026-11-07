@@ -168,6 +168,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_DEFAULTS, Run(json!({"family": "fake", "set": {"model": "m1"}}))),
         (method::MUX_PRESETS, Run(json!({"name": "p1", "set": {"harness": "fake"}}))),
         (method::MUX_INFO, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_MACHINE_INFO,
+            Any(json!({"sessionId": "$S"}), "only the chat's own agent or the person reads it"),
+        ),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
         (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
         // The test config has no file (`Config.path` is not read from JSON), so the save writes nothing.
