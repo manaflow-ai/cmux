@@ -158,9 +158,11 @@ extension DaemonService {
     }
 
     /// The connection now, or once the first one is made (nil: startup gave up). Unlike
-    /// ``firstConnection()``, it returns at once when already connected.
+    /// ``firstConnection()``, it returns at once when already connected, and when startup already
+    /// gave up (nothing would resume the wait). `isStarting` is left out: a caller may ask before
+    /// `start` runs.
     public func connectionAfterFirst() async -> DaemonConnection? {
-        if connection == nil { await firstConnection() }
+        if connection == nil, startup == .connecting { await firstConnection() }
         return connection
     }
 
