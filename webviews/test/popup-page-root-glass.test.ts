@@ -23,6 +23,9 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/overlay/overlay.css",
     "pages/overlay/dialog/dialog.css",
   ],
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
+    "pages/group-editor/styles.css",
+  ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": [
     // main.tsx is the bundle the popover opens (on #/surface/<kind>): its sheets are the document's.
     "pages/changelog/styles.css",
