@@ -21,9 +21,10 @@ import Testing
     /// A chat alone on its screen docks when the first tool opens; Cmd-I there focuses it.
     @Test func aLoneChatDocksAndCmdIFocusesIt() throws {
         let columns = [WindowRules.ChatColumn(panes: ["c"], dock: nil, loneChat: true)]
-        #expect(WindowRules().chatColumn(pane: "c", columns: columns)?.placement == .dockChat)
+        let read = try #require(WindowRules().chatColumn(pane: "c", columns: columns), "the FFI did not answer")
+        #expect(read.placement == .dockChat)
         let open = WindowRules.DockedOpen(user: true, targeted: false, hasArguments: false, canHost: true, dockRoles: true, pane: "c",
-                                          columns: columns, recent: [], zoomed: false, pendingDock: false)
+                                          read: read, pendingDock: false)
         #expect(WindowRules().dockedOpen(open) == .focus("c"))
     }
 

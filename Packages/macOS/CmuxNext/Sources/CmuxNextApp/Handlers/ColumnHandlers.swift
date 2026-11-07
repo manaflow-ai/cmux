@@ -72,11 +72,10 @@ enum ColumnHandlers {
             }
             return refusing ? ctx.refuse(RefusalStrings.noColumnShown(target.id)) : nil
         }
-        let pane = refusing ? ctx.paneController(invocation) : invocation.target.map { target in
-            contents.lazy.compactMap { $0.panes.values.first { pane in
-                target.kind == .pane ? pane.paneKey == target.id : pane.stripModel.tab(StripTabID(target.id)) != nil
-            } }.first
-        } ?? ctx.services.windows.active?.focusedPane
+        let named: PaneController?? = invocation.target.map { target in contents.lazy.compactMap { $0.panes.values.first { pane in
+            target.kind == .pane ? pane.paneKey == target.id : pane.stripModel.tab(StripTabID(target.id)) != nil
+        } }.first } // .some(nil): a pane or tab named and not found has no column, never the focused pane's
+        let pane = refusing ? ctx.paneController(invocation) : named ?? ctx.services.windows.active?.focusedPane
         guard let pane, let content = pane.workspace, let screen = content.layoutModel.screen(containing: pane.layoutPaneID),
               let column = screen.column(containing: pane.layoutPaneID) else { return nil }
         return (content, screen, column)
