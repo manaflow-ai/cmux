@@ -162,6 +162,8 @@ struct InFlight {
     pin: Option<Pin>,
     answer: Option<Result<bool, &'static str>>,
     lost: bool,
+    /// Its pin was read for it (none was kept from an attempt before).
+    fresh: bool,
 }
 
 /// One restore try in flight, of a link.
@@ -192,6 +194,8 @@ struct World {
     trace: Vec<String>,
     /// The quiet end: no try stops short.
     calm: bool,
+    /// Each delivery as last seen: the outbox's retention may drop a settled one.
+    seen: HashMap<String, Delivery>,
 }
 
 fn key() -> Key {
@@ -234,6 +238,7 @@ impl World {
             taken_in: HashMap::new(),
             trace: vec![],
             calm: false,
+            seen: HashMap::new(),
         };
         world.connect();
         world
@@ -327,10 +332,15 @@ impl World {
         if !(self.up && self.listed && self.decided) {
             return;
         }
+        // Now: pinned at the first attempt, kept for every later one (`deliver`).
+        let fresh = d.pin.is_none();
         let pin = match self.rules {
-            Rules::Now => self.pin_now(),
+            Rules::Now => d.pin.clone().or_else(|| self.pin_now()),
             Rules::Before => None,
         };
+        if self.rules == Rules::Now && fresh && pin.is_some() {
+            self.outbox.update(&d.id, |d| d.pin.clone_from(&pin));
+        }
         let prompt = d.prompt_id().to_owned();
         let named = pin.as_ref().map(|p| p.generation);
         let answer = Some(self.machine.prompt(&prompt, named));
@@ -343,7 +353,7 @@ impl World {
             d.id,
             if lost { " (answer lost)" } else { "" }
         ));
-        self.flights.push(InFlight { id: d.id, prompt, pin, answer, lost });
+        self.flights.push(InFlight { id: d.id, prompt, pin, answer, lost, fresh });
     }
 
     /// An attempt's answer comes back (or its loss is found: tried again).
@@ -374,11 +384,13 @@ impl World {
                 self.note(format!("{} accepted (duplicate {duplicate})", f.id));
             }
             Some(Err("stale_generation")) => {
-                // A first attempt reads again and tries; a later one fails (`deliver`).
-                let attempts = self.outbox.get(&f.id).map_or(0, |d| d.attempts);
+                // A pin read for this attempt is read again; one kept from an attempt before,
+                // which that session may have taken, fails (`deliver`).
                 self.outbox.update(&f.id, |d| {
                     d.attempts += 1;
-                    if attempts > 0 {
+                    if f.fresh {
+                        d.pin = None;
+                    } else {
                         d.state = DState::Failed;
                         d.error = Some("stale_generation".into());
                     }
@@ -579,7 +591,14 @@ impl World {
         }
     }
 
+    fn look(&mut self) {
+        for d in self.outbox.list(None, usize::MAX).0 {
+            self.seen.insert(d.id.clone(), d);
+        }
+    }
+
     fn step(&mut self) {
+        self.look();
         match self.rng.below(100) {
             0..=14 if self.sent.len() < 8 => self.send(),
             0..=29 => self.start_attempt(),
@@ -662,8 +681,14 @@ impl World {
             if generations.len() > 1 {
                 return Err(format!("{prompt} ran in generations {generations:?}"));
             }
-            let d =
-                self.outbox.get(&format!("d{n}")).ok_or(format!("{prompt}'s delivery is gone"))?;
+            self.look();
+            let id = format!("d{n}");
+            let d = self.outbox.get(&id).or_else(|| self.seen.get(&id).cloned());
+            let d = d.ok_or(format!("{prompt}'s delivery was never seen"))?;
+            if self.outbox.get(&id).is_none() && (!d.settled() || d.open_on_peer) {
+                let open = d.open_on_peer;
+                return Err(format!("{prompt}'s delivery went while {:?} (open {open})", d.state));
+            }
             let ran = self.machine.holds(prompt);
             let purged = self.taken_in.get(prompt).is_some_and(|g| self.machine.purged.contains(g));
             match (d.state, ran) {

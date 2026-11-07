@@ -578,13 +578,20 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
         let mut link_unsent = true;
-        // The peer's session as it is now, read before the attempt and carried through its
-        // answer: a link replaced meanwhile changes nothing recorded (`open_delivery.rs`).
-        let pin = if request.pointer("/_meta/acpmux/forwardProjection").is_none() {
-            crate::hub::open_delivery::pin(hub, &delivery.target)
-        } else {
+        // The peer's session the delivery goes to: read before its first attempt, kept on the
+        // delivery before the attempt goes, and the same for every later one, so nothing read
+        // after an attempt (a link replaced, the session purged and made again) changes where it
+        // goes or what is recorded (`open_delivery.rs`).
+        let projection = request.pointer("/_meta/acpmux/forwardProjection").is_some();
+        let fresh_pin = delivery.pin.is_none();
+        let pin = if projection {
             None
+        } else {
+            delivery.pin.clone().or_else(|| crate::hub::open_delivery::pin(hub, &delivery.target))
         };
+        if fresh_pin && pin.is_some() {
+            hub.outbox.update(id, |d| d.pin.clone_from(&pin));
+        }
         let outcome = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
             // A projection reconciles with the receiver's log; it never uses the link to send.
             link_unsent = false;
@@ -654,7 +661,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     // Purged and made again since the attempt read it. A first attempt reached
                     // nothing: read again, and tried. A later one may have been taken by the
                     // session that is gone: it never runs in the new one; failed, saying why.
-                    Next::Stale if attempt == 1 => (error, Next::Retry),
+                    Next::Stale if fresh_pin => {
+                        hub.outbox.update(id, |d| d.pin = None);
+                        (error, Next::Retry)
+                    }
                     Next::Stale => (error, Next::Fail),
                     next => (error, next),
                 };
