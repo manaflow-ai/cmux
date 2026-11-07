@@ -275,7 +275,7 @@ nonisolated struct RustActionCatalog: Sendable {
         }
         var when: WhenClause?
         if let text = value["when_text"] as? String {
-            do { when = try WhenClauseParser.parse(text) } catch {
+            do { when = try WhenClause.parse(text) } catch {
                 log.fault("default binding for \(command, privacy: .public): when clause does not parse")
                 return nil
             }
