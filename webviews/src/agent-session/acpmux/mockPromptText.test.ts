@@ -17,7 +17,7 @@ afterAll(() => {
   else delete scope.window;
 });
 
-test("a prompt's words around a placed attachment are all recorded, a pasted block's are not", async () => {
+test("a prompt's words around a placed attachment are all recorded, with a pasted block's marked as acpmux marks it", async () => {
   const { MockAcpmuxSocket } = await import("./mock");
   // Turns run at once: no step waits.
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -58,6 +58,9 @@ test("a prompt's words around a placed attachment are all recorded, a pasted blo
   const echo = messages.find(
     (message) => message.params?.kind === "user_message" && message.params?.sessionId === sessionId,
   );
-  expect(echo?.params.msg.text).toBe("look at  and fix it");
+  // acpmux's record of a prompt with a paste (hub/session.rs prompt_text_parts): its text blocks one
+  // per line, the paste's range marked.
+  expect(echo?.params.msg.text).toBe("look at \n and fix it\na pasted log");
+  expect(echo?.params.msg.pasted).toEqual([{ start: 21, end: 33 }]);
   expect(echo?.params.msg.images).toHaveLength(1);
 });
