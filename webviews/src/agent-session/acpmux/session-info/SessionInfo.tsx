@@ -76,7 +76,8 @@ import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from 
 import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
@@ -109,7 +110,8 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
