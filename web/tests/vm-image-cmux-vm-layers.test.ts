@@ -250,6 +250,11 @@ describe("baked npm cache", () => {
     expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
   });
 
+  test("clean.py drops acpmux's login-shell cache, so a clone reads its own login shell", () => {
+    const clean = readFileSync(path.join(repoRoot, "images/cmux-vm/guest/clean.py"), "utf8");
+    expect(clean).toContain('"/home/cmux/.acpmux/login-env.json"');
+  });
+
   test("clean.py keeps the work user's npm cache content and nothing else under ~/.npm", () => {
     const clean = readFileSync(path.join(repoRoot, "images/cmux-vm/guest/clean.py"), "utf8");
     expect(clean).toContain('"/home/cmux/.npm/_cacache"');
