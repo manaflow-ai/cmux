@@ -60,10 +60,12 @@ extension ChiefPetController {
 
     private func debugOpenReply(hold: Bool) -> String? {
         guard panel?.isVisible == true else { return "the pet is not shown (home.chiefPetEnabled)" }
+        // Held before it opens: making it key in an app that is not active can hand the keys straight back,
+        // and losing them closes the box before this call returns.
+        replyPanelOnce().debugHold = hold
         // A click on the pet (`onClick`, its toggle) when the box is closed.
         openReply()
         guard let replyPanel, replyPanel.isVisible else { return "the reply box did not open" }
-        replyPanel.debugHold = hold
         return nil
     }
 
