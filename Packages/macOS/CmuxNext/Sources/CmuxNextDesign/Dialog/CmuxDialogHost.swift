@@ -175,6 +175,8 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
                 view.setFrameSize(size)
                 handle.host?.layout(handle)
             }
+            // A card the page laid out while the view waited for it to draw.
+            entry.dialog.onCardRect?()
         }
         if case .window = scope {
             // The page fills the window: it follows the window's size.
@@ -185,10 +187,12 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             }
         }
         entry.handle = handle
+        entry.dialog.notePresented(true)
         drawing?.focus(entry.dialog)
     }
 
     private func detach(_ entry: Shown) {
+        entry.dialog.notePresented(false)
         guard let handle = entry.handle else { return }
         entry.handle = nil
         handle.onDismiss = nil

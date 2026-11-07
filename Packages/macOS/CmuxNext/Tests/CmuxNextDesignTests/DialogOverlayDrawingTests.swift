@@ -104,4 +104,34 @@ import Testing
         drawing.ready?()
         #expect(view?.superview != nil)
     }
+
+    /// Review 9 of #37296 (F1): capture exclusion read the dialog's window while its view still waited in
+    /// the source window, so the overlay panel that shows the card stayed capturable.
+    @Test func captureExclusionWaitsForTheOverlaysWindow() {
+        @MainActor final class LateDrawing: CmuxDialogDrawing {
+            var ready: (() -> Void)?
+            var parking: NSView?
+            func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? { NSView() }
+            func focus(_ dialog: CmuxDialogPresentation) {}
+            func detach(_ dialog: CmuxDialogPresentation) {}
+            func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) {
+                // As the overlay drawing does: the view waits in the source window.
+                if let view = dialog.view { window?.contentView?.addSubview(view) }
+                self.ready = ready
+            }
+        }
+        let drawing = LateDrawing()
+        let center = CmuxDialogCenter(host: CmuxDialogCaptureExcludedHost(
+            inner: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true })))
+        let (window, _) = Self.window()
+        defer { window.close() }
+        let id = center.present(CmuxDialogSpec(title: "Password", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
+        #expect(window.sharingType != .none)
+        drawing.ready?()
+        let shownIn = center.dialog(id)?.window
+        #expect(shownIn != nil && shownIn !== window)
+        #expect(shownIn?.sharingType == NSWindow.SharingType.none)
+        center.dismiss(id)
+        #expect(shownIn?.sharingType != NSWindow.SharingType.none)
+    }
 }

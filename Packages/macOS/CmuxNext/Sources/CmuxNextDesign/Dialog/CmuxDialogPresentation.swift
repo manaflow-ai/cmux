@@ -49,6 +49,24 @@ public final class CmuxDialogPresentation {
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }
 
+    /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
+    /// card draws); false again when the overlay hides it.
+    public private(set) var isPresented = false
+    private var presentedWaiters: [() -> Void] = []
+
+    /// Runs `body` once ``view`` is presented in its overlay, now when it is.
+    public func whenPresented(_ body: @escaping () -> Void) {
+        if isPresented { body() } else { presentedWaiters.append(body) }
+    }
+
+    func notePresented(_ presented: Bool) {
+        isPresented = presented
+        guard presented else { return }
+        let waiters = presentedWaiters
+        presentedWaiters = []
+        waiters.forEach { $0() }
+    }
+
     // MARK: From the drawing
 
     /// The person changed fields: values for ids the spec has, of the kind the field takes.
