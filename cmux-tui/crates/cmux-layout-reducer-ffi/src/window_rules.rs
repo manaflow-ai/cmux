@@ -11,6 +11,8 @@ use crate::ERR_INVALID;
 
 #[path = "window_rules_workspaces.rs"]
 mod workspaces;
+#[path = "window_rules_misc.rs"]
+mod misc;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
@@ -54,6 +56,8 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         return respond_tabs(operation, request);
     }
     let answer = match operation {
+        // The smaller handlers' tables and refusals (notifications, history, remote, browser, files, appearance).
+        operation if misc::handles(operation) => return misc::respond_misc(operation, request),
         // Whether closing these tabs together earns the undo toast.
         b"window_close_toast" => {
             let request: Toasting = read(request)?;

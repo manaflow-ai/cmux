@@ -22,10 +22,21 @@
 //!   asks, space defaults, description and status, screen moves).
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
+//! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
+//!   [`appearance`]: the smaller handlers' tables and refusals (which unread
+//!   tab a verb reads, the trail walks, the SSH machine an action names, a
+//!   page fit, Picture in Picture's page, where a file or diff opens, the
+//!   appearance verbs).
 
+pub mod appearance;
+pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod files;
+pub mod history;
+pub mod notifications;
+pub mod remote;
 pub mod tabs;
 pub mod targets;
 pub mod workspaces;
