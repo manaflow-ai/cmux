@@ -64,7 +64,8 @@ struct UpdatedCardDragTests {
         let (sidebar, island) = try Self.sidebar()
         let host = sidebar.updatedCardView
         let resting = host.frame
-        let list = sidebar.scrollView.frame
+        // The list's frame in the sidebar (its scroll view's own frame is inside the edge fade).
+        let list = sidebar.edgeFade.frame
         let bottomPlace = try #require(island.places.last)
         #expect(bottomPlace.anchor == .bottom)
         #expect(bottomPlace.below == 0, "the slot is the lowest place")
@@ -75,7 +76,7 @@ struct UpdatedCardDragTests {
         sidebar.layoutSubtreeIfNeeded()
         #expect(host.frame.minY == resting.minY - 120)
         #expect(host.frame.minX == resting.minX + 4)
-        #expect(sidebar.scrollView.frame == list, "a held card moves no row")
+        #expect(sidebar.edgeFade.frame == list, "a held card moves no row")
 
         // Let go in the top half: it rests at the top (no window: the springs land at once).
         island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 4, y: -300), drop: .top))
@@ -83,8 +84,9 @@ struct UpdatedCardDragTests {
         #expect(host.anchor == .top)
         #expect(UserDefaults.standard.string(forKey: SidebarUpdatedCardHost.rememberedAnchorKey) == "top")
         #expect(host.frame.minX == resting.minX)
-        #expect(host.frame.height == resting.height)
-        let moved = sidebar.scrollView.frame
+        // Whole points: the slot's bottom may sit on a half point, the top place does not.
+        #expect(abs(host.frame.height - resting.height) <= 1)
+        let moved = sidebar.edgeFade.frame
         #expect(host.frame.maxY < moved.minY, "the card stands above the list's rows")
         #expect(moved.minY - list.minY >= host.frame.height, "the list's top makes the card's room")
         #expect(moved.maxY - list.maxY >= host.frame.height, "the bottom slot's room goes back to the list")
@@ -97,7 +99,7 @@ struct UpdatedCardDragTests {
         island.onDrag?(SidebarCardDrag(offset: CGPoint(x: 0, y: 300), drop: .bottom))
         sidebar.layoutSubtreeIfNeeded()
         #expect(host.frame == resting)
-        #expect(sidebar.scrollView.frame == list)
+        #expect(sidebar.edgeFade.frame == list)
         #expect(UserDefaults.standard.string(forKey: SidebarUpdatedCardHost.rememberedAnchorKey) == nil)
         host.configure(nil)
     }
@@ -109,7 +111,7 @@ struct UpdatedCardDragTests {
         let (sidebar, island) = try Self.sidebar()
         let host = sidebar.updatedCardView
         #expect(host.anchor == .top)
-        #expect(host.frame.maxY < sidebar.scrollView.frame.minY)
+        #expect(host.frame.maxY < sidebar.edgeFade.frame.minY)
         #expect(island.places.last?.anchor == .top)
         host.configure(nil)
     }
