@@ -6313,7 +6313,10 @@ export class AcpmuxDirectClient {
   /// steered in while it waits comes before. Either way its record reads "Answered in chat", also on
   /// a reload, which replays the same records in the same order.
   private answeredInChat(event: EventRecord): void {
-    for (const id of this.askedQuestions.keys()) this.repliedWhileAsked.add(id);
+    // One reply answers one question: the oldest waiting, the one the card shows. The others stay
+    // as they are, so a later Skip or Stop of one of them still reads as such.
+    const card = this.askedQuestions.keys().next();
+    if (!card.done) this.repliedWhileAsked.add(card.value);
     const last = this.lastUnanswered;
     this.lastUnanswered = undefined;
     if (!last || event.at - last.at > ANSWERED_IN_CHAT_MS) return;

@@ -1056,11 +1056,16 @@ function withdrawForTypedReply<T>(
 }
 
 /// What the hat's buttons do (question/HatQuestions.tsx). The chat's own question is answered as its
-/// card answers it; a tagged ask as the person's reply, as its card's buttons send; a started chat's
+/// card answers it; a tagged ask as the person's reply, with its card's reach; a started chat's
 /// opens that chat, the only place it can be answered.
-const hatActions = (focusComposer: () => void): HatQuestionActions => ({
+const hatActions = (focusComposer: () => void, reaches: (owner: string) => boolean): HatQuestionActions => ({
   answer: (question, answer) => {
-    if (question.source === "nextStep") return answerThrough(callNative)(answer.label);
+    // A tagged ask's answer goes as its card's does (`restartReaches`): only to the chat it was read
+    // for, never the next during a switch's hold. A send refused rejects, so the band takes input again.
+    if (question.source === "nextStep")
+      return question.sessionId && reaches(question.sessionId)
+        ? callNative("chat.send", { text: answer.label })
+        : Promise.reject(new Error("unreachable"));
     const asked = question.question;
     const item = asked?.items[0];
     if (question.source !== "own" || !asked || !item) return Promise.reject(new Error("unanswerable"));
@@ -2670,37 +2675,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const hatPlan = sameEntries(hatPlanKept.current, hatPlanSource)
     ? hatPlanKept.current
     : (hatPlanKept.current = hatPlanSource);
-  // The questions waiting on the person, in the composer hat (question/hatModel.ts): this chat's
-  // own, the tagged ask its last turn ended on, and those of the chats it started. The list keeps its
-  // identity while it draws the same, so a streamed chunk never redraws the hat.
-  const hatQuestionsKept = useRef<readonly HatQuestion[]>(NO_HAT_QUESTIONS);
-  const hatQuestionsRead = useMemo(
-    () =>
-      childRows || quick
-        ? NO_HAT_QUESTIONS
-        : hatQuestions({
-            ...(shownSessionId ? { sessionId: shownSessionId } : {}),
-            ...(individualPermission ? { permission: individualPermission } : {}),
-            ...(snapshot.permissionsQueued ? { queued: snapshot.permissionsQueued } : {}),
-            rows: turnRowsShown,
-            sessions: snapshot.sessions,
-            asks: snapshot.asks ?? [],
-          }),
-    [
-      childRows,
-      quick,
-      shownSessionId,
-      individualPermission,
-      snapshot.permissionsQueued,
-      turnRowsShown,
-      snapshot.sessions,
-      snapshot.asks,
-    ],
-  );
-  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
-    ? hatQuestionsKept.current
-    : (hatQuestionsKept.current = hatQuestionsRead);
-  const hatQuestionActions = useMemo(() => hatActions(() => composerHandle.current?.focus()), []);
   // Without the hat, the earlier list's copy pins under the running turn, over its live line.
   const pinnedEarlier = useMemo<AcpmuxRow | undefined>(
     () =>
@@ -3309,6 +3283,49 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
   });
+  // The questions waiting on the person, in the composer hat (question/hatModel.ts): this chat's
+  // own, the tagged ask its last turn ended on, and those of the chats it started. The list keeps its
+  // identity while it draws the same, so a streamed chunk never redraws the hat.
+  const hatQuestionsKept = useRef<readonly HatQuestion[]>(NO_HAT_QUESTIONS);
+  const hatQuestionsRead = useMemo(
+    () =>
+      childRows || quick
+        ? NO_HAT_QUESTIONS
+        : hatQuestions({
+            ...(shownSessionId ? { sessionId: shownSessionId } : {}),
+            ...(individualPermission ? { permission: individualPermission } : {}),
+            ...(snapshot.permissionsQueued ? { queued: snapshot.permissionsQueued } : {}),
+            rows: chatPresentation === "messages" ? sourceRows : turnRowsShown,
+            messages: chatPresentation === "messages",
+            ...(restartChat ? { nextStepOwner: restartChat } : {}),
+            sessions: snapshot.sessions,
+            asks: snapshot.asks ?? [],
+          }),
+    [
+      childRows,
+      quick,
+      shownSessionId,
+      individualPermission,
+      snapshot.permissionsQueued,
+      chatPresentation,
+      sourceRows,
+      turnRowsShown,
+      restartChat,
+      snapshot.sessions,
+      snapshot.asks,
+    ],
+  );
+  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
+    ? hatQuestionsKept.current
+    : (hatQuestionsKept.current = hatQuestionsRead);
+  const hatQuestionActions = useMemo(
+    () =>
+      hatActions(
+        () => composerHandle.current?.focus(),
+        (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
+      ),
+    [],
+  );
   // A subagent's own pane sends to the chat, which passes the message on (subagents/subagentMessage.ts):
   // the chat Restart would send to, as the pane's composer reaches it.
   const subagentRelayChat = restartOwner({

@@ -20,7 +20,7 @@
 // a later turn ends; the chat's own question is declined when the person types a reply instead
 // (App.tsx `withdrawForTypedReply`), and its transcript record then reads "Answered in chat"
 // (direct.ts `recordQuestion`); one the agent or a Stop withdrew leaves when acpmux says so.
-import type { NextStepAsk } from "../conversation/nextStepAsk";
+import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
 import { NEXT_STEP } from "../conversation/turns";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/JumpPill";
@@ -121,11 +121,36 @@ export function liveNextStep(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined 
   return undefined;
 }
 
-function nextStepQuestion(row: AcpmuxRow | undefined): HatQuestion | undefined {
+/// The same in the Messages presentation, whose rows are the source's, unshaped: the reply of a turn
+/// that completed, with nothing the person said after it, read as `turns.ts` reads it. Stopped at the
+/// turn's start, so it also costs the rows since the person's last prompt.
+export function messagesNextStep(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  let completed = false;
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    // Any prompt ends it: the person's answers it, another agent's leaves it in the prose.
+    if (row.kind === "user") return undefined;
+    if (row.kind === "turnSummary") {
+      if (completed || row.status !== "completed") return undefined;
+      completed = true;
+      continue;
+    }
+    if (row.kind !== "assistant" || !row.text?.trim()) continue;
+    if (!completed) return undefined;
+    const ask = nextStepAsk(row.text);
+    return ask?.question && ask.options.length > 0
+      ? { id: `${NEXT_STEP}-${row.id}`, version: row.version, at: row.at, kind: NEXT_STEP, nextStep: { ask } }
+      : undefined;
+  }
+  return undefined;
+}
+
+function nextStepQuestion(row: AcpmuxRow | undefined, owner: string): HatQuestion | undefined {
   const ask = row?.nextStep?.ask;
   if (!row || !ask) return undefined;
   return {
     id: `next:${row.id}`,
+    sessionId: owner,
     source: "nextStep",
     ...(hatTag(ask.tag) ? { tag: hatTag(ask.tag) } : {}),
     prompt: ask.question,
@@ -185,8 +210,12 @@ export type HatQuestionInput = {
   permission?: AcpmuxPermission;
   /// The chat's other asks, behind that card (snapshot `permissionsQueued`).
   queued?: readonly AcpmuxPermission[];
-  /// The shaped rows (App.tsx `turnRowsShown`), where a tagged ask's card is.
+  /// The shaped rows (App.tsx `turnRowsShown`), where a tagged ask's card is; in the Messages
+  /// presentation (`messages`), the source rows, which the hat reads the ask from itself.
   rows: readonly AcpmuxRow[];
+  messages?: boolean;
+  /// The chat a tagged ask's answer would go to (App.tsx `restartOwner`); none, no tagged ask.
+  nextStepOwner?: string;
   sessions: readonly AcpmuxSessionEntry[];
   asks: readonly WatchedAsk[];
 };
@@ -211,7 +240,12 @@ export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
       seen.add(watched.permission.permissionId);
     }
   // A tagged ask is the end of a finished turn: while the chat's own question waits, a turn runs.
-  const next = out.length > 0 ? undefined : nextStepQuestion(liveNextStep(input.rows));
+  // Only where the composer would send it (App.tsx `restartOwner`): its answer is the person's reply.
+  const owner = input.nextStepOwner;
+  const next =
+    out.length > 0 || !owner
+      ? undefined
+      : nextStepQuestion(input.messages ? messagesNextStep(input.rows) : liveNextStep(input.rows), owner);
   if (next) out.push(next);
   if (input.sessionId) out.push(...childQuestions(input.sessionId, input.sessions, input.asks));
   return out;

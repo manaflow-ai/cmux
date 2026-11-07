@@ -6,7 +6,16 @@ import { NEXT_STEP } from "../conversation/turns";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { hatQuestions, hatShows, hatTag, keepShown, liveNextStep, oneClickAnswers, sameHatQuestions } from "./hatModel";
+import {
+  hatQuestions,
+  hatShows,
+  hatTag,
+  keepShown,
+  liveNextStep,
+  messagesNextStep,
+  oneClickAnswers,
+  sameHatQuestions,
+} from "./hatModel";
 import { questionFromPermission, type AgentQuestion } from "./model";
 
 const FIXTURES = fileURLToPath(
@@ -72,9 +81,34 @@ describe("the questions the composer hat holds", () => {
     expect(liveNextStep([ask, said("I made the key but on the other account")])).toBeUndefined();
     expect(liveNextStep([tagged({ answer: "Yes" })])).toBeUndefined();
     expect(liveNextStep([tagged({ superseded: true })])).toBeUndefined();
-    const [shown] = hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] });
-    expect(shown).toMatchObject({ source: "nextStep", tag: "physical", typed: true });
+    const [shown] = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
+    expect(shown).toMatchObject({ source: "nextStep", sessionId: "chat", tag: "physical", typed: true });
     expect(shown!.answers.map((answer) => answer.key)).toEqual(["recap.yes", "recap.notNow"]);
+    // Where the composer could not send it (View Only, a read-only pane), the hat offers no answer.
+    expect(hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] })).toEqual([]);
+  });
+
+  test("in Messages, the tagged ask is read from the completed turn's reply itself", () => {
+    const reply = row("assistant", {
+      text: "Made the config.\n\n[physical] Can you create that key and run the command?",
+    });
+    const done = row("turnSummary", { status: "completed" });
+    expect(messagesNextStep([said("go"), reply, done])?.nextStep?.ask.question).toBe(
+      "Can you create that key and run the command?",
+    );
+    // Still running, stopped, or with any prompt after it: none.
+    expect(messagesNextStep([said("go"), reply])).toBeUndefined();
+    expect(messagesNextStep([said("go"), reply, row("turnSummary", { status: "cancelled" })])).toBeUndefined();
+    expect(messagesNextStep([reply, done, said("not yet")])).toBeUndefined();
+    const [shown] = hatQuestions({
+      sessionId: "chat",
+      nextStepOwner: "chat",
+      messages: true,
+      rows: [said("go"), reply, done],
+      sessions: [],
+      asks: [],
+    });
+    expect(shown).toMatchObject({ source: "nextStep", tag: "physical" });
   });
 
   test("every question acpmux holds for the chat is in the hat, the card's first, each once", () => {
@@ -114,6 +148,7 @@ describe("the questions the composer hat holds", () => {
     const list = hatQuestions({
       sessionId: "chat",
       permission: permission(fixture("pending-single")),
+      nextStepOwner: "chat",
       rows: [tagged()],
       sessions: [],
       asks: [],
@@ -153,8 +188,14 @@ describe("the questions the composer hat holds", () => {
 
   test("a list that draws the same keeps its identity, so a streamed chunk never redraws the hat", () => {
     const ask = tagged();
-    const one = hatQuestions({ sessionId: "chat", rows: [ask], sessions: [], asks: [] });
-    const two = hatQuestions({ sessionId: "chat", rows: [ask, row("thinking")], sessions: [], asks: [] });
+    const one = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
+    const two = hatQuestions({
+      sessionId: "chat",
+      nextStepOwner: "chat",
+      rows: [ask, row("thinking")],
+      sessions: [],
+      asks: [],
+    });
     expect(one).not.toBe(two);
     expect(sameHatQuestions(one, two)).toBe(true);
     expect(sameHatQuestions(one, [])).toBe(false);
