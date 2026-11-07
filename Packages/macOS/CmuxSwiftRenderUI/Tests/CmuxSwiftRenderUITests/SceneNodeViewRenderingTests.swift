@@ -52,6 +52,60 @@ struct SceneNodeViewRenderingTests {
         return host.sizeThatFits(in: proposal)
     }
 
+    @Test func jsonBundledImageHonorsSize() throws {
+        let fixture = try SidebarImageTestBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let resolver = DSLBundledImageResolver(bundle: fixture.bundle)
+        var node = DSLNode(type: .image)
+        node.systemName = "AgentIcons/Codex"
+        node.size = 32
+        let host = NSHostingController(rootView: DSLSidebarRenderer(node: node, imageResolver: resolver, onAction: { _ in }))
+        let size = host.sizeThatFits(in: CGSize(width: 100, height: 100))
+        #expect(size.width == 32)
+        #expect(size.height == 32)
+    }
+
+    @Test func bundledImageDefaultsToFourteenPoints() throws {
+        let fixture = try SidebarImageTestBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let original = try #require(fixture.bundle.image(forResource: "AgentIcons/HermesAgent"))
+        #expect(original.size == NSSize(width: 1024, height: 1024))
+        let resolver = DSLBundledImageResolver(bundle: fixture.bundle)
+        let image = try #require(resolver.bundledImage("AgentIcons/HermesAgent"))
+        let host = NSHostingController(rootView: image)
+        let size = host.sizeThatFits(in: CGSize(width: 2048, height: 2048))
+        #expect(size.width == 14)
+        #expect(size.height == 14)
+        #expect(original.size == NSSize(width: 1024, height: 1024))
+    }
+
+    private func renderedImage(_ source: String) throws -> Data {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: source))
+        let rootId = try #require(runtime.store.rootId)
+        let renderer = ImageRenderer(content:
+            SceneNodeView(nodeId: rootId)
+                .environment(\.sceneStore, runtime.store)
+                .foregroundStyle(.black)
+                .frame(width: 40, height: 40)
+        )
+        let image = try #require(renderer.cgImage)
+        return try #require(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+    }
+
+    @Test func assetSymbolFallbackMatchesNameForm() throws {
+        let reference = try renderedImage("sidebar(() => Image(\"person.fill\").size(20))")
+        let fallback = try renderedImage("sidebar(() => Image({ asset: () => \"person.fill\" }).size(20))")
+        #expect(fallback == reference)
+        let bitmap = try #require(NSBitmapImageRep(data: reference))
+        let visible = (0..<bitmap.pixelsHigh).contains { y in
+            (0..<bitmap.pixelsWide).contains { x in
+                (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0
+            }
+        }
+        #expect(visible, "The reference SF Symbol must draw visible pixels")
+    }
+
     private let wideLabel = "A label much wider than forty points"
 
     @Test func fixedSizeKeepsNaturalWidthWhenSqueezed() throws {
