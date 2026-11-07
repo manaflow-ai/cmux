@@ -934,7 +934,9 @@ fn still_creating(status: &str) -> Ran {
 fn wait_covers_a_create_slower_than_the_apps_answer() {
     let up = ok(json!({"account": {"signed_in": true}, "creating": [],
                        "machines": [{"machine_id": "vm-0", "title": "dev"}, {"machine_id": "vm-1", "title": "chat-1"}]}));
-    let listed = ok(json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}]}));
+    let listed = ok(
+        json!({"account": {"signed_in": true}, "machines": [{"machine_id": "vm-0", "title": "dev"}]}),
+    );
     let mut fake = Fake::new(vec![
         listed,
         creating(),
