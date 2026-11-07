@@ -8,8 +8,9 @@ public import Foundation
 ///
 /// - `<prefix>drag {x, y, anchor?}`: how far the page holds the card from where it rests, CSS px;
 ///   with `anchor`, the card was let go and settles at that anchor (`top`, `bottom`).
-/// - `<prefix>place`: a stream of where the card rests, `{anchor, above, below}`: its anchor and the
-///   room, CSS px, from its edges to the farthest place it may rest above and below.
+/// - `<prefix>place`: a stream of where the card rests, `{anchor, above, below, zoom}`: its anchor, the
+///   room, CSS px, from its edges to the farthest place it may rest above and below, and the zoom, so
+///   the page reads the pointer's screen deltas (points) in CSS px.
 ///
 /// The host speaks points; the page is zoomed (the interface scale), so one CSS px is ``zoom`` points.
 @MainActor
@@ -30,7 +31,7 @@ public final class PageCardDrag: PageProvider {
     public func setPlace(anchor: String, above: CGFloat, below: CGFloat) {
         let scale = max(zoom(), 0.01)
         let next: JSONValue = .object(["anchor": .string(anchor), "above": .number(Double((above / scale).rounded())),
-                                       "below": .number(Double((below / scale).rounded()))])
+                                       "below": .number(Double((below / scale).rounded())), "zoom": .number(Double(scale))])
         guard next != place else { return }
         place = next
         for listener in listeners.values { listener(next) }

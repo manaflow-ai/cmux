@@ -98,7 +98,8 @@ import {
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -106,7 +107,8 @@ import { useAgentProgress } from "./agentProgressStore";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
-import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
+import { StopButton } from "./SubagentGroup";
+import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -123,7 +125,8 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneMark } from "./DoneMark";
-import { Tick, useTrayMotion } from "./trayMotion";
+import { Tick } from "./trayMotion";
+import { useTrayMotion } from "./trayMotionModel";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -131,6 +134,7 @@ import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
+import { earlierPlanHead, planHead } from "./subagentTrayModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -1146,21 +1150,6 @@ function stackMarks(
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
 
-/// The header's plan part: "2 of 5 · Write the tests", the step at work (else the next one waiting)
-/// after the progress; a list all done reads only its progress.
-export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  const progress = t("plan.hat", { done, total: plan.length });
-  const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
-  return step ? `${progress} · ${step.content}` : progress;
-}
-
-/// The header's plan part for an earlier turn's list: "Earlier plan · 2 of 5", naming no step, as
-/// none is at work in this turn.
-export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  return `${t("plan.earlier.short")} · ${t("plan.hat", { done, total: plan.length })}`;
-}
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// A line leaving the open list: its last card, and its place among the lines drawn then.
