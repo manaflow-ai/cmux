@@ -131,6 +131,9 @@ struct Machine {
     restored_first: Vec<String>,
     /// 98b4575a's machine (`Rules::Prior`).
     old: bool,
+    /// Prompts a disk the machine came back on ran again by itself (its own queue, before any
+    /// owner spoke): the journal may hold that run and the one its owner gives back.
+    ran_by_itself: HashSet<String>,
 }
 
 impl Machine {
@@ -184,6 +187,9 @@ impl Machine {
         }
         self.restored_first.retain(|p| p != prompt);
         self.queue.retain(|p| p != prompt);
+        if !by_owner {
+            self.ran_by_itself.insert(prompt.to_owned());
+        }
         if by_owner && self.settled_seen.contains(prompt) {
             LOST.with(|l| {
                 l.borrow_mut()
@@ -416,6 +422,7 @@ impl World {
                 loaded: true,
                 restored_first: vec![],
                 old: rules == Rules::Prior,
+                ran_by_itself: HashSet::new(),
             },
             store,
             _dir: dir,
@@ -1076,7 +1083,10 @@ impl World {
             let removed = self.machine.count(prompt, "queue_removed") > 0;
             let purged = self.taken_in.get(prompt).is_some_and(|g| self.machine.purged.contains(g));
             match (d.state, ran) {
-                (_, n) if n > 1 => return Err(format!("twice: {prompt} ran {n} times")),
+                (_, n) if n > 1 && !self.machine.ran_by_itself.contains(prompt) => {
+                    return Err(format!("twice: {prompt} ran {n} times"));
+                }
+                (_, n) if n > 1 => {}
                 (DState::Failed, _) if d.error.is_some() => {}
                 (DState::Delivered, 1) => {}
                 (DState::Delivered, 0) if removed || purged => {}
