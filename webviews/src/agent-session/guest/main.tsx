@@ -6,7 +6,7 @@ import "virtual:cmux-gallery/agent-pane.css";
 import "./page.css";
 import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
-import { GuestPage, loadGuestTranscript } from "./GuestPage";
+import { GuestPage, startGuestPage } from "./GuestPage";
 import {
   acceptOverFetch,
   attemptId,
@@ -31,8 +31,8 @@ const storage = window.sessionStorage;
 const link = takeGuestLink(window.location, window.history, storage);
 // The transcript's chunk (GuestTranscript.tsx) loads beside the first frame: a joined guest needs it
 // for the room's snapshot, a new one after Join. Its no-owner host is installed as it arrives,
-// before the chat (which asks for the chunk after this) draws anything from it.
-if (link) void loadGuestTranscript().then((chunk) => chunk.installGuestPage());
+// before anything from it draws (GuestPage.tsx startGuestPage).
+if (link) startGuestPage();
 const root = document.getElementById("root")!;
 // A path that names no share opens the join page with Join off ("This link is incomplete").
 const shareId = link?.shareId ?? "";

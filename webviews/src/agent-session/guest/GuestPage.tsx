@@ -33,10 +33,39 @@ import {
 /** What ended the page: the share's end, or a redeem the room refused for good. */
 export type GuestEnded = GuestEnd | "used";
 
-type TranscriptModule = typeof import("./GuestTranscript");
+export type TranscriptModule = typeof import("./GuestTranscript");
 let transcriptChunk: Promise<TranscriptModule> | undefined;
-/** Loads the transcript's chunk once; main.tsx starts it as the page opens, before it is drawn. */
-export const loadGuestTranscript = (): Promise<TranscriptModule> => (transcriptChunk ??= import("./GuestTranscript"));
+let pageSetup: ((chunk: TranscriptModule) => void) | undefined;
+/**
+ * Loads the transcript's chunk once (a failed load is forgotten, so the next call tries again). The
+ * page's own setup (`startGuestPage`) runs on it before any caller sees it.
+ */
+export function loadGuestTranscript(): Promise<TranscriptModule> {
+  transcriptChunk ??= import("./GuestTranscript").then(
+    (chunk) => {
+      pageSetup?.(chunk);
+      return chunk;
+    },
+    (error: unknown) => {
+      transcriptChunk = undefined;
+      throw error;
+    },
+  );
+  return transcriptChunk;
+}
+
+/**
+ * The page (main.tsx, never the gallery): the chunk's no-owner host is installed as it arrives,
+ * before anything from it draws, and its load starts beside the first frame.
+ */
+export function startGuestPage(): void {
+  pageSetup = (chunk) => chunk.installGuestPage();
+  void loadGuestTranscript().catch(() => undefined);
+}
+
+/** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
+const CHUNK_RETRY_FIRST_MS = 1_000;
+const CHUNK_RETRY_MAX_MS = 30_000;
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -197,6 +226,7 @@ export function LiveChat({
   prompts,
   socketUrl,
   openSocket,
+  loadTranscript = loadGuestTranscript,
   onEnded,
 }: {
   /** This guest: never in its own face stack, as the pane leaves the reader out. */
@@ -209,6 +239,8 @@ export function LiveChat({
   prompts: GuestPrompts;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
+  /** Loads the transcript's chunk (loadGuestTranscript; tests and the gallery hand in a failing one). */
+  loadTranscript?: () => Promise<TranscriptModule>;
   onEnded: (reason: GuestEnd) => void;
 }) {
   const t = useT();
@@ -237,19 +269,43 @@ export function LiveChat({
   // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
   // in arrival order, if they come first.
   const [transcript, setTranscript] = useState<TranscriptModule>();
+  // The chunk failed to load: the page says so with Retry, and keeps trying on its own.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const retryLoad = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
     let stopped = false;
     let client: GuestFeed | undefined;
     const waiting: ((client: GuestFeed) => void)[] = [];
     const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
-    void loadGuestTranscript().then((module) => {
-      if (stopped) return;
-      client = module.feedClient(GUEST_SESSION, setSnapshot);
-      setTranscript(module);
-      for (const run of waiting.splice(0)) run(client);
-    });
+    // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const load = (delay: number) => {
+      clearTimeout(retry);
+      retry = undefined;
+      const mine = ++attempt;
+      void loadTranscript().then(
+        (module) => {
+          if (stopped || client) return;
+          client = module.feedClient(GUEST_SESSION, setSnapshot);
+          setLoadFailed(false);
+          setTranscript(module);
+          for (const run of waiting.splice(0)) run(client);
+        },
+        () => {
+          // Only the newest attempt schedules the next one.
+          if (stopped || client || mine !== attempt) return;
+          setLoadFailed(true);
+          retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
+        },
+      );
+    };
+    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS);
+    load(CHUNK_RETRY_FIRST_MS);
     const stop = () => {
       stopped = true;
+      clearTimeout(retry);
+      retryLoad.current = undefined;
       waiting.length = 0;
       client?.dispose();
     };
@@ -294,7 +350,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue]);
+  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript]);
 
   const loadOlder = useCallback(
     () =>
@@ -356,10 +412,19 @@ export function LiveChat({
               onLoadOlder={loadOlder}
             />
           )}
-          {connection !== "live" && (
-            <output className="guest-live__notice">
-              {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-            </output>
+          {loadFailed ? (
+            <div className="guest-live__notice guest-live__notice--failed" role="alert">
+              {t("guest.live.loadFailed")}{" "}
+              <button className="guest-live__retry" type="button" onClick={() => retryLoad.current?.()}>
+                {t("retry.action")}
+              </button>
+            </div>
+          ) : (
+            connection !== "live" && (
+              <output className="guest-live__notice">
+                {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+              </output>
+            )
           )}
         </div>
         {snapshot?.permission && (
@@ -404,6 +469,8 @@ export type GuestPageProps = {
   storage: Storage;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
+  /** Loads the transcript's chunk (default loadGuestTranscript). */
+  loadTranscript?: () => Promise<TranscriptModule>;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;
 };
@@ -422,6 +489,7 @@ export function GuestPage({
   onJoined,
   socketUrl,
   openSocket,
+  loadTranscript,
   ended: endedAtStart,
 }: GuestPageProps) {
   const [guestId, setGuestId] = useState(joinedAs);
@@ -470,6 +538,7 @@ export function GuestPage({
       prompts={prompts}
       socketUrl={socketUrl}
       openSocket={openSocket}
+      loadTranscript={loadTranscript}
       onEnded={setEnded}
     />
   );

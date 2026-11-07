@@ -312,3 +312,35 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
   await removed.unmount();
   await page.unmount();
 });
+
+// The transcript is its own chunk (GuestTranscript.tsx). A load that fails (a dropped connection)
+// says so with Retry, keeps the composer where it is, and the snapshot that came meanwhile draws
+// once Retry loads it.
+test("a transcript chunk that fails to load says so; Retry loads it and the chat draws", async () => {
+  let fail = true;
+  let asked = 0;
+  const loadTranscript = () => {
+    asked += 1;
+    return fail ? Promise.reject(new Error("offline")) : loadGuestTranscript();
+  };
+  const page = await mount({
+    guestId: "g1",
+    role: "talk",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+    loadTranscript,
+  });
+  await roomFrames();
+  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
+  expect(page.host.textContent).not.toContain("bun test src/upload.test.ts --rerun-each 5");
+  expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
+  fail = false;
+  await act(async () => {
+    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await roomFrames();
+  expect(asked).toBe(2);
+  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
+  expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
+  await page.unmount();
+});
