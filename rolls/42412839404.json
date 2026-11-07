@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42412839404",
+  "recorded_at": "2026-11-07T20:55:13Z",
+  "reason": "cmux-tui 1b56dc04afee changes the image's cmux-tui (pinned 7540ccc5bf42)",
+  "dry_run": false,
+  "cmux_tui": "1b56dc04afee8a74be26f4360aae701607f3d2d7",
+  "fixes": [
+    {
+      "sha": "2bad5c35907523bf8285a592aeea7bb07857751b",
+      "mergedAt": "2026-11-07T12:30:48-08:00",
+      "subject": "cmux NEXT: Blocks window style, solid tonal blocks with no lines (#37919)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T20:55:13Z",
+    "snapshot_id": "sh-b212b6169b3e44b7bd15fc716a514aa1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42412839404): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cb04d8feec3515674b0642b4b75c1a7ae904ca47",
+    "image": "cloud-native-auto-1b56dc04-42412839404-1",
+    "revision": "ci-42412839404-1",
+    "at": "2026-11-07T20:55:13Z"
+  },
+  "rolled_back": false
+}
