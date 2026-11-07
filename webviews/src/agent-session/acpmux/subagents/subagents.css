@@ -1598,11 +1598,6 @@ button.cv-subagent > :last-child {
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
 }
-.acpmux-agent-line__name-link {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
-  text-underline-offset: 2px;
-}
 /* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
    line under the title, cut with an ellipsis, so a new step changes its words and never the
    line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
