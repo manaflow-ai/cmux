@@ -178,7 +178,11 @@ impl Hub {
             let at = if name == rest || id.starts_with(rest) {
                 Some(crate::name_match::Step::Exact)
             } else {
-                crate::name_match::step(name, rest)
+                // A sub-session's short name, any case or separators, comes last (`short_step`).
+                crate::name_match::step(name, rest).or_else(|| {
+                    crate::name_match::short_step(name, rest)
+                        .map(|_| crate::name_match::Step::Separators)
+                })
             };
             if at.is_some() {
                 found.push((
@@ -254,7 +258,9 @@ impl Hub {
                 Some(2)
             } else if crate::session_name::ends_with_segments(name, key) {
                 Some(3)
-            } else if at == Some(Step::Separators) {
+            } else if at == Some(Step::Separators)
+                || crate::name_match::short_step(name, key).is_some()
+            {
                 Some(4)
             } else {
                 None
