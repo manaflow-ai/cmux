@@ -22,6 +22,27 @@
       "title" : "Composer Ring",
       "type" : "string"
     },
+    "agentPane.dictationShortcut" : {
+      "default" : "",
+      "description" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+      "title" : "Dictation App Shortcut",
+      "type" : "string"
+    },
+    "agentPane.dictationSource" : {
+      "default" : "cmux",
+      "description" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+      "enum" : [
+        "cmux",
+        "macos",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wisprFlow",
+        "superwhisper"
+      ],
+      "title" : "Dictate With",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -982,7 +1003,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "title" : "Window Style",
       "type" : "string"

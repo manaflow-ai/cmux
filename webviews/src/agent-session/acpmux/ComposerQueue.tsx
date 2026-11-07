@@ -63,7 +63,7 @@ import {
   type SlashCommand,
 } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
-import { withSkillWords } from "./conversation/SkillWord";
+import { withSkillWords } from "./conversation/withSkillWords";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 

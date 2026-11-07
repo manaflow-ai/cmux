@@ -103,7 +103,7 @@ fn sidebar_face_abi_the_structs_have_the_header_layout() {
     assert_eq!(size_of::<CEntry>(), 16);
     assert_eq!(size_of::<CWorkspace>(), 56);
     assert_eq!(size_of::<CRequest>(), 64);
-    assert_eq!(size_of::<CFace>(), 112);
+    assert_eq!(size_of::<CFace>(), 120);
     assert_eq!(size_of::<CListedTab>(), 32);
     assert_eq!(size_of::<CReply>(), 56);
     assert_eq!(size_of::<CText>(), 24);
@@ -149,6 +149,7 @@ fn sidebar_face_abi_one_call_maps_every_changed_row() {
     let chat = rows[0];
     assert_eq!((chat.front, chat.label, chat.face, chat.agent), (0, 1, 1, 1));
     assert_eq!(chat.work, 0, "the shell is the newest work");
+    assert_eq!(chat.front_chat, 1, "the idle shell is no chat: the first chat");
     assert_eq!(chat.kind, 2, "harness");
     assert_eq!(chat.row_kind, 3, "mixed");
     assert_eq!(read(reply, chat.directory), None, "the idle shell's ~ does not label the row");
