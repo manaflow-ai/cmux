@@ -146,6 +146,7 @@ test("a closed toast is reported fading until its fade ends", () => {
       words={words}
       onAction={() => {}}
       onClose={() => {}}
+      onHover={() => {}}
       onLayout={(rects, fading) => reports.push([rects.length, fading.length])}
     />
   );
