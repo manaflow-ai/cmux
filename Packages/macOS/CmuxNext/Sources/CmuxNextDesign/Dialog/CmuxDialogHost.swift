@@ -63,6 +63,30 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     /// Room around an app-scope card for its shadow.
     static let appMargin: CGFloat = 64
 
+    /// Room around a tab dialog's card that does not fit its tab.
+    static let tabMargin: CGFloat = 16
+
+    /// A tab dialog's region (window coordinates): the tab, grown about its center to hold `card` and
+    /// kept inside `window` (the window's content) where it fits there.
+    static func tabRegion(_ tab: NSRect, holding card: CGRect?, in window: NSRect?) -> NSRect {
+        guard let card else { return tab }
+        let width = max(tab.width, ceil(card.width) + tabMargin * 2)
+        let height = max(tab.height, ceil(card.height) + tabMargin * 2)
+        var region = NSRect(x: tab.midX - width / 2, y: tab.midY - height / 2, width: width, height: height)
+        if let window {
+            region.origin.x = min(max(region.minX, window.minX), max(window.minX, window.maxX - width))
+            region.origin.y = min(max(region.minY, window.minY), max(window.minY, window.maxY - height))
+        }
+        return region
+    }
+
+    private static func tabPlacement(_ entry: Shown) -> (region: NSRect, tab: NSRect)? {
+        guard case .tab(let view)? = entry.scope.live, let window = view.window else { return nil }
+        let tab = view.convert(view.bounds, to: nil)
+        let content = window.contentView.map { $0.convert($0.bounds, to: nil) }
+        return (tabRegion(tab, holding: entry.dialog.cardRect, in: content), tab)
+    }
+
     /// The app-scope region for a card of `card` points: never smaller than ``appRegion``, so a card the
     /// interface scale makes wider or a long dialog makes taller is never clipped by the panel.
     static func appRegion(holding card: CGRect?) -> NSSize {
@@ -116,9 +140,9 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
                 self.sync(entry)
             }
             watcher.onResize = { [weak entry] in
-                guard let entry, let rect = entry.watcher?.windowRect else { return }
-                entry.dialog.view?.setFrameSize(rect.size)
-                entry.handle?.update(anchor: rect, modalRegion: rect)
+                guard let entry, let place = Self.tabPlacement(entry) else { return }
+                entry.dialog.view?.setFrameSize(place.region.size)
+                entry.handle?.update(anchor: place.region, modalRegion: place.tab)
             }
             entry.watcher = watcher
         }
@@ -148,7 +172,11 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         detach(entry)
         // A tab's dialog shown again after a tab switch keeps its view: only its end gives the view back.
         guard let view = entry.dialog.view ?? drawing?.attach(entry.dialog, in: scope.window) else { return }
-        let options = Self.options(for: scope)
+        var options = Self.options(for: scope)
+        if let place = Self.tabPlacement(entry) {
+            options.anchor = place.region
+            options.modalRegion = place.tab
+        }
         view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion(holding: entry.dialog.cardRect))
         entry.dialog.view = view
         // The first show waits at its transparent first frame in the panel, where the page draws the card
@@ -174,6 +202,17 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
                 handle.host?.layout(handle)
             }
             // A card the page laid out while the view waited for it to draw.
+            entry.dialog.onCardRect?()
+        }
+        if case .tab = scope {
+            // A card wider or taller than its tab (a narrow split) keeps its whole card: the region grows
+            // around the tab, inside the window, while only the tab is blocked.
+            entry.dialog.onCardRect = { [weak handle, weak view, weak entry] in
+                guard let handle, let view, let entry, let place = Self.tabPlacement(entry),
+                      view.frame.size != place.region.size else { return }
+                view.setFrameSize(place.region.size)
+                handle.update(anchor: place.region, modalRegion: place.tab)
+            }
             entry.dialog.onCardRect?()
         }
         if case .window = scope {

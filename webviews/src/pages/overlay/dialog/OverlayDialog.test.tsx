@@ -222,15 +222,14 @@ test("a host update keeps the secure text the person typed, and each edit gives 
 test("buttons that do not fit on one line stack, and stay on one line when they fit (#29984)", async () => {
   installDom();
   const proto = dom!.window.HTMLElement.prototype;
-  // jsdom lays nothing out: the row reports the width its buttons would need on one line.
-  let needed = 600;
+  // jsdom lays nothing out: each button reports its width, the row its own.
+  let buttonWidth = 150;
   Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 400 });
-  Object.defineProperty(proto, "scrollWidth", {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.classList.contains("overlay-dialog-buttons") ? needed : 0;
-    },
-  });
+  const rect = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (!this.classList.contains("overlay-dialog-button")) return rect.call(this);
+    return { x: 0, y: 0, top: 0, left: 0, right: buttonWidth, bottom: 26, width: buttonWidth, height: 26, toJSON() {} };
+  };
   const quitChoice: DialogState = {
     ...quit,
     layout: "standard",
@@ -251,7 +250,8 @@ test("buttons that do not fit on one line stack, and stay on one line when they 
     return dom!.window.document.body.querySelector<HTMLElement>(".overlay-dialog-buttons")!;
   };
   expect((await mount(quitChoice)).dataset.stacked).not.toBeUndefined();
-  needed = 300;
+  // Two that fit stay on one line.
+  buttonWidth = 150;
   expect((await mount({ ...quitChoice, buttons: quitChoice.buttons.slice(2) })).dataset.stacked).toBeUndefined();
 });
 

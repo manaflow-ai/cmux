@@ -119,4 +119,21 @@ import Testing
         center.dismiss(id)
         #expect(shownIn?.sharingType != NSWindow.SharingType.none)
     }
+
+    /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was
+    /// clipped. The region grows about the tab to hold the card, inside the window; a card that fits keeps
+    /// the tab.
+    @Test func aTabDialogsRegionHoldsACardWiderThanItsTab() {
+        let tab = NSRect(x: 600, y: 100, width: 200, height: 300)
+        let window = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let card = CGRect(x: 0, y: 0, width: 380, height: 180)
+        let region = CmuxDialogOverlayHost.tabRegion(tab, holding: card, in: window)
+        #expect(region.width >= 380 + CmuxDialogOverlayHost.tabMargin * 2)
+        #expect(region.height == tab.height)
+        // Kept inside the window: the tab is at its right edge.
+        #expect(region.maxX <= window.maxX)
+        #expect(region.contains(NSPoint(x: tab.midX, y: tab.midY)))
+        #expect(CmuxDialogOverlayHost.tabRegion(NSRect(x: 0, y: 0, width: 600, height: 400), holding: card, in: window)
+            == NSRect(x: 0, y: 0, width: 600, height: 400))
+    }
 }

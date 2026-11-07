@@ -83,7 +83,14 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
     // when the card or the page resizes (the interface scale, a longer title), so the row fits as it shows.
     const measure = () => {
       delete row.dataset.stacked;
-      const overflows = row.scrollWidth > row.clientWidth + 0.5;
+      // The buttons' own widths and gaps: the row is end-aligned, so what overflows it spills past its
+      // left edge, which its scrollWidth never counts.
+      const buttons = [...row.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
+      const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+      const needed =
+        buttons.reduce((sum, button) => sum + button.getBoundingClientRect().width, 0) +
+        gap * Math.max(0, buttons.length - 1);
+      const overflows = needed > row.clientWidth + 0.5;
       if (overflows) row.dataset.stacked = "";
       setStacked(overflows);
     };
