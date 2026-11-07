@@ -349,10 +349,10 @@ fn record_user_id(token: &str, user_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// This box's joined identity. A record copied here from the box that joined it (`cloned`) names
-/// that other box, so it is not this one's.
+/// This box's joined identity. A record copied here from the box that joined it names that other
+/// box, so it is not this one's: the same check [`machine_credential`] makes.
 pub(crate) fn identity() -> Result<Option<MachineIdentity>> {
-    Ok(load()?.filter(|record| !record.cloned).as_ref().map(MachineIdentity::from_record))
+    Ok(machine_credential()?.as_ref().map(MachineIdentity::from_record))
 }
 
 /// A stored hub origin, checked as `host join` checks it.

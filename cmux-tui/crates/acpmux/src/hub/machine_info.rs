@@ -18,18 +18,17 @@ impl Hub {
                 None
             }
         };
-        let cloud_vm = self.cmux_vm();
-        let (machine_kind, machine_id, machine_name, team_id, joined) = match identity {
+        // Where it runs decides the kind; a personal machine joined with `host join` is still local.
+        let machine_kind =
+            Some(if self.cmux_vm() { MachineKind::Cloud } else { MachineKind::Local });
+        let (machine_id, machine_name, team_id, joined) = match identity {
             Some(identity) => (
-                Some(MachineKind::Cloud),
                 Some(identity.machine_id),
                 Some(identity.name),
                 Some(identity.team_id),
                 Some(!identity.revoked),
             ),
-            None if cloud_vm => (Some(MachineKind::Cloud), None, None, None, None),
-            None if unavailable.is_empty() => (Some(MachineKind::Local), None, None, None, None),
-            None => (None, None, None, None, None),
+            None => (None, None, None, None),
         };
 
         let workspace_id = meta
@@ -70,10 +69,8 @@ impl Hub {
             );
         }
 
-        let browser_available =
-            Some(meta.tools.rows.iter().any(|row| row.enabled && row.id == "mcp:cmux"));
-        let display_available =
-            Some(meta.tools.rows.iter().any(|row| row.enabled && row.id == "mcp:cmux-cua"));
+        let browser_available = mcp_available(&meta.tools.rows, "mcp:cmux");
+        let display_available = mcp_available(&meta.tools.rows, "mcp:cmux-cua");
 
         let mut secrets = BTreeMap::<String, (u64, String)>::new();
         let scan_result = self.store.scan_kinds(
@@ -129,6 +126,21 @@ impl Hub {
     }
 }
 
+/// Whether the chat's MCP server `id` can be used: an enabled row its harness reports connected.
+/// An enabled row no harness has reported yet is unknown (None); a failed, pending, needs-auth
+/// or disabled one, or no row, is unavailable.
+fn mcp_available(rows: &[crate::store::ToolRow], id: &str) -> Option<bool> {
+    let Some(row) = rows.iter().find(|row| row.id == id) else { return Some(false) };
+    if !row.enabled {
+        return Some(false);
+    }
+    match row.status.as_deref() {
+        Some("connected") => Some(true),
+        Some(_) => Some(false),
+        None => None,
+    }
+}
+
 trait Pipe: Sized {
     fn pipe<T>(self, f: impl FnOnce(Self) -> T) -> T {
         f(self)
@@ -155,6 +167,8 @@ mod tests {
     #[test]
     fn reads_real_secret_events_without_projecting_secret_values() {
         let hub = hub();
+        // No creation marker here: the machine is local whatever box runs the test.
+        hub.set_vm_marker_root("/nonexistent".into());
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": META_SCHEMA,
             "id": "machine-info-secret-events",
@@ -194,7 +208,32 @@ mod tests {
         );
 
         let result = hub.machine_info(&session);
+        assert_eq!(result["machine"]["kind"], "local");
         assert_eq!(result["secrets"], json!([{"name": "API_TOKEN", "status": "provided"}]));
         assert!(!result.to_string().contains("machine-info-secret-sentinel"));
+    }
+
+    fn row(id: &str, enabled: bool, status: Option<&str>) -> crate::store::ToolRow {
+        crate::store::ToolRow {
+            id: id.into(),
+            name: id.into(),
+            kind: "mcp".into(),
+            source: "claude".into(),
+            enabled,
+            can_toggle: true,
+            status: status.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn an_mcp_server_counts_only_when_its_harness_reports_it_connected() {
+        let id = "mcp:cmux";
+        assert_eq!(mcp_available(&[row(id, true, Some("connected"))], id), Some(true));
+        for status in ["failed", "pending", "needs-auth", "disabled"] {
+            assert_eq!(mcp_available(&[row(id, true, Some(status))], id), Some(false), "{status}");
+        }
+        assert_eq!(mcp_available(&[row(id, false, Some("connected"))], id), Some(false));
+        assert_eq!(mcp_available(&[row(id, true, None)], id), None);
+        assert_eq!(mcp_available(&[], id), Some(false));
     }
 }
