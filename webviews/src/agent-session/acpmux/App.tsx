@@ -419,7 +419,7 @@ import {
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
-import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
 import {
   draftMessage as subagentDraftMessage,
@@ -4110,6 +4110,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
+  useTabRowRoot(shell, inTabRow);
   /// A one-tab pane's row has no band: the transcript runs up under it (header/tabRow.ts `soloTab`, header.css).
   const soloTab = inTabRow && tabRow.soloTab === true;
   /// The lines in flow under the header (header/underHeader.ts): each renders below only when its flag is set,
@@ -10366,6 +10367,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
+          // A question or permission card in the bottom stack (conversation.css). An attribute, not a
+          // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
+          // into the transcript, and restyle the composer each time.
+          data-asks={hasBottomAsk ? "" : undefined}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
