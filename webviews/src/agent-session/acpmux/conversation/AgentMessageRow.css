@@ -327,3 +327,50 @@ button.cv-agentmsg__name:focus-visible {
   container-type: inline-size;
   min-width: 0;
 }
+/* A sent message (SentMessageLine.tsx) draws as a received one (ask-64e107ccf0; Leo, 2026-11-07:
+   "it's just not good, compared to the normal ones"): the received line and card above, with "Sent
+   to" before the recipient's chip. The chip follows those words at the sender span's gap, so it
+   keeps no pull into the mark's gap that a first-word sender takes. */
+.cv-sent-msg .cv-received__sender > .cv-agent-tag,
+.cv-sent-msg .cv-received__sender > .cv-agent-tag.is-open {
+  margin-inline-start: 0;
+}
+.cv-sent__words {
+  flex: none;
+  white-space: nowrap;
+}
+.cv-sent-msg .cv-received__mark.cv-tool__failed {
+  color: var(--agent-status-failure);
+}
+.cv-sent-msg .cv-sent__preview {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+}
+.cv-sent-msg .cv-sent__preview > .cv-sent__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Raw's call: the plain command row at the card's text column, no inset of its own. */
+.cv-sent__raw-body > .cv-tools,
+.cv-sent__call > .cv-tools {
+  margin: 0;
+}
+/* Gallery arms (sentMessageLook.experiment.ts). Plain: the words under the line with no card. */
+.cv-sent-msg.look-plain .cv-disclosure__panel {
+  background: none;
+  box-shadow: none;
+  padding-block: 0;
+}
+/* Raw on hover: the link shows while the pointer or focus is in the card, or while Raw is open. */
+.cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more[aria-expanded="false"] {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-sent-msg.look-hover .cv-disclosure__panel:hover .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-disclosure__panel:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-disclosure__panel:focus-within .cv-sent__raw > .cv-received__more {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
