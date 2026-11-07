@@ -1,6 +1,12 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { inboxText, type InboxNotice } from "./inboxNotice";
-import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
+import {
+  laneNotice,
+  type LaneNotice,
+  type LaneNoticeDelivery,
+  type LaneNoticeKind,
+  type LaneNoticeThread,
+} from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
 
 export type LaneNoticeBatch = NonNullable<AcpmuxRow["laneNoticeBatch"]>;
@@ -13,6 +19,8 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       sender: message.from,
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
+      ...(message.unverified ? { unverified: message.unverified } : {}),
+      ...(message.harness ? { harness: message.harness } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
     const preview = messages?.at(-1)?.text ?? thread.preview;
@@ -25,6 +33,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
       ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+      ...(thread.unverified ? { unverified: thread.unverified } : {}),
       count: thread.count,
     };
   });
@@ -108,7 +117,7 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
 
 const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
-const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
+const inboxDeliveries = (thread: LaneNoticeThread): readonly LaneNoticeDelivery[] =>
   thread.messages?.length
     ? thread.messages
     : [
@@ -116,6 +125,7 @@ const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; t
           sender: thread.sender,
           text: thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+          ...(thread.unverified ? { unverified: thread.unverified } : {}),
         },
       ];
 
@@ -146,6 +156,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 promptIds: thread.promptIds ?? [],
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
               },
             }
           : {}),
@@ -158,7 +169,12 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
             ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
-            ...(thread.fromHarness && delivery.sender === thread.sender ? { harness: thread.fromHarness } : {}),
+            ...(delivery.harness
+              ? { harness: delivery.harness }
+              : thread.fromHarness && delivery.sender === thread.sender
+                ? { harness: thread.fromHarness }
+                : {}),
+            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
           },
         },
       });

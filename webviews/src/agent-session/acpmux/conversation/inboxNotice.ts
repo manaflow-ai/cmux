@@ -9,9 +9,19 @@
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
+import { bareSender, senderRecord, senderUnverified } from "./senderIdentity";
 
-/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it.
-export type InboxMessage = { promptId?: string; from: string; at?: number; text: string };
+/// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it. `from` is the bare
+/// name (senderIdentity.ts); `unverified` when acpmux could not verify who sent it, `harness` the
+/// sender's family from its record.
+export type InboxMessage = {
+  promptId?: string;
+  from: string;
+  at?: number;
+  text: string;
+  unverified?: true;
+  harness?: string;
+};
 
 /// One thread of a notice.
 export type InboxThread = {
@@ -24,8 +34,12 @@ export type InboxThread = {
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
   /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
-  /// (prompt_provenance.rs `fromHarness`; cmux#30247): its line draws that harness's mark.
+  /// (prompt_provenance.rs `fromHarness`; cmux#30247) or its sender record names it: its line draws
+  /// that harness's mark.
   fromHarness?: string;
+  /// acpmux could not verify the newest message's sender (its record's `verification`, or an older
+  /// acpmux's suffix on its name): the line's subtle marker, never words in the name.
+  unverified?: true;
   /// The new messages the notice brought.
   count: number;
   /// The newest one's first line.
@@ -56,8 +70,10 @@ export function threadLabel(threadId: string): string {
   return pr ? `#${pr[1]}` : "";
 }
 
-/// The daemon's label without the quotes it puts around a topic for the agent.
-const shownLabel = (label: string, threadId: string): string => {
+/// The daemon's label without the quotes it puts around a topic for the agent, nor the unverified
+/// suffix an older acpmux put on a self-named sender's thread.
+const shownLabel = (written: string, threadId: string): string => {
+  const label = bareSender(written).name;
   const quoted = /^"([\s\S]*)"$/.exec(label);
   if (quoted) return quoted[1]!;
   return label === "messages" ? "" : label || threadLabel(threadId);
@@ -88,12 +104,18 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
     const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
     const newest = messages?.at(-1)?.text;
+    const senders = strings(p.from).map(bareSender);
+    const record = senderRecord(p.sender);
+    const harness = text(p.fromHarness) || record?.harness || messages?.at(-1)?.harness;
+    const unverified =
+      senderUnverified(record, senders.at(-1)?.declared ?? false) || messages?.at(-1)?.unverified === true;
     threads.push({
       threadId,
       label: shownLabel(text(p.label), threadId),
-      from: strings(p.from),
+      from: [...new Set(senders.map((sender) => sender.name).filter(Boolean))],
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
-      ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
+      ...(harness && { fromHarness: harness }),
+      ...(unverified && { unverified: true as const }),
       count,
       preview:
         withoutRelayHead(text(p.preview).trim()) ||
@@ -113,10 +135,14 @@ export function inboxMessages(records: unknown[]): InboxMessage[] {
   return records.flatMap((m): InboxMessage[] => {
     const r = m as Record<string, unknown> | null;
     if (!r || typeof r.text !== "string") return [];
+    const sender = bareSender(text(r.from));
+    const record = senderRecord(r.sender);
     return [
       {
-        from: text(r.from),
+        from: sender.name,
         text: withoutRelayEnvelope(r.text),
+        ...(senderUnverified(record, sender.declared) && { unverified: true as const }),
+        ...(record?.harness && { harness: record.harness }),
         ...(typeof r.promptId === "string" && { promptId: r.promptId }),
         ...(typeof r.at === "number" && { at: r.at }),
       },
