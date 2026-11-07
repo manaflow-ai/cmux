@@ -23,8 +23,8 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("agent-pane-side-command: skipping (run `bunx playwright install chromium`)");
+  } catch (error) {
+    console.warn("agent-pane-side-command: skipping (run `bunx playwright install chromium`):", error);
     describe.skip("side command", () => test("chromium", () => {}));
     return;
   }
