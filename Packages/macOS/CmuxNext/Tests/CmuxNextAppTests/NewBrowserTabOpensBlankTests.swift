@@ -20,8 +20,15 @@ struct NewBrowserTabOpensBlankTests {
             let store = services.daemon.store
             let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: paneModel))
-            let terminal = try #require(paneModel.tabs.first { $0.kind == .pty }, "restore made no terminal")
+            // A live terminal tab of the pane, selected and shown (as CmdWIdleTerminalClosesInItsTurnTests makes one).
+            let surface = try await connection.newTab(in: paneModel.handle).surface
+            try await PasswordManagerRouteTests.until({ store.tab(surface: surface) != nil })
+            let terminal = try #require(store.tab(surface: surface))
+            try await PasswordManagerRouteTests.until({ pane.orderedIDs.map(\.rawValue).contains(terminal.id) },
+                                                      report: { "strip: \(pane.orderedIDs.map(\.rawValue))" })
             pane.select(StripTabID(terminal.id))
+            try await PasswordManagerRouteTests.until({ services.cache.existingTerminal(terminal.id) != nil },
+                                                      report: { "the terminal's view was never made" })
             // A dev build's Tag Opener link on the terminal's screen, as an agent prints it.
             let link = "http://127.0.0.1:17320/37384-new-browser-blank"
             _ = try await connection.request(SendInputRequest(surface: terminal.surface, text: "printf '%s\\n' '\(link)'\r"))
