@@ -5,7 +5,7 @@ import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacemen
 import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureChatWidth } from "./chatWidth";
 import { configureToolRunLook } from "./toolRunLook";
-import { configureSentLook } from "./conversation/SentMessageLine";
+import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeLook } from "./conversation/noticeLook";

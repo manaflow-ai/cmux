@@ -46,7 +46,9 @@ public final class ClosedPageKeeper<Page: AnyObject> {
 
     /// Keeps `page` of closed chat `session`; false (nothing kept) in Low Power Mode.
     public func keep(_ page: Page, for session: String) -> Bool {
-        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return false }
+        // The shared state, override included: the observer reports only changes, so a mode already
+        // on at the close (`debug.low_power_mode`) is read here.
+        guard !LowPowerMode.system.isEnabled else { return false }
         for dropped in kept.keep(page, for: session, until: clock.now + keepFor) { teardown(dropped) }
         scheduleExpiry()
         observePower()
@@ -59,7 +61,7 @@ public final class ClosedPageKeeper<Page: AnyObject> {
     /// The kept page of closed chat `session`, taken back (nil when none is kept).
     public func take(_ session: String) -> Page? {
         // Low Power Mode since the close: nothing is used from the keep, and it empties now.
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+        if LowPowerMode.system.isEnabled {
             for page in kept.removeAll() { teardown(page) }
             timer.cancel()
             observePower()

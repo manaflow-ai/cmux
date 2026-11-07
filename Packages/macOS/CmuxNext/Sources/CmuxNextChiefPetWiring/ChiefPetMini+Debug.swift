@@ -13,9 +13,24 @@ extension ChiefPetMini {
             guard let pet = self?.pet() else {
                 return .value(["error": "no Chief pet: home.chiefPetEnabled has not turned it on, or a showcase launch never starts it"])
             }
-            let answer = pet.debug(call.params["action"]?.stringValue ?? "state", call.params.mapValues(\.foundationObject))
-            return .value(JSONValue(foundation: answer) ?? .null)
-        }
+            let action = call.params["action"]?.stringValue ?? "state", params = call.params
+            // `at`: the call runs that many seconds after `motion` turned on (a frame of the loop the caller picks).
+            if let at = params["at"]?.doubleValue, let wait = pet.debugWait(untilMotionSeconds: min(at, Self.debugLongestWait)), wait > 0 {
+                return .followUp {
+                    // wakeup-allow: one-shot wait a capture script asked for (DEBUG only, capped at debugLongestWait, async on the follow-up task, never the main thread), not a poll
+                    try await ContinuousClock().sleep(for: .seconds(wait))
+                    return await Self.debugAnswer(pet, action, params)
+                }
+            }
+            return .value(Self.debugAnswer(pet, action, params))
+        }.withDeadline(.fixed(.seconds(Self.debugLongestWait + 5)))
     }
+
+    @MainActor private static func debugAnswer(_ pet: ChiefPetController, _ action: String, _ params: [String: JSONValue]) -> JSONValue {
+        JSONValue(foundation: pet.debug(action, params.mapValues(\.foundationObject))) ?? .null
+    }
+
+    /// The longest `at` wait, inside the method's deadline.
+    static let debugLongestWait: Double = 25
 }
 #endif
