@@ -258,6 +258,12 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
+  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
+  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
+  "home-messages-transcript": {
+    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
+  },
   // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
   // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
   // daemon gate it shares.
