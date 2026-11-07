@@ -57,6 +57,9 @@ const MASK: &str = "••••••";
 pub(crate) struct Secrets {
     pending: StdMutex<HashMap<String, Pending>>,
     held: StdMutex<HashMap<String, Held>>,
+    /// Held across [`Hub::close_stale_card`]'s read and append, so two late answers write one
+    /// decision.
+    closing: StdMutex<()>,
 }
 
 struct Pending {
@@ -293,6 +296,34 @@ impl Hub {
         (outcome, answer.flatten())
     }
 
+    /// An answer to a card this daemon no longer holds (it restarted while the card was open) whose
+    /// request record has no decision: every client still shows that card and would keep
+    /// answering it. Its `cancelled` decision closes it everywhere. A card this run asked is left
+    /// alone: its own ask writes its decision, and may be about to. Reads this one chat's card
+    /// records, only on this error path.
+    fn close_stale_card(&self, session: &Session, secret_id: &str) {
+        const KINDS: [CardKind; 2] = [CARD_SECRET, super::elevation::CARD];
+        let names = KINDS.map(|k| [k.request, k.decision]).concat();
+        let _one = self.secrets.closing.lock().unwrap_or_else(|e| e.into_inner());
+        let mut open: Option<(CardKind, Value)> = None;
+        let _ = self.store.scan_kinds(&session.id, &names, &mut |event| {
+            if event.msg.get("secretId").and_then(Value::as_str) == Some(secret_id) {
+                open = KINDS
+                    .into_iter()
+                    .find(|k| k.request == event.kind && event.at < self.started_at)
+                    .map(|k| (k, event.msg));
+            }
+            true
+        });
+        let Some((kind, mut decision)) = open else { return };
+        if let Some(fields) = decision.as_object_mut() {
+            fields.remove(super::person::DECISION_NONCE_FIELD);
+            fields.remove("personInstance");
+            fields.insert("outcome".into(), json!("cancelled"));
+        }
+        self.append(session, "mux", kind.decision, decision);
+    }
+
     /// Whether a `secret_submit` from a connection that is not the person counts for this card.
     /// Only a card whose kind is [`CardKind::signed`] has a nonce; a secret card stays the
     /// person's own. On such a card a decline counts from anyone (it narrows, as a deny of a
@@ -368,6 +399,12 @@ impl Hub {
         Ok(())
     }
 
+    /// Whether `secret_id` is an open card of this chat.
+    pub fn card_open(&self, session: &Session, secret_id: &str) -> bool {
+        let map = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(secret_id).is_some_and(|p| p.session == session.id)
+    }
+
     pub fn submit_secret(
         &self,
         session: &Session,
@@ -383,9 +420,10 @@ impl Hub {
                 _ => None,
             }
         };
-        let pending = pending.ok_or_else(|| {
-            RpcError::invalid_params("no secret request with that id in this chat")
-        })?;
+        let Some(pending) = pending else {
+            self.close_stale_card(session, secret_id);
+            return Err(RpcError::invalid_params("no secret request with that id in this chat"));
+        };
         pending
             .reply
             .send(value)
