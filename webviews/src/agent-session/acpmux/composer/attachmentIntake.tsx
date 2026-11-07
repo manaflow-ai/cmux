@@ -826,7 +826,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
       if (!other) event.preventDefault();
-      if (files.length) void attach(files, owned.uploads, "paste");
+      // Keep every file from one paste event, including screenshots with identical bytes. A
+      // repeated one-file paste is still content-deduped against the existing chip.
+      if (files.length) void attach(files, owned.uploads, "paste", files.length === 1);
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
