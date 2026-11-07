@@ -5,7 +5,8 @@
 // computer could not answer; `bad-link` a link that lost its secret. The `invite-*` variants are an
 // account invite (/i/<id>): the room signed the visitor in, so there is no name field, only Join.
 import { componentEntry } from "../../gallery/format";
-import { memoryStorage } from "./fixtures/liveChat";
+import type { Play } from "../../gallery/play";
+import { fakeRoom, joinFrames, memoryStorage, workingRecords } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
 
 const base: GuestPageProps = {
@@ -18,6 +19,30 @@ const base: GuestPageProps = {
 };
 
 const invite: GuestPageProps = { ...base, secret: undefined, invite: true };
+
+/**
+ * A tab that joined by the link (one message still waiting for the owner as that guest), then
+ * opened the invite and pressed Join: it is the invitee now, with its own empty outbox (cmux#34013).
+ */
+const afterLink = (role: "view" | "talk"): GuestPageProps => {
+  const storage = memoryStorage(
+    base.shareId,
+    [{ clientId: "c-link", text: "Sent as the link guest", at: 0, state: "held" }],
+    "g-link",
+  );
+  storage.setItem(`cmux.guest.${base.shareId}.joined`, "g-link");
+  return {
+    ...invite,
+    storage,
+    accept: () => Promise.resolve({ ok: true, guestId: "g1", role }),
+    socketUrl: "wss://room.invalid/v1/chat-shares/c2hhcmUtZ2FsbGVyeQ/guest",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+  };
+};
+const acceptJoin: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Join" });
+  await ctx.waitFor(() => ctx.document.querySelector(".guest-live"));
+};
 
 export default componentEntry<GuestPageProps>({
   id: "guest-page.join",
@@ -53,6 +78,16 @@ export default componentEntry<GuestPageProps>({
         await ctx.click({ role: "button", name: "Join" });
         await ctx.waitFor(() => ctx.document.querySelector("[role='alert']"));
       },
+    },
+    "invite-after-link-talk": {
+      props: afterLink("talk"),
+      note: "Joined by the link first, then accepted the invite: a talk invitee, the link guest's waiting message not carried over.",
+      play: acceptJoin,
+    },
+    "invite-after-link-view": {
+      props: afterLink("view"),
+      note: "Joined by the link first, then accepted a view invite: watch only, no composer.",
+      play: acceptJoin,
     },
     "invite-signed-out": {
       props: { ...invite, accept: () => Promise.resolve({ ok: false, error: "share.unauthorized" }) },

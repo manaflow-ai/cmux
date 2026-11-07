@@ -4,7 +4,7 @@
 // the agent's reasoning, a test run with its output, and a second run, either still going or
 // waiting on the owner's answer. `fakeRoom` plays frames to the page as the room would.
 import type { EventRecord } from "../../acpmux/direct";
-import type { GuestPrompt } from "../guestPrompts";
+import { type GuestPrompt, guestScope } from "../guestPrompts";
 import type { ShareSocketLike } from "../shareSocket";
 
 const MINUTE = 60_000;
@@ -141,9 +141,9 @@ export function fakeRoom(frames: object[]): (url: string) => ShareSocketLike {
 }
 
 /** A tab's sessionStorage, in memory: optionally holding this guest's own messages already. */
-export function memoryStorage(shareId?: string, prompts?: GuestPrompt[]): Storage {
+export function memoryStorage(shareId?: string, prompts?: GuestPrompt[], guestId = "g1"): Storage {
   const items = new Map<string, string>();
-  if (shareId && prompts) items.set(`cmux.guest.${shareId}.prompts`, JSON.stringify(prompts));
+  if (shareId && prompts) items.set(`cmux.guest.${guestScope(shareId, guestId)}.prompts`, JSON.stringify(prompts));
   return {
     get length() {
       return items.size;
