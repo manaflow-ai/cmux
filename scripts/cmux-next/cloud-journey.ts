@@ -330,9 +330,18 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
  */
 export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; reply: string }> {
   const started = performance.now();
-  const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+  // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
   const args = ["carrier", "dial", "--machine", machine, "--deadline-ms", String(deadlineMs), ...(api.team ? ["--team", api.team] : [])];
   const child = spawn(cmux, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+  // A cmux that does not start, or a dial that exits before its stdin is written, fails this step, not the journey.
+  let failed: Error | null = null;
+  const failure = new Promise<never>((_, reject) => {
+    child.on("error", (e) => reject((failed = new Error(`carrier dial: ${e.message}`))));
+    child.stdin!.on("error", (e) => reject((failed = new Error(`carrier dial: stdin ${e.message}`))));
+  });
+  failure.catch(() => undefined);
   const lines = (stream: NodeJS.ReadableStream) => {
     let buffered = "";
     const waiting: Array<(line: string | null) => void> = [];
@@ -356,7 +365,7 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     const late = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`carrier dial: no ${what} within ${deadlineMs + 15_000} ms`)), deadlineMs + 15_000);
     });
-    return Promise.race([p, late]).finally(() => clearTimeout(timer));
+    return Promise.race([p, late, failure]).finally(() => clearTimeout(timer));
   };
   try {
     const first = await within("status line", err());
@@ -367,11 +376,22 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     const connectMs = Number(/ ms=(\d+)/.exec(route)?.[1] ?? NaN);
     if (!/^cloud\.connect route=carrier .*outcome=ok/.test(route) || !Number.isFinite(connectMs)) throw new Error(`carrier dial: route line ${short(route)}`);
     child.stdin!.write('{"cmd":"identify","id":1}\n');
-    const reply = await within("answer to identify", out());
-    if (reply === null) throw new Error("carrier dial: the stream ended before the daemon answered");
-    return { connectMs, replyMs: Math.round(performance.now() - started), reply };
+    // The daemon may push events first; the answer is the line with id 1, and it must be ok with the daemon's identity.
+    for (;;) {
+      const reply = await within("answer to identify", out());
+      if (reply === null) throw new Error("carrier dial: the stream ended before the daemon answered");
+      let answer: any;
+      try {
+        answer = JSON.parse(reply);
+      } catch {
+        throw new Error(`carrier dial: not a protocol line: ${reply.slice(0, 200)}`);
+      }
+      if (answer?.id !== 1) continue;
+      if (answer.ok !== true || typeof answer.data?.app !== "string") throw new Error(`carrier dial: identify answered ${short(answer)}`);
+      return { connectMs, replyMs: Math.round(performance.now() - started), reply };
+    }
   } finally {
-    child.stdin!.end();
+    if (!failed) child.stdin!.end();
     child.kill("SIGTERM");
   }
 }

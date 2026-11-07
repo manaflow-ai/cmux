@@ -187,7 +187,7 @@ describe("carrier dial step", () => {
   const fakeCmux = (body: string) => {
     const dir = mkdtempSync(join(tmpdir(), "journey-carrier-"));
     const bin = join(dir, "cmux");
-    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nprintf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN" > "${dir}/env"\n${body}\n`, { mode: 0o755 });
+    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nprintf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN \${CMUX_CLOUD_TEAM:--}" > "${dir}/env"\n${body}\n`, { mode: 0o755 });
     return { dir, bin };
   };
   const api = { origin: "https://api.example", bearer: "session-value", team: "team_0123456789abcdef0123" };
@@ -195,13 +195,15 @@ describe("carrier dial step", () => {
   test("passes on the carrier route and the daemon's answer, with the dial's own connect time", async () => {
     const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
 echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=812' >&2
-read -r line; echo '{"id":1,"ok":true,"data":{"capabilities":[]}}'; cat >/dev/null`);
-    const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
+read -r line; echo '{"event":"pushed","conn":0}'; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}'; cat >/dev/null`);
+    process.env.CMUX_CLOUD_TEAM = "team_inherited000000000000";
+    const d = await carrierDial(bin, { ...api, team: undefined }, "vm_abcdefghij0123456789", 2_000).finally(() => delete process.env.CMUX_CLOUD_TEAM);
     expect(d.connectMs).toBe(812);
-    expect(d.reply).toBe('{"id":1,"ok":true,"data":{"capabilities":[]}}');
+    expect(d.reply).toBe('{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}');
     expect(d.replyMs).toBeGreaterThanOrEqual(0);
-    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --deadline-ms 2000 --team team_0123456789abcdef0123");
-    expect(readFileSync(join(dir, "env"), "utf8").trim()).toBe("https://api.example session-value");
+    // No team of its own: none is passed, and the inherited CMUX_CLOUD_TEAM is dropped.
+    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --deadline-ms 2000");
+    expect(readFileSync(join(dir, "env"), "utf8").trim()).toBe("https://api.example session-value -");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -219,5 +221,18 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&
 exit 0`);
     await expect(carrierDial(silent.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("before the daemon answered");
     for (const d of [other.dir, silent.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("an identify refused or answered with no identity fails, and a dial that exits before the write fails the step", async () => {
+    const connected = `echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2`;
+    const refused = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":false,"error":"denied"}'; cat >/dev/null`);
+    await expect(carrierDial(refused.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const bare = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":true,"data":{}}'; cat >/dev/null`);
+    await expect(carrierDial(bare.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const gone = fakeCmux(`${connected}\nexec 0<&-; exit 0`);
+    await expect(carrierDial(gone.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial");
+    await expect(carrierDial("/nonexistent/cmux", api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial: ");
+    for (const d of [refused.dir, bare.dir, gone.dir]) rmSync(d, { recursive: true, force: true });
   });
 });
