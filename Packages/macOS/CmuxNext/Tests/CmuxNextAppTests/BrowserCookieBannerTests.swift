@@ -169,6 +169,19 @@ import Testing
         #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
     }
 
+    /// Leo, 2026-11-07: "If someone's, like, successfully imported it" it should not ask again. After
+    /// cookies came over, Show Import Cookies Banner changes nothing: the setting stays and no card shows.
+    @Test func theShowActionAsksNothingAfterAnImport() async throws {
+        let h = try await make()
+        defer { h.tearDown() }
+        try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
+        h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
+        #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try h.storedBannerValue() == false, "the action turned the banner back on after cookies came over")
+        #expect(!h.services.onboarding.browserImportOffer.shownThisLaunch)
+    }
+
     /// Only cookies coming over ends the banner: a bookmarks-only import keeps offering it.
     @Test func onlyACookieImportEndsTheBanner() {
         var state = BrowserImportOfferState()
