@@ -14,6 +14,8 @@ actor CloudCodexHolderPipe {
         var id: Int?
         var answerFor: Int?
         var available: Bool?
+        /// A machine list: a newer one waiting replaces it (only the latest matters).
+        var listed = false
     }
 
     enum Event: Sendable {

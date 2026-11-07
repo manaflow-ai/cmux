@@ -4,8 +4,8 @@
 //! App to holder: the first line is `{"op":"config","root","user_home"}`; then
 //! `{"op":"run","id","machine","scope","confirmed","force","ask_local"}`, `listed {"live":[ids]}`,
 //! `delivers`, `revoke`, `deleted` (each with `machine` and `scope`), `scope_changed`,
-//! `available {"enabled"}`, `sign_out`, `detach`, `shutdown`, `local_access`, `cancel {"run"}`,
-//! and `answer {"id","value"}`. Any line may carry `"current": scope|null` (the signed-in scope
+//! `available {"enabled"}` (answered when it has an id), `sign_out`, `detach`, `shutdown`,
+//! `local_access`, `cancel {"run"}`, and `answer {"id","value"}`. Any line may carry `"current": scope|null` (the signed-in scope
 //! now) and `"acpmux": path` (the holder child's executable).
 //!
 //! A holder the app starts again (the last one ended) gets `restore {"scopes":[scope],"live":[ids]}`
@@ -334,6 +334,10 @@ impl Holder {
             "available" => {
                 self.adapter
                     .set_available(message.get("enabled").and_then(Value::as_bool) != Some(false));
+                // The app's own switch carries an id: the reply says the fence is in place.
+                if let Some(id) = message.get("id").and_then(Value::as_u64) {
+                    self.app.send(&json!({ "reply": id, "ok": true, "value": Value::Null }));
+                }
             }
             "listed" => self.adapter.machines_listed(ids(&message, "live")),
             // Only a holder's first line after its config restores (above).

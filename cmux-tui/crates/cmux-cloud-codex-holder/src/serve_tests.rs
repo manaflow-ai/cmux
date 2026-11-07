@@ -375,7 +375,9 @@ async fn a_holder_restarted_while_cloud_is_off_erases_and_never_renews() {
     assert!(!world.delivered(), "the off switch erased it");
 
     pipe.send(json!({"op": "available", "enabled": false, "current": scope()})).await;
-    pipe.send(json!({"op": "available", "enabled": true, "current": scope()})).await;
+    // The app's switch carries an id and is answered once the fence is in place.
+    pipe.send(json!({"op": "available", "id": 4, "enabled": true, "current": scope()})).await;
+    assert_eq!(pipe.reply(4).await["ok"], true);
     pipe.send(json!({"op": "listed", "live": ["vm_1"], "current": scope()})).await;
     pipe.send(json!({"op": "pending_cleanup", "id": 3})).await;
     assert_eq!(pipe.reply(3).await["ok"], true);

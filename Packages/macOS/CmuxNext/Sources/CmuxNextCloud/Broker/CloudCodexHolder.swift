@@ -68,10 +68,20 @@ public import Foundation
 
     private let answers: Answers
     private let pipe: CloudCodexHolderPipe?
-    private let outgoing: AsyncStream<CloudCodexHolderPipe.Line>.Continuation
+    /// Lines for the holder, in order. Never dropped: what waits is bounded by the work in flight
+    /// (each request has a caller waiting on it, each answer a question, each cancel a run), and
+    /// machine lists, the one kind nobody waits on, keep only the latest.
+    private var queue: [CloudCodexHolderPipe.Line] = []
+    /// Rings the send loop when the queue gains a line (one ring covers any number of lines).
+    private let bell: AsyncStream<Void>.Continuation
     private var nextID = 0
+    /// Requests sent and not answered yet; a reply that comes before its caller waits is kept.
+    private var expected: Set<Int> = []
+    private var early: [Int: Reply] = [:]
     private var replies: [Int: CheckedContinuation<Reply, Never>] = [:]
     private var runs: [Int: Run] = [:]
+    /// What the last `setAvailable` asked: a retry of an older one never overrides it.
+    private var wantsAvailable = true
     /// Questions being answered, by the asking child's generation and its id (ids restart with
     /// each child, so an old child's late answer never touches a new child's question).
     private var asks: [AskKey: Task<Void, Never>] = [:]
@@ -83,11 +93,9 @@ public import Foundation
 
     public init(configuration: Configuration, answers: Answers) {
         self.answers = answers
-        // Bounded: a line past the cap fails its request (``send(_:id:)``); the holder's own lines past
-        // it end that child (``CloudCodexHolderPipe``), which fails what it had not answered.
-        let (lines, outgoing) = AsyncStream<CloudCodexHolderPipe.Line>.makeStream(bufferingPolicy: .bufferingOldest(Self.backlog))
+        // Bounded: the holder's own lines past the cap end that child (``CloudCodexHolderPipe``),
+        // which fails what it had not answered; lifecycle requests then go again (``lifecycle``).
         let (events, sink) = AsyncStream<CloudCodexHolderPipe.Event>.makeStream(bufferingPolicy: .bufferingOldest(Self.backlog))
-        self.outgoing = outgoing
         var config: [String: Any] = [
             "op": "config", "root": configuration.root.path, "user_home": configuration.userHome.path,
             "api": configuration.api.absoluteString, "app_version": configuration.appVersion,
@@ -96,15 +104,17 @@ public import Foundation
         let configLine = (try? JSONSerialization.data(withJSONObject: config)) ?? Data()
         let pipe = configuration.binary.map { CloudCodexHolderPipe(binary: $0, config: configLine, events: sink) }
         self.pipe = pipe
+        let (rings, bell) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        self.bell = bell
         let acpmux = answers.acpmux
-        // Stop conditions: the send loop ends when `outgoing` finishes (deinit), the event loop when
-        // the pipe's events finish (the pipe goes away with it).
-        // task-owner: both loops end with their streams (above).
+        // task-owner: the send loop ends when `bell` finishes (deinit).
         Task { [weak self] in
-            for await line in lines {
-                guard let pipe else { self?.failed(line.id); continue }
-                let path: URL? = await pipe.isRunning ? nil : await acpmux()
-                if !(await pipe.send(line, acpmux: path)) { self?.failed(line.id) }
+            for await _ in rings {
+                while let line = self?.dequeue() {
+                    guard let pipe else { self?.resolve(line.id, Self.endedReply); continue }
+                    let path: URL? = await pipe.isRunning ? nil : await acpmux()
+                    if !(await pipe.send(line, acpmux: path)) { self?.resolve(line.id, Self.endedReply) }
+                }
             }
         }
         // task-owner: ends when the pipe's events finish (the pipe goes away with the send loop).
@@ -114,7 +124,7 @@ public import Foundation
     }
 
     deinit {
-        outgoing.finish()
+        bell.finish()
     }
 
     // MARK: The app's calls
@@ -127,68 +137,80 @@ public import Foundation
                     askLocalSignIn: (@MainActor @Sendable () async -> Bool)? = nil,
                     presentDeviceCode: @escaping @MainActor @Sendable (CloudCodexLoginPrompt) async -> Bool) async throws {
         try Task.checkCancellation()
-        let id = takeID()
+        let id = post("run", ["machine": machineID, "scope": Self.json(scope), "confirmed": confirmed,
+                              "force": forceRefresh, "ask_local": askLocalSignIn != nil])
         runs[id] = Run(askLocalSignIn: askLocalSignIn, presentDeviceCode: presentDeviceCode)
         defer { runs[id] = nil }
-        let outgoing = outgoing
         let reply = await withTaskCancellationHandler {
-            await request(id, "run", ["machine": machineID, "scope": Self.json(scope), "confirmed": confirmed,
-                                      "force": forceRefresh, "ask_local": askLocalSignIn != nil])
+            await outcome(of: id)
         } onCancel: {
-            if let data = try? JSONSerialization.data(withJSONObject: ["op": "cancel", "run": id]) {
-                outgoing.yield(.init(data: data))
-            }
+            // task-owner: one hop to queue the cancel behind its run; it never drops.
+            Task { @MainActor [weak self] in self?.enqueue(["op": "cancel", "run": id]) }
         }
         try Self.check(reply)
     }
 
     /// Whether the holder already serves `machineID` in `scope` (a repeat would only risk its access).
     public func delivers(machineID: String, scope: CloudCodexBrokerScope) async -> Bool {
-        await request(takeID(), "delivers", ["machine": machineID, "scope": Self.json(scope)]).flag ?? false
+        await request("delivers", ["machine": machineID, "scope": Self.json(scope)]).flag ?? false
     }
 
     /// Each machine list the app reads: the holder takes back the signed-in scope's live machines
     /// from its delivery record (retrying a machine whose link still connects after 15, 30 and 60 s).
     public func machinesListed(_ machines: [CloudMachine]) {
-        send(["op": "listed", "live": machines.filter { $0.status.isLive }.map(\.id)])
+        enqueue(["op": "listed", "live": machines.filter { $0.status.isLive }.map(\.id)], listed: true)
     }
 
     /// The signed-in account or team changed: holders of other scopes erase and end.
-    public func scopeDidChange() async { _ = await request(takeID(), "scope_changed", [:]) }
+    public func scopeDidChange() async { _ = await lifecycle("scope_changed", [:]) }
 
     /// The Cloud off switch: an immediate fence for new requests and writes; holders tear down.
+    /// Queued at once, in order; a holder that ends before it answers gets it again.
     public func setAvailable(_ enabled: Bool) {
-        guard let data = line(["op": "available", "enabled": enabled]) else { return }
-        outgoing.yield(.init(data: data, available: enabled))
+        wantsAvailable = enabled
+        let id = post("available", ["enabled": enabled], available: enabled)
+        // task-owner: waits for the holder's answer; at most two more tries, and none once a newer
+        // setAvailable asked otherwise.
+        Task { [weak self] in
+            guard var reply = await self?.outcome(of: id) else { return }
+            for _ in 0..<2 where reply.code == Self.ended {
+                guard let self, wantsAvailable == enabled else { return }
+                reply = await outcome(of: post("available", ["enabled": enabled], available: enabled))
+            }
+        }
     }
 
     public func revoke(machineID: String, scope: CloudCodexBrokerScope) async throws {
-        try Self.check(await request(takeID(), "revoke", ["machine": machineID, "scope": Self.json(scope)]))
+        try Self.check(await lifecycle("revoke", ["machine": machineID, "scope": Self.json(scope)]))
     }
 
     /// A destroyed machine: its delivery record and pending cleanup are dropped.
     public func machineWasDeleted(_ machineID: String, scope: CloudCodexBrokerScope) async {
-        _ = await request(takeID(), "deleted", ["machine": machineID, "scope": Self.json(scope)])
+        _ = await lifecycle("deleted", ["machine": machineID, "scope": Self.json(scope)])
     }
 
     /// A quit: renewal stops and delivered access stays on each machine (#33482).
     public func detachForQuit() async {
         guard pipe != nil else { return }
-        _ = await request(takeID(), "detach", [:])
+        _ = await request("detach", [:])
     }
 
     /// Sign-out: every machine's access is erased and every holder ends.
-    public func signOut() async { _ = await request(takeID(), "sign_out", [:]) }
+    public func signOut() async { _ = await lifecycle("sign_out", [:]) }
 
     /// Whether the Mac's own Codex sign-in holds access to give now.
     public func hasMacCodexAccess() async -> Bool {
-        await request(takeID(), "local_access", [:]).flag ?? false
+        await request("local_access", [:]).flag ?? false
     }
 
     // MARK: The pipe
 
-    /// The most lines waiting either way.
+    /// The most of the holder's own lines waiting to be read.
     static let backlog = 4096
+
+    /// The code of a request whose holder ended before it answered (never the holder's own).
+    private static let ended = "holder_ended"
+    private static let endedReply = Reply(ok: false, code: ended, message: unavailable.message)
 
     private func takeID() -> Int {
         nextID += 1
@@ -201,29 +223,68 @@ public import Foundation
         return try? JSONSerialization.data(withJSONObject: fields)
     }
 
-    private func send(_ fields: [String: Any], id: Int? = nil) {
-        guard let data = line(fields), case .enqueued = outgoing.yield(.init(data: data, id: id)) else { return failed(id) }
+    private func enqueue(_ line: CloudCodexHolderPipe.Line) {
+        if line.listed { queue.removeAll(where: \.listed) }
+        queue.append(line)
+        bell.yield()
     }
 
-    private func request(_ id: Int, _ op: String, _ fields: [String: Any]) async -> Reply {
+    private func enqueue(_ fields: [String: Any], listed: Bool = false) {
+        guard let data = line(fields) else { return }
+        enqueue(.init(data: data, listed: listed))
+    }
+
+    private func dequeue() -> CloudCodexHolderPipe.Line? {
+        queue.isEmpty ? nil : queue.removeFirst()
+    }
+
+    /// Queues request `op` and returns its id; its reply comes through ``outcome(of:)``.
+    private func post(_ op: String, _ fields: [String: Any], available: Bool? = nil) -> Int {
+        let id = takeID()
         var fields = fields
         fields["op"] = op
         fields["id"] = id
-        return await withCheckedContinuation { continuation in
-            replies[id] = continuation
-            send(fields, id: id)
+        expected.insert(id)
+        guard let data = line(fields) else {
+            resolve(id, Self.endedReply)
+            return id
         }
+        enqueue(.init(data: data, id: id, available: available))
+        return id
     }
 
-    private func failed(_ id: Int?) {
-        guard let id, let continuation = replies.removeValue(forKey: id) else { return }
-        continuation.resume(returning: Reply(ok: false, code: Self.unavailable.code, message: Self.unavailable.message))
+    private func outcome(of id: Int) async -> Reply {
+        if let reply = early.removeValue(forKey: id) { return reply }
+        return await withCheckedContinuation { replies[id] = $0 }
+    }
+
+    private func request(_ op: String, _ fields: [String: Any]) async -> Reply {
+        await outcome(of: post(op, fields))
+    }
+
+    /// A request that must reach a holder: one whose holder ended under it goes again (at most
+    /// twice), which starts the next holder with what the last one knew.
+    private func lifecycle(_ op: String, _ fields: [String: Any]) async -> Reply {
+        var reply = await request(op, fields)
+        for _ in 0..<2 where reply.code == Self.ended {
+            reply = await request(op, fields)
+        }
+        return reply
+    }
+
+    private func resolve(_ id: Int?, _ reply: Reply) {
+        guard let id, expected.remove(id) != nil else { return }
+        if let continuation = replies.removeValue(forKey: id) {
+            continuation.resume(returning: reply)
+        } else {
+            early[id] = reply
+        }
     }
 
     private func take(_ event: CloudCodexHolderPipe.Event) {
         switch event {
         case .ended(let generation, let ids):
-            for id in ids { failed(id) }
+            for id in ids { resolve(id, Self.endedReply) }
             for (key, ask) in asks where key.generation == generation {
                 ask.cancel()
                 asks[key] = nil
@@ -231,10 +292,9 @@ public import Foundation
         case .line(let generation, let data):
             guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             if let id = object["reply"] as? Int {
-                guard let continuation = replies.removeValue(forKey: id) else { return }
-                continuation.resume(returning: Reply(ok: object["ok"] as? Bool ?? false, flag: object["value"] as? Bool,
-                                                     code: object["error"] as? String ?? "failed",
-                                                     message: object["message"] as? String ?? Self.unavailable.message))
+                resolve(id, Reply(ok: object["ok"] as? Bool ?? false, flag: object["value"] as? Bool,
+                                  code: object["error"] as? String ?? "failed",
+                                  message: object["message"] as? String ?? Self.unavailable.message))
             } else if let id = object["cancel_ask"] as? Int {
                 asks.removeValue(forKey: AskKey(generation: generation, id: id))?.cancel()
             } else if let kind = object["ask"] as? String, let id = object["id"] as? Int {
@@ -262,7 +322,7 @@ public import Foundation
         // A cancelled answer leaves the entry alone: a cancel already removed it.
         guard !Task.isCancelled, asks.removeValue(forKey: AskKey(generation: generation, id: id)) != nil,
               let data = try? JSONSerialization.data(withJSONObject: ["op": "answer", "id": id, "value": json]) else { return }
-        outgoing.yield(.init(data: data, answerFor: generation))
+        enqueue(.init(data: data, answerFor: generation))
     }
 
     /// An ask's string and number fields (the only kinds the holder sends).
@@ -299,6 +359,7 @@ public import Foundation
     private static func check(_ reply: Reply) throws {
         guard !reply.ok else { return }
         if reply.code == "interrupted" { throw CancellationError() }
+        if reply.code == ended { throw unavailable }
         throw CloudCodexHolderError(code: reply.code, message: reply.message)
     }
 }
