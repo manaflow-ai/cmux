@@ -37,7 +37,8 @@ import { WebSources } from "./WebSources";
 import { webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
 import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
