@@ -259,8 +259,11 @@ fn a_fork_reserved_before_its_meta_keeps_the_history_of_a_chat_deleted_meanwhile
     let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 0);
     let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
     view.reserve_reference("late", &reference).unwrap();
-    view.delete("chat").unwrap();
+    // Its meta is not saved yet: the chat stays until it is.
+    assert!(view.delete("chat").is_err(), "the chat went before its fork could hold the history");
+    assert!(view.load("chat").unwrap().is_some());
     view.save(&meta("late", Some(reference.clone()))).unwrap();
+    view.delete("chat").unwrap();
     let saved = view.load("late").unwrap().unwrap();
     assert!(saved.history_from.is_none(), "the fork names its deleted chat");
     assert_eq!(seqs(&view.events("late", 0, usize::MAX).unwrap()), expected(20, 0));
@@ -441,4 +444,56 @@ fn a_fork_on_the_journal_store_keeps_its_history_through_a_kill() {
     let view = ForkView::new(open(killed));
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 3), "each once");
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+}
+
+/// The memory store keeps a fork's history only once the fork is stored: a chat deleted between
+/// the fork's reservation and its first save waits for that save (review of #37020, F1).
+#[test]
+fn a_chat_deleted_before_its_reserved_fork_is_saved_waits_for_the_save_in_memory() {
+    let view = forked(Box::new(MemoryStore::default()), 30, 20, 0);
+    let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
+    view.reserve_reference("late", &reference).unwrap();
+    assert!(view.delete("chat").is_err(), "the chat went before its fork could hold the history");
+    view.save(&meta("late", Some(reference))).unwrap();
+    view.delete("chat").unwrap();
+    assert_eq!(seqs(&view.events("late", 0, usize::MAX).unwrap()), expected(20, 0));
+    assert!(view.load("late").unwrap().unwrap().history_from.is_none());
+}
+
+/// On the journal store no fork folder is made before the fork's meta: its meta's save makes
+/// the folder and records it, so a kill keeps the fork and its history (review of #37020, F2).
+#[test]
+fn a_reserved_fork_on_the_journal_store_gets_no_folder_before_its_meta() {
+    use cmux_journal::{Crash, SimStorage};
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(64);
+    let config = cmux_journal::Config {
+        retry_min: std::time::Duration::from_millis(1),
+        retry_max: std::time::Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let open = |storage: SimStorage| {
+        crate::store::open_with_journal(
+            &crate::config::StoreConfig::default(),
+            home.path(),
+            std::sync::Arc::new(storage),
+            config.clone(),
+        )
+        .unwrap()
+    };
+    let view = forked(open(journal.clone()), 30, 20, 0);
+    let reference = HistoryRef { session: "chat".into(), through_seq: 20 };
+    view.reserve_reference("late", &reference).unwrap();
+    assert!(view.delete("chat").is_err(), "the chat went before its fork could hold the history");
+    let folder = view.session_path("late").unwrap();
+    assert!(!folder.exists(), "the fork's folder was made before its meta");
+    view.save(&meta("late", Some(reference))).unwrap();
+    view.delete("chat").unwrap();
+    view.append("late", &record(21, "user_message")).unwrap();
+    assert!(view.wait_durable(std::time::Duration::from_secs(10)).unwrap(), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(view);
+    let view = ForkView::new(open(killed));
+    assert_eq!(seqs(&view.events("late", 0, usize::MAX).unwrap()), expected(20, 1));
+    assert!(view.load("late").unwrap().unwrap().history_from.is_none());
 }
