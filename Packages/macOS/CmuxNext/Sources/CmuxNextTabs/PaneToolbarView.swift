@@ -377,7 +377,7 @@ public final class PaneToolbarView: NSView {
         // Fixed slots from the trailing end: "…" in the last (kept while it hides), the buttons before it
         // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
         // only at the leading end.
-        let y = Self.edgeInset(height: bounds.height)
+        let y = buttonTop
         moreButton.frame = moreFrame()
         let allButtons = buttons + nativeButtons
         let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
@@ -409,8 +409,7 @@ public final class PaneToolbarView: NSView {
     /// opacity, so the glyph and its hit target stay aligned throughout the fade.
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
-        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: Self.edgeInset(height: bounds.height),
-                      width: side, height: side)
+        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
@@ -421,6 +420,16 @@ public final class PaneToolbarView: NSView {
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
     static func edgeInset(height: CGFloat) -> CGFloat {
         max(0, ((height - TitlebarBandButton.side) / 2).rounded())
+    }
+
+    /// The buttons' top: ``edgeInset(height:)``, or in a minimal window's top row the top that centers them on the
+    /// row's shared line with the tabs, the traffic lights and the sidebar's + (`TopRowLine`, Leo 2026-11-07).
+    var buttonTop: CGFloat {
+        let side = TitlebarBandButton.side
+        guard TopRowLineLook.tunable.value != .off, let window, let content = window.contentView,
+              WindowTitlebar.isInTopRow(self), let line = WindowTitlebar.topRowLine(in: window) else { return Self.edgeInset(height: bounds.height) }
+        let viewTop = content.bounds.maxY - convert(bounds, to: nil).maxY
+        return min(max(0, line.controlTop(side: side, scale: window.backingScaleFactor) - viewTop), max(0, bounds.height - side))
     }
 
     override public func viewDidChangeEffectiveAppearance() {

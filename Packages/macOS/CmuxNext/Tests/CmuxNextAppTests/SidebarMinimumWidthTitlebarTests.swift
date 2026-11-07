@@ -67,7 +67,7 @@ import Testing
         let (window, root) = root()
         defer { window.close() }
         let sidebarView = root.sidebar.sidebarView
-        let controls = sidebarView.titlebarLeadingReserve + SidebarStyle.toolbarButtonSize + Metrics.space3
+        let controls = sidebarView.titlebarLeadingReserve + SidebarStyle.toolbarButtonSize + SidebarStyle.titlebarPlusTrailingInset
         #expect(root.sidebar.model.minimumWidth == max(Metrics.sidebarMinWidth, controls))
     }
 

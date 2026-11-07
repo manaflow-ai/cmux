@@ -546,8 +546,16 @@ public final class TabStripView: NSView {
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 
-    /// Tabs are vertically centered in whatever height the strip gets.
+    /// Tabs are vertically centered in whatever height the strip gets; in a minimal window's top row
+    /// their pills center on the row's shared line instead (`TopRowLine`: the traffic lights', the
+    /// toolbar band's and the sidebar's + line, Leo 2026-11-07), at every density.
     var tabTop: CGFloat {
-        metrics.tabTop(stripHeight: bounds.height, scale: window?.backingScaleFactor ?? 2)
+        let scale = window?.backingScaleFactor ?? 2
+        if TopRowLineLook.tunable.value != .off, let window, let content = window.contentView,
+           WindowTitlebar.isInTopRow(self), let line = WindowTitlebar.topRowLine(in: window) {
+            let stripTop = content.bounds.maxY - convert(bounds, to: nil).maxY
+            return line.pillTop(stripTop: stripTop, stripHeight: bounds.height, tabHeight: min(metrics.tabHeight, bounds.height), scale: scale)
+        }
+        return metrics.tabTop(stripHeight: bounds.height, scale: scale)
     }
 }

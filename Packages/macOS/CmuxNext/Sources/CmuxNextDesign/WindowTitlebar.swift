@@ -151,7 +151,8 @@ public struct WindowTitlebar {
         }
         // Floating panes keep the one even gap at the top too.
         guard !Metrics.floatingPanes else { return gutter }
-        let centerFromTop = root.bounds.maxY - local.midY
+        // The top row's shared line (`TopRowLine`): the lights' center unless Debug picks another variant.
+        let centerFromTop = topRowLine(in: window)?.centerY ?? root.bounds.maxY - local.midY
         return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
     }
 
