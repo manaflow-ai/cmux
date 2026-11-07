@@ -5,6 +5,8 @@
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
 //! workspace lands),
+//! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
+//! and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -52,6 +54,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_machine;
+mod cloud_move;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
@@ -181,6 +184,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"auto_archive_plan" => {
+                use cmux_layout_reducer::auto_archive;
+                let request: auto_archive::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_edits" => {
                 let request: sidebar_edits::Request =
@@ -395,6 +404,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {

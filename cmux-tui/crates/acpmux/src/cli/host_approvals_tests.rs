@@ -21,6 +21,8 @@ struct Fake {
     listing: RefCell<Option<&'static str>>,
     /// The app has not sent its device id: no `thisMacPhonePrefix`.
     no_device: std::cell::Cell<bool>,
+    /// The local daemon predates phone enrollment: no `thisMacPhones` or prefix at all.
+    old_daemon: std::cell::Cell<bool>,
     scripts: RefCell<Vec<String>>,
 }
 
@@ -37,6 +39,7 @@ impl Fake {
             device: "mac-device-1",
             listing: RefCell::new(None),
             no_device: std::cell::Cell::new(false),
+            old_daemon: std::cell::Cell::new(false),
             scripts: RefCell::new(Vec::new()),
         }
     }
@@ -92,6 +95,9 @@ fn unhex(s: &str) -> Vec<u8> {
 impl Io for Fake {
     async fn rpc(&self, method: &str, _params: Value) -> Result<Value> {
         assert_eq!(method, "_acpmux/mac_approvers");
+        if self.old_daemon.get() {
+            return Ok(json!({"macs": [], "thisMac": self.own}));
+        }
         Ok(json!({
             "macs": [], "thisMac": self.own, "thisMacPhones": *self.phones.borrow(),
             "thisMacPhonePrefix": (!self.no_device.get())
@@ -135,6 +141,14 @@ impl Io for Fake {
         }
         let fingerprint = crate::hub::approvers::fingerprint(&unhex(&key));
         macs.retain(|m| m["id"] != id.as_str());
+        // The peer's file holds at most MAX_APPROVERS (`host approvals add`'s `change`).
+        if macs.len() >= crate::hub::approvers::MAX_APPROVERS {
+            return Ran {
+                ok: false,
+                stdout: String::new(),
+                stderr: "error: at most 16 Macs".into(),
+            };
+        }
         macs.push(json!({"id": id, "name": name, "fingerprint": fingerprint}));
         Ran { ok: true, stdout: "{}".into(), stderr: String::new() }
     }
@@ -382,4 +396,49 @@ fn unenroll_refuses_while_phones_are_there_and_the_app_gave_no_device_id() {
     fake.no_device.set(true);
     assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
     assert!(fake.remote_ids().is_empty());
+}
+
+#[test]
+fn fix_makes_room_on_a_full_peer_by_removing_unpaired_phones_first() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-old", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    // The peer is full: this Mac, its old phone and 14 other Macs.
+    for n in 0..crate::hub::approvers::MAX_APPROVERS - 2 {
+        fake.remote
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .push(json!({"id": format!("other-{n}"), "fingerprint": "x"}));
+    }
+    // The old phone unpaired, a new one paired: --fix converges in one run.
+    fake.unpair("iphone-old");
+    fake.pair("iphone-new", NEW_PHONE_KEY);
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    let new = crate::hub::approvers::peer_phone_id(fake.device, "iphone-new").unwrap();
+    let old = crate::hub::approvers::peer_phone_id(fake.device, "iphone-old").unwrap();
+    let ids = fake.remote_ids();
+    assert!(ids.contains(&new) && !ids.contains(&old), "{ids:?}");
+    // The Mac's own key gone there too: the stale phone still goes before the Mac's key is added.
+    fake.remote.borrow_mut().as_mut().unwrap().retain(|m| m["id"] != "mac-1");
+    fake.remote.borrow_mut().as_mut().unwrap().push(json!({"id": "other-x", "fingerprint": "x"}));
+    fake.unpair("iphone-new");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    assert!(fake.remote_ids().contains(&"mac-1".to_owned()));
+}
+
+#[test]
+fn an_older_local_daemon_warns_that_its_phones_were_not_enrolled() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.old_daemon.set(true);
+    // Enrolling the Mac still works, but says the phones were left out.
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("too old to enroll its paired phones"), "{r:?}");
+    assert_eq!(fake.remote_ids(), ["mac-1"]);
+    // Doctor again: the Mac is there, the phones are still unknown, never "Ok".
+    let r = run(&fake, false);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.fix.as_deref().unwrap_or("").contains("Update acpmux"), "{r:?}");
 }
