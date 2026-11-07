@@ -837,6 +837,9 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case newWorkspaceMenu
     case focusHistoryBack
     case focusHistoryForward
+    #if DEBUG
+    case captureScreenshot
+    #endif
 
     var accessibilityIdentifier: String {
         switch self {
@@ -852,6 +855,10 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "titlebarControl.focusHistoryBack"
         case .focusHistoryForward:
             return "titlebarControl.focusHistoryForward"
+        #if DEBUG
+        case .captureScreenshot:
+            return "titlebarControl.captureScreenshot"
+        #endif
         }
     }
 
@@ -869,6 +876,10 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:
             return String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
+        #if DEBUG
+        case .captureScreenshot:
+            return String(localized: "titlebar.captureScreenshot.accessibilityLabel", defaultValue: "Capture Screenshot")
+        #endif
         }
     }
 
@@ -886,6 +897,10 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "focusHistoryBack"
         case .focusHistoryForward:
             return "focusHistoryForward"
+        #if DEBUG
+        case .captureScreenshot:
+            return "captureScreenshot"
+        #endif
         }
     }
 
@@ -895,6 +910,10 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return true
         case .showNotifications:
             return false
+        #if DEBUG
+        case .captureScreenshot:
+            return false
+        #endif
         }
     }
 }
