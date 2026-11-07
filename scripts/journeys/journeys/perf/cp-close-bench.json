@@ -1,0 +1,131 @@
+{
+ "id": "cp-close-bench",
+ "priority": "P2",
+ "title": "CLOSE PERF bench: Cmd-W key to the close's committed frame and the missed refreshes of its motion, cases A/B/C, light and STRESS-lite, from the app's own timing",
+ "why": "cmux-ad m56 (2026-11-07): Lawrence: 'the way we close panes and resulting movement is not back, how can we optimize this'. A per-build number for a close.",
+ "source": "task close-perf (ext_closebench.py close_bench: debug.key, debug.action_budget, debug.frames), played on an exact fleet build",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "base_terminal",
+   "title": "a focused terminal to press Cmd-W from (Ctrl-`, else a script's newTab with focus)"
+  },
+  {
+   "do": "close_bench",
+   "case": "A",
+   "runs": 2,
+   "label": "light-warmup",
+   "title": "light: 2 warm-up Cmd-W, case A (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "A",
+   "runs": 10,
+   "label": "light",
+   "title": "light: 10 Cmd-W, case A: a tab of a pane that keeps a tab"
+  },
+  {
+   "do": "close_bench",
+   "case": "B",
+   "runs": 2,
+   "label": "light-warmup",
+   "title": "light: 2 warm-up Cmd-W, case B (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "B",
+   "runs": 10,
+   "label": "light",
+   "title": "light: 10 Cmd-W, case B: the last tab of a split pane"
+  },
+  {
+   "do": "close_bench",
+   "case": "C",
+   "runs": 2,
+   "label": "light-warmup",
+   "title": "light: 2 warm-up Cmd-W, case C (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "C",
+   "runs": 10,
+   "label": "light",
+   "title": "light: 10 Cmd-W, case C: the last tab of the last pane (the workspace closes)"
+  },
+  {
+   "do": "grow_workspaces",
+   "count": 60,
+   "busy": 10,
+   "title": "STRESS-lite: 60 workspaces, 10 busy terminals (no Chromium, WebKit or chat tabs)"
+  },
+  {
+   "do": "close_bench",
+   "case": "A",
+   "runs": 2,
+   "label": "stress-warmup",
+   "title": "stress: 2 warm-up Cmd-W, case A (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "A",
+   "runs": 10,
+   "label": "stress",
+   "title": "stress: 10 Cmd-W, case A: a tab of a pane that keeps a tab"
+  },
+  {
+   "do": "close_bench",
+   "case": "B",
+   "runs": 2,
+   "label": "stress-warmup",
+   "title": "stress: 2 warm-up Cmd-W, case B (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "B",
+   "runs": 10,
+   "label": "stress",
+   "title": "stress: 10 Cmd-W, case B: the last tab of a split pane"
+  },
+  {
+   "do": "close_bench",
+   "case": "C",
+   "runs": 2,
+   "label": "stress-warmup",
+   "title": "stress: 2 warm-up Cmd-W, case C (not counted)"
+  },
+  {
+   "do": "close_bench",
+   "case": "C",
+   "runs": 10,
+   "label": "stress",
+   "title": "stress: 10 Cmd-W, case C: the last tab of the last pane (the workspace closes)"
+  },
+  {
+   "do": "type",
+   "text": "echo cpclose-${nonce}",
+   "enter": true,
+   "title": "set-up check: the app still types (its result does not decide the numbers)"
+  },
+  {
+   "do": "expect",
+   "title": "the app still types into the focused terminal",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cpclose-${nonce}"
+    },
+    {
+     "daemon_contains": "cpclose-${nonce}"
+    },
+    {
+     "app_text_contains": "cpclose-${nonce}"
+    }
+   ]
+  }
+ ]
+}
