@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card drag, review of #37790. A drop settles from where the page let the card go (the
+  release's offset plus the held base), not from the frame of the last move, so a release between moves does not
+  jump back before it springs (`SidebarUpdatedCardHost.pageDragged`). A drag that starts with the hover preview open
+  hands the preview's room back at once, so the held card's view does not shrink mid-drag. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?"
+  Regression: `UpdatedCardDragTests`, webviews `updated-card-hover-preview.test.tsx`.
 - 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
   what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
   left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back

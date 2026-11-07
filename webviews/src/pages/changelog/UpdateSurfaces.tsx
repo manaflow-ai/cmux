@@ -221,7 +221,7 @@ export function UpdatedCard({
     actions.openChangelog();
   };
   const rest = useRef<HTMLDivElement | null>(null);
-  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.close);
+  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.closeForDrag);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
       {strings.t("changelog.page.title")}
@@ -490,6 +490,15 @@ function useHoverPreview({
     listRef: list,
     cardRef: card,
     close: () => intent.current?.close(),
+    /** Closes it for a drag: the room goes back at once, so the host does not shrink the held card's
+        view mid-drag when the close ends (review F2 of #37790). */
+    closeForDrag: () => {
+      if (asked.current) {
+        asked.current = false;
+        sized.current?.(0);
+      }
+      intent.current?.close();
+    },
   };
 }
 

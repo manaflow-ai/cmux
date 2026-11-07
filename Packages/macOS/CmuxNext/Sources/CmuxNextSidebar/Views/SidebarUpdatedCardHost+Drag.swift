@@ -30,8 +30,11 @@ extension SidebarUpdatedCardHost {
             onHeightChange?()
             return
         }
-        // Springs from here to the rest at `drop` (laid out next: the slot moves the list's room).
-        droppedAt = frame.origin
+        // Springs from where the page let it go to the rest at `drop` (laid out next: the slot moves the
+        // list's room). The release can come between moves (a move with no button held ends the press),
+        // so it starts from the release's offset, not from the frame the last move laid out.
+        let held = heldOffset ?? drag.offset
+        droppedAt = CGPoint(x: frame.origin.x + drag.offset.x - held.x, y: frame.origin.y + drag.offset.y - held.y)
         (heldOffset, heldBase) = (nil, .zero)
         if drop != anchor {
             anchor = drop
