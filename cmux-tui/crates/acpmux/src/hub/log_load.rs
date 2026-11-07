@@ -226,6 +226,9 @@ impl Hub {
         session: &Arc<Session>,
         from_copy: Option<&std::collections::HashSet<String>>,
     ) {
+        // What was written while a restore owns the chat is in the journal first (its own
+        // records, never marked as recovery): the recovery reads it, and rebuilds the queue.
+        self.write_parked(session);
         let _marked = super::restore_writer::Recovering::start();
         let (hosted, waiting) = {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
@@ -286,6 +289,8 @@ impl Hub {
         session: &Arc<Session>,
         from_copy: &std::collections::HashSet<String>,
     ) {
+        // What was written meanwhile is in the journal first: the queue is rebuilt from it.
+        self.write_parked(session);
         if let Err(error) = self.restore_ownership_epoch(session) {
             session.invalidate_ownership_epoch();
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");

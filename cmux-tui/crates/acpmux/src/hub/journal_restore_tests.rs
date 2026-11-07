@@ -343,6 +343,14 @@ async fn a_prompt_admitted_before_a_restore_waits_for_its_hold() {
     assert!(!admitted_before_the_lock_runs(0).await);
 }
 
+/// A `queued` record at `seq` of a prompt saved with the file at `path`, held, so it waits.
+fn queued_with_file(seq: u64, path: &Path) -> Value {
+    let link = json!({"type": "resource_link", "uri": format!("file://{}", path.display()), "name": "notes.txt"});
+    json!({"seq": seq, "at": 1, "dir": "mux", "kind": "queued",
+           "msg": {"promptId": "pf", "turnId": "tf", "text": "see the notes", "held": true,
+                   "prompt": [link]}})
+}
+
 /// Review of #37284 at 4dcbe192, F4: a restore brings back the files its prompts were saved as,
 /// in the chat's own uploads, and the owner's check reads them held; a path outside them is
 /// refused.
@@ -358,7 +366,7 @@ async fn a_restore_writes_its_prompts_files_back() {
     let answer = hub.attachments_held(&held(crate::attach::sha256(&bytes))).await.unwrap();
     assert_eq!(answer["held"], json!(false));
     let last = session.seq.load(Ordering::SeqCst);
-    let mut params = restore_params(&session, json!([chunk(last + 1, 1)]));
+    let mut params = restore_params(&session, json!([queued_with_file(last + 1, &path)]));
     params["files"] =
         json!([{"path": path, "data": base64::engine::general_purpose::STANDARD.encode(&bytes)}]);
     hub.journal_restore(&params).await.unwrap();
@@ -489,4 +497,89 @@ async fn a_restore_takes_back_a_recovery_longer_than_a_page() {
     let (answer, kinds) = a_restore_past_a_long_recovery(0).await;
     assert!(answer.is_ok(), "{answer:?}");
     assert_eq!(kinds, vec!["agent_message_chunk", "agent_message_chunk"]);
+}
+
+/// A file the machine saved and then changed, and a restore whose records diverge from the
+/// machine's journal and name that file: the file's bytes after the restore was refused.
+async fn a_changed_file_after_a_diverged_restore(rules: u8) -> Vec<u8> {
+    use base64::Engine as _;
+    let (hub, session) = hub_at(rules).await;
+    let dir = super::file_uploads::session_dir(&session.id).unwrap().join("019a-changed");
+    let path = dir.join("notes.txt");
+    crate::config::private_state_dir(dir.parent().unwrap()).unwrap();
+    crate::config::private_state_dir(&dir).unwrap();
+    std::fs::write(&path, b"the machine's edit").unwrap();
+    let last = session.seq.load(Ordering::SeqCst);
+    // The machine's own record where the copy has another.
+    hub.append(&session, "mux", "status", json!({"status": "idle", "detail": "its own"}));
+    let params = json!({
+        "sessionId": session.id,
+        "createdAt": session.meta().created_at,
+        "afterSeq": last,
+        "records": [chunk(last + 1, 1), queued_with_file(last + 2, &path)],
+        "files": [{"path": path,
+                   "data": base64::engine::general_purpose::STANDARD.encode(b"the owner's bytes")}],
+    });
+    let answer = hub.journal_restore(&params).await;
+    let reason = answer.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("diverged")));
+    let held = std::fs::read(&path).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+    held
+}
+
+/// Review of #37284 at ff3da306, F2: a restore changes nothing on disk until it has decided to
+/// go ahead, and never writes over a file the machine holds: a diverged one leaves the file the
+/// machine changed as it is. Under ff3da306's rules the owner's bytes went over it first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_diverged_restore_leaves_the_machines_files_as_they_are() {
+    let old = a_changed_file_after_a_diverged_restore(super::journal_restore::AT_FF3D).await;
+    assert_eq!(old, b"the owner's bytes".to_vec(), "ff3da306 wrote over it");
+    let now = a_changed_file_after_a_diverged_restore(0).await;
+    assert_eq!(now, b"the machine's edit".to_vec());
+}
+
+/// Two prompts waiting on the machine; a restore that stops short; while it holds the chat, the
+/// first is edited and the second removed; then the owner's next try: each waiting prompt's id
+/// and preview after it.
+async fn edits_during_a_restores_hold(rules: u8) -> Vec<(String, String)> {
+    let (hub, session) = hub_at(rules).await;
+    for p in ["p1", "p2"] {
+        let text = format!("{p} old words");
+        hub.append(
+            &session,
+            "mux",
+            "queued",
+            json!({"promptId": p, "turnId": format!("t-{p}"), "text": text, "prompt": words(&text),
+                   "held": true}),
+        );
+    }
+    hub.restore_queue(&session);
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, 1), chunk(last + 2, 2), chunk(last + 3, 3)]);
+    let params = restore_params(&session, records);
+    super::journal_restore::fail_once_after_first_record(&session.id);
+    let first = hub.journal_restore(&params).await;
+    let reason = first.unwrap_err().data.and_then(|d| d.get("reason").cloned());
+    assert_eq!(reason, Some(json!("append_failed")));
+    let edit = json!({"sessionId": session.id, "promptId": "p1", "op": "update",
+                      "text": "p1 new words"});
+    let edited = hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    assert_eq!(edited["ok"], json!(true), "{edited}");
+    assert!(hub.remove_queued(&session, "p2"));
+    hub.journal_restore(&params).await.unwrap();
+    let queue = session.queue.lock().unwrap();
+    queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect()
+}
+
+/// Review of #37284 at ff3da306, F1: what was written while a restore held the chat is in the
+/// journal before the queue is rebuilt from it: an edit and a removal answered meanwhile stand.
+/// Under ff3da306's rules the rebuild read the journal without them: the old words came back,
+/// and the removed prompt waited again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_queue_edited_during_a_restores_hold_keeps_the_edits() {
+    let old = edits_during_a_restores_hold(super::journal_restore::AT_FF3D).await;
+    assert_ne!(old, vec![("p1".to_owned(), "p1 new words".to_owned())], "ff3da306 kept them");
+    let now = edits_during_a_restores_hold(0).await;
+    assert_eq!(now, vec![("p1".to_owned(), "p1 new words".to_owned())]);
 }

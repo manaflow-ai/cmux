@@ -161,6 +161,30 @@ impl Hub {
         self.store_unparked(session);
     }
 
+    /// Writes what parked so far, now, by the restore's own thread, before it rebuilds anything
+    /// from the journal (`log_load.rs`: `settle_restored`, `recover_log`): a queue edit or a
+    /// removal made meanwhile changed the chat in memory and was answered, so the rebuilt queue
+    /// must read its record (review of #37284 at ff3da306, F1: the rebuild left it out, and the
+    /// answered edit was lost). What parks after it still waits for the restore's end. A thread
+    /// that holds no token of the restore writes nothing here.
+    pub(super) fn write_parked(&self, session: &Session) {
+        if self.at_ff3d() || !holds_token(session) {
+            return;
+        }
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let parked = {
+            let mut parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
+            parked.as_mut().map(std::mem::take).unwrap_or_default()
+        };
+        if parked.is_empty() {
+            return;
+        }
+        tracing::info!(session = %session.id, records = parked.len(), "records kept while a restore owns this chat go in before it is rebuilt");
+        self.catch_up_locked(session);
+        session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
+        self.store_unparked(session);
+    }
+
     /// Stores the records kept for `session` ([`Session::unparked`]), in order, each counted
     /// and published once it is in; the first the store refuses stops it, kept with those
     /// after it. Answers whether none is left. The caller holds `append_lock`.

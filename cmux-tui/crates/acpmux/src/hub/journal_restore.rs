@@ -58,16 +58,18 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. c4a6f4e7's: the eleventh review's F1 to F3.
-pub(crate) const AT_C4A6: u8 = 1;
+/// head's fixes are missing from an earlier one too. ff3da306's: the twelfth review's F1 and F2.
+pub(crate) const AT_FF3D: u8 = 1;
+/// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
+pub(crate) const AT_C4A6: u8 = 2;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 2;
+pub(crate) const AT_4DCB: u8 = 3;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 3;
+pub(crate) const AT_91B: u8 = 4;
 
 #[cfg(test)]
 thread_local! {
-    /// Tests only: the rules this thread replays ([`AT_C4A6`], [`AT_4DCB`], [`AT_91B`]; 0: now).
+    /// Tests only: the rules this thread replays ([`AT_FF3D`] and earlier; 0: now).
     pub(crate) static OLD_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
 }
 
@@ -98,6 +100,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of ff3da306 (tests only; never in a build).
+    pub(crate) fn at_ff3d(&self) -> bool {
+        self.old_rules() >= AT_FF3D
     }
 
     /// Whether this hub replays the rules of c4a6f4e7 (tests only; never in a build).
@@ -219,11 +226,13 @@ impl Hub {
         let hub = self.clone();
         let held = session.clone();
         let files = files_of(params)?;
+        let old = self.at_ff3d();
         let result = blocking(move || {
-            // The files its prompts were saved as go back first (review of #37284 at 4dcbe192,
-            // F4): a `queued` record that names one never goes in without it.
-            restore_files(&held, &files)?;
-            hub.restore_records(&held, after, records, resumed)
+            // ff3da306 wrote the files before it decided (review of #37284 at ff3da306, F2).
+            if old {
+                restore_files(&held, &files, true)?;
+            }
+            hub.restore_records(&held, after, records, resumed, &files)
         });
         // (5) Stopped short: the chat stays held for the owner's next try, at most
         // [`RESTORE_HOLD`], so no prompt takes the seqs the rest of the records need.
@@ -245,6 +254,7 @@ impl Hub {
         after: u64,
         records: Vec<EventRecord>,
         resumed: bool,
+        files: &[(std::path::PathBuf, Vec<u8>)],
     ) -> Result<Value, RpcError> {
         // The chat's log is read first, now, when a deferred start has not read it yet (review
         // of #37284 at 98b4575a, F3): the restore settles the log it writes into, and only then
@@ -259,7 +269,7 @@ impl Hub {
         if !*loaded {
             return Err(refused("busy", "this chat's log is not read yet", session));
         }
-        let result = self.write_restored(session, after, &records, resumed);
+        let result = self.write_restored(session, after, &records, resumed, files);
         if result.as_ref().is_err_and(|e| reason_of(e) != Some("append_failed")) {
             self.recover_pending(session, None);
         }
@@ -267,18 +277,25 @@ impl Hub {
         result
     }
 
-    /// The restore's write and settle; the caller holds `log_load`.
+    /// The restore's write and settle; the caller holds `log_load`. Nothing on disk changes
+    /// until every check has passed (review of #37284 at ff3da306, F2): the recovery it takes
+    /// back, the files its prompts were saved as and its records all go only once it is decided
+    /// that the journal is this restore's history.
     fn write_restored(
         self: &Arc<Self>,
         session: &Arc<Session>,
         after: u64,
         records: &[EventRecord],
         resumed: bool,
+        files: &[(std::path::PathBuf, Vec<u8>)],
     ) -> Result<Value, RpcError> {
+        let old = self.at_ff3d();
         let (at, failed, flush_failed) = {
             let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
             self.catch_up_locked(session);
             let mut at = session.seq.load(Ordering::SeqCst);
+            // Where the recovery it takes back begins, once it is decided.
+            let mut take_back = None;
             // What this machine's own recovery wrote after a restart, at the end of its journal
             // (review of #37284 at 4dcbe192, F1): the owner's copy holds what was there. The
             // restore takes the copy from where the recovery began; those records go, and the
@@ -295,7 +312,11 @@ impl Hub {
                     )
                     .with_data(json!({"reason": "recovered", "afterSeq": from, "lastSeq": at})));
                 }
-                self.take_back_recovery(session, from)?;
+                if old {
+                    self.take_back_recovery(session, from)?;
+                } else {
+                    take_back = Some(from);
+                }
                 at = from;
             }
             tracing::info!(
@@ -332,6 +353,17 @@ impl Hub {
                         ));
                     }
                 }
+            }
+            // Decided: this restore goes ahead. Its recovery goes, then its prompts' files, then
+            // its records.
+            if let Some(from) = take_back {
+                self.take_back_recovery(session, from)?;
+            }
+            if !old {
+                let named = files_named(records.iter().filter(|r| r.seq > at));
+                let files: Vec<_> =
+                    files.iter().filter(|(p, _)| named.contains(p)).cloned().collect();
+                restore_files(session, &files, false)?;
             }
             let mut failed = None;
             for (n, record) in records.iter().filter(|r| r.seq > at).enumerate() {
@@ -497,14 +529,33 @@ fn upload_path(id: &str, path: &str) -> Option<std::path::PathBuf> {
     (plain && path.is_absolute() && path.starts_with(&root) && path != root).then_some(path)
 }
 
-/// Writes each of `files` that the chat does not hold as it is; a failed write stops the restore
-/// (`append_failed`): the owner keeps its copy, and its delivery stays open.
+/// The files the `queued` records among `records` name as saved on this machine.
+fn files_named<'a>(
+    records: impl Iterator<Item = &'a EventRecord>,
+) -> std::collections::HashSet<std::path::PathBuf> {
+    records
+        .filter(|r| r.kind == "queued")
+        .filter_map(|r| r.msg.get("prompt").and_then(Value::as_array))
+        .flat_map(|blocks| crate::attach::saved_links(blocks))
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// Writes each of `files` that the chat lacks; a failed write stops the restore
+/// (`append_failed`): the owner keeps its copy, and its delivery stays open. A file the chat
+/// holds is its own, as the machine may have changed it, and stays (review of #37284 at
+/// ff3da306, F2); `replace` (ff3da306) wrote the owner's bytes over one that differed.
 fn restore_files(
     session: &Session,
     files: &[(std::path::PathBuf, Vec<u8>)],
+    replace: bool,
 ) -> Result<(), RpcError> {
     for (path, bytes) in files {
         if std::fs::read(path).is_ok_and(|held| held == *bytes) {
+            continue;
+        }
+        if !replace && std::fs::symlink_metadata(path).is_ok() {
+            tracing::info!(session = %session.id, path = %path.display(), "a restored prompt's file is here already, changed: it stays");
             continue;
         }
         let written = path
