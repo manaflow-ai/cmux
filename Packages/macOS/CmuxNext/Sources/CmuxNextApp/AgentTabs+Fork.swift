@@ -4,44 +4,41 @@ import CmuxNextDaemon
 
 /// Where a forked chat opens (``AgentForkDestination``): every fork entry point (the palette's
 /// Fork Conversation step, the chat's right-click menu, its shortcut, the chat page's own Fork)
-/// ends here once the page has the fork's session.
+/// ends here once the page has the fork's session. A moved fork never shows in the chat's pane (``AgentForkDestination/Opening/moved``).
 extension AgentTabStore {
     /// Opens acpmux session `session` (a fork of chat tab `provisional`, or a started Continue in…)
     /// at `destination`, then gives its composer the keyboard. False when no tab opened.
     func openFork(_ session: String, at destination: AgentForkDestination, beside provisional: String) -> Bool {
         let open: AgentTabOpen = { [weak self] pane, daemon, split in
-            guard let self else { throw CancellationError() }
-            return try self.open(in: pane, of: daemon, session: session, split: split)
+            guard let self else { throw CancellationError() }; return try self.open(in: pane, of: daemon, session: session, split: split)
         }
-        let opened = OpenedFork()
-        let move: ActionID? = switch destination {
-        case .workspace: "palette.moveTabToNewWorkspace"
-        case .window: "tab.moveToNewWindow"
-        case .right, .left, .up, .down, .columnRight, .columnLeft, .row, .tab: nil
+        let chat = resolve(provisional)
+        guard destination.opening == .moved else { // a split right or below (`conversation-tab-split-v1`), or a tab after the chat's
+            let opened = OpenedFork()
+            return openBeside(provisional, split: destination.opening == .split, direction: destination.splitDirection ?? "right",
+                              open: open, created: { opened.key = $0 }, finished: { [weak self] _ in opened.key.map { self?.focusForkComposer($0) } })
         }
-        // A split: right or below, made in its split (`conversation-tab-split-v1`); left or up, a tab beside the chat, then moved (`tab.moveToNewSplit`).
-        // Else a tab after the chat's, and for a workspace or a window then moved there as Move Tab
-        // to New Workspace / New Window moves one; for a strip column or row, moved into a new one
-        // beside the chat (`DaemonService.placeFork`).
-        return openBeside(provisional, split: destination.splitDirection != nil, direction: destination.splitDirection ?? "right",
-                          open: open, created: { [weak self] key in
-            opened.key = key
-            if let move { _ = self?.actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user)) }
-            if case let .column(left) = TerminalForkPlacement(destination), let self { placeFork(key, resolve(provisional), left) } else if destination == .row, let self { placeFork(key, resolve(provisional), nil) }
-        }, finished: { [weak self] _ in
-            if let key = opened.key { self?.focusForkComposer(key) }
-        })
+        guard let (pane, daemon) = locate(chat) else { return false }
+        let hold = holdOutbound(chat)
+        guard let pending = try? open(pane, daemon, nil), hold?.started(true) != false else { hold?.finish(moved: false); return false }
+        hold?.made(key: pending.key)
+        // task-owner: one tab creation, one move of it, then one focus once the store lists it outside the chat's pane
+        Task { [weak self] in
+            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { hold?.finish(moved: false); return }
+            if let move = destination.moveAction {
+                _ = actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: destination.splitDirection.map { ["direction": .string($0), "keepFocus": .bool(false)] } ?? [:], origin: .user))
+            } else if case let .column(left) = TerminalForkPlacement(destination) { placeFork(tab.key, chat, left) } else { placeFork(tab.key, chat, nil) }
+            hold?.finish(moved: await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } }))
+            focusForkComposer(tab.key)
+        }
+        return true
     }
 
     /// The fork's composer takes the keyboard: the person's next words go to the fork, not the chat.
     private func focusForkComposer(_ key: String) {
-        let tab = resolve(key)
-        _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
+        let tab = resolve(key); _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
         existingView(tab)?.focusComposer()
     }
 }
 
-/// The fork's tab key, from its creation to the end of its placement.
-@MainActor private final class OpenedFork {
-    var key: String?
-}
+@MainActor private final class OpenedFork { var key: String? }

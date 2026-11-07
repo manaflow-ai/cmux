@@ -308,6 +308,7 @@ extension AgentTabStore {
             let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
             services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
+        tabs.holdOutbound = { [weak services] chat in services?.locateTabOnAnyMachine(chat).flatMap { services?.paneController(for: $0.1) }.map { OutboundTab.begin(in: $0) } }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).

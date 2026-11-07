@@ -53,6 +53,39 @@ public enum AgentForkDestination: String, CaseIterable, Sendable {
         }
     }
 
+    /// How the fork's tab reaches this destination from the chat's pane.
+    public enum Opening: Sendable, Equatable {
+        /// Made in its new split in one daemon commit (`conversation-tab-split-v1`), shown in the
+        /// gesture's turn (right, down).
+        case split
+        /// A tab in the chat's pane, shown there (New Tab).
+        case tab
+        /// Made unselected in the chat's pane and kept out of its strip, then moved where it goes; it
+        /// takes the keyboard once it landed there, so the chat's pane never shows it on the way
+        /// (left, up, a strip column or row, a workspace, a window).
+        case moved
+    }
+
+    /// How the fork's tab reaches this destination (``Opening``).
+    public var opening: Opening {
+        switch self {
+        case .right, .down: .split
+        case .tab: .tab
+        case .left, .up, .columnRight, .columnLeft, .row, .workspace, .window: .moved
+        }
+    }
+
+    /// The Move Tab action that takes a ``Opening/moved`` fork from the chat's pane to this destination; nil for a strip
+    /// column or row (`DaemonService.placeFork`) and for a destination that opens where it goes.
+    public var moveAction: ActionID? {
+        switch self {
+        case .left, .up: "tab.moveToNewSplit"
+        case .workspace: "palette.moveTabToNewWorkspace"
+        case .window: "tab.moveToNewWindow"
+        case .right, .down, .columnRight, .columnLeft, .row, .tab: nil
+        }
+    }
+
     /// The `direction` argument of `tab.moveToNewSplit` for a split destination, else nil.
     public var splitDirection: String? {
         switch self {
