@@ -228,3 +228,48 @@ fn an_unreadable_taken_set_refuses_items_sealed_before_the_restart() {
         .replace_machine_secrets(&[seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW)])
         .unwrap();
 }
+
+#[test]
+fn two_daemons_on_one_machine_share_the_lock_and_the_window() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let clock = Arc::new(AtomicU64::new(NOW));
+    // An old and a new daemon, both running (a handover).
+    let daemons = [restarted(&fixture, &clock, 64), restarted(&fixture, &clock, 64)];
+    let values: Vec<String> = (0..8).map(|_| random_hex(16)).collect();
+    let item = seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW);
+    let results: Vec<_> = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for (index, value) in values.iter().enumerate() {
+            let daemon = &daemons[index % 2];
+            let fixture = &fixture;
+            handles.push(scope.spawn(move || {
+                daemon
+                    .replace_machine_secrets(&[seal_at(fixture, "DEMO_KEY", value, NOW)])
+                    .map(|_| ())
+            }));
+        }
+        for daemon in &daemons {
+            let item = &item;
+            handles.push(scope.spawn(move || {
+                daemon.replace_machine_secrets(std::slice::from_ref(item)).map(|_| ())
+            }));
+        }
+        handles.into_iter().map(|handle| handle.join().unwrap()).collect()
+    });
+    // Every distinct item went through; the one sent to both daemons once.
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), values.len() + 1);
+    let refused = results.iter().filter_map(|result| result.as_ref().err()).collect::<Vec<_>>();
+    assert_eq!(refused.len(), 1);
+    assert!(refused[0].message.starts_with("replay"), "{}", refused[0]);
+    let folder = fixture.home.join(".config/cmux");
+    let names: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["machine-secrets.env"], "a temporary or backup was left");
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(fixture.state.join("secrets-v1/taken-nonces.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored["taken"].as_object().unwrap().len(), values.len() + 1);
+}

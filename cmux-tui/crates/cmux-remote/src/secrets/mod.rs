@@ -19,7 +19,7 @@ mod tests;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use cmux_remote_protocol::{RpcError, SealedSecret};
 use zeroize::Zeroizing;
@@ -33,11 +33,6 @@ pub use seal::Purpose;
 /// The most items one replace may carry.
 const MAX_ITEMS: usize = 256;
 
-/// One `secrets-v1` request at a time in this process, from its replay
-/// check to its last write: two requests never interleave their writes, and
-/// one's rollback never undoes the other's files.
-static REQUESTS: Mutex<()> = Mutex::new(());
-
 /// Where `secrets-v1` log lines go: names and counts only, never a value.
 pub type LogSink = Arc<dyn Fn(&str) + Send + Sync>;
 /// The daemon's clock, in Unix seconds.
@@ -49,8 +44,6 @@ pub struct MachineSecrets {
     home: PathBuf,
     etc: PathBuf,
     state: PathBuf,
-    /// Loaded from `state` on the first request.
-    replay: Mutex<Option<Replay>>,
     max_live: usize,
     clock: Clock,
     log: LogSink,
@@ -75,10 +68,6 @@ fn refused(code: &str, name: &str) -> RpcError {
     error
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 impl MachineSecrets {
     /// The service for the daemon whose static identity is `identity`, on
     /// the machine `machine_id`, writing under `home`, reading the guest's
@@ -97,7 +86,6 @@ impl MachineSecrets {
             home,
             etc,
             state,
-            replay: Mutex::new(None),
             max_live: replay::MAX_LIVE,
             clock: Arc::new(seal::unix_now),
             log: Arc::new(|line| eprintln!("{line}")),
@@ -165,16 +153,17 @@ impl MachineSecrets {
         result
     }
 
-    /// This process's one request at a time, and the replay window (loaded
-    /// on first use).
-    fn begin(&self) -> (MutexGuard<'static, ()>, MutexGuard<'_, Option<Replay>>, u64) {
-        let request = lock(&REQUESTS);
+    /// One request at a time on this machine, from its replay check to its
+    /// last write or rollback: an exclusive `flock` on the state folder's
+    /// lock file, held until the returned [`Replay`] drops. Two requests
+    /// (two threads, or an old and a new daemon) never interleave their
+    /// writes, and one's rollback never undoes the other's files. The
+    /// window is read from disk under the lock, so every daemon sees every
+    /// nonce taken.
+    fn begin(&self, name: &str) -> Result<(Replay, u64), RpcError> {
+        let lock = replay::lock(&self.state).map_err(|_| refused("write", name))?;
         let now = (self.clock)();
-        let mut replay = lock(&self.replay);
-        if replay.is_none() {
-            *replay = Some(Replay::load(self.state.clone(), now, self.max_live));
-        }
-        (request, replay, now)
+        Ok((Replay::load(lock, self.state.clone(), now, self.max_live), now))
     }
 
     /// Replace `~/.config/cmux/machine-secrets.env` with exactly `items`:
@@ -192,8 +181,8 @@ impl MachineSecrets {
         if items.len() > MAX_ITEMS {
             return Err(refused("too-large", "machine-secrets.env"));
         }
-        let (_request, mut replay, now) = self.begin();
-        let replay = replay.as_mut().ok_or_else(|| refused("write", "machine-secrets.env"))?;
+        let (mut replay, now) = self.begin("machine-secrets.env")?;
+        let replay = &mut replay;
         let declared = self.declared_names();
         let mut names = HashSet::new();
         let mut nonces = HashSet::new();
@@ -257,8 +246,8 @@ impl MachineSecrets {
     fn install_inner(&self, item: &SealedSecret) -> Result<String, RpcError> {
         let login =
             HarnessLogin::from_name(&item.name).ok_or_else(|| refused("bad-name", &item.name))?;
-        let (_request, mut replay, now) = self.begin();
-        let replay = replay.as_mut().ok_or_else(|| refused("write", &item.name))?;
+        let (mut replay, now) = self.begin(&item.name)?;
+        let replay = &mut replay;
         let opened = self.open(replay, now, Purpose::HarnessLogin, item)?;
         login.validate(&opened.value).map_err(|error| refused(error.code(), &item.name))?;
         harness::check_guest(&self.etc, login)
