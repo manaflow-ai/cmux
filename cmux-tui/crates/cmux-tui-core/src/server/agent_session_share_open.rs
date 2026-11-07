@@ -123,6 +123,7 @@ pub(super) fn invite_chat(
     let ids = NewIds::draw()?;
     // Asked before the lock: the room a new share would open in, or why none may be made.
     let new_room = room_for_new(shares, p.owner_token);
+    let connected = shares.connected();
     let (mut answer, made) = shares.with(directory, |all, now| {
         let existing = all
             .iter()
@@ -134,14 +135,15 @@ pub(super) fn invite_chat(
             Some(share_id) => (None, share_id),
             None => {
                 let provisioning = new_room.as_ref().map_err(|code| *code)?.is_some();
-                let created = push(all, now, ids, session.clone(), p.surface, terms, provisioning)?;
+                let created =
+                    push(all, now, &connected, ids, session.clone(), p.surface, terms, provisioning)?;
                 let share_id =
                     created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
                 (Some(created), share_id)
             }
         };
         let fresh = made.is_some();
-        let (mut answer, changed) = invite_in(all, &share_id, account, role, now)?;
+        let (mut answer, changed) = invite_in(all, &share_id, account, role, now, &connected)?;
         answer.set("created_share", json!(fresh));
         let expires_at = find(all, &share_id)?.expires_at;
         answer.set("expires_at", json!(expires_at));
@@ -163,9 +165,11 @@ pub(super) fn invite_chat(
 
 /// Adds a new share of `session` to `shares` (an ended one goes first when room is needed) and
 /// answers it with its secret.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn push(
     shares: &mut Vec<LinkShare>,
     now: u64,
+    connected: &HashSet<String>,
     ids: NewIds,
     session: String,
     surface: u64,
@@ -199,7 +203,7 @@ pub(super) fn push(
         role,
     });
     // The records there may fit while the new one does not: ended ones go first.
-    if !fits_or_prune(shares) {
+    if !fits_or_prune(shares, now, connected) {
         return Err("share.limit");
     }
     Ok(json!({"share_id": share_id, "secret": secret, "url": null, "expires_at": expires_at,
@@ -214,6 +218,7 @@ pub(super) fn invite_in(
     account: String,
     role: Role,
     now: u64,
+    connected: &HashSet<String>,
 ) -> Result<(Value, bool), &'static str> {
     let share = find(shares, share_id)?;
     if share.state != ShareState::Provisioning {
@@ -236,7 +241,7 @@ pub(super) fn invite_in(
         return Err("share.limit");
     }
     share.invitees.push(Invitee { account, role, invited_at: now, state: InviteState::Invited });
-    if !fits_or_prune(shares) {
+    if !fits_or_prune(shares, now, connected) {
         return Err("share.limit");
     }
     Ok((answer, true))

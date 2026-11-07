@@ -148,13 +148,42 @@ fn fits(shares: &[LinkShare]) -> bool {
     serde_json::to_vec(&worst).is_ok_and(|bytes| bytes.len() <= MAX_SAVED_BYTES)
 }
 
-/// Whether `shares` [`fits`], once the ended shares that may go are gone if it did not.
-fn fits_or_prune(shares: &mut Vec<LinkShare>) -> bool {
+/// Whether `shares` [`fits`], once the ended shares that may go are gone if it did not, and then
+/// the link guests that left ([`forget_gone`]). `connected` names the guests bound to a
+/// connection now ([`LinkShares::connected`]).
+fn fits_or_prune(shares: &mut Vec<LinkShare>, now: u64, connected: &HashSet<String>) -> bool {
     if fits(shares) {
         return true;
     }
     prune(shares);
+    if fits(shares) {
+        return true;
+    }
+    forget_gone(shares, now, connected);
     fits(shares)
+}
+
+/// A link guest is kept at least this long after it joined, connected or not: a retry of its
+/// redeem gets it again, and its first bind (the room's relay may wait to start) finds it.
+const KEEP_JOINED_MS: u64 = 10 * 60 * 1000;
+
+/// Drops the link guests (no account) that left: not kicked, bound to no connection now, and
+/// joined [`KEEP_JOINED_MS`] ago or more. A view link may admit 1000 guests, far more than the
+/// file holds, so the ones gone make room for the next (cmux#37803, F4). Such a guest only
+/// watched; to watch again it opens the link anew, a use like any join. The share's `uses_left`
+/// is its own count, so uses stay exact. A kicked guest stays, so its attempt and its guest id
+/// keep answering `share.kicked`; an invitee's guests have their own bound
+/// (`MAX_GUESTS_PER_ACCOUNT`, its ended ones dropped at its next join).
+fn forget_gone(shares: &mut [LinkShare], now: u64, connected: &HashSet<String>) {
+    for share in shares {
+        let share_id = &share.share_id;
+        share.guests.retain(|g| {
+            g.account.is_some()
+                || g.state == GuestState::Kicked
+                || now.saturating_sub(g.joined_at) < KEEP_JOINED_MS
+                || connected.contains(&format!("{share_id}.{}", g.guest_id))
+        });
+    }
 }
 
 /// Drops the ended shares, but one whose room still has to hear of it (a kick of an ended share
@@ -656,6 +685,24 @@ impl LinkShares {
         self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
     }
 
+    /// The link guests bound to a connection now, as `<share_id>.<guest_id>`. Read before the
+    /// shares lock is taken, never under it.
+    fn connected(&self) -> HashSet<String> {
+        let Some(mux) = self.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else {
+            return HashSet::new();
+        };
+        let authors = mux
+            .control_clients
+            .agent_sessions
+            .proxy_authors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        authors
+            .values()
+            .filter_map(|a| a["id"].as_str()?.strip_prefix(GUEST_PREFIX).map(str::to_owned))
+            .collect()
+    }
+
     /// Queues what was live in `start` and is not in `now`.
     fn note_ended(&self, start: &[LinkShare], now: &[LinkShare]) {
         let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
@@ -723,8 +770,10 @@ impl LinkShares {
         provisioning: bool,
     ) -> Result<Value, &'static str> {
         let ids = open::NewIds::draw()?;
+        let connected = self.connected();
         self.with(directory, |shares, now| {
-            open::push(shares, now, ids, session, surface, terms, provisioning).map(|v| (v, true))
+            open::push(shares, now, &connected, ids, session, surface, terms, provisioning)
+                .map(|v| (v, true))
         })
     }
 
@@ -744,6 +793,7 @@ impl LinkShares {
         let account = p.account.as_deref().map(normal_account).transpose()?;
         let guest_id = token::<8>()?;
         let attempt = hex(&digest(&[&p.attempt_id]));
+        let connected = self.connected();
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
             let secret_matches =
@@ -834,7 +884,7 @@ impl LinkShares {
             };
             let answer = reply(&guest);
             share.guests.push(guest);
-            if !fits_or_prune(shares) {
+            if !fits_or_prune(shares, now, &connected) {
                 return Err("share.limit");
             }
             Ok((answer, true))
@@ -852,7 +902,10 @@ impl LinkShares {
     ) -> Result<Value, &'static str> {
         let account = normal_account(&p.account)?;
         let role = p.role.unwrap_or(Role::Talk);
-        self.with(directory, |shares, now| open::invite_in(shares, &p.share_id, account, role, now))
+        let connected = self.connected();
+        self.with(directory, |shares, now| {
+            open::invite_in(shares, &p.share_id, account, role, now, &connected)
+        })
     }
 
     /// Removes an invited account: it joins no more, and every guest it joined as is kicked (its
