@@ -417,9 +417,9 @@ USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
   cmux cloud <action> --help
 
-These actions run through the cmux app, signed in (`cmux cloud sign-in`).
+These actions run through the cmux app, signed in (`cmux login`).
 The everyday verbs take the VM's name or id, or nothing when you have one VM:
-  cmux cloud ls | new | status | pause | resume | rm | resize | fork | rename [NAME|ID]
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [NAME|ID]
 The others take --target machine:MACHINE_ID: `cmux cloud ls` prints each
 machine's target. Without the app (CI, a headless agent), `cmux machine --help`
 talks to the cmux VM API directly.
@@ -451,9 +451,9 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
   cmux cloud <アクション> --help
 
-これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
+これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 よく使う動詞は VM の名前か ID を取ります。VM が 1 台なら省略できます:
-  cmux cloud ls | new | status | pause | resume | rm | resize | fork | rename [名前|ID]
+  cmux cloud ls | status | pause | resume | rm | resize | fork | rename [名前|ID]
 ほかのアクションは --target machine:MACHINE_ID を取ります。各マシンの target は
 `cmux cloud ls` で確認できます。アプリなしで使う場合（CI、画面のないエージェント）は、
 `cmux machine --help` で cmux VM API を直接使えます。
