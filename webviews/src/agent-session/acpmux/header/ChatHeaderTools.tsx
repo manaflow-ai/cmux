@@ -19,6 +19,16 @@ import {
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import {
+  activityCue,
+  morphIntoTab,
+  motionCues,
+  motionMorphs,
+  useIconArrivals,
+  type HeaderMotionStyle,
+} from "./headerMotion";
+import { HeaderToolPreview, PREVIEW_INTENT_DELAY, type HeaderToolPreviewTarget } from "./HeaderToolPreview";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
@@ -70,6 +80,9 @@ export type ChatMenuItem =
       key: string;
       label: string;
       icon: string;
+      /// A picture drawn in the icon's place (the chat's own avatar on Set Chat Avatar…, avatarRow.ts);
+      /// `icon` stays for a surface that draws only glyphs (the native menu, the palette).
+      image?: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
       /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
@@ -176,6 +189,8 @@ export function ChatHeaderTools({
   newButton,
   controls,
   nativeRowTools,
+  working = false,
+  motion,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -237,13 +252,18 @@ export function ChatHeaderTools({
   controls?: HeaderControls;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
+  /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
+  working?: boolean;
+  /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
+  motion?: HeaderMotionStyle;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, headerControls } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
+  const style = motion ?? headerMotion;
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // The right-clicked button, read as the menu opens.
@@ -411,22 +431,70 @@ export function ChatHeaderTools({
     : webButtons && fold > 0
       ? tools.slice(tools.length - fold)
       : [];
+  const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
+  const shownIds = shown.map((tool) => tool.id);
+  // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
+  useIconArrivals(toolsRef, style, shownIds);
+  const cue = motionCues(style) ? activityCue(shownIds, { working, hasChanges }) : undefined;
+  const morphs = motionMorphs(style);
+  const [preview, setPreview] = useState<HeaderToolPreviewTarget>();
+  const intent = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(intent.current), []);
+  const endPreview = () => {
+    clearTimeout(intent.current);
+    setPreview(undefined);
+  };
+  // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
   const buttons =
     webButtons &&
-    tools.slice(0, tools.length - fold).map((tool) => (
-      <button
-        key={tool.id}
-        data-quick-action={tool.id}
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={tool.label}
-        aria-pressed={tool.pressed}
-        {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
-        onClick={tool.run}
-      >
-        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
-      </button>
-    ));
+    shown.length > 0 &&
+    shown.map((tool) => {
+      const shortcut = tool.title ? undefined : shortcuts[tool.id];
+      return (
+        <button
+          key={tool.id}
+          data-quick-action={tool.id}
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={tool.label}
+          aria-pressed={tool.pressed}
+          // The morph's hover preview stands in for the tooltip, so the two never stack.
+          {...(morphs ? {} : tooltipProps(tool.title ?? tool.label, shortcut))}
+          onPointerEnter={
+            morphs
+              ? (event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  clearTimeout(intent.current);
+                  intent.current = setTimeout(
+                    () =>
+                      setPreview({
+                        id: tool.id,
+                        icon: tool.icon,
+                        label: tool.label,
+                        title: tool.title,
+                        shortcut: shortcuts[tool.id],
+                        pressed: tool.pressed,
+                        box: { left: box.left, right: box.right, bottom: box.bottom },
+                      }),
+                    PREVIEW_INTENT_DELAY,
+                  );
+                }
+              : undefined
+          }
+          onPointerLeave={morphs ? endPreview : undefined}
+          onClick={(event) => {
+            if (morphs) {
+              endPreview();
+              // Opening (not closing) sends the glyph to where its panel lands.
+              if (!tool.pressed && tool.id !== "newTab") morphIntoTab(event.currentTarget, tool.label);
+            }
+            tool.run?.();
+          }}
+        >
+          <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+        </button>
+      );
+    });
   const chatMenuButton = (
     <ChatMenu
       items={rows}
@@ -461,7 +529,16 @@ export function ChatHeaderTools({
       </div>
     );
   return (
-    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div
+      ref={toolsRef}
+      className="acpmux-header-tools"
+      onPointerEnter={onPointerEnter}
+      data-header-motion={style === "still" ? undefined : style}
+      data-motion-mode={style === "still" ? undefined : motionMode()}
+      data-activity={cue?.cue}
+      data-activity-on={cue?.on}
+    >
+      {preview && <HeaderToolPreview target={preview} />}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
@@ -745,7 +822,11 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={14} />
+      {item.image ? (
+        <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
+      ) : (
+        <Icon name={item.icon} size={14} />
+      )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

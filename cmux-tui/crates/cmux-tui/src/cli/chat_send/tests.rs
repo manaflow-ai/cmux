@@ -96,6 +96,9 @@ fn an_output_flag_after_the_separator_is_the_prompt() {
         assert_eq!((send.text.as_str(), output), (flag, OutputMode::Human), "{flag}");
         let (send, _) = typed(&["chat", "--resume", "s-1", "--", flag]);
         assert_eq!(send.text, flag);
+        // `--wait` takes no value: the `--` after it is still the separator.
+        let (send, output) = typed(&["chat", "send", "s-1", "--wait", "--", flag]);
+        assert_eq!((send.text.as_str(), send.wait, output), (flag, true, OutputMode::Human));
     }
 }
 
