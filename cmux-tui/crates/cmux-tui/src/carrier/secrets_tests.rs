@@ -49,7 +49,9 @@ fn a_request_seals_to_the_daemon_and_carries_no_value() {
         &items[0],
     )
     .unwrap();
-    assert_eq!(opened.as_slice(), value.as_bytes());
+    assert_eq!(opened.value.as_slice(), value.as_bytes());
+    // Sealed with the time now, which the daemon checks against its window.
+    assert!(opened.issued_at.abs_diff(cmux_remote::secrets::seal::unix_now()) <= 5);
     // Another machine's daemon key can't open it.
     let other = StaticIdentity::generate().unwrap();
     assert!(
@@ -86,7 +88,9 @@ fn a_login_request_decodes_its_base64_and_seals_it() {
         &item,
     )
     .unwrap();
-    assert_eq!(opened.as_slice(), token.as_bytes());
+    assert_eq!(opened.value.as_slice(), token.as_bytes());
+    // Sealed with the time now, which the daemon checks against its window.
+    assert!(opened.issued_at.abs_diff(cmux_remote::secrets::seal::unix_now()) <= 5);
 }
 
 #[test]
