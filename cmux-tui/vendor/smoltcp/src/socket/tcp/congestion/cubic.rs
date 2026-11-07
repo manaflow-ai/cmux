@@ -11,6 +11,11 @@ const ALPHA_CUBIC: f64 = 3.0 * (1.0 - BETA_CUBIC) / (1.0 + BETA_CUBIC);
 
 const DEFAULT_MSS: usize = 1024;
 
+// cmux patch: RFC 6928 initial window, min(10 * MSS, max(2 * MSS, 14600)) bytes.
+fn initial_window(mss: usize) -> usize {
+    (10 * mss).min((2 * mss).max(14600))
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cubic {
@@ -30,24 +35,29 @@ pub struct Cubic {
     // again (RFC 5681 section 3.1).
     in_rto_recovery: bool,
     idle_start: Option<Instant>, // RFC 9438 §4.2: when in-flight last hit 0
+    // cmux patch: no new data ACKed and no loss yet, so an MSS learned from the
+    // handshake may still resize the initial window.
+    initial: bool,
 }
 
 impl Cubic {
     pub fn new() -> Cubic {
+        let iw = initial_window(DEFAULT_MSS);
         let mut cubic = Cubic {
-            w_max: DEFAULT_MSS * 2,
-            cwnd: DEFAULT_MSS * 2,
+            w_max: iw,
+            cwnd: iw,
             mss: DEFAULT_MSS,
             rwnd: 64 * DEFAULT_MSS,
             ssthresh: usize::MAX,
             k: 0.0,
-            w_est: (DEFAULT_MSS * 2) as f64,
-            cwnd_prior: DEFAULT_MSS * 2,
+            w_est: iw as f64,
+            cwnd_prior: iw,
 
             recovery_start: None,
             in_fast_recovery: false,
             in_rto_recovery: false,
             idle_start: None,
+            initial: true,
         };
         cubic.recompute_k();
         cubic
@@ -96,6 +106,7 @@ impl Controller for Cubic {
 
         // New data was ACKed: a timer-based loss episode, if any, is over.
         self.in_rto_recovery = false;
+        self.initial = false;
 
         // First new-data-ack exits fast recovery and deflates `cwnd`
         if self.in_fast_recovery {
@@ -185,6 +196,7 @@ impl Controller for Cubic {
 
     fn on_loss(&mut self, now: Instant, in_flight: usize) {
         self.idle_start = None;
+        self.initial = false;
         // Only cut window size on first entrance to fast recovery.
         if !self.in_fast_recovery {
             // RFC 9438 §4.3: remember the cwnd at this congestion event so W_est can
@@ -220,6 +232,7 @@ impl Controller for Cubic {
             self.ssthresh = ((in_flight as f64 * BETA_CUBIC) as usize).max(2 * self.mss);
             self.in_rto_recovery = true;
         }
+        self.initial = false;
 
         self.cwnd = self.mss;
         self.cwnd_prior = in_flight;
@@ -232,6 +245,13 @@ impl Controller for Cubic {
 
     fn set_mss(&mut self, mss: usize) {
         self.mss = mss;
+        if self.initial {
+            let iw = initial_window(mss).min(self.rwnd);
+            self.cwnd = iw;
+            self.w_max = iw;
+            self.w_est = iw as f64;
+            self.cwnd_prior = iw;
+        }
         self.recompute_k();
     }
 
