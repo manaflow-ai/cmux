@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import Foundation
 
 /// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a response on
@@ -104,7 +105,7 @@ extension CloudStartSession {
         if ownership == .team { return ("cloud.relay.login_team_machine", AgentRemoteStartRefusal.teamMachine(machine: machine).userMessage) }
         guard ownership == .owner else { return ("cloud.relay.login_unverified", CloudStartSessionStrings.relayLoginUnverified(asked)) }
         guard let decision else { return nil }
-        if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
+        if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(Self.loginRefusal(reason), asked)) }
         // No login copied to a machine that needs one: none cached on this Mac, or the person said no to its copy (the confirm or Release's consent, after the cache check).
         if decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_declined", CloudStartSessionStrings.relayLoginDeclined(asked)) }
         if CloudStartChat.signInOnMachine.contains(decision.outcome) { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
