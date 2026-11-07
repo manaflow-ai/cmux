@@ -194,7 +194,6 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-hover-fixture]" }],
   covers: [
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContent",
-    "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContext",
     "agent-session/acpmux/conversation/AgentTag.tsx",
   ],
   styles: () => import("../styles.css"),

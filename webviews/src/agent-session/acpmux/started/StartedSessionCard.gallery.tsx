@@ -55,7 +55,6 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionCards",
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionCard",
-    "agent-session/acpmux/started/StartedSessionCard.tsx#StartedMentionsContext",
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionChip",
   ],
   styles: () => import("../styles.css"),
