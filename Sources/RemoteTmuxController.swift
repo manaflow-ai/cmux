@@ -887,8 +887,8 @@ final class RemoteTmuxController {
     }
 
     /// A tab close was requested in a mirrored workspace → kill that tmux window
-    /// on the remote. The local tab is removed when tmux reports `%window-close`,
-    /// so the caller should VETO the immediate local close.
+    /// on the remote. The local tab is removed when tmux reports
+    /// `%unlinked-window-close`, so the caller should VETO the local close.
     ///
     /// - Returns: `true` if routed to the remote (caller vetoes the local close);
     ///   `false` if there is no live mirror/connection or the panel isn't a

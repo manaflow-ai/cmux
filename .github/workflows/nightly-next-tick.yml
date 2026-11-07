@@ -272,7 +272,7 @@ jobs:
   # the variable is unset), not the hosted pool its targets wait on, checks out only its scripts, and has its own fixed group: one runs,
   # the newest waits, and a dispatch for one commit (a sha input) skips it as before. It holds
   # the job's GITHUB_TOKEN for its writes and the cmux-bot App token for its reads; it never cancels a
-  # started job (nightly_next_stuck_run.py).
+  # nightly (nightly_next_stuck_run.py).
   unstick:
     if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
@@ -354,19 +354,15 @@ jobs:
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
 
       # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
-      # that stopped serving, run 40771197361) is cancelled here when an existing path builds
-      # it again: the step below re-runs the tip's push run, the tip builds over an older
-      # commit's, and the request job's promotion asks again. Gated and running runs are never
-      # cancelled; scripts/ci/nightly_next_stuck_run.py. Only in this job's one fixed group,
+      # that stopped serving, run 40771197361) is reported here and never cancelled: nobody
+      # cancels a nightly. Once the tip's push run has ended, the jobs that never got a runner
+      # are re-run; scripts/ci/nightly_next_stuck_run.py. Only in this job's one fixed group,
       # so two ticks never act on one run at once.
-      - name: Cancel a nightly-next run stuck without a runner
+      - name: Report a stuck nightly-next run and re-run its lost jobs once it ends
         continue-on-error: true
-        # The rescue can read once, settle for FORCE_AFTER + 1 bounded waits,
-        # and read again before a force-cancel. Leave room for those API reads.
         timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
-          NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
           GH_APP_TOKEN_ATTEMPTS: "1"
         run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
