@@ -1,7 +1,12 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`),
+//! the group hover card's summary (`group_hover_summary`), the store's
+//! optimistic overlay rules (`optimistic`: where a pending split, column,
+//! row or dock shows, what a hidden pane leaves, where a moved tab or
+//! workspace lands),
+//! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
+//! and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -14,6 +19,11 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
+//! step per event, the saved list, a hand-off's status and times),
+//! the machine bootstrap, machine config and create retry rules
+//! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
+//! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -39,7 +49,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
+mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_move;
+mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
@@ -169,6 +182,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"auto_archive_plan" => {
+                use cmux_layout_reducer::auto_archive;
+                let request: auto_archive::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_edits" => {
                 let request: sidebar_edits::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -178,6 +197,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"optimistic" => {
+                let request: cmux_layout_reducer::optimistic::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_layout_reducer::optimistic::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"tasks_preview" => {
@@ -376,6 +401,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            operation if cloud_bootstrap::handles(operation) => {
+                cloud_bootstrap::respond(operation, request)?
+            }
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
@@ -478,6 +508,14 @@ mirror_entry!(
 mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
+);
+mirror_entry!(
+    /// The sections a view request's rows draw (`sidebar_doc::project`).
+    cmux_sidebar_mirror_project => project
+);
+mirror_entry!(
+    /// The ops of New Subgroup or of a remote group (`sidebar_doc::plan`).
+    cmux_sidebar_mirror_plan => plan
 );
 
 /// Run one typed mirror call: JSON in, a pointer to a reply the mirror owns

@@ -215,7 +215,7 @@ The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settin
 
 ## `tabs.newTabPosition`
 
-Where Cmd-T and the + button put a new tab.
+Where Cmd-T puts a new tab.
 
 ```json
 {
@@ -227,7 +227,7 @@ Where Cmd-T and the + button put a new tab.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
-The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+The setting applies to what you open with Cmd-T. The + button has its own setting, `tabs.newTabButtonPosition` (below). A script's `cmux tab new` still adds the tab at the end.
 
 To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
 
@@ -238,6 +238,22 @@ To put one new tab in a specific place, whatever the setting, use these commands
 | **New Tab at End** | `cmux tab new-at-end` |
 
 **New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
+
+## `tabs.newTabButtonPosition`
+
+Where the + button after the last tab puts a new tab. The **New Tab** row of vertical tabs follows it too. It takes the same values as `tabs.newTabPosition`; the default is `"end"`.
+
+```json
+{
+  "tabs": { "newTabButtonPosition": "end" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, next to the button.
+- `"afterCurrent"`: right after the selected tab, like Cmd-T's default.
+- `"start"`: first, right after the pinned tabs.
+
+Option-click on the + (a tab of the selected tab's kind) goes to the same place. Change the setting in **Settings > General > Tabs**, in the command palette, or with `cmux settings set tabs.newTabButtonPosition afterCurrent`.
 
 ## `tabs.newTabTemplate`
 
