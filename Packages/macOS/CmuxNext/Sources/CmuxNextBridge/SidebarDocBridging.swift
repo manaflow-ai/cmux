@@ -249,6 +249,7 @@ public final class SidebarDocSections {
                            machineSections: Int) -> [WorkspaceModel] {
         let known = slots[session] ?? [:]
         var waiting = unplaced.filter { known[$0.id] != nil }
+        var held = Set<String>() // only rows put back: a row with no slot (a new one) is no row's to hold
         guard !waiting.isEmpty else { return unplaced }
         var progress = true
         while progress && !waiting.isEmpty {
@@ -264,10 +265,10 @@ public final class SidebarDocSections {
                 rows.insert(w, at: at)
                 sections[index] = CmuxNextDaemon.SidebarSection(group: sections[index].group, workspaces: rows)
                 waiting.removeAll { $0.id == w.id }
+                held.insert(w.id)
                 progress = true
             }
         }
-        let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
         return unplaced.filter { !held.contains($0.id) }
     }
 
