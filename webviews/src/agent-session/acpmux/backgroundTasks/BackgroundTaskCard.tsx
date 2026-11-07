@@ -45,6 +45,8 @@ export function BackgroundTaskBody({
   const t = useT();
   const read = useLiveBackgroundTaskOutput(toolCallId, processId, open && readOutput);
   const output = tailLines(read.output, CARD_TAIL_LINES);
+  // "No output yet" only where output can come: a process acpmux keeps none for says nothing.
+  const empty = readOutput && !output && !read.unavailable;
   const outputRef = useRef<HTMLPreElement>(null);
   // New output keeps the newest line in view.
   useLayoutEffect(() => {
@@ -63,9 +65,7 @@ export function BackgroundTaskBody({
           {output}
         </pre>
       )}
-      {foot
-        ? foot(readOutput && !output)
-        : readOutput && !output && <p className="acpmux-bg-card__empty">{t("backgroundTasks.noOutputYet")}</p>}
+      {foot ? foot(empty) : empty && <p className="acpmux-bg-card__empty">{t("backgroundTasks.noOutputYet")}</p>}
       {children}
     </div>
   );

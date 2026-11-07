@@ -374,17 +374,32 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     },
   };
 
+  // Session Info opens a command rendered, in the chat's Background tasks panel (a card with its
+  // command and output, Open in terminal inside it), not a bare terminal tab (Leo, 2026-11-07: "only
+  // showing the terminal thing, I don't think is very useful").
+  test("clicking a background task in Session Info opens the Background tasks panel, not its terminal", async () => {
+    const page = await recordingPage();
+    const section = await surfaces.inspector.open(page);
+    await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.subagentPane"),
+    );
+    expect(await opened(page)).toEqual([]);
+    await page.close();
+  });
+
   for (const [name, surface] of Object.entries(surfaces)) {
-    test(`clicking a background task in the ${name} opens its terminal, a running one included`, async () => {
-      const page = await recordingPage();
-      const section = await surface.open(page);
-      await section.getByRole("button", { name: /cargo watch -x test/ }).click();
-      await page.waitForFunction(() =>
-        ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
-      );
-      expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
-      await page.close();
-    });
+    if (name !== "inspector")
+      test(`clicking a background task in the ${name} opens its terminal, a running one included`, async () => {
+        const page = await recordingPage();
+        const section = await surface.open(page);
+        await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+        await page.waitForFunction(() =>
+          ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+        );
+        expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
+        await page.close();
+      });
 
     test(`the ${name} lists the chat's background tasks: running ones first, the finished folded`, async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
