@@ -80,9 +80,9 @@ enum PictureInPictureHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return nil }
             named = cache.existingBrowser(tab.id)?.tab
         }
-        // The card's tab by its key (a page's id is its tab's key): no scan of the open pages.
+        // The card's tab by its page's tab id (a moved or adopted page keeps another key); runs only on this action.
         let shown = cache.pageRequests.sidebarNowPlaying.shownTab.flatMap { playing in
-            cache.existingBrowser(playing.rawValue).flatMap { $0.tab.id == playing ? $0.tab : nil }
+            cache.browsers.values.first(where: { $0.tab.id == playing })?.tab
         }.flatMap { $0.state.media?.isVideo == true ? $0 : nil }
         let focused = ctx.services.windows.active?.focusedPane?.stripModel.selectedID.flatMap { cache.existingBrowser($0.rawValue)?.tab }
         let facts = WindowRules.PipFacts(named: naming, namedPage: named != nil, card: invocation[cardArgument]?.boolValue == true,
