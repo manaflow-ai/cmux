@@ -54,6 +54,8 @@ pub(super) struct Wanted {
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
     asked: Notify,
+    /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
+    cut_at: StdMutex<Option<Instant>>,
 }
 
 impl Peer {
@@ -94,6 +96,20 @@ impl Peer {
             ssh.env_remove(WAKE_ENV);
         }
         ssh
+    }
+
+    /// The first ask that comes at or after `after` (`Peer::connect_once`); asks before it,
+    /// such as the one that started this attempt, are not counted.
+    pub(super) async fn next_ask_after(&self, after: Instant) {
+        loop {
+            let asked = self.wanted.asked.notified();
+            tokio::pin!(asked);
+            asked.as_mut().enable();
+            asked.await;
+            if Instant::now() >= after {
+                return;
+            }
+        }
     }
 
     fn want_for(&self, window: Duration) {
@@ -149,7 +165,17 @@ impl Peer {
                         return BackoffWait::Woke;
                     }
                 }
-                () = &mut asked => {}
+                () = &mut asked => {
+                    // A client asks now: the next attempt goes at once, at most once per
+                    // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
+                    // per cap, not one per ask.
+                    let now = Instant::now();
+                    let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
+                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
+                        *cut = Some(now);
+                        return BackoffWait::Done;
+                    }
+                }
                 _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
