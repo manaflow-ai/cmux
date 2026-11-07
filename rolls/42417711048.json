@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42417711048",
+  "recorded_at": "2026-11-07T22:00:28Z",
+  "reason": "image inputs changed in c679866df3ddb92dfd39db16961ef770e0734b38..f82910b64db608ca0b766c813d51b54b991d2d25",
+  "dry_run": false,
+  "cmux_tui": "a5b6057242658101b9bef77b033142d1be72d90d",
+  "fixes": [
+    {
+      "sha": "f82910b64db608ca0b766c813d51b54b991d2d25",
+      "mergedAt": "2026-11-07T21:49:49Z",
+      "subject": "Cloud VM image: the inventory retries a provider 5xx by its status, and a failed step stops the retry (#38029)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T22:00:28Z",
+    "snapshot_id": "sh-17a2144dffdc4b1397e9c8dee11655dc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42417711048): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "58d582dcde5ca7be1b9bc9275140b96c27b0b20c",
+    "image": "cloud-native-auto-a5b60572-42417711048-1",
+    "revision": "ci-42417711048-1",
+    "at": "2026-11-07T22:00:28Z"
+  },
+  "rolled_back": false
+}
