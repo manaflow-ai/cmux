@@ -79,10 +79,22 @@ function Moving({ transform }: { transform: boolean }) {
   useEffect(() => {
     if (moved) requestAnimationFrame(() => requestAnimationFrame(() => finish()));
   }, [moved]);
-  const style = transform ? { transform: moved ? "translateY(40px)" : undefined } : { marginTop: moved ? 40 : 0 };
+  // Late content above the box (a spacer that grows) pushes it down; the fix keeps the content
+  // where it is and moves the box with a transform. flow-root keeps margins from collapsing out.
   return (
-    <div className="moving-box" style={{ width: 300, height: 120, background: "#888", ...style }}>
-      box
+    <div style={{ display: "flow-root" }}>
+      <div style={{ height: moved && !transform ? 40 : 0 }} />
+      <div
+        className="moving-box"
+        style={{
+          width: 300,
+          height: 120,
+          background: "#888",
+          transform: moved && transform ? "translateY(40px)" : undefined,
+        }}
+      >
+        box
+      </div>
     </div>
   );
 }
