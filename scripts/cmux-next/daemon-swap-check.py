@@ -285,11 +285,11 @@ def curl_head(url: str) -> bool:
     return code == "200"
 
 
-def fetch(sha: str, cache: Path) -> tuple[Path, Path]:
+def fetch(sha: str, cache: Path, agents: bool = True) -> tuple[Path, Path | None]:
     out = cache / sha
     out.mkdir(parents=True, exist_ok=True)
     paths = []
-    for name in ("cmux-tui", "cmux-tui-acpmux"):
+    for name in ("cmux-tui", "cmux-tui-acpmux") if agents else ("cmux-tui",):
         path = out / name
         if not path.exists():
             tmp = path.with_suffix(".part")
@@ -302,7 +302,7 @@ def fetch(sha: str, cache: Path) -> tuple[Path, Path]:
         if sha[:9] not in version(path):
             raise RuntimeError(f"{path} does not report commit {sha}: {version(path)}")
         paths.append(path)
-    return paths[0], paths[1]
+    return paths[0], (paths[1] if agents else None)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -782,8 +782,9 @@ def main() -> int:
             old_sha, new_sha = args.fetch
         else:
             parser.error("--fetch takes OLD_SHA NEW_SHA or nightly")
-        args.old, args.old_acpmux = fetch(old_sha, args.cache)
-        args.new, args.new_acpmux = fetch(new_sha, args.cache)
+        agents = "agents" in args.phases.split(",")
+        args.old, args.old_acpmux = fetch(old_sha, args.cache, agents)
+        args.new, args.new_acpmux = fetch(new_sha, args.cache, agents)
     if not (args.old and args.new):
         parser.error("give --old and --new, or --fetch")
     report["old"] = version(args.old)
