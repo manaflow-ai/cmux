@@ -14,6 +14,39 @@ nonisolated struct AgentPaneMediaCacheTests {
         return root
     }
 
+    @Test @MainActor func earlierMediaRemainsReadableAfter1024Grants() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = AgentPaneMediaCache(root: root)
+        let grants = AgentPaneMediaGrants(cache: cache)
+        let original = Self.clip + Data(repeating: 42, count: 4 << 20)
+        let downloaded = try #require(await cache.store(original, ext: "mp4"))
+        let link = try #require(URL(string: "https://example.com/first.mp4"))
+        let source = grants.grant(downloaded, for: link)
+        let sourceURL = try #require(URL(string: source))
+
+        var localGrants: [(URL, URL)] = []
+        for index in 0..<1024 {
+            let file = root.appending(path: "clip-\(index).mp4")
+            try Self.clip.write(to: file)
+            let url = try #require(URL(string: grants.grant(file)))
+            localGrants.append((url, file))
+        }
+        // Existing players hold these URLs: opening later media must not invalidate any of them.
+        for (url, file) in localGrants {
+            #expect(grants.file(for: url) == file)
+        }
+        #expect(grants.file(for: sourceURL) == downloaded)
+        #expect(grants.fetched(link) == source)
+        #expect(grants.grant(downloaded) == source)
+        let firstRange = await AgentPaneSchemeHandler.readSlice(of: downloaded, range: "bytes=0-")
+        #expect(firstRange?.status == 206)
+        #expect(firstRange?.data == original)
+        let tail = await AgentPaneSchemeHandler.readSlice(of: downloaded, range: "bytes=-64")
+        #expect(tail?.data == original.suffix(64))
+        await cache.finish()
+    }
+
     @Test func restartReclaimsAbandonedClipsButKeepsLiveOwnersAndRanges() async throws {
         let root = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
