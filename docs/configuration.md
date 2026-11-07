@@ -262,6 +262,23 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 - A pull request glyph shows whether the pull request is open, merged or closed, and nothing about its checks. cmux does not fetch CI status or mergeability for a pull request, so there is no passing, failing or conflict glyph: adding one would advertise a color no user could see. An open pull request shows gray, merged shows purple, and closed shows gray with a minus badge. See [#12807](https://github.com/manaflow-ai/cmux/issues/12807).
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
+## `sidebar.hiddenStatusKeys`
+
+Status keys whose pills the sidebar leaves out. Use it when your own `cmux set-status` pills replace an integration's, for example to drop the Claude Code pill:
+
+```json
+{
+  "sidebar": {
+    "hiddenStatusKeys": ["claude_code"]
+  }
+}
+```
+
+- Default: `[]`.
+- Only the sidebar pill is hidden, in both the full row and the `compactAgentStatus` glyph. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
+- `cmux list-status` and the socket still report the hidden keys.
+- `sidebar.showCustomMetadata: false` still hides every pill.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.

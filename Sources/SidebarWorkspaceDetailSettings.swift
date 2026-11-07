@@ -13,6 +13,7 @@ struct SidebarWorkspaceDetailSettings: Equatable {
     let showAgentUsage: Bool
     let showAgentActivity: Bool
     let showCustomMetadata: Bool
+    let hiddenStatusKeys: Set<String>
 
     init(defaults: UserDefaults) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
@@ -27,5 +28,6 @@ struct SidebarWorkspaceDetailSettings: Equatable {
         showAgentUsage = settings.value(for: sidebar.showAgentUsage)
         showAgentActivity = settings.value(for: sidebar.showAgentActivity)
         showCustomMetadata = settings.value(for: sidebar.showCustomMetadata)
+        hiddenStatusKeys = Set(settings.value(for: sidebar.hiddenStatusKeys))
     }
 }
