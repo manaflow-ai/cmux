@@ -1,0 +1,20 @@
+{
+  "name": "@cmux/actions-worker",
+  "description": "cmux Actions: a GitHub Actions engine on cmux VMs and Cloudflare Durable Objects (experiment)",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "check": "bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
+}
