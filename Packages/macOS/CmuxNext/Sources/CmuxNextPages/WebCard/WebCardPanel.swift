@@ -98,10 +98,11 @@ public final class WebCardPanel: NSPanel {
     /// shows at once at that size; a first opening shows when the page reports its size (or after
     /// ``firstSizeWait``), so the card never draws at a wrong height and then jumps.
     public func present(card: String, over window: NSWindow?, takeKeys: Bool) {
-        let again = isVisible && self.card == card
-        // Another card showing closes first (its session ends): the new one never shows over its
+        let open = isVisible || pending != nil
+        let again = open && self.card == card
+        // Another card open closes first (its session ends): the new one never shows over its
         // content or at its height while the page measures the new route.
-        if let shown = self.card, shown != card, isVisible { orderOut(nil) }
+        if let shown = self.card, shown != card, open { orderOut(nil) }
         self.card = card
         cards[card]?.opened(again: again)
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
@@ -197,9 +198,10 @@ public final class WebCardPanel: NSPanel {
 
     /// Closing the card any other way closes its provider's session too.
     override public func orderOut(_ sender: Any?) {
+        // A card still waiting for its first size is open too: its session ends with it.
+        let shown = isVisible || pending != nil ? card : nil
         pending = nil
         pendingTimeout.cancel()
-        let shown = isVisible ? card : nil
         super.orderOut(sender)
         if let shown { finish(shown) }
     }
