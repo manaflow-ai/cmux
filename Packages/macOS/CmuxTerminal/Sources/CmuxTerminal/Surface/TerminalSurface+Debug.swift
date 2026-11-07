@@ -206,6 +206,7 @@ extension TerminalSurface {
         runtimeDisplayLayer?.detachRendererDisplayCallback()
         runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
+        ghostty_surface_request_process_termination(surfaceToFree)
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -230,6 +231,7 @@ extension TerminalSurface {
         runtimeDisplayLayer?.detachRendererDisplayCallback()
         runtimeDisplayLayer = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
+        ghostty_surface_request_process_termination(surfaceToFree)
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
