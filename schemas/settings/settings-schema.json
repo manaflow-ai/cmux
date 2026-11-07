@@ -18592,7 +18592,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
