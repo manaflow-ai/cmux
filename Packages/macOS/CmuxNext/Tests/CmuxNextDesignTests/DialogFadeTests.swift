@@ -135,14 +135,13 @@ import Testing
     /// Alert polish: the card's overlay panel gives key back as the close starts, and the glass took
     /// its inactive grey frost: the card lit up a lighter grey for the whole fade (the close's first
     /// frame was further from both the open and the closed dialog than they are from each other).
-    /// The card's glass keeps the key-window look.
+    /// The card's glass keeps the key-window look. The card's glass is the sheet surface the dialog
+    /// drawing (CmuxNextPages `OverlayDialogView`) makes with the dialog's active-look scope.
     @Test func aDialogCardKeepsTheKeyWindowGlass() throws {
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Close Workspace?", buttons: [.cancel(), .ok()]),
-                                    activeLook: ActiveLookScope())
         func glass(in view: NSView) -> [GlassPanelView] {
             (view as? GlassPanelView).map { [$0] } ?? view.subviews.flatMap(glass(in:))
         }
-        let surface = try #require(dialog.surface)
+        let surface = Glass.makeSurface(.sheet, content: NSView(), activeLook: ActiveLookScope())
         for panel in glass(in: surface) { #expect(panel.keepsActiveLook, "the dialog's glass frosts grey when its panel gives key back") }
     }
 
