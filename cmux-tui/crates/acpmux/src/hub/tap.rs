@@ -300,8 +300,9 @@ impl Hub {
             {
                 // Gemini's plan approval names its plan file only: the update carries the plan
                 // (`gemini_plan.rs`), in the log every client reads.
-                if super::gemini_plan::names_plan(&params["update"]) {
-                    let cwd = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
+                if params.get("update").is_some_and(super::gemini_plan::names_plan) {
+                    let cwd =
+                        tap_session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
                     super::gemini_plan::with_plan_update(
                         params,
                         &cwd,

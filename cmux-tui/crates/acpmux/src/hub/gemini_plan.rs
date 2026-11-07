@@ -18,7 +18,6 @@
 //! file of at most 256 KiB. Anything else, or a read that fails, leaves the call as Gemini sent
 //! it. Only on Unix, where those handle-relative opens exist; elsewhere no plan file is read.
 
-use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -103,7 +102,7 @@ fn read_capped(file: std::fs::File, max: u64) -> Option<String> {
 
 /// The plan file an `exit_plan_mode` tool call names, from its title.
 fn named_plan(tool: &Value) -> Option<&str> {
-    let path = tool["title"].as_str()?.strip_prefix(TITLE)?.trim();
+    let path = tool.get("title")?.as_str()?.strip_prefix(TITLE)?.trim();
     (!path.is_empty()).then_some(path)
 }
 
@@ -193,27 +192,35 @@ pub(super) fn read_plan(path: &str, cwd: &Path, homes: &[PathBuf]) -> Option<Str
 /// sent (its end's "Plan approved: <path>" stays after it), `rawInput.plan` (beside any input
 /// Gemini sent, whose own fields stay), and `_meta.acpmux.plan`.
 fn attach(tool: &mut Value, path: &str, plan: &str) {
+    let Some(call) = tool.as_object_mut() else { return };
     let block = json!({"type": "content", "content": {"type": "text", "text": plan}});
     let mut content = vec![block];
-    if let Some(sent) = tool["content"].as_array() {
+    if let Some(sent) = call.get("content").and_then(Value::as_array) {
         content.extend(sent.iter().cloned());
     }
-    tool.set("content", Value::Array(content));
-    if tool.get("rawInput").is_none_or(Value::is_null) {
-        tool.set("rawInput", json!({"plan": plan, "plan_path": path}));
-    } else if let Some(input) = tool["rawInput"].as_object_mut()
-        && !input.contains_key("plan")
-    {
-        input.insert("plan".into(), json!(plan));
-        input.entry("plan_path").or_insert_with(|| json!(path));
+    call.insert("content".into(), Value::Array(content));
+    match call.get_mut("rawInput") {
+        None | Some(Value::Null) => {
+            call.insert("rawInput".into(), json!({"plan": plan, "plan_path": path}));
+        }
+        Some(Value::Object(input)) if !input.contains_key("plan") => {
+            input.insert("plan".into(), json!(plan));
+            input.entry("plan_path").or_insert_with(|| json!(path));
+        }
+        Some(_) => {}
     }
-    if !tool["_meta"].is_object() {
-        tool.set("_meta", json!({}));
+    let meta = call.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
     }
-    if !tool["_meta"]["acpmux"].is_object() {
-        tool["_meta"].set("acpmux", json!({}));
+    let Some(meta) = meta.as_object_mut() else { return };
+    let acpmux = meta.entry("acpmux").or_insert_with(|| json!({}));
+    if !acpmux.is_object() {
+        *acpmux = json!({});
     }
-    tool["_meta"]["acpmux"].set("plan", json!({"markdown": plan, "path": path}));
+    if let Some(acpmux) = acpmux.as_object_mut() {
+        acpmux.insert("plan".into(), json!({"markdown": plan, "path": path}));
+    }
 }
 
 /// Attaches the plan to `tool` (a tool call, an update to one, or a permission request's
@@ -231,8 +238,9 @@ pub(super) fn with_plan(tool: &mut Value, cwd: &Path, homes: &[PathBuf]) -> bool
 
 /// [`with_plan`] on a `session/update`'s params when the update is a tool call or its update.
 pub(super) fn with_plan_update(params: &mut Value, cwd: &Path, homes: &[PathBuf]) -> bool {
-    let update = &mut params["update"];
-    if !matches!(update["sessionUpdate"].as_str(), Some("tool_call" | "tool_call_update")) {
+    let Some(update) = params.get_mut("update") else { return false };
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    if !matches!(kind, Some("tool_call" | "tool_call_update")) {
         return false;
     }
     with_plan(update, cwd, homes)
