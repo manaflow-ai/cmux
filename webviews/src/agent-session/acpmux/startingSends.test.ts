@@ -117,3 +117,26 @@ test("an edit saved while its prompt goes comes back once it went, and never whe
   h.sends.lost("acpmux-prompt", "kept");
   expect(h.given).toEqual(["first, edited", "second", "kept"]);
 });
+
+// Leo, 2026-11-06 ("why is this still happening"): a send the composer held for a pasted image
+// bound its Enter at once (composer/heldSendGesture.test.tsx), and the image's upload then spent the
+// host's one grant. When such a send queues behind a chat that is still starting, it goes with the
+// gesture its Enter bound; a prompt queued without one (a script's) goes without.
+test("a queued send goes with the gesture its Enter bound, and one without goes without", async () => {
+  const h = harness();
+  const carried: (string | undefined)[] = [];
+  const go = (text: string, _attachments: unknown, gesture?: { promptId: string }) => {
+    carried.push(gesture?.promptId);
+    return h.go(text);
+  };
+  const ticket = Promise.resolve<string | undefined>("ticket-enter");
+  h.sends.add("first", [], go);
+  h.sends.add("with the screenshot", [], go, { promptId: "held-1", ticket });
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  h.gates.get("with the screenshot")!.take();
+  await h.settle();
+  expect(h.sent).toEqual(["first", "with the screenshot"]);
+  expect(carried).toEqual([undefined, "held-1"]);
+});

@@ -40,6 +40,9 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     if input.is_some() {
         note(update, || canonical(input.as_deref()));
     }
+    // A finished read of an image file that returned no image gets the file's image
+    // (`tool_read_images.rs`): Codex's View of a PNG drew as its bare path.
+    super::tool_read_images::add_read_image(kind, msg, &cwd);
 }
 
 /// `target._meta.acpmux.canonicalPath` = `canonical()`, unless it has one or

@@ -4,7 +4,10 @@ import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -28,17 +31,17 @@ struct CloudIdlePauseTests {
 
     @Test func theRecordCarriesWhyItIsPausedAndItsIdleTimeout() throws {
         let data = Data(#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.pauseReason == .idle)
         #expect(machine.idlePauseMinutes == 30)
-        let user = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
+        let user = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
         #expect(user.pauseReason == .user)
         #expect(user.idlePauseMinutes == 0)
     }
 
     @Test func theRecordCarriesIdlePauseDiagnosticsForMachineStatus() throws {
         let data = Data(#"{"id":"vm-diag","status":"running","idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         let idle = try #require(machine.idlePause)
         #expect(idle.minutes == 30)
         #expect(idle.lastCheckedAt == 1_700_000_000_000)
@@ -65,16 +68,38 @@ struct CloudIdlePauseTests {
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
 
-        let appServer = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
+        let appServer = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next","status":"running","idlePauseMinutes":30,"idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8))
         let next = try #require(CloudMachine(next: appServer))
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
+
+        let nextPolicy = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-next-policy","status":"running","idle_policy":{"idle_seconds":1800}}"#.utf8))
+        let policyMachine = try #require(CloudMachine(next: nextPolicy))
+        #expect(policyMachine.idlePauseMinutes == 30)
+    }
+
+    /// A failed create keeps its reason only on the record (`error`): machine-status prints it, so "state failed"
+    /// says why (Leo's six failed machines read only "state failed", 2026-11-06).
+    @Test func machineStatusPrintsWhyTheMachineFailed() throws {
+        let record = try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: Data(#"{"id":"vm-failed","status":"failed","error":{"code":"cloud.provider.unavailable","message":"VM API: HTTP 503","at":1700000000000}}"#.utf8))
+        let machine = try #require(CloudMachine(next: record))
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
+        session.machine = machine
+        let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"failed"}"#.utf8))
+        let fields = CloudHandlers.statusFields(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(fields["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("VM API: HTTP 503")]))
+        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(text.contains("error: cloud.provider.unavailable: VM API: HTTP 503"))
+
+        let healthy = MachineIconTests.cloudMachine(services, id: "vm-ok")
+        #expect(CloudHandlers.statusFields(healthy, stats)["error"] == nil)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
-        let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
+        let old = try CloudMachine.classic(Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
         #expect(old.idlePauseMinutes == nil)
-        let odd = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
+        let odd = try CloudMachine.classic(Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
         #expect(odd.pauseReason == nil)
         #expect(odd.idlePauseMinutes == nil)
     }
@@ -149,117 +174,25 @@ struct CloudIdlePauseTests {
         #expect(WorkspaceHoverCardContent.connectionTone(.paused) == .secondary)
     }
 
-    @Test func theProgressViewOffersOneClickResume() {
+    /// The progress page reads a paused machine as paused (idle), not failed: its Resume is one click.
+    @Test func theProgressPageOffersOneClickResume() async throws {
         let f = Self.pausedMachine(reason: .idle)
         let creation = CloudMachineCreation(windowID: nil, session: f.session)
-        let view = CloudMachineProgressView(creation: creation, actions: .init(retry: { _ in }, dismiss: { _ in }))
-        #expect(view.showsButtons)
-        #expect(view.primaryButtonTitle == CloudStrings.resume)
-        #expect(!view.detailText.contains(CloudStrings.progressFailed("")), "paused must not read as a failed start")
-    }
-
-    // MARK: Attach resumes
-
-    @Test(.timeLimit(.minutes(1)))
-    func attachingToAPausedMachineResumesItThroughResumeMachine() async {
-        let f = Self.pausedMachine(reason: .idle)
-        var resumed: [String] = []
-        f.session.resumer = { [session = f.session] id in
-            resumed.append(id)
-            session.machine.status = .running
+        var retried = 0
+        let provider = CloudProgressPageProvider(source: creation, actions: .init(
+            retry: { retried += 1 }, dismiss: {}, copy: { _ in }, personOnlyMessage: "person only"))
+        let state = provider.state()
+        #expect(state["stage"]?.stringValue == "paused")
+        #expect(state["idle"]?.boolValue == true)
+        #expect(state["failure"] == .null, "paused must not read as a failed start")
+        #expect(state["finished"]?.boolValue == true)
+        // Resume runs only from the person's own click.
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]), context: PageCallContext(page: "cmux.cloud-progress"))
         }
-        f.session.attach(origin: .user)
-        #expect(f.session.resuming)
-        #expect(f.session.stage == .booting)
-        f.session.attach(origin: .user) // a second attach while it resumes starts no second resume
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(resumed == [f.session.machineID])
-        #expect(f.session.machine.status == .running)
-        f.session.disconnect()
-    }
-
-    @Test func attachingToALiveMachineResumesNothing() {
-        let f = Self.pausedMachine(reason: nil)
-        f.session.machine.status = .running
-        var resumed = 0
-        f.session.resumer = { _ in resumed += 1 }
-        f.session.attach(origin: .user)
-        #expect(!f.session.resuming)
-        #expect(resumed == 0)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func aFailedResumeShowsItsReason() async {
-        let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
-        f.session.attach(origin: .user)
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(f.session.stage.failure?.contains("no capacity") == true)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func aFailedResumeDoesNotOutliveTheNextPause() async {
-        let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
-        f.session.attach(origin: .user)
-        let session = f.session
-        for await busy in ObservationStream({ session.resuming }) where !busy { break }
-        #expect(f.session.resumeFailure != nil)
-        // The machine is paused again (another pause, a reconcile): the old failure no longer applies.
-        f.session.suspend()
-        #expect(f.session.resumeFailure == nil)
-        #expect(f.session.stage == .paused(idle: true))
-        f.session.disconnect()
-    }
-
-    /// The app reads the machine list on launch and activation only, so a machine the idle
-    /// auto-pause parked while cmux stayed in front still reads running here. An attach reads the
-    /// record again first, finds it paused and resumes it.
-    @Test(.timeLimit(.minutes(1)))
-    func anAttachToAStaleRunningRecordReadsItAgainAndResumes() async {
-        let f = Self.pausedMachine(reason: nil)
-        f.session.machine.status = .running
-        var reads: [Bool] = []
-        var resumed = 0
-        f.session.refresher = { [session = f.session] force in
-            reads.append(force)
-            session.machine.status = .paused
-            session.machine.pauseReason = .idle
-        }
-        f.session.resumer = { _ in
-            resumed += 1
-            throw ActionFailure(message: "no capacity")
-        }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
-        #expect(CloudHandlers.attachable(f.session))
-        await #expect(throws: ActionFailure.self) { try await CloudHandlers.attached(f.session, invocation, within: .seconds(20)) }
-        #expect(reads == [true])
-        #expect(resumed == 1)
-        #expect(f.session.stage.failure?.contains("no capacity") == true)
-        f.session.disconnect()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func anAttachToAPausedMachineWaitsForItsResume() async {
-        let f = Self.pausedMachine(reason: .idle)
-        var reads = 0
-        f.session.refresher = { _ in reads += 1 }
-        f.session.resumer = { _ in throw ActionFailure(message: "quota reached") }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
-        do {
-            try await CloudHandlers.attached(f.session, invocation, within: .seconds(20))
-            Issue.record("a failed resume must fail the attach")
-        } catch let failure as ActionFailure {
-            #expect(failure.message.contains("quota reached"))
-        } catch {
-            Issue.record("unexpected \(error)")
-        }
-        #expect(reads == 0, "a record that already reads paused is not read again")
-        f.session.disconnect()
+        _ = try await provider.call(CloudProgressPageProvider.retryOp, params: .object([:]),
+                                    context: PageCallContext(page: "cmux.cloud-progress", userGesture: true))
+        #expect(retried == 1)
     }
 
     // MARK: One record (Machine Status)

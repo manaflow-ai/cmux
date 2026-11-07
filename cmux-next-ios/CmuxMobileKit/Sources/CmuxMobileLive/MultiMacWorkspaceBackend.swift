@@ -48,7 +48,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(workspace.macID).rename(workspace, to: title)
     }
     public func close(_ workspace: Workspace) async throws { try await backend(workspace.macID).close(workspace) }
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace { try await backend(workspace.macID).duplicate(workspace) }
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
+        try await backend(workspace.macID).duplicate(workspace, browsers: browsers)
+    }
     public func tabKinds(on macID: String) -> [NewTabKind] { on(macID)?.tabKinds(on: macID) ?? [] }
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] {
         on(macID)?.unavailableTabKinds(on: macID) ?? []
@@ -66,6 +68,12 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func canEditTabs(on macID: String) -> Bool { on(macID)?.canEditTabs(on: macID) ?? false }
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         try await backend(workspace.macID).renameTab(tab, in: workspace, to: title)
+    }
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).newTab(besides: tab, at: position, in: workspace)
+    }
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).clearTabName(tab, in: workspace)
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).duplicateTab(tab, in: workspace)

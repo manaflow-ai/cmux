@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample pull requests), not shipped UI.
 import { nativeEntry } from "../gallery/format";
 
-// The native sidebar's pull request hover card (`SidebarPullRequestCardView`,
-// `sidebar.pullRequestCard`): each variant's fixture is the `[SidebarPullRequestItem]` the row's
+// The native sidebar's pull request hover card (`SidebarPullRequestCardView`):
+// each variant's fixture is the `[SidebarPullRequestItem]` the row's
 // badge hands the card, newest first, as `SidebarPullRequestCardTests` decodes it.
 const pr = (
   number: number,

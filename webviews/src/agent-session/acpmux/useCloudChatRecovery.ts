@@ -76,7 +76,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
         if (next !== undefined || !resuming) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) {
-          const result = await beforeDeadline(recheck());
+          await beforeDeadline(recheck());
           if (disposed) return;
         }
         if (disposed) return;

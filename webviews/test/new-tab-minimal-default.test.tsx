@@ -12,7 +12,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import {

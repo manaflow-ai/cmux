@@ -73,6 +73,8 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
+    /// The layout screen whose one tracking area tells the corner the pointer (``PanePointerRegion``); nil: its own area.
+    private weak var cornerArea: (any PanePointerArea)?
     private var restObservation: Task<Void, Never>?
     private weak var cornerHost: NSView?
 
@@ -369,6 +371,21 @@ public final class PaneToolbarView: NSView {
 
     private var shownCount: Int { buttons.count + nativeButtons.count + (hasMore ? 1 : 0) }
 
+    /// The bar's width beside a page whose own tools share the tab row (a chat's header): what it shows now and the
+    /// trailing gap, never room kept for a hidden "…" or pin (``reservedCount``). That room is the selected tab's to
+    /// keep the strip still; beside a chat it is an empty slot after the chat's own "…", and a pane whose other tabs
+    /// offer none kept 0, so the chat's tools ran to the pane's edge there (Leo 2026-11-07: "there's sometimes this,
+    /// like, ghost area where it thinks there's, like, a fifth icon"). With nothing shown the chat's last tool sits on
+    /// the pane's trailing control column, where "…" sits, in every pane.
+    public var tabRowWidth: CGFloat {
+        let allButtons = buttons + nativeButtons
+        let count = shownCount
+        let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let moreWidth = hasMore ? TitlebarBandButton.side : 0
+        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        return buttonWidth + moreWidth + gaps + Self.trailingGap
+    }
+
     override public func layout() {
         super.layout()
         let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
@@ -473,6 +490,19 @@ public final class PaneToolbarView: NSView {
         let rect = strip.map { $0.frame.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
+        // In a pane the screen's one area serves the corner by its geometry: no own area, which a resize moved with the
+        // strip in every layout pass (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
+        let serving = live ? enclosingPanePointerArea : nil
+        if serving !== cornerArea {
+            cornerArea?.removePointerRegion(self)
+            cornerArea = serving
+            serving?.addPointerRegion(self)
+        }
+        if serving != nil {
+            if let corner { cornerHost?.removeTrackingArea(corner) }
+            (corner, cornerHost) = (nil, nil)
+            return
+        }
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }
         corner = nil
@@ -533,4 +563,14 @@ extension PaneToolbarView: TitlebarPressDeciding {
         let onButton = ((buttons + nativeButtons).map { $0 as NSView } + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
+}
+
+/// In a pane the layout screen's one tracking area tells the toolbar's corner (its strip and itself, in its host's
+/// coordinates) where the pointer is.
+extension PaneToolbarView: PanePointerRegion {
+    public var panePointerRegion: (view: NSView, rect: CGRect)? {
+        superview.map { ($0, strip.map { $0.frame.union(frame) } ?? frame) }
+    }
+
+    public func panePointerInside(_ inside: Bool) { reveal.setPointerInside(inside) }
 }

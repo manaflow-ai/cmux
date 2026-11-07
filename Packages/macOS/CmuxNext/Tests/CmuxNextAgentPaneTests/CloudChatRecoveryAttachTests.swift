@@ -57,4 +57,17 @@ struct CloudChatRecoveryAttachTests {
             resume: { steps.append("resume") }, connect: { steps.append("connect") })
         #expect(!ran && steps.isEmpty)
     }
+
+    /// A typing prewarm resumes only a paused machine while Cloud may be called, and answers whether it was accepted.
+    @Test func aTypingPrewarmResumesOnlyAPausedMachineWhileAllowed() async {
+        var resumed = 0
+        let resume: @MainActor () async throws -> Void = { resumed += 1 }
+        #expect(await AgentPaneCloudMachines.prewarmIfPaused(allowed: true, status: .paused, resume: resume))
+        #expect(!(await AgentPaneCloudMachines.prewarmIfPaused(allowed: false, status: .paused, resume: resume)))
+        for status: CloudMachine.Status? in [.running, .starting, .pausing, .destroyed, nil] {
+            #expect(!(await AgentPaneCloudMachines.prewarmIfPaused(allowed: true, status: status, resume: resume)))
+        }
+        #expect(resumed == 1)
+        #expect(!(await AgentPaneCloudMachines.prewarmIfPaused(allowed: true, status: .paused, resume: { throw CancellationError() })))
+    }
 }

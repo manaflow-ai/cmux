@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample chat actions), not shipped UI.
 import { createElement, Fragment } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
@@ -17,6 +17,12 @@ type HeaderToolsProps = {
   /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
   /// The tools' square and gap as CSS lengths (header.css --acpmux-header-tool-size and -gap).
   treatment?: { size: string; gap: string };
+  /// Gallery-only: the tools as they sit in panes' tab rows side by side, each with its own props, its
+  /// trailing inset (the pane toolbar's width the App offers, `tabRow.trailingInset`) and whether it has the
+  /// keyboard (the App's pageKey.ts marks a page without it `data-page-inactive`).
+  panes?: readonly GalleryPane[];
+  /// Gallery-only: how a pane without the keyboard draws an open panel's toggle (header.css; `quiet` ships).
+  unfocused?: "quiet" | "dim" | "kept";
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -41,7 +47,17 @@ type HeaderToolsProps = {
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  working?: boolean;
+  motion?: "still" | "animated-cue" | "animated-spring" | "animated-morph";
 };
+
+type GalleryPane = { focused: boolean; inset: number; props?: Partial<HeaderToolsProps> };
+
+/// The pane toolbar's trailing gap (PaneToolbarView.trailingGap) at the default interface size, about 8 points:
+/// the inset every chat's tools get beside an empty toolbar (Leo 2026-11-07). Before, a pane whose other tabs
+/// offer "…" kept that "…"'s 24px slot and its gap too, and a pane of chats only kept nothing.
+const ROW_INSET = 8;
+const GHOST_INSET = ROW_INSET + 24;
 
 const menuRows = (): ChatMenuItem[] => [
   { key: "rename", label: "Rename", icon: "action.edit", shortcutAction: "renameTab", onSelect: () => undefined },
@@ -452,6 +468,57 @@ const inbox = (
   />
 );
 
+/// Alternative look for a pane without the keyboard: the open toggle keeps a half-strength square.
+const DIM_UNFOCUSED =
+  "[data-page-inactive] .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:hover):not([data-popup-open])" +
+  "{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}";
+
+/// The tools are exactly their visible buttons: the row's width is the sum of its shown children and the gaps
+/// between them, with no empty child (a hidden button still in the stack) taking a gap of its own.
+const toolsAreTheirButtons: Play = async (ctx) => {
+  for (const tools of ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools")) {
+    const view = ctx.document.defaultView!;
+    const children = [...tools.children].filter((child) => view.getComputedStyle(child).display !== "none");
+    const boxes = children.flatMap((child) =>
+      view.getComputedStyle(child).display === "contents" ? [...child.children] : [child],
+    );
+    const empty = boxes.filter((child) => child.getBoundingClientRect().width === 0);
+    if (empty.length)
+      throw new Error(`the tools hold ${empty.length} empty slot(s): ${empty.map((e) => e.className).join(", ")}`);
+    const gap = Number.parseFloat(view.getComputedStyle(tools).columnGap) || 0;
+    const sum =
+      boxes.reduce((width, child) => width + child.getBoundingClientRect().width, 0) + gap * (boxes.length - 1);
+    const width = tools.getBoundingClientRect().width;
+    if (Math.abs(width - sum) > 0.5) throw new Error(`the tools are ${width}px for ${sum}px of buttons`);
+  }
+};
+
+/// Every pane's last tool ends the same distance from its pane's right edge.
+const oneTrailingInset: Play = async (ctx) => {
+  await toolsAreTheirButtons(ctx);
+  const insets = [...ctx.document.querySelectorAll<HTMLElement>("[data-gallery-pane]")].map((pane) => {
+    const tools = pane.querySelector<HTMLElement>(".acpmux-header-tools")!;
+    return Math.round(pane.getBoundingClientRect().right - tools.getBoundingClientRect().right);
+  });
+  if (new Set(insets).size !== 1) throw new Error(`the panes' tools end at different insets: ${insets.join(", ")}`);
+};
+
+/// The unfocused pane's open toggle has no square at rest; the focused one keeps it.
+const quietWhenUnfocused: Play = async (ctx) => {
+  await oneTrailingInset(ctx);
+  const plate = (state: string) => {
+    const toggle = ctx.document.querySelector<HTMLElement>(
+      `[data-gallery-pane=${state}] .acpmux-header-tool[aria-pressed=true]`,
+    );
+    return toggle ? ctx.document.defaultView!.getComputedStyle(toggle).backgroundColor : undefined;
+  };
+  if (plate("focused") === "rgba(0, 0, 0, 0)") throw new Error("the focused pane's open toggle lost its square");
+  if (plate("unfocused") !== "rgba(0, 0, 0, 0)")
+    throw new Error("the unfocused pane's open toggle still shows its square");
+};
+
+const changes = { hasChanges: true, onChanges: () => undefined } as const;
+
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
   onSplitDown: () => undefined,
@@ -462,6 +529,128 @@ const base: HeaderToolsProps = {
   menu: menuRows,
   onMenuOpen: async () => undefined,
 };
+
+// Thunderdome B, header icon motion (headerMotion.ts; Debug Settings agentChat.headerMotion; Leo
+// 2026-11-05: should the top-right icons be "a little more animated?"). The plays freeze each motion
+// at a frame (every running animation paused at `at` ms), so a still shows it mid-flight.
+const frozenAt =
+  (at: number): Play =>
+  async (ctx) => {
+    const view = ctx.document.defaultView!;
+    await new Promise((done) => view.requestAnimationFrame(() => done(undefined)));
+    for (const animation of ctx.document.getAnimations()) {
+      animation.pause();
+      animation.currentTime = at;
+    }
+  };
+const motionLit =
+  (lit: string[], at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    setHeaderState({ lit });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionArrive =
+  (at?: number): Play =>
+  async (ctx) => {
+    const { setHeaderState } = await import("./headerState");
+    setHeaderState({ lit: [] });
+    await new Promise((done) => setTimeout(done, 300));
+    // Changes shows while its diff is open: it arrives, and Terminal and Browser make room.
+    setHeaderState({ lit: ["openDiffViewer"] });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="changes"]'));
+    if (at !== undefined) await frozenAt(at)(ctx);
+  };
+const motionMorph =
+  (at: number): Play =>
+  async (ctx) => {
+    (ctx.find({ selector: '[data-quick-action="terminal"]' }) as HTMLElement).click();
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-morph"));
+    await frozenAt(at)(ctx);
+  };
+const motionHover =
+  (name: string): Play =>
+  async (ctx) => {
+    const button = ctx.find({ role: "button", name });
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerover", { bubbles: true }));
+    button.dispatchEvent(new ctx.document.defaultView!.PointerEvent("pointerenter", { bubbles: false }));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-preview"), { capMs: 2000 });
+  };
+const motionBase = (motion: HeaderToolsProps["motion"]): HeaderToolsProps => ({
+  ...base,
+  motion,
+  summary: panelToggle(false),
+  hasChanges: true,
+  onChanges: () => undefined,
+  previewUrl: "http://localhost:5173/",
+  onPreview: () => undefined,
+});
+const motionVariants = {
+  "motion-still": {
+    note: "Header motion: still (the shipped default). Nothing moves; the pressed square appears at once.",
+    props: { ...motionBase("still"), working: true },
+    play: motionLit(["splitRight"]),
+  },
+  "motion-cue-working": {
+    note: "Header motion: cue. While the chat's turn runs, a crisp 6px round dot sits still on Changes (no breathing: status dots never pulse).",
+    props: { ...motionBase("animated-cue"), working: true },
+  },
+  "motion-cue-pending": {
+    note: "Header motion: cue. The turn is over and its changes wait: the dot holds still. No work, no dot.",
+    props: motionBase("animated-cue"),
+  },
+  "motion-cue-plate-60ms": {
+    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"], 60),
+  },
+  "motion-cue-plate-settled": {
+    note: "Header motion: cue. The plate settled: the same filled rounded square the shipped header draws.",
+    props: motionBase("animated-cue"),
+    play: motionLit(["splitRight"]),
+  },
+  "motion-spring-arrive-50ms": {
+    note: "Header motion: spring. Changes became relevant: 50 ms in, it springs up from a dot while Terminal and Browser glide right to make room (transforms only).",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(50),
+  },
+  "motion-spring-arrive-120ms": {
+    note: "Header motion: spring. 120 ms in: Changes overshoots a touch, its neighbours nearly there.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(120),
+  },
+  "motion-spring-arrive-settled": {
+    note: "Header motion: spring. Settled: the same row the shipped header draws, Changes lit while its diff is open.",
+    props: { ...motionBase("animated-spring"), hasChanges: false },
+    play: motionArrive(),
+  },
+  "motion-morph-fly-90ms": {
+    note: "Header motion: morph. A click on Terminal opens its split: 90 ms in, the glyph leaves for the pane's right edge, widening into a tab.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(90),
+  },
+  "motion-morph-fly-170ms": {
+    note: "Header motion: morph. 170 ms in: the glyph has become the Terminal tab where the split lands, then fades as the real pane shows.",
+    props: motionBase("animated-morph"),
+    play: motionMorph(170),
+  },
+  "motion-morph-hover-browser": {
+    note: "Header motion: morph. Resting on Browser previews what a click opens: the chat's page in the right column, with its address. It stands in for the tooltip.",
+    props: motionBase("animated-morph"),
+    play: motionHover("Browser"),
+  },
+  "motion-morph-hover-closes": {
+    note: "Header motion: morph. Resting on Terminal while its split is open: the panel draws dashed, the click closes it.",
+    props: motionBase("animated-morph"),
+    play: async (ctx) => {
+      await motionLit(["splitRight"])(ctx);
+      await motionHover("Terminal")(ctx);
+    },
+  },
+} satisfies Record<string, { note: string; props: HeaderToolsProps; play?: Play }>;
 
 export default componentEntry<HeaderToolsProps>({
   id: "agent-pane.header-tools",
@@ -479,11 +668,12 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
     "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
+    "agent-session/acpmux/header/HeaderToolPreview.tsx#HeaderToolPreview",
   ],
   load: () =>
     import("./ChatHeaderTools").then(
       (module) =>
-        ({ treatment, ...props }: HeaderToolsProps) =>
+        ({ treatment, panes, unfocused, ...props }: HeaderToolsProps) =>
           createElement(
             Fragment,
             null,
@@ -494,7 +684,56 @@ export default componentEntry<HeaderToolsProps>({
                   `.acpmux-header-tools{--acpmux-header-tool-size:${treatment.size};--acpmux-header-tool-gap:${treatment.gap}}`,
                 )
               : null,
-            createElement(module.ChatHeaderTools, props),
+            unfocused === "dim" ? createElement("style", null, DIM_UNFOCUSED) : null,
+            panes
+              ? createElement(
+                  "div",
+                  {
+                    className: "gallery-pane-row",
+                    style: { display: "flex", gap: 1, background: "var(--agent-border)" },
+                  },
+                  panes.map((pane, index) =>
+                    createElement(
+                      "section",
+                      {
+                        key: index,
+                        className: "acpmux-shell",
+                        "data-tab-row": "",
+                        "data-gallery-pane": pane.focused ? "focused" : "unfocused",
+                        "data-page-inactive": pane.focused || unfocused === "kept" ? undefined : "",
+                        style: {
+                          "--acpmux-tab-row-height": "28px",
+                          "--acpmux-tab-row-inset": `${pane.inset}px`,
+                          flex: "1 1 0",
+                          minWidth: 0,
+                          height: 28,
+                        } as CSSProperties,
+                      },
+                      createElement(
+                        "div",
+                        { className: "acpmux-stage", style: { flex: "1 1 0", minWidth: 0 } },
+                        createElement(
+                          "header",
+                          { className: "acpmux-header", "data-tab-row": "" },
+                          createElement("div", { className: "acpmux-header-status-slot" }),
+                          createElement(
+                            "div",
+                            { className: "acpmux-handoff-header-tools" },
+                            createElement(module.ChatHeaderTools, { ...props, ...pane.props }),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : unfocused
+                ? // Sized to its content (inline-flex), so the tools row is exactly its buttons as in the header.
+                  createElement(
+                    "div",
+                    { "data-page-inactive": unfocused === "kept" ? undefined : "", style: { display: "inline-flex" } },
+                    createElement(module.ChatHeaderTools, props),
+                  )
+                : createElement(module.ChatHeaderTools, props),
           ),
     ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -516,6 +755,73 @@ export default componentEntry<HeaderToolsProps>({
     },
   },
   variants: {
+    "two-panes": {
+      note: "Chosen (Leo 2026-11-07, two chats side by side): every pane's tools end on one column, the pane toolbar's trailing gap from its edge, with no empty slot after the chat's own •••; Session Info is open in both, but only the focused (left) pane shows its selected square. The right pane has no ± (nothing changed) and is exactly one button narrower.",
+      props: {
+        ...base,
+        panes: [
+          { focused: true, inset: ROW_INSET, props: { ...changes, summary: sessionInfoToggle } },
+          { focused: false, inset: ROW_INSET, props: { summary: sessionInfoToggle } },
+        ],
+      },
+      play: quietWhenUnfocused,
+    },
+    "two-panes-before": {
+      note: "Before: the left pane also holds a terminal, so its toolbar kept the hidden pane •••'s 24px slot after the chat's ••• (the ghost fifth icon); the right pane, chats only, kept nothing, so its tools ran to the edge and sat askew from the left pane's. Both panes lit Session Info's square.",
+      props: {
+        ...base,
+        unfocused: "kept",
+        panes: [
+          { focused: true, inset: GHOST_INSET, props: { summary: sessionInfoToggle } },
+          { focused: false, inset: 0, props: { ...changes, summary: sessionInfoToggle } },
+        ],
+      },
+    },
+    "two-panes-narrow": {
+      note: "Two panes side by side with the right one focused (view it at the narrow width, 390px, where the trailing tools fold into •••): both end on the same column, and the unfocused left pane's open Session Info stays quiet.",
+      props: {
+        ...base,
+        panes: [
+          { focused: false, inset: ROW_INSET, props: { ...changes, summary: sessionInfoToggle } },
+          { focused: true, inset: ROW_INSET, props: { summary: sessionInfoToggle } },
+        ],
+      },
+      play: quietWhenUnfocused,
+    },
+    "two-panes-session-info-closed": {
+      note: "Session Info closed in both panes and ± shown in one: nothing selected, so the focused and the unfocused pane look the same at rest; the insets still match.",
+      props: {
+        ...base,
+        panes: [
+          { focused: true, inset: ROW_INSET, props: { summary: panelToggle(false) } },
+          { focused: false, inset: ROW_INSET, props: { ...changes, summary: panelToggle(false) } },
+        ],
+      },
+      play: oneTrailingInset,
+    },
+    "unfocused-quiet": {
+      note: "Chosen: a pane without the keyboard draws its open Session Info toggle with no square and the muted ink; only its solid glyph says the panel is open. Hover still lights it.",
+      props: { ...base, ...changes, unfocused: "quiet", summary: sessionInfoToggle },
+      play: toolsAreTheirButtons,
+    },
+    "unfocused-dim": {
+      note: "Alternative: the unfocused pane keeps a half-strength square. Reads as selected still, which is what Leo asked to drop.",
+      props: { ...base, ...changes, unfocused: "dim", summary: sessionInfoToggle },
+      play: toolsAreTheirButtons,
+    },
+    "unfocused-kept": {
+      note: "Before: the unfocused pane draws the same square and lit ink as the focused one.",
+      props: { ...base, ...changes, unfocused: "kept", summary: sessionInfoToggle },
+      play: toolsAreTheirButtons,
+    },
+    "unfocused-hover": {
+      note: "The unfocused pane's quiet toggle under the pointer: it lights as in the focused pane, so it still answers hover and click.",
+      props: { ...base, unfocused: "quiet", summary: sessionInfoToggle },
+      play: async (ctx) => {
+        await ctx.hover({ role: "button", name: "Session Info" });
+      },
+    },
+    ...motionVariants,
     "native-row-off": {
       note: "The default web toolbar: Summary, Needs You, quick actions and the chat menu remain web controls.",
       props: { ...base, inbox },

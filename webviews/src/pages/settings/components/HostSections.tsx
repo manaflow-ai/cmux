@@ -3,7 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
@@ -93,15 +93,23 @@ export function BrowserProfiles() {
   return host ? <BrowserProfilesSection host={host} /> : null;
 }
 
-export function MachinesSection({ title }: { title: string }) {
+/** `reveal`: the route opens Settings at Machines (`#/settings/machines`). The card moves to the top
+ * in the commit that draws it (or that turns `reveal` on), before the frame paints, so the page
+ * never shows the top of Accounts first. */
+export function MachinesSection({ title, reveal = false }: { title: string; reveal?: boolean }) {
   const { host } = useSettingsState();
   const store = useStore();
   const colors = useRowState(MACHINE_COLORS_KEY);
+  const card = useRef<HTMLElement>(null);
+  const drawn = host !== null;
+  useLayoutEffect(() => {
+    if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
+  }, [drawn, reveal]);
   if (!host) return null;
   const picks = stringMap(colors.value);
   return (
     <>
-      <section className="group" data-card="machines">
+      <section className="group" data-card="machines" ref={card}>
         <h3 className="group-title">{title}</h3>
         <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
           <ListRows

@@ -25,6 +25,9 @@ import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
+  /// Cloud chats can fork their current machine and transcript into one sibling. The action is
+  /// intentionally latest-turn-only until platform checkpoint inputs are available.
+  tryAnotherApproach?: (throughSeq: number) => Promise<void>;
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;
@@ -75,6 +78,10 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Scrolls to call `toolCallId`'s row and opens it, opening the fold and run that hold it (App.tsx
+  /// `showToolRow`): a turn waterfall's bar (TurnWaterfall.tsx). `startedAt` picks the call among
+  /// several with a reused id. False when no loaded row holds it.
+  showCall?: (toolCallId: string, startedAt?: number) => boolean;
   /// A waiting tagged-ask card hands its first answer to the composer's ⌘↩ on an empty prompt, the
   /// way the recap card's yes takes it (Composer.tsx `onEmptyCommandReturn`), so the composer's own
   /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
@@ -127,6 +134,11 @@ export type TurnActions = {
 };
 
 export const TurnActionsContext = createContext<TurnActions>({});
+
+/// The transcript's one Retry target (turns.ts retryTargetIn), which VirtualTranscript provides
+/// (App.tsx). Unset where a footer or a prompt draws on its own (a test, a gallery entry): a footer
+/// that offers Retry draws it, and a prompt draws none outside the Messages view.
+export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
 
 /// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
 /// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI

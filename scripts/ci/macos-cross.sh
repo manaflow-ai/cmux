@@ -159,7 +159,14 @@ cmd_toolchain() {
   [[ -f "$zig_lib/libc/darwin/libSystem.tbd" ]] || die "zig darwin libSystem stub not found under $zig_lib"
   rm -rf "${SYSROOT:?}" "${XC_ROOT:?}/bin"; mkdir -p "$SYSROOT/usr/lib"
   cp -r "$zig_lib/libc/include/any-darwin-any" "$SYSROOT/usr/include"
-  cp "$zig_lib/libc/darwin/libSystem.tbd" "$SYSROOT/usr/lib/"
+  # Zig 0.17.0's stub also lists the arm64e.x1 architecture, which ld64.lld
+  # 20 rejects ("unknown architecture"), and then loads no libSystem symbol at
+  # all. No cmux binary targets arm64e.x1, so drop those targets.
+  perl -0pe 's/,?[ \t\n]*arm64e\.x1-(?:macos|maccatalyst)//g; s/,([ \t\n]*\])/$1/g; s/\[([ \t\n]*),/[$1/g' \
+    "$zig_lib/libc/darwin/libSystem.tbd" > "$SYSROOT/usr/lib/libSystem.tbd"
+  ! grep -q 'arm64e\.x1' "$SYSROOT/usr/lib/libSystem.tbd" || die "arm64e.x1 targets left in libSystem.tbd"
+  ! grep -qE '\[[[:space:]]*\]|target:[[:space:]]*$' "$SYSROOT/usr/lib/libSystem.tbd" ||
+    die "dropping arm64e.x1 left an empty target in libSystem.tbd"
   # libc, libm, libpthread and libdl are libSystem on macOS.
   for l in c m pthread dl; do ln -sf libSystem.tbd "$SYSROOT/usr/lib/lib$l.tbd"; done
   # Rust std links -liconv. No iconv symbol is imported, so the stub only names the dylib.

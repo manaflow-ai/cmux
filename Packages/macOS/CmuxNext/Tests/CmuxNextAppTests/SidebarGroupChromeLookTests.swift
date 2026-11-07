@@ -62,6 +62,11 @@ import Testing
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {
+        // The solid bar's ink (`sidebar.groupGlass` solid); on the glass pane the ink is the theme's (`GroupHeaderGlassTests`).
+        try GroupHeaderGlassTests.onSolidBar(inkOnTheSolidBar)
+    }
+
+    private func inkOnTheSolidBar() throws {
         let nearBlack = ThemeRGB(hex: 0x1F1F1F)
         for (name, scope) in try GroupPaletteDefaultTests.themes() {
             let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar(GroupPaletteDefaultTests.order)

@@ -31,7 +31,8 @@ const ROOTS = [...new Set(CARDS.map((card) => card.root))];
 /// A fill that keeps a card glass: the glass's own tint, the tooltip tint, none, or a mix that
 /// fades to transparent. Anything else (the popup surface, a page color, a hex) is a solid card.
 const GLASS_FILL = /^(none|transparent|var\(--(glass-tint|tooltip-tint)\b.*|color-mix\(.*\btransparent\b.*\))$/;
-const GLASS_BLUR = /^var\(--(glass-backdrop|tooltip-blur|surface-blur)\b|blur\(/;
+const GLASS_BLUR =
+  /^var\(--(glass-backdrop|tooltip-blur|surface-blur|ds-glass-(chrome|popover|menu|chip)-blur)\b|blur\(/;
 const REDUCE_TRANSPARENCY = /reduce-transparency|reduced-transparency/;
 
 type Rule = { file: string; selector: string; context: string; body: string };

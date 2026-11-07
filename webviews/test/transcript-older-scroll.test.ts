@@ -86,8 +86,9 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
         `http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html${process.env.OLDER_SCROLL_ALL ? "?all" : ""}`,
       );
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-row").length > 5);
-      // Notches glide over several frames; this measures a precise trackpad's step-a-frame scroll.
-      await page.evaluate(() => (document.documentElement.dataset.wheelGlide = "off"));
+      // Notches glide over several frames (wheelGlide.ts) unless the host's animation switch is off;
+      // this measures a precise trackpad's step-a-frame scroll.
+      await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
       for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
       const frames = 300;
       const result = await scrollUp(page, step, frames);

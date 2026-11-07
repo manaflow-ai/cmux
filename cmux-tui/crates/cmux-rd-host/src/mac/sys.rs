@@ -166,6 +166,7 @@ framework! {
     pub mod sck = "/System/Library/Frameworks/ScreenCaptureKit.framework/ScreenCaptureKit" {
         static SCStreamFrameInfoStatus: CFStringRef;
         static SCStreamFrameInfoDirtyRects: CFStringRef;
+        static SCStreamFrameInfoDisplayTime: CFStringRef;
     }
 }
 

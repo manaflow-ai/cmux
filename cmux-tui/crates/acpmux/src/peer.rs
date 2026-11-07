@@ -147,6 +147,11 @@ pub struct Peer {
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
     /// sessions listed): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
+    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// list): until then a name missing from the rows may only not be listed yet, so a
+    /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
+    /// hub's `Disconnected`.
+    pub rows_ready: AtomicBool,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -258,6 +263,17 @@ pub struct Peer {
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
     pub(crate) cache_saved_outage: AtomicBool,
+    /// At most one non-final cache writer may be queued for this peer.
+    pub(crate) cache_write_pending: AtomicBool,
+    /// Monotonic notice sequence; a cache is dirty until this reaches the flushed sequence.
+    pub(crate) cache_dirty_seq: AtomicU64,
+    /// The notice sequence included in the most recent successful cache write.
+    pub(crate) cache_flushed_seq: AtomicU64,
+    /// Version of this peer's remote rows, bumped by every row mutation or purge.
+    pub(crate) remote_rows_epoch: AtomicU64,
+    /// Local purges that are fenced against an in-flight full-list projection. Cleared when the
+    /// next list wins its swap; a later list may then reflect a peer-side recreation.
+    pub(crate) remote_purge_fences: StdMutex<HashSet<String>>,
     /// This instance's outage outlived its grace and its rows went unreachable
     /// (`hub/peer_grace.rs`). Kept here, not in the notice loop, so it goes with the instance.
     pub(crate) outage_ended: AtomicBool,
@@ -309,6 +325,11 @@ impl ReceivedBytes {
 }
 
 impl Peer {
+    pub(crate) fn cache_is_dirty(&self) -> bool {
+        self.cache_dirty_seq.load(Ordering::Acquire)
+            != self.cache_flushed_seq.load(Ordering::Acquire)
+    }
+
     pub fn new(
         name: &str,
         url: &str,
@@ -332,6 +353,7 @@ impl Peer {
             on_wire: Default::default(),
             prompts: Default::default(),
             connected: AtomicBool::new(false),
+            rows_ready: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
@@ -376,6 +398,11 @@ impl Peer {
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
+            cache_write_pending: AtomicBool::new(false),
+            cache_dirty_seq: AtomicU64::new(0),
+            cache_flushed_seq: AtomicU64::new(0),
+            remote_rows_epoch: AtomicU64::new(0),
+            remote_purge_fences: StdMutex::new(HashSet::new()),
             outage_ended: AtomicBool::new(false),
             purge_tombstones: Default::default(),
             health: StdMutex::new(None),
@@ -1022,7 +1049,16 @@ impl Peer {
             || (m == method::MUX_DISPATCH
                 && params.get("durable").and_then(Value::as_bool) == Some(true)
                 && params.get("wait").and_then(Value::as_bool) == Some(true));
-        let deadline = started + self.timings.request;
+        // A forwarded session/new gets its dedicated start hazard envelope as
+        // well as the generic request budget. Keep the larger one so a caller
+        // cannot reintroduce the old short start cutoff through
+        // `ACPMUX_PEER_REQUEST_SECS`.
+        let budget = self.timings.request.max(if m == method::SESSION_NEW {
+            self.timings.start
+        } else {
+            Duration::ZERO
+        });
+        let deadline = started + budget;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
@@ -2269,13 +2305,13 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux host ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
         waited.as_secs()
     ))
     .with_data(json!({
         "reason": "peer_unreachable",
         "retryable": true,
-        "try": "acpmux host ls",
+        "try": "acpmux machine ls",
         "detail": "the request was not sent",
         "peer": name,
         "queuedMs": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),

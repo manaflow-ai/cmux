@@ -18,6 +18,7 @@ import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, ty
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { revokePairMachineJoin } from "./pair-machine-join.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
@@ -35,7 +36,7 @@ import { vmApiConnection, vmApiOrigin } from "./cloud-vm-api-config.ts"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
-import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
+import { HostReplicaDrops, hostsLeavingOwner } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -99,7 +100,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
   private _replicaDrops: HostReplicaDrops | undefined
   private get replicaDrops(): HostReplicaDrops {
-    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host))))
   }
 
   private nextTeamWakeAt(state: TeamState, now: number): number | null {
@@ -129,7 +130,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const team = state.team.id
     const push = runSyncPush(state)
     try {
-      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team))
       const r = await stub.applyRunPolicy(team, push)
       if (!r.ok) throw new Error(r.message ?? "refused")
       this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
@@ -193,7 +194,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
     const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
     if (canonical === entity) return null
-    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical))
     const status = await mirror.vmApiTenantState(canonical).catch(() => null)
     if (status !== "unknown" && status !== "active") return null
     // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
@@ -227,7 +228,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return owner && personalTeamIdFor(owner) === entity ? owner : null
   }
   private async personalStackUser(user: string): Promise<string | null> {
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
     return stub.stackUserOf(user)
   }
   /** Provisioning is a separate owner command; reads and cleanup never call it. */
@@ -594,7 +595,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; machine_join_token?: string },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
@@ -614,6 +615,9 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
   userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
     this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+
+  /** The platform revoke of a paired server's machine (pair-machine-join.ts); tests replace it. */
+  machineJoins = (team: string, joinTokenId: string): Promise<"done" | "retry"> => revokePairMachineJoin(this.env, { team, join_token_id: joinTokenId })
 
   /** Backoff after a failed revocation push (in memory: a restart retries at once). */
   private revokeRetryAt: number | null = null
@@ -648,6 +652,22 @@ export class TeamDO extends OwnerDO<TeamState> {
         continue
       }
       if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      // The machine its approval minted goes too (as `cmux machine revoke`); an outage keeps the item for the retry.
+      if (r.machine_join_token) {
+        let machine: "done" | "retry"
+        try {
+          machine = await this.machineJoins(entity, r.machine_join_token)
+        } catch {
+          machine = "retry"
+        }
+        if (machine === "retry") {
+          this.revokeAttempts += 1
+          this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+          console.error(JSON.stringify({ msg: "server machine revocation failed", install: r.install }))
+          if (res.ok) revoked.push(r.install)
+          continue
+        }
+      }
       this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
       if (res.ok) revoked.push(r.install)
     }

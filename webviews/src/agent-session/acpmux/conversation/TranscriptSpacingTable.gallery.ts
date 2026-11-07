@@ -140,7 +140,7 @@ function allKinds(): AcpmuxSnapshot {
     },
   );
   // A Claude Code chat, as acpmux names its family: its runs fold per run (turns.ts), so the work
-  // reads "Ran 2 commands" as in Leo's capture once its turn's Worked for opens (openWorked).
+  // reads "Ran 2 commands" as in Leo's capture, not under "Worked for".
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 }
 
@@ -209,7 +209,7 @@ const peerLines = () => {
     },
   );
   // A Claude Code chat, as acpmux names its family: its turn's runs fold per run (turns.ts), so the
-  // work reads "Ran 2 commands, received a message" as in Leo's capture once its Worked for opens.
+  // work reads "Ran 2 commands, received a message" as in Leo's capture, not under "Worked for".
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 };
 
@@ -431,16 +431,6 @@ const chipLook =
     style.textContent = css;
     ctx.document.head.append(style);
   };
-/// Opens each finished turn's Worked for, so its runs' lines show as in Leo's captures (a Claude turn
-/// folds under one too since Leo, 2026-11-04).
-const openWorked: Play = async (ctx) => {
-  const closed = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-worked[aria-expanded='false']");
-  await ctx.waitFor(() => closed(), { capMs: 10_000 });
-  for (let i = 0; i < 4 && closed(); i++) {
-    closed()!.click();
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
-  }
-};
 const CHIP_BEFORE = `button.cv-agent-tag.is-open { height: 22px; line-height: 22px; font-size: var(--text-control); border-radius: 6px; background: color-mix(in srgb, var(--cv-text) 9%, transparent); box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 18%, transparent); }`;
 const CHIP_UNDERLINE = `button.cv-agent-tag.is-open { padding: 0; background: none; box-shadow: none; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }`;
 
@@ -459,7 +449,6 @@ export default agentPaneEntry({
       note: 'Every row kind of Leo\'s 2026-11-02 capture: a reply and its footer, a received message, "Scheduled check", "Ran 2 commands", a reply and footer, the next prompt, a finished compaction, a two-line reply, a command and "Compacting the conversation…".',
       height: 1100,
       snapshot: allKinds(),
-      play: openWorked,
     },
     shipped: {
       note: 'A finished reply and its footer; an inbox row; then a running turn: a send, a command and a send, a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
@@ -527,7 +516,6 @@ export default agentPaneEntry({
     "peer-lines": {
       note: "A reply's footer, a lane on another machine's message, then \"Ran 2 commands, received a message\": one line height, one icon column, the sender once.",
       snapshot: peerLines(),
-      play: openWorked,
     },
   },
 });

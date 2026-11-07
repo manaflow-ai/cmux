@@ -255,10 +255,11 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    expect(layout.heights[0]).toBe(22);
+    // The 22px activity line plus the 8px grid gap under its rule (Lucas, 2026-11-06).
+    expect(layout.heights[0]).toBe(30);
     const replyIndex = rows.length - 1;
     expect(layout.gaps?.[replyIndex]).toBe(TRANSCRIPT_RUN_GAP);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(30);
     const placed = placeRows(layout, () => 22);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(TRANSCRIPT_RUN_GAP);
   }
@@ -291,4 +292,22 @@ test("status rows and step rows in a row sit flush", () => {
   const layout = layoutConversation(lines, 720);
   expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
   expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+});
+
+test("a session start draws nothing: no height and no gap, as if it were not there", () => {
+  // rows/SessionStartRow.tsx draws nothing (Codex parity); its estimate and its neighbours' gaps must
+  // agree, or the row under it jumps 22px when it mounts.
+  const prompt = row("prompt", "user", { text: "Fix the test" });
+  const start = row("start", "sessionStart", {
+    sessionStart: { agent: "claude", version: "2.1.0", model: "Opus 5.5" },
+  });
+  const run = row("run", "activity", {
+    items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+  });
+  const without = layoutConversation([prompt, run, answer], 720);
+  const withStart = layoutConversation([prompt, start, run, answer], 720);
+  expect(withStart.heights[1]).toBe(0);
+  expect(withStart.tops[2]).toBe(without.tops[1]);
+  expect(withStart.tops[3]).toBe(without.tops[2]);
+  expect(withStart.totalHeight).toBe(without.totalHeight);
 });

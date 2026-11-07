@@ -153,7 +153,7 @@ final class DividerHandleView: NSView {
     /// must show above Chromium pages (an occlusion hole), unlike the rest
     /// of the hit area.
     var lineFrameInSuperview: CGRect {
-        // A lit band reaches past the line: the page must leave its halo uncovered too.
+        // A lit band is wider than a thin line: the page must leave the whole band uncovered.
         convert(glow.isLit ? lineFrame.union(glow.extent) : lineFrame, to: superview)
     }
 
@@ -174,9 +174,11 @@ final class DividerHandleView: NSView {
     var isLineVisible: Bool {
         if glow.isLit { return true }
         // Use the presentation color while the hover fade is running. The
-        // page must remain covered until the last visible native pixel fades.
-        guard let color = (line.presentation() ?? line).backgroundColor else { return false }
-        return color.alpha > 0.001 && line.opacity > 0.001
+        // page must remain covered until the last visible native pixel fades,
+        // and uncovered from the first frame of a line fading in (its
+        // presentation is still clear when the overlay reports it).
+        guard line.opacity > 0.001 else { return false }
+        return [line.backgroundColor, line.presentation()?.backgroundColor].contains { ($0?.alpha ?? 0) > 0.001 }
     }
 
     /// Set only by the owning screen's hover pass.
@@ -289,7 +291,7 @@ final class DividerHandleView: NSView {
             }
             Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor
-                line.cornerRadius = isEdge ? 1 : 0
+                line.cornerRadius = isEdge ? Metrics.capsuleRadius(line.bounds.size) : 0 // an edge line is a capsule
             }
         }
     }

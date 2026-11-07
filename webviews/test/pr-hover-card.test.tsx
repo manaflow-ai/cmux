@@ -192,12 +192,10 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(rule(".cv-link-preview__head")).not.toContain("border");
   expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
-  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  // its level is the popover glass every hover card wears (glass.css GLASS LEVELS), never its own.
   const card = rule(".cv-link-preview");
   expect(card).not.toContain("background");
   expect(card).not.toContain("box-shadow");
   expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
-  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
-  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
-  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
+  expect(styles).not.toMatch(/\.cv-link-preview[^{}]*\{[^}]*--glass-(tint|backdrop):/);
 });

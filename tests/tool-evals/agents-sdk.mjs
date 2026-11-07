@@ -51,12 +51,15 @@ function guardedClaude(home, own) {
  * One Claude Code turn through the Agent SDK. `mcp` is {command, args, env} for the cmux
  * server. Returns {text, steps, usage, cost, shell, error}.
  */
-export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs, allTools }) {
+export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs, allTools, guidance }) {
   const { query } = await import(SDK_PATH);
   mkdirSync(home, { recursive: true });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   const shell = [];
+  const toolTurns = [];
+  let firstReadMs = null;
+  const startedAt = Date.now();
   let result = null;
   let error = null;
   try {
@@ -69,7 +72,7 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         // Claude Code's own prompt and tools, as a user's session has them.
-        systemPrompt: { type: "preset", preset: "claude_code" },
+        systemPrompt: { type: "preset", preset: "claude_code", ...(guidance ? { append: guidance } : {}) },
         settingSources: [],
         // The installed Claude Code: the SDK's bundled one can be older than a model requires
         // (Opus 5.5 needs 2.1.280+, the SDK bundled 2.1.81 and every run got a 400).
@@ -82,7 +85,13 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
     });
     for await (const message of run) {
       if (message.type === "assistant") {
-        for (const block of message.message?.content ?? []) {
+        const blocks = message.message?.content ?? [];
+        const calls = blocks.filter((block) => block.type === "tool_use");
+        if (calls.length) {
+          toolTurns.push({ calls: calls.length });
+          if (firstReadMs == null && calls.some((block) => /^(Read|Bash|mcp__cmux__(cmux_docs|cmux_exec))$/.test(block.name ?? ""))) firstReadMs = Date.now() - startedAt;
+        }
+        for (const block of blocks) {
           if (block.type === "tool_use" && block.name === "Bash") shell.push(String(block.input?.command ?? ""));
         }
       }
@@ -99,6 +108,8 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
     steps: Math.max(0, (result?.num_turns ?? 1) - 1),
     usage: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, cost: result?.total_cost_usd ?? 0 },
     shell,
+    toolTurns,
+    firstReadMs,
     error: result
       ? result.is_error || /^API Error: [45]\d\d/.test(String(result.result ?? ""))
         ? `result error: ${String(result.result ?? result.subtype).slice(0, 300)}`
@@ -133,7 +144,7 @@ export function codexHome(home) {
  * One Codex turn through `codex app-server`: initialize, thread/start with the cmux MCP
  * server in its config, turn/start, then read notifications until turn/completed.
  */
-export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs }) {
+export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs, guidance }) {
   codexHome(home);
   const mcpConfig = [
     `mcp_servers.cmux.command=${tomlString(mcp.command)}`,
@@ -159,6 +170,11 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   let next = 1;
   const waiting = new Map();
   const shell = [];
+  const toolTurns = [];
+  let activeTools = 0;
+  let activeBatch = 0;
+  let firstReadMs = null;
+  const startedAt = Date.now();
   let text = "";
   let steps = 0;
   let usage = {};
@@ -187,11 +203,24 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
         // approvals answer `accept`; the v1 exec and patch approvals `approved`.
         const decision = msg.method.startsWith("item/") ? "accept" : "approved";
         send({ jsonrpc: "2.0", id: msg.id, result: { decision } });
+      } else if (msg.method === "item/started") {
+        const item = msg.params?.item ?? {};
+        const isTool = ["commandExecution", "mcpToolCall", "fileChange", "webSearch", "customToolCall"].includes(item.type);
+        if (isTool) {
+          if (activeTools === 0) {
+            toolTurns.push({ calls: 0 });
+            activeBatch = toolTurns.length - 1;
+          }
+          toolTurns[activeBatch].calls++;
+          activeTools++;
+          if (firstReadMs == null && ["commandExecution", "mcpToolCall", "fileChange"].includes(item.type)) firstReadMs = Date.now() - startedAt;
+        }
       } else if (msg.method === "item/completed") {
         const item = msg.params?.item ?? {};
         if (item.type === "commandExecution") shell.push(String(item.command ?? ""));
         if (item.type === "agentMessage") text += `${item.text ?? ""}\n`;
         if (!["agentMessage", "reasoning", "userMessage"].includes(item.type)) steps++;
+        if (["commandExecution", "mcpToolCall", "fileChange", "webSearch", "customToolCall"].includes(item.type)) activeTools = Math.max(0, activeTools - 1);
       } else if (msg.method === "thread/tokenUsage/updated") {
         usage = msg.params?.tokenUsage?.total ?? msg.params?.tokenUsage ?? usage;
       } else if (msg.method === "turn/completed") {
@@ -213,7 +242,7 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
     send({ jsonrpc: "2.0", method: "initialized" });
     // CMUX_EVAL_CODEX_DEVELOPER: developer instructions for an A/B run (a real cmux Codex
     // chat gets none; cmux's rules arrive only as the MCP server's instructions).
-    const developerInstructions = process.env.CMUX_EVAL_CODEX_DEVELOPER || undefined;
+    const developerInstructions = guidance || process.env.CMUX_EVAL_CODEX_DEVELOPER || undefined;
     const started = await request("thread/start", { model, cwd, approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: true, developerInstructions });
     const threadId = started?.thread?.id ?? started?.threadId;
     await request("turn/start", { threadId, input: [{ type: "text", text: prompt }], effort });
@@ -233,6 +262,8 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
     // `input` here is the uncached part, as the Claude SDK reports it.
     usage: { input: Math.max(0, (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0)), output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
     shell,
+    toolTurns,
+    firstReadMs,
     error,
   };
 }

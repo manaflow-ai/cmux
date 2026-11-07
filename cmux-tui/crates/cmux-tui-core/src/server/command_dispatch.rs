@@ -100,6 +100,18 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
+        Command::RemoteHostStatus => remote_host_command::status(mux, client),
+        Command::RemoteHostCall { method, params } => {
+            remote_host_command::call(mux, client, &method, params)
+        }
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
+            remote_host_command::config(
+                mux,
+                client,
+                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
+            )
+        }
+        Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
@@ -304,6 +316,9 @@ fn dispatch_command(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::TerminalLastCommand { surface, terminal_id } => {
+            cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
@@ -956,6 +971,7 @@ fn dispatch_command(
             rows,
             expected_generation,
             expected_terminal_id,
+            replay_history_rows,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -973,6 +989,7 @@ fn dispatch_command(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                replay_history_rows,
                 snapshot,
             )
         }

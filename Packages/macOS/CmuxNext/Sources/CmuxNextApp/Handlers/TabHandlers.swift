@@ -26,7 +26,7 @@ enum TabHandlers {
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
+        registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
         registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, position: .afterCurrent) })
@@ -37,7 +37,7 @@ enum TabHandlers {
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
-        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
+        registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0, slot: TabLifecycle.keySlot(ctx, $0)) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs.cefUnavailableReason() }
         registry.bind("openBrowser.chromium", unavailable: chromiumReason, invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .cef) })
@@ -173,19 +173,18 @@ enum TabHandlers {
     /// screen.focus: the screen's workspace shown, the screen selected.
     static func revealScreen(screenID: String, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.id == screenID || $0.resourceID?.rawValue == screenID }) {
+        // Each machine's index, local first (the order `allWorkspaces` walked).
+        for daemon in ctx.services.machines.daemons {
+            if let screen = daemon.store.screen(idOrResource: screenID), let workspace = daemon.store.workspace(holding: screen) {
                 return reveal(workspace: workspace, screen: screen, pane: nil, tab: nil, ctx: ctx)
             }
         }
         let _: Bool? = ctx.notFound(RefusalStrings.noScreen(screenID))
     }
 
+    /// The workspace and screen holding this very `pane`, from each machine's index (O(machines)).
     private static func owner(of pane: PaneModel, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return (workspace, screen) }
-        }
-        return nil
+        ctx.services.machines.daemons.lazy.compactMap { $0.store.location(of: pane) }.first.map { ($0.workspace, $0.screen) }
     }
 
     /// The one reveal of tab.focus, pane.focus and screen.focus: the window

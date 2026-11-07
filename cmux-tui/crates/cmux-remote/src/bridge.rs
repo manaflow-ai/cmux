@@ -207,6 +207,47 @@ pub async fn serve_mux_bridge(
     connections.shutdown().await;
 }
 
+/// A mux control stream the daemon has opened: its `cmux.protocol/2` lines
+/// are ready to carry. A caller that reports success before it carries them
+/// (`cmux carrier dial`) opens it first, so a daemon that refuses the
+/// service is a failure, not a stream that ends at once.
+pub struct OpenedMuxControl {
+    stream: ServiceStream,
+    opened: OpenedStream,
+}
+
+impl OpenedMuxControl {
+    /// Opens a mux control stream and waits for the daemon's answer.
+    pub async fn open(multiplexer: &Arc<ServiceMultiplexer>) -> Result<Self, BridgeError> {
+        let stream = multiplexer.open(Service::MuxControl, BTreeMap::new()).await?;
+        match await_opened(&stream).await {
+            Ok(opened) => Ok(Self { stream, opened }),
+            Err(error) => {
+                let _ = stream.close().await;
+                Err(error)
+            }
+        }
+    }
+
+    /// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`):
+    /// the same bytes the Mac's bridge socket carries, for a caller that has
+    /// the stream on its own pipes. Returns when either side ends.
+    pub async fn bridge<R, W>(self, reader: R, writer: W) -> Result<(), BridgeError>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        pump_mux_client_buffered(
+            Arc::new(self.stream),
+            reader,
+            writer,
+            self.opened.features.mux_input_v1,
+            self.opened.buffered,
+        )
+        .await
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,
@@ -404,6 +445,42 @@ where
         result = &mut download => result?,
     }
     Ok(())
+}
+
+/// A Cloud machine's desktop socket (`cmux-agent-rd.socket`, the `cmux.rd/1`
+/// host on the agent display): the one path a Cloud daemon allows for
+/// [`Service::LocalSocket`].
+pub const CLOUD_DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
+
+/// Opens [`Service::LocalSocket`] to `path` and waits for the daemon's
+/// answer: the opened stream, or [`BridgeError::Rejected`] with the daemon's
+/// reason (not the owner's session, a path off its allowlist, no allowlist,
+/// or the socket did not answer).
+pub async fn open_local_socket(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    path: &str,
+) -> Result<Arc<ServiceStream>, BridgeError> {
+    let metadata = BTreeMap::from([("path".to_owned(), path.to_owned())]);
+    let stream = multiplexer.open(Service::LocalSocket, metadata).await?;
+    if let Err(error) = await_opened(&stream).await {
+        let _ = stream.close().await;
+        return Err(error);
+    }
+    Ok(Arc::new(stream))
+}
+
+/// Copies raw bytes both ways between an opened stream (from
+/// [`open_local_socket`]) and `reader` / `writer` until either side ends.
+pub async fn bridge_raw_stream<R, W>(
+    stream: Arc<ServiceStream>,
+    reader: R,
+    writer: W,
+) -> Result<(), BridgeError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    pump_client(stream, reader, writer).await
 }
 
 #[derive(Debug)]

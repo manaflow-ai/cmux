@@ -59,6 +59,8 @@ impl PixelBuffer {
 #[derive(Default)]
 struct Shared {
     newest: Option<PixelBuffer>,
+    /// The newest frame's display time and its arrival here, on the protocol clock in µs.
+    newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
 }
 
@@ -243,7 +245,9 @@ fn release_all(content: Id, displays: &[(Id, u32)]) {
 }
 
 /// Every display's streamed size (native pixels fitted to the decoder, as a session
-/// captures it), left to right, and the index of the main (menu bar) display.
+/// captures it), left to right, and the index of the main (menu bar) display. Only `serve` (the
+/// `link` feature) asks.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
 pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
     let (content, displays) = shareable_displays()?;
     // SAFETY: CGMainDisplayID has no preconditions.
@@ -275,6 +279,23 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     let index: usize =
         which.parse().map_err(|_| format!("--display {which}: use main or an index"))?;
     displays.get(index).copied().ok_or_else(|| format!("no display {index}").into())
+}
+
+/// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
+/// deprecated in favour of the `mach2` crate, which cmux-rd-host does not depend on; they are not
+/// defective.
+#[allow(deprecated)]
+fn mach_age_us(then: u64) -> u64 {
+    static BASE: OnceLock<(u64, u64)> = OnceLock::new();
+    let (numer, denom) = *BASE.get_or_init(|| {
+        let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
+        // SAFETY: mach_timebase_info writes into a valid struct.
+        unsafe { libc::mach_timebase_info(&mut base) };
+        (u64::from(base.numer), u64::from(base.denom.max(1)))
+    });
+    // SAFETY: mach_absolute_time has no preconditions.
+    let ticks = unsafe { libc::mach_absolute_time() }.saturating_sub(then);
+    (u128::from(ticks) * u128::from(numer) / u128::from(denom) / 1000) as u64
 }
 
 /// The CoreFoundation number at `key` in `dictionary`, as an i64.
@@ -336,9 +357,14 @@ extern "C" fn did_output(
                 }
             }
         }
+        let arrived = crate::clock::now_ns() / 1000;
+        // The display time is in mach absolute time: its age now, taken off the protocol clock.
+        let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
+            .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             shared.newest = Some(PixelBuffer(Retained::retain(buffer.cast_const())));
+            shared.newest_times = shown.map(|shown| (shown, arrived));
             // A complete frame with no dirty rectangles still changed something.
             if rects.is_empty() {
                 rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
@@ -562,9 +588,11 @@ impl Capture {
         out.append(&mut self.shared.lock().unwrap_or_else(|p| p.into_inner()).dirty);
     }
 
-    /// The newest complete frame (kept, so a recovery keyframe needs no new capture).
-    pub fn newest(&self) -> Option<PixelBuffer> {
-        self.shared.lock().unwrap_or_else(|p| p.into_inner()).newest.clone()
+    /// The newest complete frame (kept, so a recovery keyframe needs no new capture), with its
+    /// display and arrival times when ScreenCaptureKit gave a display time.
+    pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
+        let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        shared.newest.clone().map(|frame| (frame, shared.newest_times))
     }
 }
 

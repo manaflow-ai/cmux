@@ -20,8 +20,13 @@ public nonisolated struct CloudLoginCopyConsentSetting: Sendable {
     /// a team policy, `defaults write`) is no whatever its value, since an organization or a
     /// script never consents for the person; an effective `false` is no too.
     public func consent(file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
-        if managed || effective.value(at: Self.path)?.boolValue == false { return false }
-        return file.value(at: Self.path)?.boolValue
+        Self.consent(at: Self.path, file: file, effective: effective, managed: managed)
+    }
+
+    /// The rule every login consent key shares (``CloudCodexSignInConsentSetting`` too).
+    static func consent(at path: [String], file: JSONValue, effective: JSONValue, managed: Bool) -> Bool? {
+        if managed || effective.value(at: path)?.boolValue == false { return false }
+        return file.value(at: path)?.boolValue
     }
 
     static var descriptors: [SettingDescriptor] {

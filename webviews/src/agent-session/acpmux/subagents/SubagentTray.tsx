@@ -43,7 +43,8 @@
 // it: no View all under it, the list scrolls past its five lines (Leo, 2026-11-01: "why is there even
 // a view all 5 button it's useless just let it be scroll-downable"). The header shows whenever the
 // tray has more than one line, running or ended.
-// A line says what the agent does now in words (trayDetail.ts), never a raw shell line.
+// A line says what the agent does now in words; command rows keep their actual shell command as
+// the dim activity line so a monitor's work is identifiable at a glance.
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line to the tray's own
@@ -81,6 +82,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
 import { commandRead } from "../session-info/commandRules";
+import { trimRawCommand } from "../conversation/shortCommand";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
@@ -95,8 +97,8 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
+import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
-import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -107,6 +109,7 @@ import { trayHead } from "./trayHeadKinds";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
+import { trayLatestLook } from "./trayLatest.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
@@ -114,6 +117,7 @@ import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
+import type { TrayHandleSide } from "../chatDisplay";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -153,6 +157,9 @@ export const SubagentTray = memo(function SubagentTray({
   enters = false,
   chat,
   plan,
+  planEarlier = false,
+  onTuck,
+  tuckSide = "middle",
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -193,6 +200,16 @@ export const SubagentTray = memo(function SubagentTray({
   /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
   /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
   plan?: readonly AcpmuxPlanEntry[];
+  /// `plan` is an earlier turn's list with steps left, carried while the running turn has none of its
+  /// own (turns.ts `earlierTurnPlan`): the header reads "Earlier plan · 2 of 5", the list says why.
+  planEarlier?: boolean;
+  /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
+  /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
+  /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
+  onTuck?: () => void;
+  /// Where the tuck chevron sits along the hat's top edge, as the pull tab does along the composer's
+  /// (chatDisplay.ts TRAY_HANDLE_KEY).
+  tuckSide?: TrayHandleSide;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -219,10 +236,21 @@ export const SubagentTray = memo(function SubagentTray({
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
-  const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
+  const [latestAt] = useState(() => experimentArm(trayLatestLook));
+  const showLatest = latestAt !== "tooltip";
+  const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
+  const agentsById = useMemo(
+    () =>
+      new Map(
+        [...items, ...finished]
+          .filter((item): item is Extract<TrayItem, { kind: "agent" }> => item.kind === "agent")
+          .map((item) => [item.agent.id, item.agent] as const),
+      ),
+    [items, finished],
+  );
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
@@ -353,6 +381,7 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   const headMarks = useMemo(
     () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
     [t, head, items, finished, chatHarness],
@@ -397,7 +426,7 @@ export const SubagentTray = memo(function SubagentTray({
   const named = !open && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
-  const planText = planned ? planHead(t, plan) : "";
+  const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
   const workText = items.length + finished.length === 0 ? "" : named ? shownNames.join(" · ") : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
   const moreCount = items.length - shownNames.length;
@@ -430,24 +459,23 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // A fully folded tray has only its header. Avoid building hundreds of hidden row
   // elements on each header clock tick; keep them while a close animation still plays.
+  // What waits on the person or failed leads (trayAttention.ts), so the list's cap never hides it.
+  let firstFinished = true;
   const cards = fold.present
-    ? [
-        ...items.map((item) => (
-          <li key={itemKey(item)} {...arriving(itemKey(item))}>
-            {line(item)}
-          </li>
-        )),
-        ...finished.map((item, index) => (
+    ? ordered.map(({ item, finished: ended }) => {
+        const first = ended && firstFinished;
+        if (ended) firstFinished = false;
+        return (
           <li
             key={itemKey(item)}
-            data-finished=""
-            data-first-finished={index === 0 || undefined}
+            data-finished={ended ? "" : undefined}
+            data-first-finished={first || undefined}
             {...arriving(itemKey(item))}
           >
             {line(item)}
           </li>
-        )),
-      ]
+        );
+      })
     : [];
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
@@ -479,6 +507,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
+      data-tucks={onTuck ? tuckSide : undefined}
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
       {headed && (
@@ -579,13 +608,24 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The plan's checklist over what runs, the turn's own work first. */}
           {planned && (
             <div className="acpmux-running-tray__plan">
-              <PlanList entries={plan} />
+              <PlanList entries={plan} earlier={planEarlier} />
             </div>
           )}
           <ul ref={listRef} id={listId} className="acpmux-running-tray__list">
             {cards}
           </ul>
         </div>
+      )}
+      {onTuck && (
+        <button
+          type="button"
+          className="acpmux-running-tray__tuck"
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="disclosure.expanded" size={12} />
+        </button>
       )}
       {headed && opensPanel === "button" && (
         <button
@@ -635,7 +675,8 @@ export const SubagentTray = memo(function SubagentTray({
   }
 
   function line(item: TrayItem) {
-    if (item.kind === "agent")
+    if (item.kind === "agent") {
+      const parent = item.agent.parent === null ? undefined : agentsById.get(item.agent.parent);
       return menu(
         <AgentLine
           // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
@@ -657,11 +698,12 @@ export const SubagentTray = memo(function SubagentTray({
           label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
-          // A narrow tray's second line is its time and controls: the stats wrap under the title.
+          // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
-          latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}
-          latestAt={latestAt === "inline" ? "inline" : "below"}
+          latest={showLatest ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined}
+          latestAt={latestPlacement}
+          via={parent ? subagentTaskLabel(t, parent) : undefined}
           onOpen={() => onOpen(item.agent.id)}
           after={
             stop &&
@@ -680,9 +722,14 @@ export const SubagentTray = memo(function SubagentTray({
             () => stop(item.agent.id),
           ),
       );
+    }
     if (item.kind === "command") {
       const key = itemKey(item);
       const processId = item.command.processId;
+      const commandElapsed =
+        item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt));
+      const ownerParent =
+        item.owner?.parent === null || item.owner?.parent === undefined ? undefined : agentsById.get(item.owner.parent);
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
       // A rule's mark where one reads the command (commandRules.ts), else the mark of the kind the
@@ -693,11 +740,20 @@ export const SubagentTray = memo(function SubagentTray({
         COMMAND_KIND_ICON[commandKind(item.command.command)],
         currentCommandRules(),
       );
+      // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
+      const named = sendLabel(t, item.command) ?? read.label;
       return (
         <>
           {menu(
             <AgentLine
-              name={sendLabel(t, item.command) ?? read.label}
+              name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
+              latest={showLatest ? trimRawCommand(item.command.command, 56) : undefined}
+              latestAt={latestPlacement}
+              latestCode
+              via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
+              nameLink={
+                item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
+              }
               title={item.command.command}
               chevron
               icon={read.icon}
@@ -707,11 +763,7 @@ export const SubagentTray = memo(function SubagentTray({
               quiet
               expanded={canOpenTerminal ? openCommands.has(key) : undefined}
               trayColumns
-              time={
-                item.command.startedAt === undefined
-                  ? undefined
-                  : formatDuration(Math.max(0, now - item.command.startedAt))
-              }
+              time={commandElapsed}
               onOpen={
                 onOpenCommand
                   ? () => {
@@ -747,6 +799,8 @@ export const SubagentTray = memo(function SubagentTray({
             open={openCommands.has(key) && (canReadTail || read.link !== undefined)}
             readOutput={canReadTail}
             link={read.link}
+            owner={item.owner ? subagentTaskLabel(t, item.owner) : undefined}
+            elapsed={commandElapsed}
             onOpenTerminal={
               canOpenTerminal && onOpenCommand && item.command.toolCallId
                 ? () => onOpenCommand(item.command)
@@ -871,6 +925,13 @@ export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string
   const progress = t("plan.hat", { done, total: plan.length });
   const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
   return step ? `${progress} · ${step.content}` : progress;
+}
+
+/// The header's plan part for an earlier turn's list: "Earlier plan · 2 of 5", naming no step, as
+/// none is at work in this turn.
+export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
+  const done = plan.filter((entry) => entry.status === "completed").length;
+  return `${t("plan.earlier.short")} · ${t("plan.hat", { done, total: plan.length })}`;
 }
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();

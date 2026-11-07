@@ -13,7 +13,7 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 /// How long a host may take to answer a translator query.
-pub const QUERY_BUDGET: Duration = Duration::from_secs(5);
+pub const QUERY_BUDGET: Duration = crate::rpc::ANSWER_WAIT;
 
 /// A wait on an agent host ran past its deadline.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,4 +176,62 @@ pub async fn wait_dead_async(
     tokio::task::spawn_blocking(move || wait_dead_within(&dir, &session_id, &start_nonce, budget))
         .await
         .unwrap_or(false)
+}
+
+/// Whether host `record` is dead now, without waiting: its live lock is in one of its lock
+/// directories ([`live_lock_dirs`]) and no process holds it. A claim reads this before it serves
+/// a pooled host, because the link's own end (`ChildAgent::is_alive`) comes only once the
+/// daemon's reader sees the closed socket, which can be after a session asked for the host.
+pub fn host_dead_now(record: &HostRecord) -> bool {
+    dead_now_in(&live_lock_dirs(record), &record.session_id, &record.start_nonce)
+}
+
+/// [`host_dead_now`] over explicit directories (tests pass a temporary one). The first lock
+/// file found decides: held is alive, free is dead. No lock file in any directory is no proof
+/// either way (a pooled lock moves between directories when a session takes it): false.
+#[cfg(unix)]
+fn dead_now_in(dirs: &[PathBuf], session_id: &str, start_nonce: &str) -> bool {
+    use std::os::fd::AsRawFd;
+    for dir in dirs {
+        let path = live_path(dir, session_id, start_nonce);
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else {
+            continue;
+        };
+        // SAFETY: a non-blocking lock on a descriptor this function owns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return false;
+        }
+        // An explicit unlock, as in `take_death_lock`: a child spawned meanwhile may hold a copy
+        // of this descriptor, and a probe must not leave the lock held.
+        // SAFETY: same descriptor.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        return true;
+    }
+    false
+}
+/// Windows port: no lock probe yet (as [`take_death_lock`]); the link's end decides.
+#[cfg(not(unix))]
+fn dead_now_in(_dirs: &[PathBuf], _session_id: &str, _start_nonce: &str) -> bool {
+    false
+}
+
+#[cfg(all(test, unix))]
+mod dead_now_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn a_held_lock_is_alive_a_free_one_is_dead_and_none_is_no_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = vec![dir.path().join("pool"), dir.path().to_path_buf()];
+        assert!(!dead_now_in(&dirs, "s1", "n1"), "no lock file is no proof");
+        let host = std::fs::File::create(live_path(dir.path(), "s1", "n1")).unwrap();
+        // SAFETY: an exclusive lock on the descriptor this test owns, as a host takes its own.
+        assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert!(!dead_now_in(&dirs, "s1", "n1"), "a held lock is a live host");
+        assert!(!dead_now_in(&dirs, "s1", "n1"), "a probe leaves a held lock held");
+        drop(host);
+        assert!(dead_now_in(&dirs, "s1", "n1"), "a free lock is a dead host");
+        assert!(dead_now_in(&dirs, "s1", "n1"), "a probe releases what it took");
+    }
 }
