@@ -574,10 +574,9 @@
       "type" : "boolean"
     },
     "app.quitBehavior" : {
-      "default" : "ask",
+      "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
       "enum" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
