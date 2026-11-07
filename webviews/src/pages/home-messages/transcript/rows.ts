@@ -18,6 +18,7 @@ import { PENDING_PREFIX, pendingMessages, threadOf } from "../../home-channels/m
 import type { HomeDraft } from "../../home-channels/drafts";
 import type { PendingSend } from "../../home-channels/store";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomePart, HomeReaction } from "../../home-channels/types";
+import type { AgentsRow } from "../cards/pills/agentModel";
 
 /** Messages under a minute apart from one sender in one thread are one group (`RowBuilder.groupGap`). */
 export const GROUP_GAP_MS = 60_000;
@@ -55,7 +56,20 @@ export interface TranscriptData {
   /** Older messages exist before the first one: the top row loads them. */
   hasOlder?: boolean;
   loadingOlder?: boolean;
+  /** A Chief chat's agents rows (the host's `agents` stream), each after the message it follows. */
+  agents?: readonly TranscriptAgents[];
 }
+
+/** One turn's agents row: one pill per agent, after message `after` (absent: before the first). */
+export interface TranscriptAgents {
+  group: string;
+  after?: string;
+  row: AgentsRow;
+}
+
+/** Space above an agents row, and one pill's height with the space under it (cards.css `.hm-pill`). */
+export const AGENTS_GAP = 6;
+const PILL_HEIGHT = 32;
 
 interface RowBase {
   key: string;
@@ -89,7 +103,8 @@ export type TranscriptRow =
   | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" })
   | (RowBase & { kind: "unsent"; outgoing: boolean })
   | (RowBase & { kind: "receipt"; receipt: "read" | "delivered"; at?: number })
-  | (RowBase & { kind: "typing"; participants: readonly string[] });
+  | (RowBase & { kind: "typing"; participants: readonly string[] })
+  | (RowBase & { kind: "agents"; group: string; row: AgentsRow });
 
 /** The id prefix of a running reply's message. */
 export const STREAM_PREFIX = "stream:";
@@ -258,6 +273,24 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
 
   const rows: TranscriptRow[] = [];
   if (data.hasOlder) rows.push({ kind: "older", key: "older", gap: 0, loading: data.loadingOlder === true });
+  // The agents rows by the message they follow; one whose message is not loaded waits for it.
+  const agents = new Map<string, TranscriptRow[]>();
+  for (const entry of data.agents ?? []) {
+    const row: TranscriptRow = {
+      kind: "agents",
+      key: `agents:${entry.group}`,
+      gap: AGENTS_GAP,
+      group: entry.group,
+      row: entry.row,
+    };
+    if (entry.after === undefined) {
+      if (!data.hasOlder) rows.push(row);
+      continue;
+    }
+    const list = agents.get(entry.after);
+    if (list) list.push(row);
+    else agents.set(entry.after, [row]);
+  }
   let prev: HomeMessage | undefined;
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]!;
@@ -280,6 +313,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
     const kept = cache?.get(message, inputs);
     if (kept) {
       for (const row of kept) rows.push(row);
+      for (const row of agents.get(message.id) ?? []) rows.push(row);
       prev = message;
       continue;
     }
@@ -356,6 +390,8 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
     }
     cache?.set(message, inputs, own);
     for (const row of own) rows.push(row);
+    // Outside the cache: the agents change without their message.
+    for (const row of agents.get(message.id) ?? []) rows.push(row);
     prev = message;
   }
   // Others typing, without anyone whose reply already shows as its bubble.
@@ -390,6 +426,8 @@ export function estimateRow(row: TranscriptRow): number {
       return 16;
     case "typing":
       return row.gap + 35;
+    case "agents":
+      return row.gap + 8 + PILL_HEIGHT * row.row.peers.length;
     case "bubble": {
       const part = row.parts[0];
       if (part?.type === "attachment") return row.gap + 160 * Math.min(row.parts.length, 2);

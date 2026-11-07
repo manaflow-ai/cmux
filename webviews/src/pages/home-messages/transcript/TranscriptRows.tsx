@@ -1,7 +1,7 @@
 // One transcript row as the Swift transcript draws it (RowDrawing): a centered time label, a group
 // chat's sender name, a bubble (mine on the right in the sent colour, theirs on the left in the
 // received one, the group's last with its tail), the Edited and Not Delivered labels, the Read and
-// Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu has Copy,
+// Delivered receipts, an unsent line, the typing bubble and a Chief turn's agents (one pill each). A bubble's right-click menu has Copy,
 // the tapbacks, and on a failed send Try Again and Delete.
 import { memo, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
@@ -13,6 +13,7 @@ import { partText } from "../../home-channels/model";
 import type { HomeAttachment, HomeMessage, HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { HomeLinkChip } from "../cards/links/HomeLinkChip";
+import { AgentPills } from "../cards/pills/AgentPills";
 import type { LinkPreviewFetch } from "../cards/links/linkPreview";
 import { formatDay, formatTime } from "./format";
 import type { TranscriptRow } from "./rows";
@@ -44,6 +45,8 @@ export interface RowActions {
   /** A drag on an attachment: the host drags the file out (`partIndex`: its part in the message). */
   onDragAttachment?(message: HomeMessage, part: HomeAttachment, partIndex: number): void;
   links?: RowLinks;
+  /** The agents rows' pills: their words (the cards' table) and a click on one (`command`: ⌘ held). */
+  agents?: { strings: Strings; open(peer: string, command: boolean): void };
 }
 
 export interface TranscriptRowViewProps {
@@ -122,6 +125,14 @@ export const TranscriptRowView = memo(function TranscriptRowView({
         </output>
       );
     }
+    case "agents":
+      return (
+        <div className="mt-agents" style={style}>
+          {actions.agents ? (
+            <AgentPills row={row.row} strings={actions.agents.strings} onOpen={actions.agents.open} />
+          ) : null}
+        </div>
+      );
     case "bubble":
       return (
         <BubbleRow

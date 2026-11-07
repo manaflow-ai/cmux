@@ -93,6 +93,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onCopy?(text: string): void;
   /** A drag on an attachment: the host drags the file out (to Finder, another app). */
   onDragAttachment?: RowActions["onDragAttachment"];
+  /** The agents rows' pills (with `agents`). */
+  agentPills?: RowActions["agents"];
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
   /** A message a link or the host opened at: it scrolls into view, marked. */
@@ -146,6 +148,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           draft: props.draft,
           hasOlder: props.hasOlder,
           loadingOlder: props.loadingOlder,
+          agents: props.agents,
         },
         now,
         cache,
@@ -161,6 +164,7 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.draft,
       props.hasOlder,
       props.loadingOlder,
+      props.agents,
       now,
     ],
   );
@@ -197,8 +201,18 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       ...(props.onRetryChief ? { onRetryChief: props.onRetryChief } : {}),
       ...(props.onDragAttachment ? { onDragAttachment: props.onDragAttachment } : {}),
       ...(links ? { links } : {}),
+      ...(props.agentPills ? { agents: props.agentPills } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onRetryChief, props.onDragAttachment, links],
+    [
+      props.onRetry,
+      props.onDiscard,
+      props.onReact,
+      props.onCopy,
+      props.onRetryChief,
+      props.onDragAttachment,
+      links,
+      props.agentPills,
+    ],
   );
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {

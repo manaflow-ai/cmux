@@ -37,14 +37,14 @@ import MessagesLabHome
 ///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`, `attachment.drag` (``HomePageAttachmentDrag``).
 /// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
 /// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
-/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op),
+/// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op), `agents` (``HomePageAgents``; with its ops),
 /// `hidden` (`{hidden: {id: seq}}`: the conversations deleted from the list, each listed again by a message after its seq).
 @MainActor
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation", "attachment."].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation", "attachment.", "agents"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
@@ -81,6 +81,7 @@ final class HomeMessagesHostProvider: PageProvider {
     private lazy var attachmentDrag = HomePageAttachmentDrag(window: { [weak self] in self?.window() }, personOnly: RefusalStrings.personOnlyFromPage) { [weak self] ref, place in
         try? await self?.services?.home.homeStore.fetchAttachment(ref, at: place, variant: .original)
     }
+    private lazy var agents = HomePageAgents { [weak self] in self?.services?.home.homeStore }
 
     init(services: AppServices) {
         self.services = services
@@ -99,7 +100,7 @@ final class HomeMessagesHostProvider: PageProvider {
             let moved = id != shown
             (reported, shown, self.composing) = (true, id, composing)
             onShown?(id, composing)
-            if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
+            if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart(); agents.show(id) }
             return .null
         case "drafts.load": return home.homeStore.pageDrafts
         case "drafts.save":
@@ -197,6 +198,7 @@ final class HomeMessagesHostProvider: PageProvider {
             return .null
         case "dictation": return try dictation.call(params)
         case "attachment.drag": return try attachmentDrag.call(params, userGesture: context.userGesture)
+        case "agents.seen", "agents.note": return try await agents.call(name, params, userGesture: context.userGesture, personOnly: RefusalStrings.personOnlyFromPage)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
@@ -235,6 +237,7 @@ final class HomeMessagesHostProvider: PageProvider {
         case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefFace": return chiefFace.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "dictation": return dictation.stream.subscribe(onEvent)
+        case HomeMessagesPageRoute.prefix + "agents": return agents.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefPlace":
             _ = services?.chiefTeleport.refresh()
             return chiefPlace.subscribe(onEvent)

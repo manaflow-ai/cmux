@@ -11,6 +11,21 @@
   flex: 1;
   min-height: 0;
 }
+/* An agent opened from its pill shows its chat right of the conversation (the native pane's sizes:
+   42% of the width, between 280 and 440, leaving the chat at least 320). */
+.hm-detail-frame:has(> .hm-agent-pane) {
+  flex-direction: row;
+}
+.hm-detail-frame > .hm-agent-pane {
+  flex: 0 0 clamp(280px, 42%, 440px);
+  max-width: calc(100% - 320px);
+  min-height: 0;
+  height: auto;
+  border-left: 1px solid var(--cmux-separator);
+}
+.hm-detail-frame:has(> .hm-agent-pane) > .mt-transcript {
+  min-width: 0;
+}
 .hm-detail-compose {
   display: flex;
   flex-direction: column;

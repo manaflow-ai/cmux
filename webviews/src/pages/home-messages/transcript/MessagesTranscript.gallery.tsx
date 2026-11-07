@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample conversations), not shipped UI.
 // The Messages transcript and compose bar (home-messages/transcript): three bubble looks, a chat's own
 // colours, and the states the Swift transcript draws (empty, long, a failed send, offline, typing,
-// attachments, a diagram, a group chat). The data is plain HomeMessage values; images come from the
+// attachments, a diagram, a group chat, a Chief turn's agent pills and the agent pane beside the chat). The data is plain HomeMessage values; images come from the
 // Channels mock provider through the real attachment service.
 import { useState } from "react";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
@@ -16,16 +16,87 @@ import { MessagesTranscript, type MessagesTranscriptProps } from "./MessagesTran
 import type { ReadCursor } from "./rows";
 import { createTranscriptStrings } from "./strings";
 import type { ChiefPlace } from "./ChiefPlace";
+import { AgentSidePane } from "../cards/pills/AgentSidePane";
+import {
+  agentChatContent,
+  closeAgent,
+  openAgent,
+  selectAgent,
+  type AgentPaneState,
+  type AgentThread,
+  type AgentThreadSource,
+} from "../cards/pills/agentModel";
+import { cardStrings } from "../cards/strings";
 
-type State = "conversation" | "empty" | "long" | "failed" | "offline" | "typing" | "attachments" | "diagram" | "group";
+type State =
+  | "conversation"
+  | "empty"
+  | "long"
+  | "failed"
+  | "offline"
+  | "typing"
+  | "attachments"
+  | "diagram"
+  | "group"
+  | "agents"
+  | "agentsMany";
 
 type Fixture = Pick<MessagesTranscriptProps, "conversation" | "messages" | "connection"> &
   Partial<
-    Pick<MessagesTranscriptProps, "readCursors" | "pending" | "typing" | "hasOlder" | "viewing" | "initialDraft">
+    Pick<
+      MessagesTranscriptProps,
+      "readCursors" | "pending" | "typing" | "hasOlder" | "viewing" | "initialDraft" | "agents"
+    >
   >;
 
 type ChiefHeader = "here" | "away" | "moving" | "failed";
-type Props = { look: BubbleLook; state: State; colors?: ChatColors; panels?: boolean; chiefHeader?: ChiefHeader };
+type Props = {
+  look: BubbleLook;
+  state: State;
+  colors?: ChatColors;
+  panels?: boolean;
+  chiefHeader?: ChiefHeader;
+  /** The agent pane open beside the chat on these agents (the Messages page's frame). */
+  pane?: AgentPaneState;
+};
+
+/** The agents' chats the pills open (agents state): what the host's `agents` stream sends. */
+const AGENT_THREADS: readonly AgentThread[] = [
+  {
+    peer: "a1",
+    title: "Find the resize flicker",
+    state: "reported",
+    task: "Title: Find the resize flicker\nProfile the sidebar while the divider drags.",
+    entries: [{ id: "r1", sender: "agent", text: "The list re-measures every row on each width step." }],
+    startedAt: minutesAgo(26),
+    endedAt: minutesAgo(21),
+  },
+  {
+    peer: "a2",
+    title: "Keep measured heights",
+    state: "told",
+    task: "Keep the measured row heights; re-measure only the visible rows.",
+    entries: [],
+    startedAt: minutesAgo(20),
+  },
+  {
+    peer: "a3",
+    title: "Release notes line",
+    state: "queued",
+    task: "Write the release notes line.",
+    entries: [],
+    startedAt: minutesAgo(2),
+  },
+  {
+    peer: "a4",
+    title: "Check the narrow window",
+    state: "stopped",
+    task: "Check the fix at 360 points.",
+    entries: [],
+    startedAt: minutesAgo(19),
+    endedAt: minutesAgo(18),
+  },
+];
 
 /** A Chief's picked character, as the host sends it (a data URL). */
 const CHIEF_PICTURE =
@@ -217,6 +288,38 @@ function data(state: State): Fixture {
       );
       return { ...base, messages };
     }
+    case "agents":
+      return {
+        ...base,
+        agents: [
+          {
+            group: "g1",
+            after: "m2",
+            row: {
+              peers: ["a1", "a2"],
+              titles: ["Find the resize flicker", "Keep measured heights"],
+              states: ["reported", "told"],
+            },
+          },
+        ],
+      };
+    case "agentsMany":
+      return {
+        ...base,
+        agents: [
+          {
+            group: "g1",
+            after: "m2",
+            row: {
+              peers: ["a1", "a2", "a4"],
+              titles: ["Find the resize flicker", "Keep measured heights", "Check the narrow window"],
+              states: ["reported", "told", "stopped"],
+              unread: [true, false, false],
+            },
+          },
+          { group: "g2", after: "m8", row: { peers: ["a3"], titles: ["Release notes line"], states: ["queued"] } },
+        ],
+      };
     case "group": {
       seq = 0;
       const room = conversation("group", [me, ana, sam, chief]);
@@ -245,55 +348,81 @@ const panelIcon = (d: string) => (
   </svg>
 );
 
-function TranscriptGallery({ look, state, colors, panels, chiefHeader }: Props) {
+function TranscriptGallery({ look, state, colors, panels, chiefHeader, pane: initialPane }: Props) {
   const [strings] = useState(() => createTranscriptStrings());
+  const [cards] = useState(() => cardStrings());
+  const [pane, setPane] = useState<AgentPaneState>(initialPane ?? { tabs: [] });
+  const source: AgentThreadSource = {
+    thread: (peer) => AGENT_THREADS.find((thread) => thread.peer === peer),
+    markSeen: () => {},
+    send: () => {},
+  };
+  const [agentPills] = useState(() => ({
+    strings: cards,
+    open: (peer: string) => setPane((current) => openAgent(current, peer, source)),
+  }));
   const [service] = useState(() => new AttachmentService(new MockHomeProvider(undefined, false, "none", false, true)));
   const [fixture] = useState(() => data(state));
   const [pending, setPending] = useState<readonly PendingSend[]>(() => fixture.pending ?? []);
   const [messages, setMessages] = useState(fixture.messages);
   return (
-    <div style={{ height: "100%" }}>
-      <MessagesTranscript
-        strings={strings}
-        me="me"
-        {...fixture}
-        messages={messages}
-        pending={pending}
-        look={look}
-        colors={colors}
-        attachments={service}
-        now={GALLERY_NOW}
-        {...(chiefHeader ? chiefHeaderProps(chiefHeader) : {})}
-        panels={
-          panels
-            ? [
-                {
-                  id: "agents",
-                  icon: panelIcon("M3.5 4.5h13v11h-13zM12 4.5v11"),
-                  label: "Agents",
-                  shortcut: "⌥⌘B",
-                  on: true,
-                },
-                {
-                  id: "info",
-                  icon: panelIcon("M10 9v5M10 6.5v.5M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"),
-                  label: "Info",
-                  on: false,
-                },
-              ]
-            : undefined
-        }
-        onSend={async (text) => {
-          const last = messages.at(-1)?.seq ?? 0;
-          setMessages((list) => [...list, { ...message("me", 0, text), seq: last + 1, id: `sent${last + 1}` }]);
-          return true;
-        }}
-        onRetry={(key) =>
-          setPending((list) => list.map((entry) => (entry.key === key ? { ...entry, failed: false } : entry)))
-        }
-        onDiscard={(key) => setPending((list) => list.filter((entry) => entry.key !== key))}
-        onLoadOlder={() => {}}
-      />
+    <div style={{ height: "100%", position: "relative" }}>
+      <div className="hm-detail-frame">
+        <MessagesTranscript
+          strings={strings}
+          me="me"
+          {...fixture}
+          messages={messages}
+          pending={pending}
+          look={look}
+          colors={colors}
+          attachments={service}
+          now={GALLERY_NOW}
+          {...(chiefHeader ? chiefHeaderProps(chiefHeader) : {})}
+          panels={
+            panels
+              ? [
+                  {
+                    id: "agents",
+                    icon: panelIcon("M3.5 4.5h13v11h-13zM12 4.5v11"),
+                    label: "Agents",
+                    shortcut: "⌥⌘B",
+                    on: true,
+                  },
+                  {
+                    id: "info",
+                    icon: panelIcon("M10 9v5M10 6.5v.5M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"),
+                    label: "Info",
+                    on: false,
+                  },
+                ]
+              : undefined
+          }
+          onSend={async (text) => {
+            const last = messages.at(-1)?.seq ?? 0;
+            setMessages((list) => [...list, { ...message("me", 0, text), seq: last + 1, id: `sent${last + 1}` }]);
+            return true;
+          }}
+          onRetry={(key) =>
+            setPending((list) => list.map((entry) => (entry.key === key ? { ...entry, failed: false } : entry)))
+          }
+          onDiscard={(key) => setPending((list) => list.filter((entry) => entry.key !== key))}
+          onLoadOlder={() => {}}
+          {...(fixture.agents ? { agentPills } : {})}
+        />
+        <AgentSidePane
+          pane={pane}
+          content={(peer) => {
+            const thread = source.thread(peer);
+            return thread ? agentChatContent(thread, GALLERY_NOW, cards) : undefined;
+          }}
+          strings={cards}
+          onSelect={(peer) => setPane(selectAgent(pane, peer, source))}
+          onClose={(peer) => setPane(closeAgent(pane, peer, source))}
+          onGoToWorkspace={() => {}}
+          onSend={() => {}}
+        />
+      </div>
     </div>
   );
 }
@@ -312,7 +441,13 @@ export default componentEntry<Props>({
     "pages/home-messages/transcript/ChiefPlace.tsx#ChiefPlaceChip",
   ],
   load: async () => TranscriptGallery,
-  styles: () => Promise.all([import("../../home-channels/styles.css"), import("./transcript.css")]),
+  styles: () =>
+    Promise.all([
+      import("../../home-channels/styles.css"),
+      import("./transcript.css"),
+      import("../cards/cards.css"),
+      import("../detail/detail.css"),
+    ]),
   variants: {
     imessage: {
       note: "The default look: Messages' blue for mine, its grey for theirs, tails on each group's last bubble, Read under my newest read message.",
@@ -374,6 +509,18 @@ export default componentEntry<Props>({
     group: {
       note: "A group chat: names over each run, avatars beside its last bubble, faces of who else is here, Sam typing.",
       props: { look: "imessage", state: "group", panels: true },
+    },
+    agents: {
+      note: "Picked: a Chief turn's agents as one pill each under the message they follow (a check once reported, the turning arc while working); a click opens the agent.",
+      props: { look: "imessage", state: "agents", panels: true },
+    },
+    "agents-many": {
+      note: "Two turns' agents: a stopped one (cross), an unread report (dot), a queued one (still clock) under the newest message.",
+      props: { look: "imessage", state: "agentsMany", panels: true },
+    },
+    "agents-pane": {
+      note: "An agent opened from its pill with no session link: its chat in the agent pane right of the conversation, which narrows to keep 320 points.",
+      props: { look: "imessage", state: "agentsMany", panels: true, pane: { tabs: ["a1", "a2"], selected: "a1" } },
     },
   },
 });

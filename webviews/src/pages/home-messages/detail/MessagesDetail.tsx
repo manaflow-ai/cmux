@@ -34,6 +34,8 @@ import { createTranscriptStrings } from "../transcript/strings";
 import type { HeaderPanelItem } from "../transcript/TranscriptHeader";
 import type { RowLinks } from "../transcript/TranscriptRows";
 import type { MessagesDetailProps } from "../types";
+import { AgentSidePane } from "../cards/pills/AgentSidePane";
+import { AgentOps, parseChiefAgents, useAgentPane, type ChiefAgents } from "./chiefAgents";
 import {
   chatAppearance,
   DEFAULT_APPEARANCE,
@@ -89,6 +91,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const needsYou = useHostStream(host, DetailOps.needsYou, parseNeedsYou, undefined);
   const chiefFace = useHostStream(host, DetailOps.chiefFace, parseChiefFace, undefined);
   const chiefPlace = useHostStream(host, DetailOps.chiefPlace, parseChiefPlace, undefined);
+  const chiefAgents = useHostStream(host, AgentOps.stream, parseChiefAgents, undefined);
   const dictation = useHostDictation(host);
   const links = useMemo<RowLinks>(
     () => ({
@@ -186,6 +189,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     needsYou,
     chiefFace,
     chiefPlace,
+    chiefAgents,
   };
 
   let main: ReactNode = null;
@@ -302,6 +306,7 @@ interface ConversationViewProps {
   needsYou: NeedsYouState | undefined;
   chiefFace: ChiefFace | undefined;
   chiefPlace: ChiefPlace | undefined;
+  chiefAgents: ChiefAgents | undefined;
 }
 
 /** The open conversation: its transcript and composer, a Chief's first run while it is empty. */
@@ -314,6 +319,8 @@ function ConversationView(
   },
 ) {
   const { store, snapshot, me, host, nav, words, conversation, firstRun } = props;
+  const openLink = (url: string) => void host?.call(DetailOps.openLink, { url }).catch(() => undefined);
+  const agents = useAgentPane(host, conversation.id, props.chiefAgents, words.cards, openLink);
   if (!me) return null;
   const isChief = conversation.kind === "chief";
   const chiefIDs = new Set(conversation.participants.filter((person) => person.chief).map((person) => person.id));
@@ -408,6 +415,7 @@ function ConversationView(
             }
           : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
+        {...(isChief && agents.rows ? { agents: agents.rows, agentPills: agents.pills } : {})}
         links={props.links}
         {...(firstRunShown
           ? {
@@ -431,6 +439,17 @@ function ConversationView(
             }
           : {})}
       />
+      {isChief && (
+        <AgentSidePane
+          pane={agents.pane}
+          content={agents.content}
+          strings={words.cards}
+          onSelect={agents.select}
+          onClose={agents.close}
+          onGoToWorkspace={agents.goToWorkspace}
+          onSend={agents.send}
+        />
+      )}
     </>
   );
 }

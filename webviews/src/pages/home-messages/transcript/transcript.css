@@ -475,6 +475,11 @@
   background: var(--mt-sent, var(--mt-look-sent));
 }
 
+/* A Chief turn's agents: one pill per agent, on the received side under the message they follow. */
+.mt-agents {
+  padding: 0 var(--mt-side);
+}
+
 /* The typing bubble: three dots that pulse in turn. */
 .mt-typing-row {
   display: flex;
