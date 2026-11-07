@@ -284,7 +284,7 @@ test("a group's hover lists its messages newest first, short names, two lines ea
     raw: "",
     ...(index === 6 && { unverified: true as const }),
   }));
-  const container = await render(<MessageGroupHover messages={hoverMessages(list)} />);
+  const container = await render(<MessageGroupHover list={hoverMessages(list)} />);
   const text = container.textContent ?? "";
   expect(text).not.toContain("self-declared");
   expect(text).not.toContain("[message");
@@ -296,4 +296,130 @@ test("a group's hover lists its messages newest first, short names, two lines ea
   expect(text).not.toContain("lane-1");
   expect(text).toContain("+2 more");
   expect(container.querySelectorAll(".cv-unverified").length).toBe(1);
+});
+
+test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
+  const { MessageGroupHover, inboxHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "pr:1",
+        label: "#1",
+        from: ["vm/lane-a"],
+        count: 3,
+        preview: "",
+        blocker: false,
+        promptIds: ["a1", "a2", "a3"],
+        messages: [
+          { promptId: "a1", from: "vm/lane-a", text: "first from a", at: 10 },
+          { promptId: "a2", from: "vm/lane-a", text: "second from a", at: 30 },
+          { promptId: "a3", from: "vm/lane-a", text: "third from a", at: 50 },
+        ],
+      },
+      // A thread that held only its preview stands for its whole count.
+      {
+        threadId: "pr:2",
+        label: "#2",
+        from: ["vm/lane-b"],
+        count: 4,
+        preview: "newest from b",
+        blocker: false,
+        promptIds: ["b1", "b2", "b3", "b4"],
+      },
+      {
+        threadId: "pr:3",
+        label: "#3",
+        from: ["vm/lane-c"],
+        count: 1,
+        preview: "",
+        blocker: false,
+        promptIds: ["c1"],
+        messages: [{ promptId: "c1", from: "vm/lane-c", text: "only from c", at: 40 }],
+      },
+    ],
+  };
+  const list = inboxHover(notice.threads);
+  expect(list.messages.map((m) => m.text)).toEqual([
+    "third from a",
+    "only from c",
+    "second from a",
+    "first from a",
+    "newest from b",
+  ]);
+  // 3 + 4 + 1 messages in all.
+  expect(list.total).toBe(8);
+  const container = await render(<MessageGroupHover list={list} />);
+  const items = [...container.querySelectorAll(".cv-group-hover__item")];
+  expect(items).toHaveLength(5);
+  expect(items[0]?.textContent).toContain("third from a");
+  expect(container.querySelector(".cv-group-hover__more")?.textContent).toBe("+3 more");
+});
+
+test("a lane batch's hover counts a preview-only delivery as its thread's whole count", async () => {
+  const { hoverMessages } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const one = (name: string, text: string): IncomingMessage => ({ name, text, raw: "" });
+  const list = hoverMessages([one("a", "older"), one("b", "newer")], [undefined, 6]);
+  expect(list.messages.map((m) => m.text)).toEqual(["newer", "older"]);
+  expect(list.total).toBe(7);
+});
+
+test("a sender named only by its record's session still opens its chat", async () => {
+  const opened: string[] = [];
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "from:vm/lane-a",
+        label: "",
+        from: ["vm/lane-a"],
+        count: 1,
+        preview: "hello",
+        blocker: false,
+        promptIds: ["a1"],
+        sender: { verification: "verified", session: "sess-a" },
+      },
+    ],
+  };
+  const container = await render(
+    <InboxNoticeCard rowId="r-session" notice={notice} onOpen={(id) => void opened.push(id)} />,
+  );
+  const chip = container.querySelector<HTMLElement>(".cv-received__from--open");
+  expect(chip).not.toBeNull();
+  await act(async () => chip!.click());
+  expect(opened).toEqual(["sess-a"]);
+});
+
+test("an inbox delivery takes its session from the sender record when the thread names none", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "pr:7",
+        label: "#7",
+        from: ["vm/lane-a"],
+        count: 2,
+        preview: "",
+        blocker: false,
+        promptIds: ["a1", "a2"],
+        messages: [
+          { promptId: "a1", from: "vm/lane-a", text: "one", sender: { session: "sess-a" } },
+          { promptId: "a2", from: "vm/lane-b", text: "two", sender: { session: "sess-b" } },
+        ],
+      },
+      {
+        threadId: "pr:8",
+        label: "#8",
+        from: ["vm/lane-c"],
+        count: 1,
+        preview: "three",
+        blocker: false,
+        promptIds: ["c1"],
+        sender: { session: "sess-c" },
+      },
+    ],
+  };
+  const row: AcpmuxRow = { id: "inbox-row", version: 1, at: 1, kind: "user", incoming: { kind: "inbox", notice } };
+  const children = flattenInboxRows([row]).filter((r) => r.incoming?.kind === "message");
+  const sessions = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message.sessionId : undefined));
+  expect(sessions).toEqual(["sess-a", "sess-b", "sess-c"]);
+  expect(children[2]?.inboxThread?.fromSession).toBe("sess-c");
 });
