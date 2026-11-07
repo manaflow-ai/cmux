@@ -80,6 +80,34 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
+    "signed-out": {
+      note: "The first Cloud send is kept in the composer while the inline sign-in action opens the browser callback.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign in to use Cloud.",
+        },
+        onSignIn: async () => undefined,
+      },
+    },
+    "signing-in": {
+      note: "The person clicked Sign in to continue: the card waits on the browser sign-in, not on Cloud.",
+      props: { start: { ...begun, signingIn: true } },
+    },
+    "sign-in-timed-out": {
+      note: "The browser sign-in never came back within its limit: the card offers sign in again.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "not_signed_in",
+          message: "Sign-in timed out. Sign in again to continue.",
+        },
+        onSignIn: async () => undefined,
+      },
+    },
     "checklist-machine": {
       note: "Cloud machine is being created; the machine step spins while later steps remain quiet.",
       props: { start: { ...begun, machineStartedAt: 10_000, machine: known.machine } },

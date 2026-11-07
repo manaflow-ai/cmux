@@ -2,7 +2,16 @@
 // preferred localizations). They are the `newTab.` keys of the pane's table (acpmux/i18n.ts,
 // Localizable.xcstrings). Components read them through `useNt()` so a language change re-renders
 // them; `translateNewTab` is for code outside render.
-import { currentLanguage, translateKey, type CatalogKey, type PaneLanguage, usePaneLanguage } from "../i18n";
+import { useSyncExternalStore } from "react";
+import {
+  currentLanguage,
+  currentTranslator,
+  subscribeLanguage,
+  translateKey,
+  type CatalogKey,
+  type PaneLanguage,
+  type Translate,
+} from "../i18n";
 
 export type NewTabStringKey = CatalogKey extends infer K ? (K extends `newTab.${infer Name}` ? Name : never) : never;
 
@@ -17,15 +26,23 @@ export function translateNewTab(
   return translateKey(`newTab.${key}` as CatalogKey, values, lang);
 }
 
-const translators = new Map<PaneLanguage, NewTabTranslate>();
+const translators = new Map<Translate, NewTabTranslate>();
+
+/** The new tab translator for the pane's language now: a new one whenever the pane's translator is
+ *  (a language change, or tables that arrived late, i18n.ts `recoverStrings`). */
+function currentNewTabTranslator(): NewTabTranslate {
+  const pane = currentTranslator();
+  let translator = translators.get(pane);
+  if (!translator) {
+    const lang = currentLanguage();
+    translator = (key, values) => translateNewTab(key, values, lang);
+    translators.clear();
+    translators.set(pane, translator);
+  }
+  return translator;
+}
 
 /** The new tab translator for the pane's current language; re-renders the caller when it changes. */
 export function useNt(): NewTabTranslate {
-  const lang = usePaneLanguage();
-  let translator = translators.get(lang);
-  if (!translator) {
-    translator = (key, values) => translateNewTab(key, values, lang);
-    translators.set(lang, translator);
-  }
-  return translator;
+  return useSyncExternalStore(subscribeLanguage, currentNewTabTranslator, currentNewTabTranslator);
 }

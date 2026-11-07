@@ -23,7 +23,8 @@ extension ScreenContentView {
             // In the new layout's coordinates, as the live frames this change carried (`reconcile`).
             let drift = carried && before.scrolls(pane: pane) ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
             closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before, kept: kept,
-                               maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before), viewShift: viewShift)
+                               maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before), viewShift: viewShift,
+                               stripShift: before.viewShift(offset: offset))
         }
         for (pane, _) in closing { context.retire(pane, from: screenID, showsGround: closingPanes.entries[pane] != nil) }
     }
@@ -50,7 +51,9 @@ extension ScreenContentView {
 
     /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its sides'
     /// velocities.
-    func takeBackClosing(_ pane: PaneID) -> AnimatedFrame? { closingPanes.remove(pane, frames: paneFrames) }
+    func takeBackClosing(_ pane: PaneID) -> AnimatedFrame? {
+        closingPanes.remove(pane, frames: paneFrames, fixed: geometry.fixedPanes, strip: stripShift)
+    }
 
     /// The screen's motion landed (or it settles at once, or it goes: `until` nil): the hosts its closes retired are torn
     /// down (`LayoutViewContext.releaseRetired`), and their closing frames with them.
@@ -61,11 +64,12 @@ extension ScreenContentView {
 
     /// Places each closing host at its frame this frame (the strip's, its row column's and its scroll area's offsets as
     /// a live pane's), on the pixel grid; one whose host went (the motion landed) or came back is dropped. Returns the hosts
-    /// placed, to clip as the live ones, and whether a frame changed.
-    func presentClosingPanes(strip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
+    /// placed, to clip as the live ones, and whether a frame changed. `strip`, `restStrip`: the strip's view shift now and
+    /// where it rests.
+    func presentClosingPanes(strip: CGFloat, restStrip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return ([], false) }
         var hosts: [(host: PaneHostView, scrolls: Bool)] = [], changed = false
-        let rects = closingPanes.rects(frames: paneFrames, row: rowScrollTravel)
+        let rects = closingPanes.rects(frames: paneFrames, fixed: geometry.fixedPanes, row: rowScrollTravel, strip: strip, restStrip: restStrip)
         for (pane, entry) in closingPanes.entries {
             guard let host = context.closingHost(pane, of: screenID), host.superview === self, let rect = rects[pane] else {
                 closingPanes.drop(pane)

@@ -376,32 +376,39 @@ async fn cloud_acpmux(
     let mut phone_message = MessageAssembler::default();
     let mut adapter = CloudAcpAdapter::new(machine_id.clone(), team_id.clone());
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
-        tokio::select! {
-            event = receiver.recv() => match event {
-                Some(ChannelEvent::Data(bytes)) => {
-                    let Some(message) = phone_message.push(&bytes)? else { continue; };
-                    let request: Value = serde_json::from_str(message.as_str())
-                        .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
-                    let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+    let served = async {
+        loop {
+            tokio::select! {
+                event = receiver.recv() => match event {
+                    Some(ChannelEvent::Data(bytes)) => {
+                        let Some(message) = phone_message.push(&bytes)? else { continue; };
+                        let request: Value = serde_json::from_str(message.as_str())
+                            .map_err(|_| Refusal::new("bad_request", "Cloud ACP frame is not JSON"))?;
+                        let effects = adapter.phone(request).map_err(|_| Refusal::new("bad_request", "Cloud ACP request refused"))?;
+                        if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                    }
+                    Some(ChannelEvent::Closed(_)) | None => break,
+                },
+                native = read_cloud_line(&mut read, &mut native_line) => {
+                    let line = native?;
+                    let response: Value = serde_json::from_slice(&line)
+                        .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
+                    let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
                     if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
                 }
-                Some(ChannelEvent::Closed(_)) | None => break,
-            },
-            native = read_cloud_line(&mut read, &mut native_line) => {
-                let line = native?;
-                let response: Value = serde_json::from_slice(&line)
-                    .map_err(|_| Refusal::new("unavailable", "Cloud carrier returned invalid JSON"))?;
-                let effects = adapter.native(response).map_err(|_| Refusal::new("unavailable", "Cloud native reply refused"))?;
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
-            }
-            _ = tick.tick() => {
-                let effects = adapter.expire();
-                if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                _ = tick.tick() => {
+                    let effects = adapter.expire();
+                    if apply_cloud_effects(&mut write, sender, effects).await.is_err() { break; }
+                }
             }
         }
+        Ok::<(), Refusal>(())
     }
-    Ok(())
+    .await;
+    // However the channel ended, a start still in flight closes its empty tab on the machine
+    // (best effort: the carrier may be gone too).
+    let _ = apply_cloud_effects(&mut write, sender, adapter.abandon()).await;
+    served
 }
 
 const MAX_CLOUD_NATIVE_LINE: usize = 8 * 1024 * 1024;

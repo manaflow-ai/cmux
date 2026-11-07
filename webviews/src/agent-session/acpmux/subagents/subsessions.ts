@@ -10,6 +10,7 @@ import { createContext, useContext, useMemo, useSyncExternalStore } from "react"
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
+import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -228,6 +229,7 @@ export class SubsessionStore {
   private readonly listeners = new Set<() => void>();
 
   private entries = new Map<string, AcpmuxSessionEntry>();
+  private senders = new Map<string, AcpmuxSessionEntry>();
   /// Every listed chat's id by its names (its name, its short name; not its title, which can be
   /// "New chat"), and by id its harness and the other machine it runs on: another agent's message
   /// names its sender, which a card marks with its harness and opens, its tooltip naming that
@@ -247,6 +249,8 @@ export class SubsessionStore {
   private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
+
+  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => this.senders;
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
@@ -321,12 +325,26 @@ export class SubsessionStore {
       sorted(runs),
       sorted(machines),
       [...ids].sort(),
+      [...sessions]
+        .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+        .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
+          sessionId,
+          name,
+          shortName,
+          peer,
+          harness,
+          host,
+          hostKind,
+          startedBy,
+          spawnedBy,
+        ]),
     ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
+    if (renamed) this.senders = new Map(sessions.map((entry) => [entry.sessionId, entry]));
     if (renamed) this.places = places;
     if (renamed) this.runs = runs;
     if (renamed) this.machines = machines;
@@ -374,6 +392,10 @@ export class SubsessionStore {
 
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  sender(sessionId: string): AcpmuxSessionEntry | undefined {
+    return this.senders.get(sessionId);
   }
 
   /// The model and effort listed chat `sessionId` runs on, when the list names them.
@@ -476,7 +498,8 @@ export function useSenderChat(
   sessionId: string | undefined,
 ): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const readId = () => sessionId ?? store.find(name);
+  // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
+  const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
@@ -492,4 +515,36 @@ export function useMachineChats(host: string): readonly MachineChat[] {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => store.chatsOn(host);
   return useSyncExternalStore(store.subscribeNames, read, read);
+}
+
+/** One identity path for preview cards and session lists. No body-text inference. */
+export function useSenderIdentity(sender: SenderReference, viewerSessionId?: string): SenderIdentity {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const readId = () => sender.sessionId ?? store.find(sender.name);
+  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
+  const read = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, read, read);
+  return useMemo(
+    () =>
+      resolveSenderIdentity(
+        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        entry,
+        viewerSessionId,
+      ),
+    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+  );
+}
+
+/** A batch follows the same live session metadata and resolver as each message it contains. */
+export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const entries = useSyncExternalStore(store.subscribeNames, store.senderEntries, store.senderEntries);
+  return useMemo(
+    () =>
+      senders.map((sender) => {
+        const id = sender.sessionId ?? store.find(sender.name);
+        return resolveSenderIdentity(sender, id ? entries.get(id) : undefined, viewerSessionId);
+      }),
+    [senders, viewerSessionId, store, entries],
+  );
 }

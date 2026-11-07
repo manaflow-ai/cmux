@@ -49,6 +49,7 @@ mod cursor_ext;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
+mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
@@ -64,14 +65,18 @@ mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
 #[cfg(test)]
+mod startup_wait_tests;
+#[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
+pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
+pub(crate) mod full_access_children;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -117,6 +122,7 @@ mod log_load;
 mod restore_writer;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+mod machine_info;
 mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
@@ -158,6 +164,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
@@ -566,6 +573,7 @@ pub(super) struct StreamState {
 pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
 
 pub struct Hub {
+    pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
@@ -620,9 +628,27 @@ pub struct Hub {
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
-    /// started (`peer_lease.rs`); never saved. Lock order: this, then
-    /// `peers`; never `peers` first.
+    /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
+    /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Per-peer cache writers; held through the atomic rename so removal cannot be followed by
+    /// an older snapshot landing on disk. Entries are removed with the peer.
+    pub(super) peer_cache_writers: StdMutex<HashMap<String, Arc<StdMutex<()>>>>,
+    /// Bounds concurrent cache serialization/fsync work; notice application never waits on it.
+    pub(super) cache_write_gate: Arc<StdMutex<()>>,
+    #[cfg(test)]
+    pub(super) cache_test_writes: AtomicU64,
+    #[cfg(test)]
+    pub(super) cache_test_write_delay_ms: AtomicU64,
+    #[cfg(test)]
+    pub(super) cache_test_write_started: AtomicBool,
+    #[cfg(test)]
+    pub(super) cache_test_delay_peer: StdMutex<Option<String>>,
+    #[cfg(test)]
+    pub(super) cache_test_flush_pause:
+        StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    #[cfg(test)]
+    pub(super) peer_notice_projection_hook: StdMutex<Option<Arc<peers::PeerNoticeProjectionHook>>>,
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
@@ -641,6 +667,8 @@ pub struct Hub {
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
+    pub(super) peer_notices_finished: AtomicBool,
+    pub(super) peer_notices_done: Arc<Notify>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -785,6 +813,10 @@ pub struct Hub {
     /// (`start_retry.rs` `fail_unless_shutdown_settles`); it blocks its thread.
     #[cfg(test)]
     pub(super) settle_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a dispatch check's refusal between its shutdown check and its
+    /// `prompt_refused` write (`web_control.rs` `check_dispatch`); it blocks its thread.
+    #[cfg(test)]
+    pub(super) refuse_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -941,6 +973,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
+            hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
@@ -971,6 +1004,20 @@ impl Hub {
             mesh_book: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_cache_writers: StdMutex::new(HashMap::new()),
+            cache_write_gate: Arc::new(StdMutex::new(())),
+            #[cfg(test)]
+            cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_write_delay_ms: AtomicU64::new(0),
+            #[cfg(test)]
+            cache_test_write_started: AtomicBool::new(false),
+            #[cfg(test)]
+            cache_test_delay_peer: StdMutex::new(None),
+            #[cfg(test)]
+            cache_test_flush_pause: StdMutex::new(None),
+            #[cfg(test)]
+            peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
             github_app: Default::default(),
@@ -978,6 +1025,8 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             peer_notices_stop: tokio::sync::watch::channel(false).0,
+            peer_notices_finished: AtomicBool::new(false),
+            peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -1056,6 +1105,8 @@ impl Hub {
             retry_seam: Default::default(),
             #[cfg(test)]
             settle_seam: Default::default(),
+            #[cfg(test)]
+            refuse_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -1112,6 +1163,10 @@ impl Hub {
             hub.load_logs();
         }
         if tokio::runtime::Handle::try_current().is_ok() {
+            // A self-weak keeps worker threads from owning the hub forever. Install it only for
+            // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
+            // they can configure fields before entering their runtime.
+            let _ = hub.hub_ref.set(Arc::downgrade(&hub));
             // A copy's write tells the records of prompts it put on disk: their deliveries keep
             // them as proof (`open_delivery.rs`). Only a runtime-backed hub has peers to copy;
             // one built outside Tokio keeps a unique Arc, so a test can set fields first.
@@ -1496,6 +1551,7 @@ impl Hub {
             open_tools: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
+            sign_in_refused_turn: StdMutex::new(None),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),

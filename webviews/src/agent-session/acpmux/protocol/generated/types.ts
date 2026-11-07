@@ -15,6 +15,7 @@ export interface AcpmuxRequestMeta {
   cliHost?: unknown;
   compression?: unknown;
   context?: unknown;
+  createdBy?: unknown;
   cwd?: unknown;
   decisionNonce?: unknown;
   disallowedTools?: unknown;
@@ -292,6 +293,23 @@ export interface ChatRouteSetParams {
 
 export type CoverageLabel = "acp_requests_only";
 
+/**
+ * Who created a session (`hub/created_by.rs`), the shape cmux-tui's
+ * `workspace.create {created_by}` takes.
+ */
+export type CreatedBy = {
+  kind: CreatorKind;
+  /** The acpmux session whose agent created it; only for `agent`. */
+  session?: (string | null);
+  /**
+   * The cmux workspace it was created from (lowercase UUID): the agent session's
+   * workspace for an agent, else the one the create named.
+   */
+  workspace?: (string | null);
+} & Record<string, unknown>;
+
+export type CreatorKind = ("person" | "agent" | "script");
+
 export type DeliveryReceipt = {
   messageId: string;
   recipient: string;
@@ -369,6 +387,11 @@ export interface EventsParams {
    */
   promptIndex?: (boolean | null);
   sessionId: string;
+  /**
+   * Only this subagent's own records: the updates acpmux tagged with it and those that start
+   * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
+   */
+  subagent?: (string | null);
 }
 
 export type EventsResult = {
@@ -1057,6 +1080,14 @@ export type QueuedPromptSummary = {
   heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
+  /**
+   * acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+   * `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+   * messages it carries and never as the person's queued prompt, also when it has not read
+   * its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+   * once edited (an edit drops the provenance).
+   */
+  inboxNotice: unknown;
   prompt: string;
   promptId: string;
   queuedAt: number;
@@ -1121,10 +1152,11 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
- * agent process died mid-turn.
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+ * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+ * is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited";
+export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1269,6 +1301,13 @@ export type SessionDetail = {
   children: number;
   configOptions?: unknown;
   createdAt: number;
+  /**
+   * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+   * session?}`, decided by the daemon from the connection, never from a request value.
+   * Null for a fork, a moved-in session and one saved before it existed; absent from a
+   * peer on an older acpmux.
+   */
+  createdBy?: (CreatedBy | null);
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
@@ -1547,6 +1586,13 @@ export type SessionSummary = {
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;
+  /**
+   * Who created it (`hub/created_by.rs`): `{kind: "person"|"agent"|"script", workspace?,
+   * session?}`, decided by the daemon from the connection, never from a request value.
+   * Null for a fork, a moved-in session and one saved before it existed; absent from a
+   * peer on an older acpmux.
+   */
+  createdBy?: (CreatedBy | null);
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
