@@ -82,8 +82,8 @@ public final class ChiefPetMini {
         return ChiefPetHome(chat: chat, title: title, latest: AgentTurnStateStore.shared.lastMessage(session: chat.session))
     }
 
-    /// The key `acpmux send` takes for `chat`: its stable id, a peer's as `HOST/ID` with the host
-    /// saved when it was picked (an id can repeat on another peer, and its lane row then flips).
+    /// The key `acpmux send` takes for `chat`: its stable id (a peer's chat is the session this
+    /// Mac's acpmux mirrors), else `HOST/ID` with the host saved when it was picked.
     func sendName(_ chat: ChiefPetSubject.Chat) -> String {
         guard chat.host != localHost(), !chat.session.contains("/") else { return chat.session }
         return chat.host + "/" + chat.session
@@ -102,17 +102,24 @@ public final class ChiefPetMini {
         _ = registry.perform("agent.openSessionTab", invocation: ActionInvocation(arguments: arguments, origin: .user))
     }
 
-    /// The chat `session` names, kept under its peer (acpmux's lane says which), else this Mac.
-    public func chat(session: String) -> ChiefPetSubject.Chat? {
-        (lanes.lane(session)?.peer ?? localHost()).map { ChiefPetSubject.Chat(host: $0, session: session) }
+    /// The chat `model` shows as the mini can stand for it: a chat of this Mac's acpmux, a peer's as
+    /// the session it mirrors here. None for a Chief home's or another machine's tab
+    /// (`miniUnreachable`): the mini reads state and sends through this Mac's acpmux.
+    public func chat(of model: AgentPaneModel) -> ChiefPetSubject.Chat? {
+        guard !model.miniUnreachable, let session = model.sessionId, let host = localHost() else { return nil }
+        return ChiefPetSubject.Chat(host: host, session: session)
     }
 
-    /// Show in Mini for session `session` (nil: the Chief again). Asking to see a chat in the mini
+    /// The chat menu's Show in Mini on `model`'s page: its chat (`session` set), or the Chief again.
+    public func show(session: String?, of model: AgentPaneModel, registry: ActionRegistry) {
+        if session == nil { show(nil, registry: registry) } else if let chat = chat(of: model) { show(chat, registry: registry) }
+    }
+
+    /// Show in Mini for `chat` (nil: the Chief again). Asking to see a chat in the mini
     /// shows the mini: off, it turns on (`home.toggleChiefPet` with `on`, the person's own run); a
     /// managed setting that keeps it off shows it for this chat with its reply box open, as Message
     /// the Chief does.
-    public func show(session: String?, registry: ActionRegistry) {
-        let chat = session.flatMap(chat(session:))
+    public func show(_ chat: ChiefPetSubject.Chat?, registry: ActionRegistry) {
         subject.show(chat)
         guard chat != nil, settings()?.snapshot.homeChiefPetEnabled == false else { return }
         if registry.canPerform(HomeChiefPetSetting.toggleAction) {
@@ -122,18 +129,18 @@ public final class ChiefPetMini {
         }
     }
 
-    /// Show in Mini in the palette, on the focused chat `focused` names: run while the mini shows
-    /// it already, it reads Show Chief in Mini and gives the mini back to the Chief.
-    public func bind(into registry: ActionRegistry, focused: @escaping @MainActor (ActionInvocation) -> String?) {
+    /// Show in Mini in the palette, on the focused chat page `focused` names: run while the mini shows it already, it reads Show Chief in Mini and gives the mini
+    /// back to the Chief.
+    public func bind(into registry: ActionRegistry, focused: @escaping @MainActor (ActionInvocation) -> AgentPaneModel?) {
         registry.bindEffect(Self.action) { [weak self, weak registry] invocation in
-            guard let self, let registry, let session = focused(invocation) else {
+            guard let self, let registry, let chat = focused(invocation).flatMap(chat(of:)) else {
                 return .refused(ChiefPetSubject.needsAgentChatTitle)
             }
-            show(session: subject.shows(session: session) ? nil : session, registry: registry)
+            show(subject.chat == chat ? nil : chat, registry: registry)
             return .done
         }
         ActionTargetTitles.setPaletteTitle(Self.action, in: registry) { [weak self] in
-            guard let self, let session = focused(ActionInvocation()), subject.shows(session: session) else { return nil }
+            guard let self, let chat = focused(ActionInvocation()).flatMap(chat(of:)), subject.chat == chat else { return nil }
             return ChiefPetSubject.showChiefTitle
         }
     }

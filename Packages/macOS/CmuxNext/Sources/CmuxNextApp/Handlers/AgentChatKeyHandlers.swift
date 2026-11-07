@@ -10,7 +10,7 @@ import WebKit
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentChatCopyHandlers.bind(into: registry, context: context)
-        context.services.chiefPetMini.bind(into: registry) { chatView(context, $0, refusal: nil)?.model.sessionId }
+        context.services.chiefPetMini.bind(into: registry) { chatView(context, $0, refusal: nil)?.model }
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
             let registry = context.registry

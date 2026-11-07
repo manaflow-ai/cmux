@@ -136,9 +136,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
     /// The agent session the floating mini stands for (nil: the Chief), and Show in Mini for one
-    /// (nil: the Chief again): the chat menu's Show in Mini row. Unset, the page hides the row.
+    /// (nil: the Chief again): the chat menu's Show in Mini row. Unset, or for a chat the mini cannot
+    /// reach (`miniUnreachable`: a Chief home's or another machine's tab), the page hides the row.
     @ObservationIgnored public var onMiniSubject: (() -> String?)?
     @ObservationIgnored public var onShowInMini: ((String?) -> Void)?
+    @ObservationIgnored public var miniUnreachable = false
     /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
     @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -571,10 +573,10 @@ public final class AgentPaneModel {
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
         case .miniSubject:
-            guard let onMiniSubject else { return Self.unsupported("agent.mini") }
+            guard let onMiniSubject, !miniUnreachable else { return Self.unsupported("agent.mini") }
             return AgentPaneReply.success(["sessionId": onMiniSubject().map { $0 as Any } ?? NSNull()])
         case .showInMini(let session):
-            guard let onShowInMini else { return Self.unsupported("agent.mini.show") }
+            guard let onShowInMini, !miniUnreachable else { return Self.unsupported("agent.mini.show") }
             // Only the person's click: the mini can open its reply box, which takes the keyboard.
             guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             onShowInMini(session)

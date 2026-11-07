@@ -40,5 +40,10 @@ struct AgentPaneShowInMiniTests {
         #expect(((await model.respond(to: .miniSubject))["value"] as? [String: Any])?["sessionId"] as? String == "s1")
         _ = await model.respond(to: .showInMini(nil), userGesture: true)
         #expect(shown == .some(nil))
+        // A chat the mini cannot reach (a Chief home's, another machine's tab): no row, no pick.
+        model.miniUnreachable = true
+        #expect((await model.respond(to: .miniSubject))["ok"] as? Bool != true)
+        #expect((await model.respond(to: .showInMini("s1"), userGesture: true))["ok"] as? Bool != true)
+        #expect(shown == .some(nil))
     }
 }

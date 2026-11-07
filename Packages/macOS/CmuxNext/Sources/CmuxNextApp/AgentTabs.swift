@@ -419,7 +419,7 @@ final class AgentTabStore {
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.listedElsewhereCode, machine: machine))
             let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
-            (model.remoteChat, model.neverPooled) = (true, true)
+            (model.remoteChat, model.neverPooled, model.miniUnreachable) = (true, true, true)
             guard let view = makeView(model) else { return nil }
             views[key] = view
             track(key, in: store)
@@ -488,7 +488,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
-        model.onCloudRepositoryLocal = cloudRepositoryLocal
+        (model.onCloudRepositoryLocal, model.miniUnreachable) = (cloudRepositoryLocal, kind != .local) // the mini sends through this Mac's acpmux
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {

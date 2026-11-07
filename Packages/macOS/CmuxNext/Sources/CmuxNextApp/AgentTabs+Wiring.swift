@@ -536,7 +536,7 @@ extension AgentTabStore {
         }
         model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
         model.onMiniSubject = { [weak self] in self?.mini?.subject.chat?.session }
-        model.onShowInMini = { [weak self] session in if let registry = self?.actionRegistry { self?.mini?.show(session: session, registry: registry) } }
+        model.onShowInMini = { [weak self, weak model] session in if let model, let registry = self?.actionRegistry { self?.mini?.show(session: session, of: model, registry: registry) } }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
