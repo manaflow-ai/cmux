@@ -387,4 +387,30 @@ struct TerminalGridReportCoalescerTests {
         #expect(rig.sent.grids.count == 6, "a late timer sent again: \(rig.sent.grids)")
         #expect(!rig.coalescer.isWaiting)
     }
+
+    /// (11) Review of #37842 (finding 3): while frames run, every send spends the refresh, not only a send from
+    /// `viewSized`. A forced report (`reportNow`, a new PTY owner) and then a live grid in the same refresh: the live grid
+    /// waits for the next refresh, so the PTY still gets at most one resize per refresh.
+    @Test func whileFramesRunAForcedReportSpendsItsRefresh() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        let forced = Self.grid(90)
+        rig.coalescer.reportNow(forced)
+        let a = Self.grid(100)
+        rig.coalescer.viewSized(a)
+        #expect(rig.sent.grids == [forced], "a forced report and a live grid went in one refresh: \(rig.sent.grids)")
+        #expect(rig.coalescer.pending == a)
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        #expect(rig.sent.grids == [forced, a], "the next refresh did not send the waiting grid: \(rig.sent.grids)")
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        #expect(ticks.ticked.isEmpty, "a quiet coalescer is still ticked")
+        let b = Self.grid(104)
+        rig.coalescer.viewSized(b)
+        #expect(rig.sent.grids == [forced, a, b], "after a quiet refresh the landed grid did not go at once")
+        rig.clock.advance(by: .milliseconds(100))
+        await rig.drain()
+        #expect(rig.sent.grids == [forced, a, b], "a late timer sent again: \(rig.sent.grids)")
+    }
 }
