@@ -175,7 +175,7 @@ fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
     assert_eq!(result, Ok(json!([{"id": "d1"}])));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /api/vm/domains "));
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
 }
@@ -193,7 +193,7 @@ fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
         .unwrap();
     assert_eq!(result["replayed"], false);
     assert_eq!(result["revision"], "0");
-    assert!(result["value"].is_object(), "{result}");
+    assert_eq!(result["value"], Value::Null, "a resize answers no body");
     assert!(seen.lock().unwrap()[0].line.starts_with(&format!("POST /api/vm/{VM}/resize ")));
 }
 

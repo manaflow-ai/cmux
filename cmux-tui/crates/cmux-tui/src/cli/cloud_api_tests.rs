@@ -116,7 +116,7 @@ fn a_classic_vm_call_reaches_the_api_through_the_daemon() {
     assert_eq!(answer.unwrap(), json!([{"id": "s1"}]));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /api/vm/vm-1/snapshots "));
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
 }
