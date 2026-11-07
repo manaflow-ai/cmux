@@ -15,16 +15,19 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { acpmuxSendCall } from "./conversation/acpmuxSends";
-import { oneRowChange } from "./rowChanges";
+import { oneRowChangeFrom } from "./rowChanges";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 /// A call's output now (`output`), and its output in the rows the pane drew (`drawn`): a row whose
 /// call still has that output takes the newer one; any other row is newer than this entry.
-/// `epoch`: the pane's draws asked for before it (`redraw`).
+/// `epoch`: the pane's draws asked for before it (`redraw`). `ahead`: the updates it holds since
+/// `drawn`, which the row's version moves on by, so a renderer that memoizes on the version (every
+/// row renderer) draws each one, as the client's own version does (direct.ts: +1 per update).
 type Entry = {
   readonly output: string;
   readonly drawn: string | undefined;
+  readonly ahead: number;
   readonly seq: number;
   readonly epoch: number;
 };
@@ -44,8 +47,9 @@ export const liveToolOutput = {
   /// snapshot this one follows. Notifies only the rows that draw that call.
   set(id: string, output: string, before: string | undefined): void {
     const kept = entries.get(id);
-    const drawn = kept && kept.epoch === epoch ? kept.drawn : before;
-    entries.set(id, { output, drawn, seq: (seq += 1), epoch });
+    const same = kept !== undefined && kept.epoch === epoch;
+    const drawn = same ? kept.drawn : before;
+    entries.set(id, { output, drawn, ahead: same ? kept.ahead + 1 : 1, seq: (seq += 1), epoch });
     notify(id);
   },
   get: (id: string): Entry | undefined => entries.get(id),
@@ -135,7 +139,7 @@ function withLiveOutput(row: AcpmuxRow): AcpmuxRow {
     const tool = item.tool;
     const entry = tool ? entries.get(tool.id) : undefined;
     if (!tool || !entry || entry.drawn !== tool.output) return item;
-    ahead += 1;
+    ahead += entry.ahead;
     return { ...item, tool: { ...tool, output: entry.output } };
   });
   return ahead ? { ...row, items, version: row.version + ahead } : row;
@@ -156,11 +160,10 @@ export function toolOutputOnly(
   previous: AcpmuxSnapshot,
   next: AcpmuxSnapshot,
 ): { id: string; output: string; before: string | undefined } | undefined {
-  const change = oneRowChange(next.rows);
-  if (!change || change.from !== previous.rows) return undefined;
-  if (!sameButRows(previous, next)) return undefined;
-  const before = previous.rows[change.index];
-  const after = next.rows[change.index];
+  const index = oneRowChangeFrom(next.rows, previous.rows);
+  if (index === undefined || !sameButRows(previous, next)) return undefined;
+  const before = previous.rows[index];
+  const after = next.rows[index];
   if (!before || !after || before.id !== after.id || after.kind !== "activity") return undefined;
   if (!sameExcept(before, after, ROW_KEYS)) return undefined;
   const was = before.items;

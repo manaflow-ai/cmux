@@ -11,7 +11,7 @@ import { JSDOM } from "jsdom";
 import { OrderedRows } from "./direct";
 import { liveToolOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { markOneRowChange, oneRowChange } from "./rowChanges";
+import { markOneRowChange, oneRowChange, oneRowChangeFrom } from "./rowChanges";
 import { ToolActivityRow } from "./rows/ToolActivityRow";
 import type { RowProps } from "./rows/rowProps";
 import { RowContent } from "./VirtualTranscript";
@@ -98,7 +98,7 @@ test("the client marks a snapshot that changed one row in place, and only that",
   rows.current = 3;
   rows.set("activity-1", activity(call("pass 1\npass 2\n"), 2), false);
   const second = rows.sorted();
-  expect(oneRowChange(second)).toEqual({ from: first, index: 1 });
+  expect(oneRowChangeFrom(second, first)).toBe(1);
   // Two rows changed: unmarked.
   rows.current = 4;
   rows.set(prompt.id, { ...prompt, version: 2 });
@@ -217,9 +217,12 @@ test("a client's change record holds no earlier snapshot, however many updates i
 test("a running command's row drawn by its memoized renderer shows the newest output on every update", () => {
   const container = mount();
   // ToolActivityRow's own comparator (id, version, session): the one the transcript draws with.
-  const Probe = memo(function Probe({ row }: RowProps) {
-    return <pre>{row.items?.[0]?.tool?.output}</pre>;
-  }, (ToolActivityRow as unknown as { compare: (a: RowProps, b: RowProps) => boolean }).compare);
+  const Probe = memo(
+    function Probe({ row }: RowProps) {
+      return <pre>{row.items?.[0]?.tool?.output}</pre>;
+    },
+    (ToolActivityRow as unknown as { compare: (a: RowProps, b: RowProps) => boolean }).compare,
+  );
   root = createRoot(container);
   let output = "pass 1\n";
   const row = activity(call(output), 10);
