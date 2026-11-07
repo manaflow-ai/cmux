@@ -63,6 +63,7 @@ import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.e
 import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
+import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -93,6 +94,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   codeRouterOffer,
   stoppedTurnLook,
   timeHoverWording,
+  timeHoverDate,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
