@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42354270168",
+  "recorded_at": "2026-11-07T08:20:08Z",
+  "reason": "cmux-tui f5192ecbda7b changes the image's cmux-tui (pinned fcd2025b1e37)",
+  "dry_run": false,
+  "cmux_tui": "f5192ecbda7bdd4b09de410da7c8600c848914a6",
+  "fixes": [
+    {
+      "sha": "f5192ecbda7bdd4b09de410da7c8600c848914a6",
+      "mergedAt": "2026-11-06T23:55:37-08:00",
+      "subject": "start-chat --wait: only cloud start-chat, which runs; vm start-chat is refused (#37572)"
+    },
+    {
+      "sha": "0467fc1e630e1899f3abe639fcf75af902fdbfcb",
+      "mergedAt": "2026-11-06T23:54:00-08:00",
+      "subject": "cmux vm pause dev: short Cloud VM verbs that take a name (#37470)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:20:08Z",
+    "snapshot_id": "sh-379e1ae622a74a18b8b7bcb87fa570ba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42354270168): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "30eecad19d7c6b40a60999c7f06c61a0a05f6492",
+    "image": "cloud-native-auto-f5192ecb-42354270168-1",
+    "revision": "ci-42354270168-1",
+    "at": "2026-11-07T08:20:08Z"
+  },
+  "rolled_back": false
+}
