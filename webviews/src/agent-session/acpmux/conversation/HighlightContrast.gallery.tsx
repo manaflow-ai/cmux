@@ -112,6 +112,9 @@ function Board({ strategy }: { strategy: Strategy }) {
           position: "relative",
           height: "100%",
           overflow: "auto",
+          // A block that scrolls, as the pane's `.acpmux-scroll` is: the shell's flex row would shrink
+          // the find bar's zero-height layer to no width and push the pill off the left edge.
+          display: "block",
           "--hc-selection": selectionFill,
           // No Session Info beside the chat here (SessionInfo.tsx sets it in the pane).
           "--acpmux-session-info-clear": "0px",
@@ -123,6 +126,8 @@ function Board({ strategy }: { strategy: Strategy }) {
       <ChatFindBar find={find} />
       <div
         data-board-text
+        // The transcript's words are content a person copies (desktop.css `.selectable`).
+        className="selectable"
         style={{
           display: "grid",
           gap: "var(--ds-space-3)",
