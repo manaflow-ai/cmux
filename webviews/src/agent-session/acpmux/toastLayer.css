@@ -24,7 +24,20 @@
   margin: 0;
   pointer-events: none;
 }
+/* The stack is the line itself here; its top row is drawn in .acpmux-toasts-top. */
 .acpmux-toasts > .ui-notice-stack {
   --ui-notice-stack-bottom: var(--ds-space-2, 8px);
+  top: auto;
+  height: 0;
   padding-inline: 0;
+}
+/* The top anchors' line: under the chat's header, on the composer's column. */
+.acpmux-main > .acpmux-toasts-top {
+  position: absolute;
+  top: calc(var(--acpmux-header-height) + var(--ds-space-2));
+  left: var(--cv-inset, 0px);
+  right: var(--cv-inset-end, var(--cv-inset, 0px));
+  height: 0;
+  z-index: var(--layer-toast, 900);
+  pointer-events: none;
 }

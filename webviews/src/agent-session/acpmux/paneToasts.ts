@@ -6,6 +6,7 @@
 //   run). It belongs to the moment, not the chat: a toast in the pane's stack over the transcript's
 //   foot, by the composer where the person is looking (Leo, 2026-11-07: "it should have sent, like,
 //   that bottom toast area"). The same text twice is one toast with a count (NoticeStack).
+import { anchorMemory } from "../../ui/anchors";
 import { createNoticeQueue, type NoticeQueue } from "../../ui/NoticeStack";
 import { translate } from "./i18n";
 
@@ -23,7 +24,8 @@ export interface PaneNoticeSinks {
 
 export interface PaneNotices {
   transcript(text: string): void;
-  transient(text: string): void;
+  /** `group`: the kind of toast, which a drag's anchor is remembered under. */
+  transient(text: string, group?: string): void;
   /** A sender chip whose name acpmux resolves to no chat. */
   senderMissing(name: string): void;
 }
@@ -31,18 +33,21 @@ export interface PaneNotices {
 /** The pane's toasts: at most three in the deck, the oldest leaving for a fourth. */
 export const PANE_TOAST_LIMIT = 3;
 
+/** Where each kind of toast was last dragged (anchors.ts), in the page's localStorage. */
+export const PANE_TOAST_ANCHOR_PREFIX = "cmux.agentPane.toastAnchor.";
+
 export function createPaneToasts(): NoticeQueue {
-  return createNoticeQueue(PANE_TOAST_LIMIT);
+  return createNoticeQueue(PANE_TOAST_LIMIT, { anchors: anchorMemory(PANE_TOAST_ANCHOR_PREFIX) });
 }
 
 export function paneNotices(sinks: PaneNoticeSinks): PaneNotices {
   const transcript = (text: string) => void sinks.transcript()?.notice(text);
-  const transient = (text: string) => {
-    if (text) sinks.toasts.show({ message: text });
+  const transient = (text: string, group = "feedback") => {
+    if (text) sinks.toasts.show({ message: text, group });
   };
   return {
     transcript,
     transient,
-    senderMissing: (name) => transient(translate("message.senderNotFound", { name })),
+    senderMissing: (name) => transient(translate("message.senderNotFound", { name }), "senderMissing"),
   };
 }

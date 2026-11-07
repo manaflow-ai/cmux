@@ -244,18 +244,17 @@ test("the stacked deck puts the newest in front and spreads while hovered", () =
   // Newest first in the DOM: Tab reaches the front toast first.
   expect(cards().map((card) => card.textContent)).toEqual(["three", "two", "one"]);
   expect(cards()[0]!.hasAttribute("data-front")).toBe(true);
-  const deck = doc.querySelector(".ui-notice-deck")!;
+  const deck = doc.querySelector('.ui-notice-anchor[data-anchor="bottom"] > .ui-notice-deck')!;
   expect(deck.hasAttribute("data-expanded")).toBe(false);
   // Gathered: each older card a step back and smaller.
   expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "0.95", "0.9"]);
-  const stack = doc.querySelector(".ui-notice-stack")!;
   act(() => {
-    stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(true);
   expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "1", "1"]);
   act(() => {
-    stack.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
+    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(false);
 });
@@ -317,5 +316,40 @@ test("in the deck, a toast's time stops while hovered, and a persistent toast's 
   act(() => undo.click());
   expect(ran).toEqual(["undo"]);
   expect(reasons).toEqual(["action"]);
+  expect(queue.snapshot()).toHaveLength(0);
+});
+
+test("a held toast never times out, and one dragged past the edge is closed", () => {
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  const reasons: string[] = [];
+  queue.show({ id: "t", message: "Copied.", duration: 4000, onClose: (reason) => reasons.push(reason) });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" drag="spring" arm={arm} />);
+  expect(live().map((timer) => timer.ms)).toEqual([4000]);
+  const card = doc.querySelector<HTMLElement>(".ui-notice-deck-card")!;
+  const pointer = (type: string, x: number, y: number) =>
+    act(() => {
+      card.dispatchEvent(
+        new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+      );
+    });
+  pointer("pointerdown", 100, 100);
+  pointer("pointermove", 140, 90);
+  // Held: it follows the pointer and its time stops.
+  expect(card.hasAttribute("data-dragging")).toBe(true);
+  expect(card.style.getPropertyValue("--ui-notice-drag-x")).toBe("40px");
+  expect(live()).toHaveLength(0);
+  // Let go far past the surface's edge: it goes, closed.
+  pointer("pointermove", 2000, 90);
+  pointer("pointerup", 2000, 90);
+  expect(reasons).toEqual(["closed"]);
   expect(queue.snapshot()).toHaveLength(0);
 });

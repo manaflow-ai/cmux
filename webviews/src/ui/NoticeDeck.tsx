@@ -1,43 +1,81 @@
-// The stacked layout of NoticeStack (leo-workspace design/notifications.md): a compact deck. The
-// newest toast is in front at the bottom; up to two older ones peek above it, each a step smaller,
-// cut to the front one's height with their text hidden. While the pointer or focus is in the deck
-// it spreads into the full list, newest at the bottom, so every toast can be read, answered or
-// closed; it gathers again when they leave.
+// The stacked layout of NoticeStack (leo-workspace design/notifications.md): a compact deck at one
+// anchor. The newest toast is in front at the anchor's edge; up to two older ones peek behind it,
+// each a step smaller, cut to the front one's height with their text hidden. While the pointer or
+// focus is in the deck it spreads into the full list, so every toast can be read, answered or
+// closed; it gathers again when they leave. A bottom deck grows upward, a top deck downward.
 //
 // Every change is one state transition of the whole deck (Leo, 2026-11-04: "we move all our
-// affected, possibly affected elements in the cohesive way"): a new toast rises into the front from
-// the deck's foot while the others step back in the same frames; a closed one sinks out of the foot
-// while the rest step forward; a repeat moves to the front. The deck clips at its foot, so a toast
-// travels in and out from behind that edge with no fade and nothing popping in. Its box is placed
+// affected, possibly affected elements in the cohesive way"): a new toast comes into the front from
+// behind the deck's edge while the others step back in the same frames; a closed one goes back
+// behind it while the rest step forward; a repeat moves to the front. The deck's box is placed
 // absolutely and its height follows the toasts, so nothing under it ever moves.
 //
+// Drag (Leo, 2026-11-07: "get the toasts to be draggable so you can move it around if you need to
+// see something"): a toast follows the pointer from a press (anchors.ts `createDrag`); its time
+// stops while it is held. Released, it settles at the nearest anchor on the shared spring, flying
+// from where it was dropped into that anchor's deck (`flights`, a FLIP across decks); flicked, or
+// dropped past the surface's edge, it is closed and flies on out.
+//
 // Motion: transitions only, on the shared motion tokens; `data-cmux-motion` off or reduced, or the
-// system's Reduce Motion, ends them (notice.css), and a closed toast then goes at once.
+// system's Reduce Motion, ends them (notice.css), and every change then lands in one frame.
 //
 // Measuring: each toast's natural height is read once per change of the toasts or of the deck's
-// width (a ResizeObserver on the deck, disconnected on unmount), never per frame.
+// width (a ResizeObserver on the deck, disconnected on unmount), never per frame. A drag writes
+// the card's offset straight to its style, so a pointer move renders nothing.
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  anchorPoint,
+  createDrag,
+  nearestAnchor,
+  type Anchor,
+  type Box,
+  type Drag,
+  type DragRelease,
+  type Point,
+} from "./anchors";
 import type { NoticeEntry } from "./NoticeStack";
 
 export type DeckAlign = "center" | "end";
+/** How a dragged toast feels: `spring` follows the pointer and settles on the spring;
+ *  `rubber` lags toward the anchor it would settle at; `ghosts` is `spring` with the six
+ *  anchors outlined while it is held. */
+export type DragFeel = "spring" | "rubber" | "ghosts";
 
-/** How far each older toast peeks above the one in front, and the gap between spread toasts. */
+/** How far each older toast peeks behind the one in front, and the gap between spread toasts. */
 export const DECK_PEEK = 8;
 export const DECK_GAP = 8;
 /** Each step back is this much smaller. */
 export const DECK_SCALE_STEP = 0.05;
 /** At most this many toasts show in the gathered deck; the rest wait behind. */
 export const DECK_DEPTH = 3;
-/** A closed toast is kept this long at most for its exit, if no transitionend comes. */
+/** A closed toast is kept this long past its transition at most, if no transitionend comes. */
 const EXIT_FALLBACK_MS = 400;
+/** A flung toast travels on this many ms at its release speed, and at least FLING_MIN px. */
+const FLING_MS = 200;
+const FLING_MIN = 120;
+/** `rubber`: how much of the way toward its anchor a held toast leans. */
+const RUBBER_LEAN = 0.3;
 
-type Phase = "from" | "shown" | "leaving";
+type Phase = "from" | "fly" | "shown" | "leaving";
 
 interface Card {
   entry: NoticeEntry;
   phase: Phase;
-  /** Where a leaving card was, so it sinks from there. */
+  /** Where a leaving card was, so it leaves from there. */
   at?: { y: number; scale: number; height: number };
+}
+
+/** Where cards dropped at another anchor were on screen, by id, until their new deck draws them. */
+export type Flights = Map<string, DOMRect>;
+
+export interface DeckDrag {
+  feel: DragFeel;
+  /** The surface the toasts may rest in, in client coordinates. */
+  box(): Box;
+  /** A toast is held (true) or let go (false): the stack's time stops while one is. */
+  hold(held: boolean, nearest?: Anchor): void;
+  /** Where a released toast goes. */
+  release(id: string, release: Exclude<DragRelease, { kind: "click" }>): void;
 }
 
 export interface DeckPlace {
@@ -49,21 +87,27 @@ export interface DeckPlace {
   hidden: boolean;
 }
 
-/// Where each toast stands, newest first: gathered, each older one `DECK_PEEK` higher and a step
-/// smaller, cut to the front one's height; spread, each above the newer ones with `DECK_GAP`
-/// between. `heights` are the toasts' natural heights (0 when not measured yet).
-export function deckPlaces(heights: readonly number[], expanded: boolean): DeckPlace[] {
+/// Where each toast stands, newest first, measured from the deck's edge (upward for a bottom deck,
+/// so y is negative; downward for a top deck): gathered, each older one `DECK_PEEK` further in and
+/// a step smaller, cut to the front one's height; spread, each beyond the newer ones with
+/// `DECK_GAP` between. `heights` are the toasts' natural heights (0 when not measured yet).
+export function deckPlaces(
+  heights: readonly number[],
+  expanded: boolean,
+  edge: "top" | "bottom" = "bottom",
+): DeckPlace[] {
+  const sign = edge === "bottom" ? -1 : 1;
   const front = heights[0] ?? 0;
-  let above = 0;
+  let beyond = 0;
   return heights.map((height, index) => {
     if (expanded) {
-      const y = -above;
-      above += height + DECK_GAP;
+      const y = sign * beyond || 0;
+      beyond += height + DECK_GAP;
       return { y, scale: 1, height: height || undefined, hidden: false };
     }
     const step = Math.min(index, DECK_DEPTH - 1);
     return {
-      y: -step * DECK_PEEK,
+      y: sign * step * DECK_PEEK || 0,
       scale: 1 - step * DECK_SCALE_STEP,
       height: index === 0 ? height || undefined : front || undefined,
       hidden: index >= DECK_DEPTH,
@@ -71,7 +115,7 @@ export function deckPlaces(heights: readonly number[], expanded: boolean): DeckP
   });
 }
 
-/// The deck's own height: the spread list, or the front toast and the peeks above it.
+/// The deck's own height: the spread list, or the front toast and the peeks behind it.
 export function deckHeight(heights: readonly number[], expanded: boolean): number {
   if (heights.length === 0) return 0;
   if (expanded) return heights.reduce((sum, height) => sum + height, 0) + DECK_GAP * (heights.length - 1);
@@ -93,15 +137,37 @@ function transitionMs(element: Element): number {
   return Math.max(0, ...durations.map((duration, index) => duration + (delays[index % delays.length] ?? 0)));
 }
 
+/** A press on one of these is the control's, never a drag. */
+const CONTROLS = "button, a[href], input, textarea, select, label, [role='checkbox']";
+
+function setOffset(element: HTMLElement, offset: Point | undefined): void {
+  if (!offset) {
+    element.style.removeProperty("--ui-notice-drag-x");
+    element.style.removeProperty("--ui-notice-drag-y");
+    return;
+  }
+  element.style.setProperty("--ui-notice-drag-x", `${offset.x}px`);
+  element.style.setProperty("--ui-notice-drag-y", `${offset.y}px`);
+}
+
 export function NoticeDeck({
   entries,
   expanded: wantsSpread,
   draw,
+  edge = "bottom",
+  drag,
+  flights,
 }: {
   entries: readonly NoticeEntry[];
-  /** The pointer or focus is in the stack. */
-  expanded: boolean;
+  /** Spread whatever the pointer does. Otherwise it spreads while the pointer or focus is in it. */
+  expanded?: boolean;
   draw(entry: NoticeEntry): ReactNode;
+  /** The anchor's edge the deck stands on. */
+  edge?: "top" | "bottom";
+  /** Without it the toasts don't drag. */
+  drag?: DeckDrag;
+  /** Shared by the stack's decks: a card dropped here from another deck flies in from there. */
+  flights?: Flights;
 }) {
   // Newest first: the front card is first in the DOM, so Tab reaches it first.
   const [cards, setCards] = useState<Card[]>(() =>
@@ -110,6 +176,9 @@ export function NoticeDeck({
   const [seen, setSeen] = useState(entries);
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [width, setWidth] = useState(0);
+  const [held, setHeld] = useState<string | undefined>(undefined);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   const elements = useRef(new Map<string, HTMLElement>());
   const deck = useRef<HTMLDivElement>(null);
   const places = useRef(new Map<string, { y: number; scale: number; height: number }>());
@@ -122,12 +191,17 @@ export function NoticeDeck({
     const next: Card[] = [...entries].reverse().map((entry) => {
       const id = entry.spec.id;
       const was = cards.find((card) => card.entry.spec.id === id && card.phase !== "leaving");
-      return { entry, phase: was ? was.phase : known.has(id) ? "shown" : "from" };
+      const fresh: Phase = flights?.has(id) ? "fly" : "from";
+      return { entry, phase: was ? was.phase : known.has(id) ? "shown" : fresh };
     });
-    // A card gone from the queue stays to play its exit where it was.
+    // A card gone from the queue stays to play its exit where it was; one that went to another
+    // anchor's deck is drawn there, from where it was dropped, and goes from here at once.
     for (const [index, card] of cards.entries()) {
       const id = card.entry.spec.id;
-      if (live.has(id)) continue;
+      if (live.has(id) || card.phase === "leaving" || flights?.has(id)) {
+        if (card.phase === "leaving" && !live.has(id)) next.splice(Math.min(index, next.length), 0, card);
+        continue;
+      }
       next.splice(Math.min(index, next.length), 0, {
         ...card,
         phase: "leaving",
@@ -143,6 +217,15 @@ export function NoticeDeck({
     places.current.delete(id);
     setCards((current) => current.filter((card) => !(card.entry.spec.id === id && card.phase === "leaving")));
   }, []);
+
+  // A card closed from under the pointer or focus sends no leave or blur: read the deck's real
+  // state whenever the toasts change, so it never stays spread.
+  useLayoutEffect(() => {
+    const element = deck.current;
+    if (!element) return;
+    setHovered(element.matches(":hover"));
+    setFocused(element.contains(document.activeElement));
+  }, [entries]);
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {
@@ -171,16 +254,30 @@ export function NoticeDeck({
     return () => observer.disconnect();
   }, []);
 
-  // A new card's start must be drawn before it moves to its place, or no transition runs.
+  // A new card's start must be drawn before it moves to its place, or no transition runs. A card
+  // flown in from another deck starts where it was dropped: the difference to its new place.
   useLayoutEffect(() => {
-    const arriving = shown.filter((card) => card.phase === "from");
+    const arriving = shown.filter((card) => card.phase === "from" || card.phase === "fly");
     if (arriving.length === 0) return;
     for (const card of arriving) {
-      const element = elements.current.get(card.entry.spec.id);
-      if (element) void getComputedStyle(element).transform;
+      const id = card.entry.spec.id;
+      const element = elements.current.get(id);
+      const from = flights?.get(id);
+      flights?.delete(id);
+      if (!element) continue;
+      if (card.phase === "fly" && from) {
+        const to = element.getBoundingClientRect();
+        element.style.setProperty("--ui-notice-fly-x", `${from.left - to.left}px`);
+        element.style.setProperty("--ui-notice-fly-y", `${from.top - to.top}px`);
+        // It lands on the drag's spring, as a toast let go in its own deck does.
+        element.dataset.settling = "";
+      }
+      void getComputedStyle(element).transform;
     }
-    setCards((current) => current.map((card) => (card.phase === "from" ? { ...card, phase: "shown" } : card)));
-  }, [shown]);
+    setCards((current) =>
+      current.map((card) => (card.phase === "from" || card.phase === "fly" ? { ...card, phase: "shown" } : card)),
+    );
+  }, [shown, flights]);
 
   // A leaving card goes when its exit ends; at once when no transition runs (motion off).
   useLayoutEffect(() => {
@@ -198,19 +295,114 @@ export function NoticeDeck({
     return () => timers.forEach(clearTimeout);
   }, [shown, drop]);
 
+  /// A press on a card: it follows the pointer once it moves past the slop, and on release
+  /// settles, comes back, or goes.
+  const press = (id: string, event: React.PointerEvent<HTMLLIElement>) => {
+    if (!drag || event.button !== 0 || (event.target as Element).closest(CONTROLS)) return;
+    const element = event.currentTarget;
+    const start = { x: event.clientX, y: event.clientY };
+    const moving: Drag = createDrag(start, event.timeStamp);
+    // No text selection starts under a drag; the card's controls keep their own presses.
+    event.preventDefault();
+    element.setPointerCapture?.(event.pointerId);
+    const origin = element.getBoundingClientRect();
+    const centre = { x: origin.left + origin.width / 2, y: origin.top + origin.height / 2 };
+    let nearest: Anchor | undefined;
+    const shownOffset = (offset: Point, box: Box): Point => {
+      if (drag.feel !== "rubber") return offset;
+      const target = anchorPoint(nearestAnchor({ x: centre.x + offset.x, y: centre.y + offset.y }, box), box);
+      const lean = { x: target.x - centre.x, y: target.y - centre.y };
+      return { x: offset.x + (lean.x - offset.x) * RUBBER_LEAN, y: offset.y + (lean.y - offset.y) * RUBBER_LEAN };
+    };
+    const move = (next: PointerEvent) => {
+      const offset = moving.move({ x: next.clientX, y: next.clientY }, next.timeStamp);
+      if (!moving.dragging) return;
+      const box = drag.box();
+      if (element.dataset.dragging === undefined) {
+        element.dataset.dragging = "";
+        delete element.dataset.settling;
+        setHeld(id);
+      }
+      setOffset(element, shownOffset(offset, box));
+      const now = nearestAnchor({ x: next.clientX, y: next.clientY }, box);
+      if (now !== nearest) {
+        nearest = now;
+        drag.hold(true, now);
+      }
+    };
+    const end = (last: PointerEvent, cancelled: boolean) => {
+      element.removeEventListener("pointermove", move);
+      element.removeEventListener("pointerup", up);
+      element.removeEventListener("pointercancel", cancel);
+      const result = cancelled
+        ? ({ kind: "click" } as const)
+        : moving.release({ x: last.clientX, y: last.clientY }, last.timeStamp, drag.box());
+      const wasDragging = element.dataset.dragging !== undefined;
+      delete element.dataset.dragging;
+      setHeld(undefined);
+      if (!wasDragging) return;
+      drag.hold(false);
+      if (result.kind === "click") {
+        element.dataset.settling = "";
+        setOffset(element, undefined);
+        return;
+      }
+      if (result.kind === "dismiss") {
+        const speed = Math.hypot(result.velocity.x, result.velocity.y);
+        const length = Math.hypot(result.offset.x, result.offset.y) || 1;
+        const reach = Math.max(FLING_MIN, speed * FLING_MS);
+        const direction =
+          speed > 0
+            ? { x: result.velocity.x / speed, y: result.velocity.y / speed }
+            : { x: result.offset.x / length, y: result.offset.y / length };
+        element.style.setProperty("--ui-notice-fling-x", `${direction.x * reach}px`);
+        element.style.setProperty("--ui-notice-fling-y", `${direction.y * reach}px`);
+        element.dataset.flung = "";
+      } else {
+        element.dataset.settling = "";
+        // Dropped here: it springs back into its place. Elsewhere: its new deck draws it from
+        // where it is now.
+        flights?.set(id, element.getBoundingClientRect());
+        setOffset(element, undefined);
+      }
+      drag.release(id, result);
+    };
+    const up = (last: PointerEvent) => end(last, false);
+    const cancel = (last: PointerEvent) => end(last, true);
+    element.addEventListener("pointermove", move);
+    element.addEventListener("pointerup", up);
+    element.addEventListener("pointercancel", cancel);
+  };
+
   const staying = shown.filter((card) => card.phase !== "leaving");
-  const spread = wantsSpread && staying.length > 1;
+  const spread = (wantsSpread || hovered || focused || held !== undefined) && staying.length > 1;
   const sizes = staying.map((card) => heights.get(card.entry.spec.id) ?? 0);
-  const placed = deckPlaces(sizes, spread);
+  const placed = deckPlaces(sizes, spread, edge);
   const height = deckHeight(sizes, spread);
+  // The deck clips at its edge only while a card comes or goes behind it; a held or flying card is
+  // never cut.
+  const clips = shown.some(
+    (card) =>
+      card.phase === "from" ||
+      (card.phase === "leaving" && elements.current.get(card.entry.spec.id)?.dataset.flung === undefined),
+  );
   let order = 0;
 
   return (
     <div
       ref={deck}
       className="ui-notice-deck"
+      data-edge={edge}
       data-expanded={spread ? "" : undefined}
+      data-clip={clips ? "" : undefined}
+      data-held={held !== undefined ? "" : undefined}
       style={{ "--ui-notice-deck-h": `${height}px` } as CSSProperties}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      }}
     >
       <ol className="ui-notice-deck-cards">
         {shown.map((card) => {
@@ -225,7 +417,7 @@ export function NoticeDeck({
             "--ui-notice-deck-y": `${place.y}px`,
             "--ui-notice-deck-scale": String(place.scale),
             ...(place.height ? { "--ui-notice-deck-card-h": `${place.height}px` } : {}),
-            zIndex: leaving ? 0 : shown.length - index,
+            zIndex: held === id ? shown.length + 1 : leaving ? 0 : shown.length - index,
           } as CSSProperties;
           return (
             <li
@@ -238,11 +430,18 @@ export function NoticeDeck({
               data-phase={card.phase}
               data-front={index === 0 ? "" : undefined}
               data-hidden={!leaving && placed[index]!.hidden ? "" : undefined}
+              data-draggable={drag ? "" : undefined}
               aria-hidden={leaving ? true : undefined}
               inert={leaving}
               style={style}
+              onPointerDown={leaving ? undefined : (event) => press(id, event)}
               onTransitionEnd={(event) => {
-                if (leaving && event.target === event.currentTarget) drop(id);
+                if (event.target !== event.currentTarget) return;
+                if (leaving) drop(id);
+                else if (card.phase === "shown") {
+                  event.currentTarget.style.removeProperty("--ui-notice-fly-x");
+                  event.currentTarget.style.removeProperty("--ui-notice-fly-y");
+                }
               }}
             >
               {draw(card.entry)}

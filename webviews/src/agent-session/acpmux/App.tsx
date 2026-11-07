@@ -1452,6 +1452,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
+  /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
+  const [toastTop, setToastTop] = useState<HTMLDivElement | null>(null);
   const notices = useMemo(
     () => paneNotices({ transcript: () => directClient.current, toasts: paneToasts }),
     [paneToasts],
@@ -10371,6 +10373,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
         >
+          <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
             // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
@@ -10922,7 +10925,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               </div>
               <div ref={setDock} className="acpmux-dock">
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
-                <ToastLayer queue={paneToasts} />
+                <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
