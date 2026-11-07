@@ -72,6 +72,20 @@ public nonisolated enum BrowserToolbarPageCommand: Equatable, Sendable {
     }
 
     static func int(_ value: Any?) -> Int? { (value as? NSNumber)?.intValue }
+
+    /// Commands that never act on the shown tab, run from any binding (`isTabIndependent` in wire.ts):
+    /// the ack, the layout, and effects that touch only the profile or the Mac.
+    var isTabIndependent: Bool {
+        switch self {
+        case .ack, .layout: true
+        case .effect(let effect):
+            switch effect {
+            case .cancelQuery, .beep, .copyAnswer, .hostTypoFixed, .deleteSuggestion: true
+            default: false
+            }
+        default: false
+        }
+    }
 }
 
 /// Back, Forward and Reload: the buttons with a menu on a right click.
@@ -244,6 +258,9 @@ public nonisolated struct BrowserToolbarLayoutReport: Equatable, Sendable {
 public nonisolated enum OmniboxPopupCommand: Equatable, Sendable {
     case hover(Int?, pointer: CGPoint)
     case pick(Int, meta: Bool, shift: Bool, alt: Bool)
+
+    /// The popup state revision the page drew the row under (`PopupPageCommand.revision`).
+    static func revision(_ wire: [String: Any]) -> Int? { BrowserToolbarPageCommand.int(wire["revision"]) }
 
     public init?(wire: [String: Any]) {
         switch wire["type"] as? String {

@@ -303,6 +303,12 @@
   font-weight: var(--weight-emphasis);
 }
 
+/* An SF Symbol profile icon (the host draws it; OmnibarBadges.profile.symbol), the native badge's 9 pt glyph. */
+.bc-badge-symbol {
+  width: 9px;
+  height: 9px;
+}
+
 .bc-star {
   display: inline-flex;
   flex: none;

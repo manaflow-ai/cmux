@@ -428,7 +428,16 @@ function Badges({
           onMouseDown={press}
           onClick={() => send({ type: "profileBadge" })}
         >
-          {badges.profile.monogram}
+          {badges.profile.symbol ? (
+            <span
+              className="bc-badge-symbol"
+              aria-hidden="true"
+              style={profileSymbolStyle(badges.profile.symbol)}
+              data-symbol={badges.profile.monogram}
+            />
+          ) : (
+            badges.profile.monogram
+          )}
         </button>
       )}
       {badges.machine && (
@@ -745,4 +754,10 @@ export function BrowserToolbar({
       )}
     </div>
   );
+}
+
+/** An SF Symbol profile icon: the host's template image as a mask in the badge's text color. */
+export function profileSymbolStyle(symbol: string): CSSProperties {
+  const mask = `url("${symbol}") center / contain no-repeat`;
+  return { backgroundColor: "currentColor", mask, WebkitMask: mask };
 }

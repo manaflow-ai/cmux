@@ -218,6 +218,7 @@ extension BrowserToolbarWebView {
     /// this page (moved from another pane), rests on `draft`. The reported address becomes that tab's,
     /// so the next page render compares with the tab's own address.
     func showTab(_ slot: String, shownURL: URL?, draft: OmnibarDraft? = nil) {
+        beginBinding()
         reportedURL = shownURL
         tabDraft = draft
         tabSlot = slot

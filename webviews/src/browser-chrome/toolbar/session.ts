@@ -18,7 +18,14 @@ import { freshEvents } from "./events";
 import { admitsKey, dispositionFor, editKindFor, omnibarKeyFor } from "./keys";
 import { indexAtX, layoutChanged, wireRect, wordRangeAt, type LayoutReport } from "./layout";
 import { TabSlotStore, withDraft } from "./slots";
-import type { ToolbarHostEvent, ToolbarHostState, ToolbarPageCommand, WireRect } from "./wire";
+import {
+  TAB_INDEPENDENT_EVENTS,
+  type StampedToolbarCommand,
+  type ToolbarHostEvent,
+  type ToolbarHostState,
+  type ToolbarPageCommand,
+  type WireRect,
+} from "./wire";
 
 /** Pointer travel (px) past which a press is a drag (AppKit's drag threshold). */
 const DRAG_THRESHOLD = 3;
@@ -119,14 +126,28 @@ export class ToolbarSession {
   private lastLayout: LayoutReport | null = null;
   private measureContext: CanvasRenderingContext2D | null = null;
 
-  constructor(readonly post: (command: ToolbarPageCommand) => void) {
+  /** The host binding of the state applied last: every command carries it (`ToolbarHostState.binding`). */
+  private binding: number | null = null;
+  /**
+   * The host let the shown tab go (`forgetTab` for it, under binding `binding`): the next switch keeps
+   * no slot for it, and the same tab bound again (a newer binding) rests on the draft it brings, as a
+   * tab new to this page.
+   */
+  private forgotten: { binding: number | null } | null = null;
+
+  /** Posts `command` stamped with the binding it was made under. */
+  readonly post = (command: ToolbarPageCommand): void => {
+    this.postStamped({ ...command, binding: this.binding });
+  };
+
+  constructor(private readonly postStamped: (command: StampedToolbarCommand) => void) {
     this.runner = new OmnibarRunner(initialOmnibarState(), {
       field: new InputFieldSurface({
         input: () => this.input,
         active: () => this.editorActive,
         composing: () => this.composing,
       }),
-      post,
+      post: (command) => this.post(command),
       resolver: () => this.resolver,
       upward: () => this.host?.omnibar.upward ?? false,
       labelForEngine: (engine) => {
@@ -185,13 +206,14 @@ export class ToolbarSession {
   applyHostState(next: ToolbarHostState): void {
     const previous = this.host;
     this.host = next;
+    this.binding = next.binding ?? null;
     this.updateResolver(next);
     if (this.input) this.input.readOnly = next.omnibar.readOnly;
     const options = { home: next.omnibar.home, showsFullURLs: next.omnibar.showFullURLs };
     if (this.tab === null) {
       this.tab = next.tab;
       this.runner.restore(withDraft(initialOmnibarState(next.url, options), next.draft));
-    } else if (next.tab !== this.tab) {
+    } else if (next.tab !== this.tab || (this.forgotten && this.forgotten.binding !== this.binding)) {
       this.switchTab(next, options);
     } else {
       if (previous && next.url !== previous.url) this.send({ type: "pageURLChanged", url: next.url });
@@ -217,7 +239,8 @@ export class ToolbarSession {
     // The outgoing tab's query stops on the host; its deliveries already queued are stale below.
     this.post({ type: "effect", effect: { type: "cancelQuery" } });
     this.queryEpoch = Math.max(this.queryEpoch, this.state.generation) + 1;
-    if (this.tab !== null) this.slots.set(this.tab, this.state);
+    if (this.tab !== null && !this.forgotten) this.slots.set(this.tab, this.state);
+    this.forgotten = null;
     this.tab = next.tab;
     const saved = this.slots.get(next.tab);
     const resting = saved
@@ -255,7 +278,11 @@ export class ToolbarSession {
     const { fresh, lastSeq } = freshEvents(next.events, this.lastSeq);
     if (fresh.length === 0) return;
     this.lastSeq = lastSeq;
-    for (const { event } of fresh) this.handleEvent(event);
+    for (const { event, binding } of fresh) {
+      // A tab-scoped request queued for a tab the host showed before this one: never this tab's.
+      if (binding != null && binding !== this.binding && !TAB_INDEPENDENT_EVENTS.has(event.kind)) continue;
+      this.handleEvent(event);
+    }
     this.post({ type: "ack", seq: lastSeq });
   }
 
@@ -298,7 +325,9 @@ export class ToolbarSession {
         this.acceptDrop(event.text);
         return;
       case "forgetTab":
-        if (event.tab !== this.tab) this.slots.delete(event.tab);
+        this.slots.delete(event.tab);
+        // The shown tab left (`release` keeps the slot until the next binding): no slot is kept for it.
+        if (event.tab === this.tab) this.forgotten = { binding: this.binding };
         return;
       case "debugType":
         return this.debugType(event.text, event.commit);

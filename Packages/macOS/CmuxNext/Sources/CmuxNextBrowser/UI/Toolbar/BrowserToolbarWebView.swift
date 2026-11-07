@@ -121,9 +121,17 @@ public final class BrowserToolbarWebView: NSView {
     private var revision = 0
     private var pushScheduled = false
     private var lastPushed: NSDictionary?
-    /// Host requests the page has not acked, oldest first (`ToolbarHostEvent`).
-    private var events: [(seq: Int, event: [String: Any])] = []
+    /// Host requests the page has not acked, oldest first (`ToolbarHostEvent`), each with the binding
+    /// it was queued under: the page drops a tab-scoped one of an older binding.
+    private var events: [(seq: Int, binding: Int, event: [String: Any])] = []
     private var nextSeq = 0
+    /// The tab binding: it moves on every tab shown (`showTab`) and let go (`release`), and rides in
+    /// the state. The page stamps each command with the binding of the state it applied last, and a
+    /// tab-scoped command of another binding is dropped before it runs (`admits`): a commit typed in
+    /// the tab that left never navigates the tab that came.
+    private(set) var binding = 0
+    /// SF Symbol profile icons drawn for the page (`badgesWire`).
+    let profileSymbols = PageSymbolImages()
 
     // MARK: Keys and queries
 
@@ -219,7 +227,17 @@ public final class BrowserToolbarWebView: NSView {
     /// Queues a one-shot request for the page; it rides in every state until the page acks it.
     func send(_ event: [String: Any]) {
         nextSeq += 1
-        events.append((nextSeq, event))
+        events.append((nextSeq, binding, event))
+        setNeedsPush()
+    }
+
+    /// Another tab binds (or the shown one is let go): what the page sends from here on under an older
+    /// binding is the old tab's and is dropped; its running query and its card go.
+    func beginBinding() {
+        binding += 1
+        queryTask?.cancel()
+        queryTask = nil
+        popup.dismiss()
         setNeedsPush()
     }
 
@@ -247,7 +265,8 @@ public final class BrowserToolbarWebView: NSView {
             "omnibar": omnibarConfig,
             "look": ["material": look.material.rawValue, "backgroundOpacity": look.backgroundOpacity, "coverage": coverage],
             "metrics": ToolbarRowMetrics.wire(scale: scale, withButtons: showsButtons, barTop: barTop(scale: scale)),
-            "events": events.map { ["seq": $0.seq, "event": $0.event] as [String: Any] },
+            "binding": binding,
+            "events": events.map { ["seq": $0.seq, "binding": $0.binding, "event": $0.event] as [String: Any] },
         ]
     }
 
@@ -265,7 +284,10 @@ public final class BrowserToolbarWebView: NSView {
         badges["focusMode"] = focusModeBadge.map { ["text": $0] } ?? NSNull()
         if let badge = shownProfileBadge {
             let color: Any = badge.color.map { color in performWithTheme { GlassBackdropPayload.css(color.fill.cgColor) } } ?? NSNull()
-            badges["profile"] = ["monogram": badge.monogram, "color": color, "name": badge.name]
+            // A profile icon is an emoji, a letter, or an SF Symbol name, which the page cannot draw:
+            // the symbol goes as a template image (`PageSymbolImages`, as the agent pane draws harness symbols).
+            let symbol: Any = profileSymbols.dataURL(badge.monogram) ?? NSNull()
+            badges["profile"] = ["monogram": badge.monogram, "symbol": symbol, "color": color, "name": badge.name]
         } else {
             badges["profile"] = NSNull()
         }
@@ -275,9 +297,16 @@ public final class BrowserToolbarWebView: NSView {
 
     // MARK: The page's messages
 
-    private func received(_ kind: String, _ params: [String: Any]) {
-        guard kind == "command", let command = BrowserToolbarPageCommand(wire: params) else { return }
+    func received(_ kind: String, _ params: [String: Any]) {
+        guard kind == "command", let command = BrowserToolbarPageCommand(wire: params),
+              admits(command, stamp: BrowserToolbarPageCommand.int(params["binding"])) else { return }
         handle(command)
+    }
+
+    /// Whether `command`, made under binding `stamp`, may run: a tab-independent one always; one
+    /// that acts on the shown tab only when it was made for the binding shown now.
+    func admits(_ command: BrowserToolbarPageCommand, stamp: Int?) -> Bool {
+        command.isTabIndependent || stamp == binding
     }
 
     func handle(_ command: BrowserToolbarPageCommand) {

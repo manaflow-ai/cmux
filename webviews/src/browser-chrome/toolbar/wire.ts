@@ -99,7 +99,11 @@ export type ToolbarBadges = {
   /** Browser focus mode: "Focus Mode", or "Esc again to exit" once armed. A press leaves it. */
   focusMode?: { text: string } | null;
   /** The tab's browser profile (more than one profile exists): a monogram on its color. */
-  profile?: { monogram: string; color?: string | null; name: string } | null;
+  /**
+   * `symbol`: the monogram is an SF Symbol name the host drew, as a template PNG `data:` URL the badge
+   * shows as a mask in its text color (null or absent: the monogram is text, an emoji or a letter).
+   */
+  profile?: { monogram: string; symbol?: string | null; color?: string | null; name: string } | null;
   /** The machine whose localhost the tab sees. A press opens its menu. */
   machine?: { text: string; help: string } | null;
 };
@@ -197,9 +201,26 @@ export type ToolbarHostState = {
   omnibar: OmnibarConfig;
   look: OmnibarLookWire;
   metrics: ToolbarMetrics;
-  /** Host requests not yet acked, oldest first. */
-  events: { seq: number; event: ToolbarHostEvent }[];
+  /**
+   * The host's tab binding: it moves on every tab shown (`showTab`) and every tab let go (`release`).
+   * The page stamps each command with the binding of the state it last applied, and the host drops a
+   * tab-scoped command from an older binding (`TAB_INDEPENDENT_COMMANDS` says which are not).
+   */
+  binding?: number;
+  /**
+   * Host requests not yet acked, oldest first. `binding` is the one current when the host queued it:
+   * the page drops a tab-scoped event of an older binding (`TAB_INDEPENDENT_EVENTS` says which are not).
+   */
+  events: { seq: number; binding?: number; event: ToolbarHostEvent }[];
 };
+
+/**
+ * Host events that act on the row, not on the tab it shows, so they run whatever binding they came
+ * from: focus and blur give or take the web view's keys (the page applies them to the tab it shows
+ * now), and forgetTab names its tab. Every other event (keys, row hover and click, Paste and Go, a
+ * drop, suggestions, showPageURL, debugType) is the shown tab's and is dropped once its tab left.
+ */
+export const TAB_INDEPENDENT_EVENTS: ReadonlySet<ToolbarHostEvent["kind"]> = new Set(["focus", "blur", "forgetTab"]);
 
 // MARK: Toolbar page -> host
 
@@ -257,6 +278,28 @@ export type ToolbarPageCommand =
   /** Host events handled up to `seq`. */
   | { type: "ack"; seq: number };
 
+/** A command as posted: stamped with the host binding of the state the page had applied (null: none yet). */
+export type StampedToolbarCommand = ToolbarPageCommand & { binding: number | null };
+
+/**
+ * Commands that never act on the shown tab, which the host runs from any binding: the ack, where the
+ * controls are, and effects that only touch the profile or the Mac (stop the running query, beep,
+ * copy an answer, remember a fixed typo host, delete a history row). Every other command (buttons,
+ * badges, requestFocus, status, the card, and the other effects: queries, began/ended, typed
+ * navigations, keyword sessions) is the shown tab's.
+ */
+export function isTabIndependent(command: ToolbarPageCommand): boolean {
+  switch (command.type) {
+    case "ack":
+    case "layout":
+      return true;
+    case "effect":
+      return ["cancelQuery", "beep", "copyAnswer", "hostTypoFixed", "deleteSuggestion"].includes(command.effect.type);
+    default:
+      return false;
+  }
+}
+
 // MARK: Host -> popup page
 
 export type PopupRow = {
@@ -283,6 +326,8 @@ export type PopupHostState = {
 
 export type PopupPageCommand =
   /** The pointer is over row `index` (null: left the rows); `pointer` in screen points (screenX/Y). */
-  | { type: "hover"; index: number | null; pointer: { x: number; y: number } }
-  | { type: "pick"; index: number; modifiers: { meta: boolean; shift: boolean; alt: boolean } };
+  | { type: "hover"; index: number | null; pointer: { x: number; y: number }; revision: number }
+  | { type: "pick"; index: number; modifiers: { meta: boolean; shift: boolean; alt: boolean }; revision: number };
+// `revision`: the state revision whose rows the page drew; the host takes no hover or pick for rows
+// it replaced since (another query, a closed card, another tab).
 // The popup also calls `cmux.omnibox-popup.size` with `{ height, revision }` after each state.
