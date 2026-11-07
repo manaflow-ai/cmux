@@ -96,6 +96,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_short;
+#[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
@@ -508,6 +510,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
+    #[cfg(unix)]
+    if let Some(code) = vm_short::run_if_requested(args) {
+        return code;
+    }
     // `device revoke|rotate|doctor|vault` and `device SELECTOR show` are `machine …` (`machine`
     // is `device`'s old name); a VM verb under `device` is `cmux vm`'s.
     #[cfg(unix)]

@@ -1979,6 +1979,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests",
       "targets": [
+        "CmuxNextDesign",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
