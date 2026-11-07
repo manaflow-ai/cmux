@@ -174,9 +174,10 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
   expect(page.host.textContent).toContain(translate("guest.live.sharedBy", { owner: "Sam Rivera" }));
-  // The owner's finished `bun test src/upload.test.ts --rerun-each 5`, as what it did
-  // (commandActions.ts).
-  expect(page.host.textContent).toContain("Ran tests in upload.test.ts");
+  // The owner's `bun test src/upload.test.ts --rerun-each 5` failed, so its row keeps the command
+  // line: a failed call never reads as what it would have done (commandActions.ts).
+  expect(page.host.textContent).toContain("Ran bun test src/upload.test.ts --rerun-each 5");
+  expect(page.host.textContent).not.toContain("Ran tests in upload.test.ts");
   expect(page.host.textContent).toContain(translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }));
   // Who else is here: the owner, never this guest.
   expect(page.host.querySelector(".cv-presence__label")?.textContent).toBe(
