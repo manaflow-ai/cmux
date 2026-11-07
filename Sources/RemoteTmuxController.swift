@@ -153,6 +153,7 @@ final class RemoteTmuxController {
     func attach(
         host: RemoteTmuxHost,
         sessionName: String,
+        sessionId: Int? = nil,
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
         try refuseARouteTheLiveConnectionDoesNotUse(host)
@@ -164,10 +165,17 @@ final class RemoteTmuxController {
             // don't leak.
             removeCachedConnection(forKey: key)?.stop()
         }
+        // A session discovery just listed is attached by its id, which survives a
+        // rename between the listing and this attach (#16103).
+        let attachMode: RemoteTmuxControlAttachMode = if !createIfMissing, let sessionId {
+            .attachSessionID(sessionId)
+        } else {
+            .forCreateIfMissing(createIfMissing)
+        }
         let connection = RemoteTmuxControlConnection(
             host: host,
             sessionName: sessionName,
-            attachMode: .forCreateIfMissing(createIfMissing)
+            attachMode: attachMode
         )
         // Insert only after a successful launch, so a failed `start()` never
         // leaves a dead (never-started, `exited == false`) connection that a
@@ -469,7 +477,7 @@ final class RemoteTmuxController {
         // creating the workspace, so a failed connection doesn't leave an
         // orphaned empty mirror workspace in the sidebar.
         guard try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> RemoteTmuxSessionMirror? in
-            let connection = try attach(host: host, sessionName: sessionName)
+            let connection = try attach(host: host, sessionName: sessionName, sessionId: sessionId)
             guard let mirror = createMirrorWorkspace(
                 host: host,
                 sessionName: sessionName,
