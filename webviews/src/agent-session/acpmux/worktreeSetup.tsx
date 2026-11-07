@@ -73,9 +73,14 @@ export function followWorktreeSetup(
     inFlight = true;
     callNative("git.worktree.setup", { path: root, since })
       .then((reply) => {
-        if (stopped) return;
+        // A reply that lands after the deadline gave up changes nothing.
+        if (stopped || final) return;
         const answer = readSetupReply(reply);
-        if (!answer) throw new Error("no setup");
+        // A reply that is not a setup read ends the reads, as a failed one does.
+        if (!answer) {
+          giveUp();
+          return;
+        }
         output = appendSetupOutput(output, since, answer.run);
         since = answer.run.outputEnd;
         last = answer.run;

@@ -67493,127 +67493,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When a new chat gets its own worktree, cmux copies the files listed here from the main checkout, then runs the setup script in the worktree. Scripts can read CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT."
+            "value": "Files and scripts for each new chat's own worktree."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عندما تحصل محادثة جديدة على شجرة عمل خاصة بها، ينسخ cmux الملفات المدرجة هنا من النسخة الرئيسية، ثم يشغّل نص الإعداد في شجرة العمل. يمكن للنصوص قراءة CMUX_ROOT_PATH وCMUX_WORKSPACE_PATH وCMUX_WORKSPACE_NAME وCMUX_PORT."
+            "value": "ملفات وسكربتات لشجرة العمل الخاصة بكل دردشة جديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kada novi chat dobije vlastito radno stablo, cmux kopira ovdje navedene datoteke iz glavnog checkouta, a zatim pokreće skriptu za postavljanje u radnom stablu. Skripte mogu čitati CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME i CMUX_PORT."
+            "value": "Datoteke i skripte za radno stablo svakog novog chata."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Når en ny chat får sit eget arbejdstræ, kopierer cmux filerne her fra hovedcheckouten og kører derefter opsætningsscriptet i arbejdstræet. Scripts kan læse CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME og CMUX_PORT."
+            "value": "Filer og scripts til hver ny chats eget worktree."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wenn ein neuer Chat einen eigenen Worktree bekommt, kopiert cmux die hier aufgeführten Dateien aus dem Haupt-Checkout und führt dann das Setup-Skript im Worktree aus. Skripte können CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME und CMUX_PORT lesen."
+            "value": "Dateien und Skripte für den Worktree jedes neuen Chats."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuando un chat nuevo obtiene su propio árbol de trabajo, cmux copia los archivos indicados aquí desde el checkout principal y después ejecuta el script de configuración en el árbol de trabajo. Los scripts pueden leer CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME y CMUX_PORT."
+            "value": "Archivos y scripts para el worktree de cada chat nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quand une nouvelle conversation obtient son propre arbre de travail, cmux copie les fichiers indiqués ici depuis le checkout principal, puis exécute le script de configuration dans l'arbre de travail. Les scripts peuvent lire CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME et CMUX_PORT."
+            "value": "Fichiers et scripts du worktree de chaque nouveau chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quando una nuova chat ottiene il proprio albero di lavoro, cmux copia i file elencati qui dal checkout principale, poi esegue lo script di configurazione nell'albero di lavoro. Gli script possono leggere CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME e CMUX_PORT."
+            "value": "File e script per il worktree di ogni nuova chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいチャットに専用のワークツリーが作られると、cmux はここに挙げたファイルをメインのチェックアウトからコピーし、ワークツリーでセットアップスクリプトを実行します。スクリプトは CMUX_ROOT_PATH、CMUX_WORKSPACE_PATH、CMUX_WORKSPACE_NAME、CMUX_PORT を読めます。"
+            "value": "新しいチャットごとのワークツリー用のファイルとスクリプト。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នៅពេលការជជែកថ្មីទទួលបាន worktree ផ្ទាល់ខ្លួន cmux ចម្លងឯកសារដែលបានរាយនៅទីនេះពី checkout មេ បន្ទាប់មកដំណើរការស្គ្រីបរៀបចំនៅក្នុង worktree។ ស្គ្រីបអាចអាន CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME និង CMUX_PORT។"
+            "value": "ឯកសារ និងស្គ្រីបសម្រាប់ worktree នៃជជែកថ្មីនីមួយៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 채팅에 전용 워크트리가 생기면 cmux가 여기 나열된 파일을 기본 체크아웃에서 복사한 뒤 워크트리에서 설정 스크립트를 실행합니다. 스크립트는 CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME, CMUX_PORT를 읽을 수 있습니다."
+            "value": "새 채팅마다 만드는 워크트리의 파일과 스크립트입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Når en ny chat får sitt eget arbeidstre, kopierer cmux filene som står her fra hovedcheckouten, og kjører deretter oppsettskriptet i arbeidstreet. Skript kan lese CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME og CMUX_PORT."
+            "value": "Filer og skript for hver ny chats eget worktree."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdy nowy czat dostaje własne drzewo robocze, cmux kopiuje wymienione tu pliki z głównego checkoutu, a potem uruchamia w drzewie roboczym skrypt konfiguracji. Skrypty mogą odczytać CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME i CMUX_PORT."
+            "value": "Pliki i skrypty dla worktree każdego nowego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quando um novo chat ganha sua própria worktree, o cmux copia os arquivos listados aqui do checkout principal e depois executa o script de configuração na worktree. Os scripts podem ler CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME e CMUX_PORT."
+            "value": "Arquivos e scripts para o worktree de cada novo chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Когда новый чат получает собственное рабочее дерево, cmux копирует перечисленные здесь файлы из основного checkout, затем запускает в рабочем дереве скрипт настройки. Скрипты могут читать CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME и CMUX_PORT."
+            "value": "Файлы и скрипты для worktree каждого нового чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เมื่อแชตใหม่ได้ worktree ของตัวเอง cmux จะคัดลอกไฟล์ที่ระบุไว้ที่นี่จาก checkout หลัก แล้วเรียกใช้สคริปต์ตั้งค่าใน worktree สคริปต์อ่าน CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME และ CMUX_PORT ได้"
+            "value": "ไฟล์และสคริปต์สำหรับ worktree ของแชตใหม่แต่ละรายการ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni bir sohbet kendi çalışma ağacını aldığında cmux burada listelenen dosyaları ana checkout'tan kopyalar, ardından kurulum betiğini çalışma ağacında çalıştırır. Betikler CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME ve CMUX_PORT değerlerini okuyabilir."
+            "value": "Her yeni sohbetin worktree'si için dosyalar ve betikler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Коли новий чат отримує власне робоче дерево, cmux копіює перелічені тут файли з основного checkout, а потім запускає в робочому дереві скрипт налаштування. Скрипти можуть читати CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME і CMUX_PORT."
+            "value": "Файли й скрипти для worktree кожного нового чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khi một cuộc trò chuyện mới có worktree riêng, cmux sao chép các tệp liệt kê ở đây từ checkout chính, rồi chạy tập lệnh thiết lập trong worktree. Tập lệnh có thể đọc CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME và CMUX_PORT."
+            "value": "Tệp và script cho worktree của mỗi cuộc trò chuyện mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新聊天获得自己的工作树时，cmux 会从主检出复制此处列出的文件，然后在工作树中运行设置脚本。脚本可以读取 CMUX_ROOT_PATH、CMUX_WORKSPACE_PATH、CMUX_WORKSPACE_NAME 和 CMUX_PORT。"
+            "value": "每个新聊天专属工作树的文件和脚本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新聊天取得自己的工作樹時，cmux 會從主要檢出複製此處列出的檔案，然後在工作樹中執行設定指令碼。指令碼可以讀取 CMUX_ROOT_PATH、CMUX_WORKSPACE_PATH、CMUX_WORKSPACE_NAME 和 CMUX_PORT。"
+            "value": "每個新聊天專屬工作樹的檔案與指令碼。"
           }
         }
       }
@@ -67757,127 +67757,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No projects yet. Folders you start chats in show here."
+            "value": "No projects yet. Start a chat in a folder to add one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد مشاريع بعد. تظهر هنا المجلدات التي تبدأ فيها المحادثات."
+            "value": "لا مشاريع بعد. ابدأ دردشة في مجلد لإضافة مشروع."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema projekata. Ovdje se prikazuju mape u kojima pokrećete chatove."
+            "value": "Još nema projekata. Pokrenite chat u mapi da ga dodate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen projekter endnu. Mapper, du starter chats i, vises her."
+            "value": "Ingen projekter endnu. Start en chat i en mappe."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Projekte. Ordner, in denen du Chats startest, erscheinen hier."
+            "value": "Noch keine Projekte. Starte einen Chat in einem Ordner."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay proyectos. Aquí aparecen las carpetas en las que inicias chats."
+            "value": "Aún no hay proyectos. Inicia un chat en una carpeta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun projet pour l'instant. Les dossiers où vous démarrez des conversations apparaissent ici."
+            "value": "Aucun projet. Lancez un chat dans un dossier."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessun progetto. Qui compaiono le cartelle in cui avvii le chat."
+            "value": "Nessun progetto. Avvia una chat in una cartella."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "まだプロジェクトがありません。チャットを始めたフォルダがここに表示されます。"
+            "value": "プロジェクトはまだありません。フォルダでチャットを始めてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានគម្រោងទេ។ ថតដែលអ្នកចាប់ផ្ដើមការជជែកនឹងបង្ហាញនៅទីនេះ។"
+            "value": "មិនទាន់មានគម្រោងទេ។ ចាប់ផ្ដើមជជែកក្នុងថតមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 프로젝트가 없습니다. 채팅을 시작한 폴더가 여기에 표시됩니다."
+            "value": "아직 프로젝트가 없습니다. 폴더에서 채팅을 시작하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen prosjekter ennå. Mapper du starter chatter i, vises her."
+            "value": "Ingen prosjekter ennå. Start en chat i en mappe."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie ma jeszcze projektów. Tu pojawią się foldery, w których zaczynasz czaty."
+            "value": "Brak projektów. Rozpocznij czat w folderze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ainda não há projetos. As pastas em que você inicia chats aparecem aqui."
+            "value": "Nenhum projeto ainda. Inicie um chat em uma pasta."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проектов пока нет. Здесь появятся папки, в которых вы начинаете чаты."
+            "value": "Проектов пока нет. Начните чат в папке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีโปรเจกต์ โฟลเดอร์ที่คุณเริ่มแชตจะแสดงที่นี่"
+            "value": "ยังไม่มีโปรเจกต์ เริ่มแชตในโฟลเดอร์เพื่อเพิ่ม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz proje yok. Sohbet başlattığınız klasörler burada görünür."
+            "value": "Henüz proje yok. Bir klasörde sohbet başlatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Проєктів ще немає. Тут з'являться теки, у яких ви починаєте чати."
+            "value": "Проєктів ще немає. Почніть чат у папці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có dự án nào. Các thư mục bạn bắt đầu trò chuyện sẽ hiện ở đây."
+            "value": "Chưa có dự án. Hãy bắt đầu trò chuyện trong một thư mục."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有项目。你开始聊天的文件夹会显示在这里。"
+            "value": "还没有项目。在文件夹中开始聊天即可添加。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "還沒有專案。你開始聊天的資料夾會顯示在這裡。"
+            "value": "還沒有專案。在資料夾中開始聊天即可加入。"
           }
         }
       }
@@ -67889,7 +67889,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This build cannot edit worktree setup yet."
+            "value": "This build can't edit worktree setup yet."
           }
         },
         "ar": {
@@ -67901,43 +67901,43 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova verzija još ne može uređivati postavljanje radnog stabla."
+            "value": "Ova verzija još ne može uređivati postavke stabla."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne version kan endnu ikke redigere opsætning af arbejdstræer."
+            "value": "Denne version kan ikke redigere worktree-opsætning endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Build kann die Worktree-Einrichtung noch nicht bearbeiten."
+            "value": "Dieser Build kann das Worktree-Setup noch nicht bearbeiten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versión aún no puede editar la configuración del árbol de trabajo."
+            "value": "Esta versión aún no puede editar la configuración."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette version ne peut pas encore modifier la configuration de l'arbre de travail."
+            "value": "Cette version ne peut pas encore modifier ce réglage."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa build non può ancora modificare la configurazione dell'albero di lavoro."
+            "value": "Questa build non può ancora modificare il worktree."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このビルドではまだワークツリーのセットアップを編集できません。"
+            "value": "このビルドではワークツリーの設定をまだ編集できません。"
           }
         },
         "km": {
@@ -67955,25 +67955,25 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne versjonen kan ikke redigere oppsett av arbeidstre ennå."
+            "value": "Denne versjonen kan ikke redigere oppsettet ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta wersja nie może jeszcze edytować konfiguracji drzewa roboczego."
+            "value": "Ta wersja nie może jeszcze edytować tych ustawień."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versão ainda não consegue editar a configuração da worktree."
+            "value": "Esta versão ainda não edita a configuração do worktree."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Эта сборка пока не может изменять настройку рабочего дерева."
+            "value": "Эта сборка пока не может менять настройку worktree."
           }
         },
         "th": {
@@ -67985,31 +67985,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sürüm henüz çalışma ağacı kurulumunu düzenleyemiyor."
+            "value": "Bu sürüm worktree kurulumunu henüz düzenleyemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ця збірка ще не може змінювати налаштування робочого дерева."
+            "value": "Ця збірка поки не може змінювати налаштування worktree."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bản dựng này chưa thể sửa thiết lập worktree."
+            "value": "Bản dựng này chưa sửa được thiết lập worktree."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本还不能编辑工作树设置。"
+            "value": "此版本暂不能编辑工作树设置。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此版本還不能編輯工作樹設定。"
+            "value": "此版本暫不能編輯工作樹設定。"
           }
         }
       }
@@ -68159,19 +68159,19 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعمل في كل شجرة عمل جديدة، في صدفة تسجيل الدخول لديك."
+            "value": "يعمل في كل شجرة عمل جديدة، في صدفة الدخول."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokreće se u svakom novom radnom stablu, u vašoj login ljusci."
+            "value": "Pokreće se u svakom novom stablu, u login ljusci."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kører i hvert nyt arbejdstræ i din login-shell."
+            "value": "Kører i hvert nyt worktree, i din login-shell."
           }
         },
         "de": {
@@ -68183,31 +68183,31 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Se ejecuta en cada árbol de trabajo nuevo, en tu shell de inicio de sesión."
+            "value": "Se ejecuta en cada worktree nuevo, en tu shell."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "S'exécute dans chaque nouvel arbre de travail, dans votre shell de connexion."
+            "value": "S'exécute dans chaque nouveau worktree, dans votre shell."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viene eseguito in ogni nuovo albero di lavoro, nella tua shell di login."
+            "value": "Viene eseguito in ogni nuovo worktree, nella tua shell."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいワークツリーごとに、ログインシェルで実行されます。"
+            "value": "新しいワークツリーごとにログインシェルで実行します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំណើរការក្នុង worktree ថ្មីនីមួយៗ នៅក្នុង login shell របស់អ្នក។"
+            "value": "ដំណើរការក្នុង worktree ថ្មីនីមួយៗ ក្នុង shell ចូលរបស់អ្នក។"
           }
         },
         "ko": {
@@ -68219,61 +68219,61 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kjører i hvert nye arbeidstre, i innloggingsskallet ditt."
+            "value": "Kjører i hvert nytt worktree, i påloggingsskallet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uruchamia się w każdym nowym drzewie roboczym, w Twojej powłoce logowania."
+            "value": "Uruchamia się w każdym nowym worktree, w powłoce."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "É executado em cada nova worktree, no seu shell de login."
+            "value": "Roda em cada worktree novo, no seu shell de login."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускается в каждом новом рабочем дереве, в вашей оболочке входа."
+            "value": "Запускается в каждом новом worktree, в вашей оболочке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ทำงานในทุก worktree ใหม่ ในเชลล์ล็อกอินของคุณ"
+            "value": "ทำงานใน worktree ใหม่แต่ละอัน ในเชลล์ล็อกอินของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her yeni çalışma ağacında, oturum açma kabuğunuzda çalışır."
+            "value": "Her yeni worktree'de, oturum kabuğunuzda çalışır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускається в кожному новому робочому дереві, у вашій оболонці входу."
+            "value": "Запускається в кожному новому worktree, у вашій оболонці."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chạy trong mỗi worktree mới, trong shell đăng nhập của bạn."
+            "value": "Chạy trong mỗi worktree mới, trong shell đăng nhập."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在每个新工作树中，用你的登录 shell 运行。"
+            "value": "在每个新工作树中以登录 shell 运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在每個新工作樹中，以你的登入 shell 執行。"
+            "value": "在每個新工作樹中以登入 shell 執行。"
           }
         }
       }
@@ -68417,127 +68417,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starts the project in a worktree, for example a dev server on $CMUX_PORT."
+            "value": "Starts the project, e.g. a dev server on $CMUX_PORT."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يشغّل المشروع في شجرة عمل، مثل خادم تطوير على $CMUX_PORT."
+            "value": "يشغّل المشروع، مثل خادم تطوير على $CMUX_PORT."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokreće projekat u radnom stablu, na primjer razvojni server na $CMUX_PORT."
+            "value": "Pokreće projekat, npr. dev server na $CMUX_PORT."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starter projektet i et arbejdstræ, for eksempel en udviklingsserver på $CMUX_PORT."
+            "value": "Starter projektet, fx en dev-server på $CMUX_PORT."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Startet das Projekt in einem Worktree, etwa einen Dev-Server auf $CMUX_PORT."
+            "value": "Startet das Projekt, z. B. einen Dev-Server auf $CMUX_PORT."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicia el proyecto en un árbol de trabajo, por ejemplo un servidor de desarrollo en $CMUX_PORT."
+            "value": "Inicia el proyecto, p. ej. un servidor en $CMUX_PORT."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lance le projet dans un arbre de travail, par exemple un serveur de développement sur $CMUX_PORT."
+            "value": "Lance le projet, par ex. un serveur sur $CMUX_PORT."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avvia il progetto in un albero di lavoro, per esempio un server di sviluppo su $CMUX_PORT."
+            "value": "Avvia il progetto, es. un server di sviluppo su $CMUX_PORT."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ワークツリーでプロジェクトを起動します（例: $CMUX_PORT の開発サーバー）。"
+            "value": "プロジェクトを起動します（例: $CMUX_PORT の開発サーバー）。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាប់ផ្ដើមគម្រោងក្នុង worktree ឧទាហរណ៍ dev server នៅលើ $CMUX_PORT។"
+            "value": "ចាប់ផ្ដើមគម្រោង ដូចជា dev server នៅ $CMUX_PORT។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "워크트리에서 프로젝트를 시작합니다(예: $CMUX_PORT의 개발 서버)."
+            "value": "프로젝트를 시작합니다(예: $CMUX_PORT의 개발 서버)."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starter prosjektet i et arbeidstre, for eksempel en utviklingsserver på $CMUX_PORT."
+            "value": "Starter prosjektet, f.eks. en dev-server på $CMUX_PORT."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uruchamia projekt w drzewie roboczym, na przykład serwer deweloperski na $CMUX_PORT."
+            "value": "Uruchamia projekt, np. serwer deweloperski na $CMUX_PORT."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicia o projeto em uma worktree, por exemplo um servidor de desenvolvimento em $CMUX_PORT."
+            "value": "Inicia o projeto, ex.: um servidor em $CMUX_PORT."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускает проект в рабочем дереве, например dev-сервер на $CMUX_PORT."
+            "value": "Запускает проект, например dev-сервер на $CMUX_PORT."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เริ่มโปรเจกต์ใน worktree เช่น dev server บน $CMUX_PORT"
+            "value": "เริ่มโปรเจกต์ เช่น dev server ที่ $CMUX_PORT"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Projeyi bir çalışma ağacında başlatır, örneğin $CMUX_PORT üzerinde bir geliştirme sunucusu."
+            "value": "Projeyi başlatır, ör. $CMUX_PORT üzerinde bir sunucu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запускає проєкт у робочому дереві, наприклад dev-сервер на $CMUX_PORT."
+            "value": "Запускає проєкт, наприклад dev-сервер на $CMUX_PORT."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khởi động dự án trong worktree, ví dụ máy chủ dev trên $CMUX_PORT."
+            "value": "Khởi chạy dự án, vd. máy chủ dev trên $CMUX_PORT."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在工作树中启动项目，例如在 $CMUX_PORT 上的开发服务器。"
+            "value": "启动项目，例如 $CMUX_PORT 上的开发服务器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在工作樹中啟動專案，例如在 $CMUX_PORT 上的開發伺服器。"
+            "value": "啟動專案，例如 $CMUX_PORT 上的開發伺服器。"
           }
         }
       }
@@ -68945,127 +68945,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One pattern per line, as in .worktreeinclude. Added after the repository's lines."
+            "value": "One pattern per line, after the repository's own."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نمط واحد في كل سطر، كما في .worktreeinclude. تُضاف بعد أسطر المستودع."
+            "value": "نمط واحد في كل سطر، بعد أنماط المستودع."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jedan uzorak po retku, kao u .worktreeinclude. Dodaje se nakon redova repozitorija."
+            "value": "Jedan uzorak po retku, nakon onih iz repozitorija."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ét mønster pr. linje, som i .worktreeinclude. Tilføjes efter repositoriets linjer."
+            "value": "Ét mønster pr. linje, efter repositoryets egne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein Muster pro Zeile, wie in .worktreeinclude. Wird nach den Zeilen des Repositorys angefügt."
+            "value": "Ein Muster pro Zeile, nach denen des Repositorys."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un patrón por línea, como en .worktreeinclude. Se añade después de las líneas del repositorio."
+            "value": "Un patrón por línea, tras los del repositorio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un motif par ligne, comme dans .worktreeinclude. Ajouté après les lignes du dépôt."
+            "value": "Un motif par ligne, après ceux du dépôt."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un modello per riga, come in .worktreeinclude. Aggiunto dopo le righe del repository."
+            "value": "Un pattern per riga, dopo quelli del repository."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 行に 1 パターン（.worktreeinclude と同じ）。リポジトリの行の後に追加されます。"
+            "value": "1 行に 1 パターン。リポジトリのものの後に追加。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មួយលំនាំក្នុងមួយបន្ទាត់ ដូចក្នុង .worktreeinclude។ បន្ថែមបន្ទាប់ពីបន្ទាត់របស់ repository។"
+            "value": "មួយលំនាំក្នុងមួយបន្ទាត់ បន្ទាប់ពីលំនាំរបស់ repository។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "한 줄에 패턴 하나(.worktreeinclude와 같음). 저장소의 줄 뒤에 추가됩니다."
+            "value": "한 줄에 패턴 하나, 저장소의 패턴 다음에 추가됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ett mønster per linje, som i .worktreeinclude. Legges til etter repositoriets linjer."
+            "value": "Ett mønster per linje, etter repositoriets egne."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jeden wzorzec w wierszu, jak w .worktreeinclude. Dodawane po wierszach repozytorium."
+            "value": "Jeden wzorzec na wiersz, po wzorcach repozytorium."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um padrão por linha, como em .worktreeinclude. Adicionado depois das linhas do repositório."
+            "value": "Um padrão por linha, depois dos do repositório."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Один шаблон на строку, как в .worktreeinclude. Добавляется после строк репозитория."
+            "value": "Один шаблон в строке, после шаблонов репозитория."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หนึ่งรูปแบบต่อบรรทัด เหมือนใน .worktreeinclude เพิ่มต่อจากบรรทัดของ repository"
+            "value": "หนึ่งรูปแบบต่อบรรทัด ต่อจากของรีโพซิทอรี"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her satıra bir desen, .worktreeinclude dosyasındaki gibi. Deponun satırlarından sonra eklenir."
+            "value": "Satır başına bir desen, deponunkilerden sonra."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Один шаблон на рядок, як у .worktreeinclude. Додається після рядків репозиторію."
+            "value": "Один шаблон у рядку, після шаблонів репозиторію."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mỗi dòng một mẫu, như trong .worktreeinclude. Được thêm sau các dòng của kho."
+            "value": "Mỗi dòng một mẫu, sau các mẫu của kho mã."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每行一个模式，与 .worktreeinclude 相同。添加在仓库的行之后。"
+            "value": "每行一个模式，排在仓库自身的之后。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每行一個模式，與 .worktreeinclude 相同。加在儲存庫的行之後。"
+            "value": "每行一個模式，排在存放庫自身的之後。"
           }
         }
       }
