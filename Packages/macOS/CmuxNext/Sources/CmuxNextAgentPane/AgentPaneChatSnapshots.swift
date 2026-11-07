@@ -91,25 +91,35 @@ public final class AgentPaneChatSnapshots {
     func reply(_ method: String, params: JSONValue, op: String, allowed: Bool, pageGeneration: UInt64) async throws -> JSONValue {
         guard case .object(var body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        guard allowed else { return .null }
-        if method == "chat.snapshot.get" { return await snapshot(for: session) ?? .null }
-        guard pageGeneration == AgentPaneTailCache.shared.generation else { return .null }
+        if method == "chat.snapshot.get" { return allowed ? await snapshot(for: session) ?? .null : .null }
+        // A put answers `{kept}`: whether this keeps it (the page's own record of its writes).
+        guard allowed, pageGeneration == AgentPaneTailCache.shared.generation, AgentPaneTailCache.shared.acceptsTails
+        else { return ["kept": .bool(false)] }
         body["sessionId"] = nil
         // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral).
         let kept: JSONValue? = if case .string? = body["html"] { .object(body) } else { .none }
         remember(kept, for: session)
-        return .null
+        return ["kept": .bool(kept != nil && disk != nil)]
     }
 
     /// The script the document runs before its bundle: sets the page's global to chat
     /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept).
     func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil) async -> Data {
         var text = "self.\(Self.global)="
-        if allowed, let sessionId, !sessionId.isEmpty, let kept = await snapshot(for: sessionId) {
+        // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
+        var why = "kept"
+        if !allowed {
+            why = "not-kept-here"
+        } else if sessionId?.isEmpty ?? true {
+            why = "no-chat"
+        }
+        if why == "kept", let sessionId, let kept = await snapshot(for: sessionId) {
             kept.appendCompactText(to: &text)
         } else {
+            if why == "kept" { why = disk == nil ? "no-store" : "none" }
             text += "null"
         }
+        text += ";self.\(Self.global)Why=\"\(why)\""
         // The theme the page gets now: a copy drawn under another one is not drawn.
         text += ";self.\(Self.themeGlobal)="
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)

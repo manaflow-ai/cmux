@@ -6,7 +6,7 @@
 // or resizes by more than `tolerance` px, or appears only later, is reported. Leo 2026-10-18: "we
 // know the final layout", so after first paint nothing may jump.
 
-import { chatSnapshotTimes } from "./chatSnapshot/live";
+import { chatSnapshotReport } from "./chatSnapshot/live";
 
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
@@ -133,8 +133,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     first_rows: [...base.boxes.keys()].filter((name) => name.startsWith("row#")).length,
     elements: base.boxes.size,
     // The chat's drawn copy (chatSnapshot/): when it painted and when the live page took over, in
-    // the page's own clock (ms since the document began). Absent when no copy drew.
-    ...(chatSnapshotTimes() ? { snapshot: chatSnapshotTimes() } : {}),
+    // the page's own clock (ms since the document began), or why none drew, and the page's writes.
+    snapshot: chatSnapshotReport(),
     shifts,
     appeared,
     scroll_jumps: scrollJumps,

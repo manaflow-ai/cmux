@@ -73,13 +73,14 @@ struct ChatSnapshotStoreTests {
             resources.themeKey = { "theme-1" }
             let script = try #require(await Self.served(resources))
             #expect(script.hasPrefix("self.__cmuxChatSnapshot={"))
+            #expect(script.contains(";self.__cmuxChatSnapshotWhy=\"kept\";"))
             #expect(script.contains("<main>chat</main>"))
             // With the theme the page gets now: a copy drawn under another one is not drawn.
             #expect(script.hasSuffix(";self.__cmuxChatSnapshotTheme=\"theme-1\";"))
             session = nil
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"theme-1\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"no-chat\";self.__cmuxChatSnapshotTheme=\"theme-1\";")
             session = "other"
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"theme-1\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"none\";self.__cmuxChatSnapshotTheme=\"theme-1\";")
         }
     }
 
@@ -93,7 +94,7 @@ struct ChatSnapshotStoreTests {
             await disk.settled()
             #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
-            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotTheme=\"\";")
+            #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";")
         }
     }
 

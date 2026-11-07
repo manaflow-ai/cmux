@@ -17,6 +17,8 @@ export const SNAPSHOT_GLOBAL = "__cmuxChatSnapshot";
 /// The global the host's `__snapshot/chat.js` sets: the key of the theme the page gets now (the
 /// host's `theme` event `key`, AgentPageEvent.swift).
 export const SNAPSHOT_THEME_GLOBAL = "__cmuxChatSnapshotTheme";
+/// The global the boot script sets when it drew nothing: why (live.ts `chatSnapshotReport`).
+export const SNAPSHOT_MISS_GLOBAL = "__cmuxChatSnapshotMiss";
 /// The global the boot script sets once it drew one: when, in `performance.now()` time.
 export const SNAPSHOT_SHOWN_GLOBAL = "__cmuxChatSnapshotShown";
 /// The element the copy is drawn in (its shadow root holds the copy).
@@ -91,9 +93,16 @@ export function attributesOf(element: Element): SnapshotAttributes {
 /// host gives the page now (its key, which the host's `__snapshot/chat.js` set). Colors, fonts and
 /// the look all come with the theme; markup laid out at another size would draw at the wrong places.
 export function fitsDocument(snapshot: ChatSnapshot, doc: Document): boolean {
+  return misfit(snapshot, doc) === undefined;
+}
+
+/// Why `snapshot` does not fit `doc` (``fitsDocument``), or undefined when it does.
+export function misfit(snapshot: ChatSnapshot, doc: Document): string | undefined {
   const view = doc.defaultView;
-  if (!view) return false;
-  if (Math.round(view.innerWidth) !== Math.round(snapshot.width)) return false;
-  if (Math.round(view.innerHeight) !== Math.round(snapshot.height)) return false;
-  return (view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] === snapshot.theme;
+  if (!view) return "no-window";
+  const size = `${Math.round(view.innerWidth)}x${Math.round(view.innerHeight)}`;
+  const drawn = `${Math.round(snapshot.width)}x${Math.round(snapshot.height)}`;
+  if (size !== drawn) return `size ${size}, drawn at ${drawn}`;
+  if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme) return "theme";
+  return undefined;
 }

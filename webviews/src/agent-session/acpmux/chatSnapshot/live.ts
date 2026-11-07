@@ -2,7 +2,7 @@
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
 import { captureSnapshot } from "./capture";
-import { SNAPSHOT_HOST_TAG, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
+import { SNAPSHOT_GLOBAL, SNAPSHOT_HOST_TAG, SNAPSHOT_MISS_GLOBAL, SNAPSHOT_SHOWN_GLOBAL } from "./shared";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -24,6 +24,22 @@ export function chatSnapshotTimes(): { painted_ms: number; swapped_ms: number | 
   return {
     painted_ms: Math.round(value.at),
     swapped_ms: value.swappedAt === undefined ? null : Math.round(value.swappedAt),
+  };
+}
+
+/// This page's writes: how many, and what the host said to the last (`{kept}`), for the report.
+const writes = { count: 0, last: "none" as string };
+
+/// The chat's copy as this document saw it, for `debug.agent_pane layout_watch` and the chat-open
+/// trace: when it drew and the live page took over, else why nothing drew and why the host served
+/// none; and the page's writes.
+export function chatSnapshotReport(): Record<string, unknown> {
+  const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
+  return {
+    ...chatSnapshotTimes(),
+    miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
+    served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
+    writes: { ...writes },
   };
 }
 
@@ -112,7 +128,16 @@ export function watchChatSnapshot(
     wroteAt = performance.now();
     // Too large to keep (or no chat drawn): the host forgets the older one, which no longer shows
     // what this chat is.
-    void put(snapshot ? { sessionId, ...snapshot } : { sessionId }).catch(() => undefined);
+    writes.count += 1;
+    void put(snapshot ? { sessionId, ...snapshot } : { sessionId }).then(
+      (reply) => {
+        const kept = (reply as { kept?: unknown } | null)?.kept;
+        writes.last = !snapshot ? "forgot (too large or empty)" : kept === true ? "kept" : "refused";
+      },
+      (error) => {
+        writes.last = `error: ${String(error)}`;
+      },
+    );
   };
   const schedule = () => {
     if (timer !== undefined || stopped) return;

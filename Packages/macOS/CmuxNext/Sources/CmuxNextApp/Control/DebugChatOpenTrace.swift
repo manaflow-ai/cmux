@@ -87,6 +87,9 @@ enum DebugChatOpenTrace {
               resources: performance.getEntriesByType("resource").map((entry) => [entry.name.split("/").pop(),
                 round(entry.startTime), round(entry.responseEnd), entry.transferSize]),
               painted: Number(document.documentElement.dataset.cmuxPainted ?? NaN),
+              // The chat's drawn copy (chatSnapshot/): when it drew and the live page took over, or why none drew.
+              snapshot: { shown: window.__cmuxChatSnapshotShown ?? null, miss: window.__cmuxChatSnapshotMiss ?? null,
+                served: window.__cmuxChatSnapshotWhy ?? null },
             });
             """
         guard let text = try? await view.callPageScript(script) as? String,
