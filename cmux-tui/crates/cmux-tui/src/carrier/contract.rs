@@ -123,14 +123,27 @@ pub(super) fn connected_line(vmk: Option<Vmk>) -> String {
 pub(super) const MAX_STDIN_LINE: usize = 16 * 1024;
 
 /// What one stdin line of `carrier serve` asks.
-#[derive(PartialEq, Eq)]
 pub(super) enum StdinLine {
     /// Blank: nothing.
     Blank,
     /// `{"access_token":"…"}`: later dials use this credential.
     Token(zeroize::Zeroizing<String>),
+    /// `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
+    /// daemon_key?}}`: the next dial's first attempt uses it.
+    Answer(Box<super::answer::CarrierAnswer>),
     /// Anything else, and why.
     Invalid(&'static str),
+}
+
+impl PartialEq for StdinLine {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Blank, Self::Blank) => true,
+            (Self::Token(a), Self::Token(b)) => a == b,
+            (Self::Invalid(a), Self::Invalid(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Debug for StdinLine {
@@ -138,20 +151,44 @@ impl std::fmt::Debug for StdinLine {
         match self {
             Self::Blank => f.write_str("Blank"),
             Self::Token(_) => f.write_str("Token(..)"),
+            Self::Answer(answer) => f.debug_tuple("Answer").field(answer).finish(),
             Self::Invalid(why) => f.debug_tuple("Invalid").field(why).finish(),
         }
     }
 }
 
+/// A handed-over carrier answer (`{"carrier_answer":{…}}`), checked as the
+/// platform's answer is, with a grant.
+pub(super) fn answer_line(bytes: &[u8]) -> Result<super::answer::CarrierAnswer, &'static str> {
+    let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(bytes) else {
+        return Err("the answer line is one JSON object, {\"carrier_answer\":{…}}");
+    };
+    let value = object.get("carrier_answer").ok_or("the answer line has no carrier_answer")?;
+    match super::answer::parse_answer(value) {
+        Ok(answer) if answer.grant.is_some() => Ok(answer),
+        Ok(_) => Err("carrier_answer has no grant"),
+        Err(_) => Err("carrier_answer is not a valid carrier answer"),
+    }
+}
+
 /// Reads one stdin line (without its newline). The token is 1 to 8192
-/// visible ASCII bytes; other keys are ignored.
+/// visible ASCII bytes; other keys are ignored. A line with
+/// `carrier_answer` is a handed-over answer ([`answer_line`]).
 pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return StdinLine::Blank;
     }
     let Ok(serde_json::Value::Object(object)) = serde_json::from_slice(bytes) else {
-        return StdinLine::Invalid("a stdin line is one JSON object, {\"access_token\":\"…\"}");
+        return StdinLine::Invalid(
+            "a stdin line is one JSON object, {\"access_token\":\"…\"} or {\"carrier_answer\":{…}}",
+        );
     };
+    if object.contains_key("carrier_answer") {
+        return match answer_line(bytes) {
+            Ok(answer) => StdinLine::Answer(Box::new(answer)),
+            Err(why) => StdinLine::Invalid(why),
+        };
+    }
     match object.get("access_token").and_then(serde_json::Value::as_str).map(str::trim) {
         Some(token)
             if !token.is_empty()
@@ -278,6 +315,15 @@ impl Backoff {
         let delay = jitter(ceiling).min(ceiling);
         (delay < remaining).then_some(delay)
     }
+}
+
+/// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.
+pub(super) fn parse_answer_fd(text: &str) -> Option<i32> {
+    if !text.bytes().all(|b| b.is_ascii_digit()) || text.len() > 9 {
+        return None;
+    }
+    let fd: i32 = text.parse().ok()?;
+    (fd == 0 || fd > 2).then_some(fd)
 }
 
 /// `--deadline-ms N`: 1..=[`MAX_DEADLINE_MS`].

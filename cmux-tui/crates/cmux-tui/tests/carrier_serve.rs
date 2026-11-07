@@ -244,3 +244,53 @@ fn each_connected_connection_says_the_grant_s_vmk() {
     drop(child.stdin.take());
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
 }
+
+/// Writes `lines` on serve's stdin and then a line it refuses, and reads
+/// that refusal: the lines before it are applied by then.
+fn apply(stdin: &mut std::process::ChildStdin, stderr: &mut BufReader<ChildStderr>, lines: &str) {
+    stdin.write_all(format!("{lines}not json\n").as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let refused: Value = serde_json::from_str(&line(stderr)).unwrap();
+    assert_eq!(refused["error_code"], "bad_request", "{refused}");
+}
+
+#[test]
+fn a_carrier_answer_on_stdin_starts_the_next_connection_without_asking_for_it() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let world = world(200, asked.clone());
+    let socket = socket_path(&world);
+    let mut child = serve(&world, &socket);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    // A first connection asks as usual; its ask names this serve's device key.
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+    let device = world.keys.lock().unwrap()[0].clone().expect("a dial asks with its key");
+    let mut stdin = child.stdin.take().unwrap();
+
+    // A spare claim's answer has the daemon key: the connection asks nothing.
+    apply(&mut stdin, &mut stderr, &world.answer_line(&device, true));
+    let before = asked.load(Ordering::SeqCst);
+    let mut spare = open(&socket);
+    ask(&mut spare, 2);
+    assert_served(&mut stderr, None);
+    assert_eq!(asked.load(Ordering::SeqCst), before, "the handed-over answer was enough");
+
+    // A fresh create's has none yet: one ticket-only ask for the key while
+    // the relay holds the connect, and the handshake is pinned to it.
+    apply(&mut stdin, &mut stderr, &world.answer_line(&device, false));
+    let mut fresh = open(&socket);
+    ask(&mut fresh, 3);
+    assert_served(&mut stderr, None);
+    assert_eq!(asked.load(Ordering::SeqCst), before + 1, "one ask, for the daemon key");
+    assert_eq!(world.keys.lock().unwrap().last(), Some(&None), "a ticket-only ask mints no grant");
+
+    // One connection takes it: the next asks as before, with its key.
+    let mut later = open(&socket);
+    ask(&mut later, 4);
+    assert_served(&mut stderr, None);
+    assert_eq!(world.keys.lock().unwrap().last(), Some(&Some(device)));
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}

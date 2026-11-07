@@ -179,3 +179,44 @@ fn a_daemon_that_is_not_the_pinned_one_fails_the_handshake() {
     assert!(route.contains("phase=connect outcome=handshake"), "{route}");
     assert_eq!(code, Some(5));
 }
+
+/// Another device's Noise key (base64url of 32 bytes of 5).
+const OTHER_DEVICE: &str = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU";
+
+#[test]
+fn a_handed_over_answer_is_the_first_attempt_s_without_asking_the_platform() {
+    // Off a Mac each dial makes its own Noise key, so the handed-over grant
+    // names another device's: the daemon refusing it shows the dial used it.
+    let asked = Arc::new(AtomicUsize::new(0));
+    let world = world(200, asked.clone());
+    let mut child = dial_with(&world, &["--answer-fd", "0"]);
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(world.answer_line(OTHER_DEVICE, true).as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    let route = line(&mut stderr);
+    assert!(route.contains("phase=connect outcome=handshake"), "{route} {reply}");
+    let keys = world.keys.lock().unwrap().clone();
+    assert!(
+        keys.iter().all(|key| key.as_deref() != Some(OTHER_DEVICE)),
+        "the platform never named the other device: {keys:?}"
+    );
+    drop(stdin);
+    let _ = wait(&mut child, Duration::from_secs(20));
+}
+
+#[test]
+fn an_answer_line_that_is_not_an_answer_is_bad_usage() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    for bad in ["not json\n", "{\"carrier_answer\":{}}\n", ""] {
+        let mut child = dial_with(&world, &["--answer-fd", "0"]);
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(bad.as_bytes()).unwrap();
+        drop(stdin);
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(64), "{bad:?}");
+    }
+}

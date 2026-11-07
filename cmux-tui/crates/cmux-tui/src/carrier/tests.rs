@@ -6,11 +6,12 @@ use cmux_remote::link::LinkError;
 use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
-use super::answer::{TicketCache, grant_vmk, key_text, parse_answer, read_reply};
+use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply};
 use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, connected_line,
-    failure_line, parse_deadline, route_line, served_line, serving_line, stdin_line,
+    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
+    connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
+    stdin_line,
 };
 use super::{DialArgs, ServeArgs, parse, parse_serve, with_team_env};
 
@@ -92,8 +93,13 @@ fn arguments_are_the_machine_and_one_deadline() {
             api: None,
             token_file: None,
             team: None,
+            answer_fd: None,
         })
     );
+    for (fd, want) in [("0", 0), ("3", 3), ("17", 17)] {
+        let args = parse(&words(&format!("dial --machine {VM} --answer-fd {fd}"))).unwrap();
+        assert_eq!(args.answer_fd, Some(want), "{fd}");
+    }
     let full = parse(&words(&format!(
         "dial --deadline-ms 5000 --machine {VM} --cloud-api https://api.example --cloud-token-file /t"
     )))
@@ -114,9 +120,18 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
         format!("dial --machine {VM} --team {TEAM} --team {TEAM}"),
+        format!("dial --machine {VM} --answer-fd 1"),
+        format!("dial --machine {VM} --answer-fd 2"),
+        format!("dial --machine {VM} --answer-fd -1"),
+        format!("dial --machine {VM} --answer-fd x"),
+        format!("dial --machine {VM} --answer-fd 0 --answer-fd 0"),
     ] {
         assert_eq!(parse(&words(&bad)), None, "{bad}");
     }
+    assert_eq!(
+        parse_serve(&words(&format!("serve --machine {VM} --socket /s --answer-fd 0"))),
+        None
+    );
     assert_eq!(parse_deadline("600000"), Some(Duration::from_secs(600)));
 }
 
@@ -386,4 +401,47 @@ fn the_connect_log_is_only_appended_and_stops_at_its_cap() {
     std::fs::write(&path, vec![b'x'; super::route_log::MAX_BYTES as usize - 1]).unwrap();
     super::route_log::append(&path, "c\n");
     assert_eq!(std::fs::metadata(&path).unwrap().len(), super::route_log::MAX_BYTES - 1);
+}
+
+#[test]
+fn a_handed_over_answer_is_a_checked_answer_with_a_grant() {
+    let line = json!({ "carrier_answer": answer_value() }).to_string();
+    match stdin_line(line.as_bytes()) {
+        StdinLine::Answer(answer) => {
+            assert_eq!(answer.slot, "AbC-_123");
+            assert_eq!(answer.daemon_key, Some([7; 32]));
+            let debug = format!("{answer:?}");
+            assert!(!debug.contains("h.c.s") && !debug.contains("v2.claims"), "{debug}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(answer_line(line.as_bytes()).is_ok());
+    let mut grantless = answer_value();
+    grantless.as_object_mut().unwrap().remove("grant");
+    let grantless = json!({ "carrier_answer": grantless }).to_string();
+    assert_eq!(stdin_line(grantless.as_bytes()), StdinLine::Invalid("carrier_answer has no grant"));
+    for bad in [&br#"{"carrier_answer":{}}"#[..], br#"{"carrier_answer":7}"#, b"[]"] {
+        assert!(
+            matches!(stdin_line(bad), StdinLine::Invalid(_)),
+            "{}",
+            String::from_utf8_lossy(bad)
+        );
+        assert!(answer_line(bad).is_err());
+    }
+}
+
+#[test]
+fn a_handed_over_answer_is_taken_once_and_only_while_fresh() {
+    let fresh = parse_answer(&answer_value()).unwrap();
+    let expires = fresh.expires_at;
+    let held = Prefetched::new(Some(fresh.clone()));
+    assert!(held.take(expires - 300).is_some());
+    assert!(held.take(expires - 300).is_none(), "one attempt takes it");
+    held.put(fresh.clone());
+    assert!(held.take(expires - 10).is_none(), "a ticket about to expire is dropped");
+    assert!(held.take(expires - 300).is_none(), "and not kept");
+    let mut grantless = answer_value();
+    grantless.as_object_mut().unwrap().remove("grant");
+    held.put(parse_answer(&grantless).unwrap());
+    assert!(held.take(expires - 300).is_none(), "an answer without a grant is not used");
 }

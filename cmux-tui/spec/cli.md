@@ -18,7 +18,7 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
 cmux wg dial --hub <unix socket> <host> <port>
-cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
+cmux carrier dial --machine <vm_id> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
@@ -76,6 +76,13 @@ retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handsha
 unlock, this device only); elsewhere each dial makes its own.
 The ok line also has `"vmk":"owner"` or `"vmk":"team"`, the person's role on the
 machine from the carrier grant's `vmk` claim; a grant without one leaves it out.
+`--answer-fd N` hands over the first attempt's answer, the `carrier` that a create or
+spare claim answered with: the descriptor's first line is `{"carrier_answer":{relay,
+slot, ticket, expires_at, grant, daemon_key?}}` (with 0, stdin's first line, and the
+stream follows it). That attempt dials at once without asking the platform. Without
+`daemon_key`, it asks for the key while the relay holds the connect, and once more when
+the daemon registers if needed. The handshake always waits for the pin. A stale answer is
+dropped and the attempt asks; any line that is not an answer is `bad_request` (64).
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
@@ -91,7 +98,9 @@ dial connected (`vmk` as on the dial's ok line) or the dial's failure line (`tic
 `relay`, `parked_timeout`, `handshake`) when it did not, plus one `bad_request` per
 unusable stdin line and one `socket` if the listener fails for good. None holds `cloud.connect`: route lines go
 only to `connect.log`. stdin carries JSON lines: `{"access_token":"…"}` replaces the
-credential for every later dial, and sessions already up stay up. Before ready a
+credential for every later dial, and sessions already up stay up.
+`{"carrier_answer":{…}}` is used by the next accepted connection's first attempt,
+as with `dial --answer-fd`. Before ready a
 failure writes the dial's failure line: exit 64 usage or a path it cannot claim (a
 live listener, a file that is not a socket), 2 no API or credential, 5 no device
 key. It exits 0 when stdin ends or on SIGTERM or SIGINT, 6 when accepting fails for

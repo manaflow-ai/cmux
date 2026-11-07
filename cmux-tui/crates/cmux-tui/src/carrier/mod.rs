@@ -44,6 +44,19 @@
 //! person's role on the machine as the carrier grant's `vmk` claim says
 //! it; a grant without one leaves the field out.
 //!
+//! `--answer-fd N` hands over the first attempt's answer: the descriptor's
+//! first line is `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
+//! daemon_key?}}`, the `carrier` a create or spare claim answered with
+//! (cmux-platform #946). With 0 it is stdin's first line, and the stream
+//! follows it. The first attempt then dials at once without asking the
+//! platform. If the answer has no `daemon_key` (a fresh create, whose bind
+//! stores the key later), the dial asks the platform for the key while the
+//! relay holds the connect, and asks once more when the daemon registers if
+//! the first ask came too early. The handshake waits for the key and never
+//! runs unpinned. An answer whose ticket is about to expire is dropped and
+//! the attempt asks as usual; later attempts always ask. A line that is
+//! not such an answer (or no line) is `bad_request`, exit 64.
+//!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
 //! flags and environment and serves the same stream on a Unix socket, one
 //! dial per accepted connection ([`serve`]).
@@ -79,6 +92,9 @@ pub(crate) struct DialArgs {
     pub api: Option<String>,
     pub token_file: Option<PathBuf>,
     pub team: Option<String>,
+    /// `dial --answer-fd N`: the file descriptor whose first line is a
+    /// handed-over carrier answer (0: stdin, before the stream).
+    pub answer_fd: Option<i32>,
 }
 
 /// One `cmux carrier serve` invocation: a dial per connection to `socket`.
@@ -89,7 +105,7 @@ pub(crate) struct ServeArgs {
 }
 
 /// `dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH]
-/// [--team team_…]`, each once, nothing else.
+/// [--team team_…] [--answer-fd N]`, each once, nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
@@ -114,6 +130,7 @@ pub(crate) fn parse_serve(args: &[String]) -> Option<ServeArgs> {
 fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     let (mut machine, mut deadline, mut api, mut token_file, mut team, mut socket) =
         (None, None, None, None, None, None);
+    let mut answer_fd = None;
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
@@ -124,6 +141,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
             "--cloud-token-file" => &mut token_file,
             "--team" => &mut team,
             "--socket" if serve => &mut socket,
+            "--answer-fd" if !serve => &mut answer_fd,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -138,7 +156,18 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     if team.as_deref().is_some_and(|t| !contract::valid_team(t)) {
         return None;
     }
-    let dial = DialArgs { machine, deadline, api, token_file: token_file.map(PathBuf::from), team };
+    let answer_fd = match answer_fd {
+        Some(text) => Some(contract::parse_answer_fd(&text)?),
+        None => None,
+    };
+    let dial = DialArgs {
+        machine,
+        deadline,
+        api,
+        token_file: token_file.map(PathBuf::from),
+        team,
+        answer_fd,
+    };
     Some((dial, socket))
 }
 
@@ -222,6 +251,33 @@ fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
 
+/// The handed-over answer on `fd`: its first line, at most
+/// [`contract::MAX_STDIN_LINE`] bytes. Stdin (0) is read through the
+/// process's shared stdin buffer, so the stream after the line stays for the
+/// bridge; any other descriptor is this process's to read and close.
+fn read_answer(fd: i32) -> Result<answer::CarrierAnswer, &'static str> {
+    use std::io::{BufRead as _, Read as _};
+    let mut line = Zeroizing::new(Vec::new());
+    let limit = (contract::MAX_STDIN_LINE + 1) as u64;
+    let read = if fd == 0 {
+        std::io::stdin().lock().take(limit).read_until(b'\n', &mut line)
+    } else {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: `--answer-fd` hands this descriptor to this process, which
+        // reads its one line and closes it here; nothing else uses it.
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        std::io::BufReader::new(file).take(limit).read_until(b'\n', &mut line)
+    };
+    match read {
+        Ok(0) | Err(_) => return Err("--answer-fd gave no answer line"),
+        Ok(_) => {}
+    }
+    if line.last() != Some(&b'\n') && line.len() > contract::MAX_STDIN_LINE {
+        return Err("the answer line is too long");
+    }
+    contract::answer_line(line.strip_suffix(b"\n").unwrap_or(&line[..]))
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
@@ -229,12 +285,16 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]",
+            "usage: cmux carrier dial --machine vm_… [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]",
         );
     };
     let (args, source, identity) = match prepare(args) {
         Ok(prepared) => prepared,
         Err(code) => return code,
+    };
+    let prefetched = match args.answer_fd.map(read_answer).transpose() {
+        Ok(answer) => Arc::new(answer::Prefetched::new(answer)),
+        Err(why) => return usage(why),
     };
     let runtime = match runtime() {
         Ok(runtime) => runtime,
@@ -249,6 +309,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
+            prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
                     route_log::append(path, &line);
