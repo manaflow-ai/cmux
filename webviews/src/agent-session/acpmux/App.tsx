@@ -7784,9 +7784,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           return sendPrompt(params);
         };
         notifyDraftActionsChanged();
-        // A New Tab permission pick made before this connect runs now, whether or not its chips
-        // are still mounted (heldModePick.ts).
-        flushHeldModePick();
         harnessSwitch.setHandlers({
           restore: (text, attachments) => {
             // A failed New Tab start never surrendered this draft. Restoring it into the future
@@ -7806,6 +7803,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           holdPrompt: (promptId) => void heldPrompt.hold(promptId),
         });
         harnessSwitch.connect(switchPort);
+        // A New Tab permission pick made before this connect runs now, whether or not its chips
+        // are still mounted (heldModePick.ts). It waits for the switch's gesture handler above, so
+        // its session/set_mode carries the pick's gesture ticket.
+        flushHeldModePick();
         // A pending chat's access chip asks this client the mode acpmux starts it in.
         setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
         acpmuxPerf.markAgent("composerReady");
