@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42343337614",
+  "recorded_at": "2026-11-07T05:45:53Z",
+  "reason": "cmux-tui 221ec9d5ec0e changes the image's cmux-tui (pinned bd31f93eff9d)",
+  "dry_run": true,
+  "cmux_tui": "221ec9d5ec0e9e733caa8ca6ce7cc0a1fcf3f248",
+  "fixes": [
+    {
+      "sha": "221ec9d5ec0e9e733caa8ca6ce7cc0a1fcf3f248",
+      "mergedAt": "2026-11-06T21:21:02-08:00",
+      "subject": "acpmux: add a machine without a terminal: ssh key line, agent install and sign-in offers (#37311)"
+    },
+    {
+      "sha": "5d24341feff312edd928620b1ea5df016b9fc0fd",
+      "mergedAt": "2026-11-07T05:19:46Z",
+      "subject": "fix(terminal): a resize's prompt clear waits for the shell (close-then-type empty fresh screen) (#37461)"
+    },
+    {
+      "sha": "62b76c92f05132f8316a2315e20a6b23723fd9f4",
+      "mergedAt": "2026-11-06T21:19:19-08:00",
+      "subject": "cmux chief runs: page run summaries and read a run's steps (#37442)"
+    },
+    {
+      "sha": "c523ce35fd50b59277d2ebf8fcb0d8561334bbb0",
+      "mergedAt": "2026-11-06T21:18:42-08:00",
+      "subject": "cmux inference gateway: Cloud machines' model calls go to a gateway that alone holds the login (#37434)"
+    },
+    {
+      "sha": "61ba2e76ebecc382e51d2580105b3627d2d181d5",
+      "mergedAt": "2026-11-06T20:57:41-08:00",
+      "subject": "cmux-daemon-launch-core: the app's daemon launch rules in Rust, linked in cmux-app-ffi (step A; no Swift change) (#37337)"
+    },
+    {
+      "sha": "431e458e9e61d699ae744c548dcfed919480905e",
+      "mergedAt": "2026-11-06T20:55:33-08:00",
+      "subject": "Sidebar: a new workspace goes right below the selected one, never the sidebar's end (#37161)"
+    },
+    {
+      "sha": "ee8724ea2d3135f76d8eaedec2cdf5e13d0e496c",
+      "mergedAt": "2026-11-06T20:51:23-08:00",
+      "subject": "cmux-cloud-handlers: the Cloud action handlers' rules in Rust, over the app FFI (step A) (#37343)"
+    },
+    {
+      "sha": "88a98b16b6b0a6ebe55b1832901be13945ae828e",
+      "mergedAt": "2026-11-07T04:35:04Z",
+      "subject": "chore(next): base autofix at c69bf7a822ab"
+    },
+    {
+      "sha": "c69bf7a822ab7857c0fb51ba17e6131ef05200fe",
+      "mergedAt": "2026-11-06T20:32:50-08:00",
+      "subject": "cmux chat --on TARGET: start a chat here, on a device, a Cloud VM or in Cloud; cmux cloud is now cmux vm (#37431)"
+    },
+    {
+      "sha": "e5d80f397611e2633ab52da21232819eb4cffa38",
+      "mergedAt": "2026-11-07T04:26:24Z",
+      "subject": "chore(next): base autofix at 3b767354437f"
+    },
+    {
+      "sha": "90de888d2db42e43a22fc76a6b6a41fb6c6ac280",
+      "mergedAt": "2026-11-07T04:24:19Z",
+      "subject": "cmux-layout-reducer: the sidebar bridge's decision rules in Rust (sidebar_bridge) over the app FFI, step A (#37381)"
+    },
+    {
+      "sha": "9f633dfa1478d15e4250f8ef43202f98f141b188",
+      "mergedAt": "2026-11-07T04:24:08Z",
+      "subject": "acpmux: a remote context viewer sees a memory file's name, not its local path (#37454)"
+    },
+    {
+      "sha": "bd2ffe2c7dbc775545934e02fa1ced512256d0b8",
+      "mergedAt": "2026-11-07T04:23:15Z",
+      "subject": "fix(cmux-tui): a keyed create-terminal projects only its own workspace (#37379)"
+    },
+    {
+      "sha": "4f6388b40da2e84bd7518485564a405780a2fa23",
+      "mergedAt": "2026-11-06T20:19:10-08:00",
+      "subject": "cloud_model_preview_url: a call with no path opens the root, as Swift's browserURL(path: \"/\") does (#37460)"
+    },
+    {
+      "sha": "aa17afdce48cb65112a77dbc3f80eaeda1e16ea0",
+      "mergedAt": "2026-11-06T20:09:35-08:00",
+      "subject": "cmux-cloud-machine: NEXT Cloud's machine record and its rules in Rust, over the app FFI (step A) (#37294)"
+    },
+    {
+      "sha": "1696a8ec8884aaea1aefa0ea05ac3a8095672366",
+      "mergedAt": "2026-11-06T20:08:28-08:00",
+      "subject": "cmux-cloud-config: Cloud sign-in, identity and configuration rules over the app FFI (step A) (#37348)"
+    },
+    {
+      "sha": "78bcee2ef753677ccb4562423e72811bb52d5cef",
+      "mergedAt": "2026-11-06T20:02:48-08:00",
+      "subject": "Chief: a permission mode for its own turns (bypass by default); acpmux allows naming the person's full-access start mode (#37419)"
+    },
+    {
+      "sha": "e49c9f911ffb47b013286b24800188dd8031db58",
+      "mergedAt": "2026-11-07T03:54:00Z",
+      "subject": "cmux-host: a bind or relay token the network change failed is retried at once, not after the 2 s backoff (#37444)"
+    },
+    {
+      "sha": "f6c83d8f779a369f99561695c517766acd779bcd",
+      "mergedAt": "2026-11-07T03:45:51Z",
+      "subject": "fix(tabs): close case A follow-ups: multi-tab close anchors, Motion.tabs gate, pinned divider slide, no echo work (#37401)"
+    },
+    {
+      "sha": "a40425896b56025e10de565792e3cccc0aecd882",
+      "mergedAt": "2026-11-06T19:41:01-08:00",
+      "subject": "auto_archive: a snooze's next check is never sooner than a minute (#37368)"
+    },
+    {
+      "sha": "76bfdafa15e97ac24e6e6f5a8a1082fe468ac7df",
+      "mergedAt": "2026-11-06T19:38:44-08:00",
+      "subject": "cmux-action-catalog: the Debug-build-only actions and argument values; two Italian titles match the app (#37441)"
+    },
+    {
+      "sha": "dada39d231dbf618d3c38c79f903656338474801",
+      "mergedAt": "2026-11-06T19:34:11-08:00",
+      "subject": "Cloud move rules in Rust: cmux-cloud-start-core moves, app FFI ops cloud_move_* (step A) (#37334)"
+    },
+    {
+      "sha": "75e2bb4362ec505e5efb1a7b7b60975fda777e3d",
+      "mergedAt": "2026-11-06T19:30:42-08:00",
+      "subject": "base red: a missing ; in cmux-cloud-tasks' follower fails clippy -D warnings (from #37291) (#37435)"
+    },
+    {
+      "sha": "93792b6cef639ab7c661b6fffdf2c76935c0a64d",
+      "mergedAt": "2026-11-06T19:25:35-08:00",
+      "subject": "base red: crash ratchet and clippy panic ratchet back under baseline (#37421)"
+    },
+    {
+      "sha": "8266f409a9cf05f9e63f2ac504480719b5fb1f3d",
+      "mergedAt": "2026-11-06T19:21:49-08:00",
+      "subject": "cloud hands: a restart fails the refreshes it ends; relaunch backoff resets on any list (#37422)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T05:45:53Z",
+    "snapshot_id": "sh-bc51a73ff8684378ab574ef0ed986482",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42343337614): 34 checks passed"
+  },
+  "promotion": {
+    "result": "dry-run",
+    "job": "success",
+    "commit": "d0d2eb16a45bba571a79c5535fe17197ce5a83a3",
+    "image": "cloud-native-auto-221ec9d5-42343337614-1",
+    "revision": "ci-42343337614-1",
+    "at": null
+  },
+  "rolled_back": false
+}
