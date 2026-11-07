@@ -13,7 +13,6 @@ import Foundation
 import Observation
 import os
 import CmuxNextWakeups
-
 /// Cloud orchestration: sign-in state, the configured machine list, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
 /// list is fetched when the session restores or signs in, after every
@@ -82,6 +81,8 @@ final class CloudService {
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
+    @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth)
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
@@ -328,9 +329,12 @@ final class CloudService {
             guard let self else { return }
             await auth.awaitRestored()
             // The account and selected team: a team switch stays signed in but
-            // must fence the old Native mesh and link before reconnecting.
+            // must fence the old Native mesh, link and machine wire before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
+                    self.machineWire.stop()
+                    // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
+                    if self.mayCallCloud { self.machineWire.start { [weak self] change in self?.portChanged(change) } }
                     AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     // Another account's machines, connections and share installs end first (its next share binds this one).
@@ -343,9 +347,9 @@ final class CloudService {
                     await self.ensureLink()
                     await self.refresh()
                 } else {
+                    // Signing out invalidates the wire's bearer: stop it first so no event races a new account.
+                    self.machineWire.stop()
                     self.dropAllMachines()
-                    // The session ended (signed out here or elsewhere, or
-                    // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
@@ -395,6 +399,8 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            // Policy disable fences Cloud event delivery synchronously; machines disconnect below.
+            machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
@@ -407,6 +413,7 @@ final class CloudService {
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
+            if auth.isSignedIn, mayCallCloud { machineWire.start { [weak self] change in self?.portChanged(change) } }
             changes.start()
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
@@ -420,6 +427,8 @@ final class CloudService {
     }
 
     func stop() {
+        // Stop the socket before cancelling the remaining Cloud observers.
+        machineWire.stop()
         refreshGate.cancel()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }

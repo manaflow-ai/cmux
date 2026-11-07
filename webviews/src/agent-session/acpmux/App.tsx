@@ -48,6 +48,8 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { postNative } from "./native";
+import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
+import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
@@ -458,7 +460,13 @@ import {
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
-import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
+import {
+  cloudStartBegun,
+  cloudStartEnded,
+  cloudStartPushed,
+  cloudStartSignedIn,
+  type CloudStartProgress,
+} from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
@@ -620,6 +628,7 @@ import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
 
 import { defaultRegistry } from "./rows/registry";
+import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
@@ -3707,6 +3716,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (turn) openDiff(turn.rowId, path);
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
+  /// no × (ReadOnlyRecapRow).
+  const noDismissRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
@@ -3863,6 +3875,36 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     void callNative("pane.moveToMachine", { machine, session }).catch(notRun);
   };
+  const cloudPreviewTurnId = useMemo(() => {
+    for (let index = snapshot.rows.length - 1; index >= 0; index -= 1) {
+      const row = snapshot.rows[index];
+      if (row?.turnId) return row.turnId;
+      if (row?.kind === "user") return row.id;
+    }
+    return undefined;
+  }, [snapshot.rows]);
+  const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  const cloudPreviewPortList = useCloudPreviewPorts();
+  // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
+  // take the composer's room below the transcript and shorten it.
+  const showOpenAppCard = !quick && cloudPreviewChat && cloudPreviewPortList.length > 0;
+  useEffect(() => {
+    const machineID = cloudMachineID ?? snapshot.summary?.machine;
+    setCloudPreviewContext({
+      machineID,
+      sessionId: shownSessionId,
+      turnId: cloudPreviewTurnId,
+      active: !quick && snapshot.isWorking && cloudPreviewChat,
+    });
+  }, [
+    cloudPreviewChat,
+    cloudMachineID,
+    cloudPreviewTurnId,
+    quick,
+    shownSessionId,
+    snapshot.isWorking,
+    snapshot.summary?.machine,
+  ]);
   /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
@@ -4012,7 +4054,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!sent) return undefined;
     // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
-    const again = () => startCloud({ ...request, signedIn: true }, key);
+    const again = () => {
+      // The browser is done: the card leaves its waiting for sign-in state for the normal start.
+      setCloudStart((current) => cloudStartSignedIn(current, key));
+      return startCloud({ ...request, signedIn: true }, key);
+    };
     const started = signingIn
       ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
       : sent;
@@ -4049,8 +4095,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudPageDraft.current = { text, attachments: request.attachments ?? [] };
       setCloudLeftPage(newTabGeneration);
     }
+    // A `cloud.signIn` waits on the browser first: the card says so, not "starting".
     setCloudStart(
-      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+      cloudStartBegun(
+        key,
+        text,
+        start.cwd,
+        start.harness ? harnessLabel(start.harness) : undefined,
+        start.home,
+        signingIn,
+      ),
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
@@ -7250,7 +7304,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               taken.flatMap((failed) => failed.attachments),
             );
           },
-          "chat.recap.dismiss": async ({ rowId }) => client.dismissRecap(String(rowId)),
+          "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },
@@ -9220,11 +9274,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                             }
                                                             onColdOpenShown={coldOpenShown}
                                                             afterLatest={
-                                                              !childRows && trayPlacement === "after-latest-message"
-                                                                ? trayNode
-                                                                : undefined
+                                                              childRows
+                                                                ? undefined
+                                                                : afterLatestFooter(
+                                                                    showOpenAppCard ? (
+                                                                      <OpenAppCard ports={cloudPreviewPortList} />
+                                                                    ) : null,
+                                                                    trayPlacement === "after-latest-message"
+                                                                      ? trayNode
+                                                                      : null,
+                                                                  )
                                                             }
-                                                            registry={registry}
+                                                            registry={readOnlySubagent ? noDismissRegistry : registry}
                                                             githubRepository={githubRepository}
                                                             fallbackRepository={
                                                               pullRequestRef(headerPullRequest?.url ?? "")?.repo
@@ -10727,7 +10788,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
                   showMinimap={minimapVisible}
-                  registry={registry}
+                  registry={noDismissRegistry}
                   onToggleActivity={toggleActivity}
                 />
               )}

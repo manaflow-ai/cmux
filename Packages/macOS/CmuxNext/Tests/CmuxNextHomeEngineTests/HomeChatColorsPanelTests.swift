@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeRender
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation

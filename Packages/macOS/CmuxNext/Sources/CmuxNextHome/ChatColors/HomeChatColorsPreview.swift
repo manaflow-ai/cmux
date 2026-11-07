@@ -1,5 +1,6 @@
 import CmuxHomeRender
 import CmuxNextDesign
+import CmuxNextHomeModel
 import Foundation
 
 /// The colours a chat draws with for a choice (its bubble style, the default for every chat, then

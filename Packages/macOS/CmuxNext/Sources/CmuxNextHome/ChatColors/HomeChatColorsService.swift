@@ -2,6 +2,7 @@ public import AppKit
 import CmuxHomeRender
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 public import CmuxNextPages
 
 /// The Chat Colors… panel (a chat row's menu, the palette, `home.chatColors`): one small floating

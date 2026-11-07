@@ -269,6 +269,54 @@
             "quote",
             "daily"
           ]
+        },
+        {
+          "key": "tabs.newTabWidgets.order",
+          "note": "The widgets the edit mode moves, in Settings' order (right-click New Tab > Edit New Tab); widgets left out follow in this order.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.order",
+            "text": "New Tab Widget Order"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.order.help",
+            "text": "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."
+          },
+          "kind": "ordered_choices",
+          "choices": [
+            {
+              "value": "projects",
+              "title": {
+                "key": "settings.tabs.newTabWidgets.order.projects",
+                "text": "Projects"
+              }
+            },
+            {
+              "value": "actions",
+              "title": {
+                "key": "settings.tabs.newTabWidgets.order.actions",
+                "text": "Quick Actions"
+              }
+            },
+            {
+              "value": "chats",
+              "title": {
+                "key": "settings.tabs.newTabWidgets.order.chats",
+                "text": "Recent Chats"
+              }
+            }
+          ],
+          "default": [
+            "projects",
+            "actions",
+            "chats"
+          ],
+          "keywords": [
+            "new tab",
+            "widget",
+            "order",
+            "arrange",
+            "edit"
+          ]
         }
       ]
     }
