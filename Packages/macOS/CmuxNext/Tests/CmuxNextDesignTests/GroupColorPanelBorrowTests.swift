@@ -9,12 +9,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct GroupColorPanelBorrowTests {
-    private func send(_ color: NSColor) {
-        let panel = NSColorPanel.shared
-        panel.color = color
-        if let target = panel.target as? NSObject, let action = panel.action {
-            target.perform(action, with: panel)
-        }
+    /// A color change the way the panel sends it: its action on the lender, its target.
+    private func send(_ color: NSColor, through lender: GroupColorPanel) {
+        NSColorPanel.shared.color = color
+        lender.changed(NSColorPanel.shared)
     }
 
     @Test func aNewBorrowEndsThePreviousOneAndOnlyItReceivesColors() {
@@ -22,20 +20,20 @@ struct GroupColorPanelBorrowTests {
         var firstPicks = 0, secondPicks = 0, firstEnded = 0
         let first = lender.borrow(start: nil, continuous: true, onPick: { _ in firstPicks += 1 },
                                   onEnd: { firstEnded += 1 })
-        send(.red)
+        send(.red, through: lender)
         #expect(firstPicks == 1)
 
         let second = lender.borrow(start: nil, continuous: false, onPick: { _ in secondPicks += 1 }, onEnd: {})
         #expect(firstEnded == 1)
         #expect(!lender.holds(first))
         #expect(lender.holds(second))
-        send(.blue)
+        send(.blue, through: lender)
         #expect(firstPicks == 1)
         #expect(secondPicks == 1)
 
         // The first borrower giving back late changes nothing for the second.
         lender.giveBack(first)
-        send(.green)
+        send(.green, through: lender)
         #expect(secondPicks == 2)
         lender.giveBack(second)
     }
@@ -58,9 +56,8 @@ struct GroupColorPanelBorrowTests {
         lender.giveBack(borrow)
         #expect(panel.showsAlpha)
         #expect(!panel.isContinuous)
-        #expect(panel.target == nil)
         #expect(ended == 0)
-        send(.blue)
+        send(.blue, through: lender)
         #expect(picks == 0)
     }
 }

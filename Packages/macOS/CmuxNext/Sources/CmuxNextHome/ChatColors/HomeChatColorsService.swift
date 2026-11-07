@@ -122,7 +122,11 @@ public final class HomeChatColorsService {
             onPick: { [weak provider] color in provider?.pick(role, HomeColor(srgb: color)) },
             onEnd: { [weak self] in self?.colorPanelTaken() })
         if let panel {
-            if !colors.isVisible { colors.setFrameTopLeftPoint(NSPoint(x: panel.frame.maxX + 8, y: panel.frame.maxY)) }
+            // Beside this panel unless it already sits here: a panel another part of the app had
+            // open moves over too.
+            if !colors.isVisible || colors.parent !== panel {
+                colors.setFrameTopLeftPoint(NSPoint(x: panel.frame.maxX + 8, y: panel.frame.maxY))
+            }
             // Attached: it moves with the panel and hides with it.
             if colors.parent == nil { panel.addChildWindow(colors, ordered: .above) }
         }

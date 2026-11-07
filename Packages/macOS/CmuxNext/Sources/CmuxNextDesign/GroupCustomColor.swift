@@ -178,7 +178,8 @@ public final class GroupColorPanel: NSObject {
         if notify { ended?() }
     }
 
-    @objc private func changed(_ sender: Any?) {
+    /// The panel's action (internal so tests can send a color the way the panel does).
+    @objc func changed(_ sender: Any?) {
         onPick?(NSColorPanel.shared.color)
     }
 }
