@@ -27,7 +27,8 @@ import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
 
