@@ -117,8 +117,9 @@ function Stage({ surface }: Props) {
   );
 }
 
-/// The block each surface's buttons belong to, and the toolbar's last button (Copy, or Wrap where
-/// a tool output has only Wrap).
+/// The block each surface's buttons belong to, and its toolbar's buttons. The plays pick the first
+/// and last by `:first-of-type`/`:last-of-type`, never `:first-child`: a diff's header starts with
+/// the file's name and counts before its buttons.
 const BLOCK: Record<Surface, string> = {
   code: ".cv-codeblock",
   diff: ".cv-edit-diff",
@@ -127,7 +128,7 @@ const BLOCK: Record<Surface, string> = {
 };
 const BUTTONS: Record<Surface, string> = {
   code: ".cv-codeblock .cv-codeblock__actions > button",
-  diff: ".cv-edit-diff__header button",
+  diff: ".cv-edit-diff__header > button",
   output: ".cv-shell__actions > button",
   table: ".cv-table-tools > button",
 };
@@ -141,13 +142,13 @@ const onButton =
   (surface: Surface): Play =>
   async (ctx) => {
     await ctx.hover({ selector: BLOCK[surface] });
-    await ctx.hover({ selector: `${BUTTONS[surface]}:last-child` });
+    await ctx.hover({ selector: `${BUTTONS[surface]}:last-of-type` });
   };
 const pressed =
   (surface: Surface): Play =>
   async (ctx) => {
     await ctx.hover({ selector: BLOCK[surface] });
-    await ctx.pointer.down({ selector: `${BUTTONS[surface]}:first-child` });
+    await ctx.pointer.down({ selector: `${BUTTONS[surface]}:first-of-type` });
   };
 
 const variants = Object.fromEntries(
