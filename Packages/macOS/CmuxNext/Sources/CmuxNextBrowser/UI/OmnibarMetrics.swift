@@ -26,6 +26,9 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     public var toolbarIconSize: CGFloat
     /// The star and other trailing address-bar icons.
     public var trailingIconSize: CGFloat
+    /// The bookmark star's drawing side: `toolbarIconSize` (one ink box with the toolbar's glyphs),
+    /// clamped to the star's button, `trailingIconSize + 2`.
+    public var starIconSize: CGFloat { min(toolbarIconSize, trailingIconSize + 2) }
 
     /// `browser.omnibar.height`'s allowed range in points (the settings row's range,
     /// `BrowserOmnibarSetting.heightRange`; `OmnibarDensityTests` keeps the two equal).
