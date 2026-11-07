@@ -19,4 +19,10 @@ export const VmImage = Schema.Struct({ ...VmImageSelection.fields, displayName: 
 });
 export type VmImage = typeof VmImage.Type;
 
-export class VmImageList extends Schema.Class<VmImageList>("VmImageList")({ items: Schema.Array(VmImage) }) {}
+export class VmImageList extends Schema.Class<VmImageList>("VmImageList")({
+  /** Present when items keep VM_BOOT_IMAGES order: the first is the image in use. Absent from older servers, which sorted by id. */
+  order: Schema.optional(Schema.Literal("configured").annotations({
+    description: "\"configured\": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning.",
+  })),
+  items: Schema.Array(VmImage),
+}) {}
