@@ -24,7 +24,7 @@ import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
-import { FindReveal, foldFind, useFindReveal } from "./chatFind";
+import { activityText, FindReveal, foldFind, useFindReveal } from "./chatFind";
 import { plainText } from "./messageMenu";
 import { AlertCircle, Envelope, ChevronRight } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
@@ -164,22 +164,24 @@ export function SentMessageLine({
   // Find in Chat opens the row. It opens Raw only for a match that is not in the message's words
   // (the command's other parts, its output), as a received message opens its Details.
   const find = useContext(FindReveal);
-  useFindReveal(
-    useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]),
-    () => {
-      setOpen(true);
-      // A command link names this call: the call is behind Raw, so Raw opens to show it.
-      if (find?.toolId !== undefined) {
-        if (find.toolId === tool.id) setRawShown(true);
-      } else {
-        const needle = find?.needle ?? "";
-        // The message's words as they draw, not its Markdown source: a link's address is in the
-        // source but not on screen, so a match there opens Raw, where Find can show it.
-        if (!text || (needle && !foldFind(plainText(text)).includes(needle))) setRawShown(true);
-      }
-      setReveal((value) => value + 1);
-    },
-  );
+  const findItems = useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]);
+  const callText = () => foldFind(findItems.map(activityText).join("\n"));
+  useFindReveal(findItems, () => {
+    setOpen(true);
+    // A command link names this call: the call is behind Raw, so Raw opens to show it.
+    if (find?.toolId !== undefined) {
+      if (find.toolId === tool.id) setRawShown(true);
+    } else {
+      const needle = find?.needle ?? "";
+      // Find counts the call's matches (its command and output, chatFind.ts `activityText`); the
+      // message's words, as they draw, hold some of them. Any more are outside the message (the
+      // output, the rest of the command, a link's address in the Markdown source), behind Raw, so
+      // Raw opens and Next steps into them (`acpmux send lane 'ready'` printing "ready").
+      if (!text || (needle && occurrences(foldFind(plainText(text)), needle) < occurrences(callText(), needle)))
+        setRawShown(true);
+    }
+    setReveal((value) => value + 1);
+  });
   const look = experimentArm(sentMessageLook);
   const chats = useContext(SubsessionContext);
   const store = chats?.store ?? NO_STORE;
@@ -290,6 +292,13 @@ export function SentMessageLine({
       )}
     </DisclosureRow>
   );
+}
+
+/// How many times `needle` occurs in `text`, counted as Find counts (chatFind.ts: no overlaps).
+function occurrences(text: string, needle: string): number {
+  let count = 0;
+  for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) count += 1;
+  return count;
 }
 
 /// A recipient's name and the machine it runs on, as a received message's sender reads

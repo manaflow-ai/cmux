@@ -51,7 +51,7 @@ const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { AcpmuxSendLine, configureSentLook } = await import("../src/agent-session/acpmux/conversation/SentMessageLine");
 const { acpmuxSendCall } = await import("../src/agent-session/acpmux/conversation/acpmuxSends");
-const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+const { FindReveal, activityText, foldFind } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 
@@ -182,6 +182,33 @@ test("Find opens Raw for a match only in a link's address, which the message doe
   const reveal = { rowId: "row-1", card: false, needle: "example.com/results", repaint: () => undefined };
   await draw(<FindReveal.Provider value={reveal}>{sentLine(linked)}</FindReveal.Provider>);
   expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("Find opens Raw for a match in the output as well as the message, and shows the output", async () => {
+  // `acpmux send lane 'ready'` whose reply says "ready" too: Find counts two matches in the call,
+  // one in the message and one in the output. Raw stayed shut because the message held the word,
+  // so Next went back to the message and never showed the output's match (cmux#37879 review).
+  const ready: Tool = {
+    id: "toolu_ready_send",
+    title: "acpmux send lane …",
+    kind: "execute",
+    status: "completed",
+    command: "acpmux send lane 'ready'",
+    output: "lane: ready for the next item",
+    exitCode: 0,
+  };
+  const item: AcpmuxActivity = { kind: "tool", text: ready.title, tool: ready };
+  expect(foldFind(activityText(item)).split("ready").length - 1).toBe(2);
+  const first = { rowId: "row-1", card: false, needle: "ready", repaint: () => undefined };
+  await draw(<FindReveal.Provider value={first}>{sentLine(ready)}</FindReveal.Provider>);
+  expect(host.querySelector(".cv-disclosure__toggle")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-received__text")!.textContent).toContain("ready");
+  // Next: the same row, its second match. Raw is open and its call shows the output's words.
+  const second = { ...first };
+  await draw(<FindReveal.Provider value={second}>{sentLine(ready)}</FindReveal.Provider>);
+  expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("true");
+  const raw = host.querySelector<HTMLElement>(".cv-received__details .cv-sent__raw-body, .cv-sent__raw-body");
+  expect(raw?.textContent).toContain("ready for the next item");
 });
 
 test("a command link to the send call opens its Raw, where the call is", async () => {
