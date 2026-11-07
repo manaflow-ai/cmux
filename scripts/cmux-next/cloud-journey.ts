@@ -1207,12 +1207,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!gwExec && !gatewayLocal) throw e;
           // Through a gateway, what the chat machine's Codex had to reach the edge with: the model-plane files, the
           // machine kind and Codex's auth choice, the provider its config names, and whether a login shell and the
-          // daemon carry the edge's base URL and key (presence only; the key is the public placeholder anyway).
+          // daemon carry the edge's base URL and key (the base URL as edge, other or unset; the key as set or not).
           const probe = [
             `ls /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env" /etc/profile.d/cmux-agents.sh 2>&1 | tr '\\n' ' '`,
             `echo "kind=$(cat /etc/cmux/vm-kind 2>/dev/null) codex-auth=$(cat "$HOME/.config/cmux/agent-auth/codex" 2>/dev/null)"`,
             `grep -nE '^(model_provider|profile) *=|^\\[model_providers' "$HOME/.codex/config.toml" 2>&1 | tr '\\n' ' '`,
-            `bash -lc 'echo "login-shell: base=\${OPENAI_BASE_URL:-unset} key=\${OPENAI_API_KEY:+set}"' 2>&1 | tail -1`,
+            `bash -lc 'case "\${OPENAI_BASE_URL-}" in https://coderouter.cmux.internal*) b=edge ;; "") b=unset ;; *) b=other ;; esac; echo "login-shell: base=$b key=\${OPENAI_API_KEY:+set}"' 2>&1 | tail -1`,
             `for p in $(pgrep -u "$(id -u)" -f 'cmux-tui|acpmux' | head -3); do echo "pid $p: $(tr '\\0' '\\n' < /proc/$p/environ 2>/dev/null | grep -E '^OPENAI_(BASE_URL|API_KEY)=' | sed 's/=.*/=set/' | tr '\\n' ' ')"; done`,
           ].join("; ");
           const d = await exec(probe).catch(() => null);
