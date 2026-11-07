@@ -76,7 +76,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// and Cloud work), so the `cmux` CLI offers it by `cliName`. GUI-only
     /// actions (focus moves, palette navigation, zoom) stay reachable by id
     /// through `cmux action run` (plans/cmux-next/state-ownership.md 5).
-    /// `surfacePlan.cli` decides it (`ActionSurfaceCatalog.cliNamed`).
+    /// `surfacePlan.cli` decides it (the Rust catalog, `cmux-action-catalog`).
     public var cli: Bool { surfacePlan.cli?.isOffered == true }
     /// The action's work is a network round trip whose outcome the caller
     /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
@@ -88,7 +88,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// Such a run may change the view whatever its origin; any other run
     /// only when its origin is the user or it asks with `focus: true`
     /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, ``ActionRunScope``).
-    /// The catalog marks these in `ActionCatalog.focusActionIDs`.
+    /// The Rust catalog (`cmux-action-catalog`) marks these.
     public var focuses: Bool = false
     /// Only a person in the app runs it (palette, menu, keyboard): the
     /// control socket refuses it whatever origin the caller claims, so no
@@ -116,7 +116,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// The action opens a new tab or pane in the window's workspace (New
     /// Terminal Tab, New Tab, a split): over a top page a person's run leaves
     /// the page and runs there (``ActionTopPageRules``). The catalog marks
-    /// these in `ActionCatalog.workspaceContentActionIDs`.
+    /// these in the Rust catalog (`cmux-action-catalog`).
     public var opensWorkspaceContent: Bool = false
 
     public init(
@@ -153,7 +153,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         self.requires = requires
         self.arguments = arguments
         if destructive, !arguments.contains(where: { $0.name == ActionArgument.confirmName }) {
-            self.arguments.append(CatalogArgument.confirmBool)
+            self.arguments.append(ActionArgument.confirmBool)
         }
         self.isDestructive = destructive
         self.startsTerminal = startsTerminal

@@ -20,7 +20,7 @@ import PackageDescription
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
@@ -170,8 +170,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
-/// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
-/// (module CCmuxPaletteRankerFFI) over one Rust runtime. Every
+/// reducer C ABI (module CCmuxLayoutReducerFFI), the palette ranker C ABI
+/// (module CCmuxPaletteRankerFFI) and the action catalog C ABI (module
+/// CCmuxActionCatalogFFI) over one Rust runtime. Every
 /// build links it from one pinned release
 /// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
 /// holds at most three personality routines per image (C++, iroh, this one),
@@ -182,8 +183,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2d7a228cbd4e454d173e300a7fb90bc51a32514f/CCmuxAppFFI.xcframework.zip",
-    checksum: "9e8bcbba41bda423441d16f34c0241468cdcdf64f35656acc485004a9146cd79"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1b4cdef44f246f0fe4f987928d4fd1c579177e6c/CCmuxAppFFI.xcframework.zip",
+    checksum: "bdeb51338921108fee64210ee5e9ab8cf1efef90301626765777778ffe4307c6"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1520,8 +1521,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
-            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups"],
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor). CCmuxAppFFI: the
+            // action catalog (cmux-action-catalog, module CCmuxActionCatalogFFI, RustActionCatalog).
+            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups", "CCmuxAppFFI"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
