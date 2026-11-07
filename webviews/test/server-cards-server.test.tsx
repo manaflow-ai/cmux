@@ -121,6 +121,11 @@ test("the panel draws the status, sends the switch, and opens Health in the same
   await press("[data-server-switch]");
   expect(ops(fake.calls, "cmux.server.send")).toEqual([{ kind: "setEnabled", on: false }]);
   expect(host.querySelector("[data-server-switch]")?.getAttribute("aria-checked")).toBe("false");
+  // Escape is the popover's own (it closes natively): the page leaves it alone.
+  const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  act(() => void document.dispatchEvent(escape));
+  expect(escape.defaultPrevented).toBe(false);
+  expect(ops(fake.calls, "cmux.server.approver.cancel")).toEqual([]);
   await press("[data-row='health']");
   expect(location.hash).toBe("#/server-health");
   expect(host.querySelector("[data-surface='health']")).not.toBeNull();

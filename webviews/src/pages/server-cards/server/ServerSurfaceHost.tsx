@@ -46,12 +46,6 @@ export function ServerSurfaceHost({
 }) {
   const { store, status } = useServerStatus(client);
   const close = () => closeCard(client, route);
-  // The popover's own Escape closes it natively; on the card panel Escape is the card's Cancel.
-  useCardCancel(client, () => {
-    if (route !== ServerRoutes.addServer) return;
-    void store.cancel();
-    close();
-  });
   const actions: ServerActions = {
     send: (intent) => void store.send(intent),
     // Health in the same popover: the popover takes Health's size in the same frame.
@@ -83,10 +77,20 @@ export function ServerSurfaceHost({
         ) : route === ServerRoutes.pairing ? (
           <ServerPairing status={status} actions={actions} strings={strings} />
         ) : (
-          <AddServerCard status={status} actions={addServer} strings={strings} />
+          <>
+            <CardCancel client={client} cancel={addServer.cancel} />
+            <AddServerCard status={status} actions={addServer} strings={strings} />
+          </>
         ))}
     </Frame>
   );
+}
+
+/** Escape on the card panel is the Add Server card's Cancel. Only there: on the popover routes
+ * Escape must reach the popover, which closes itself. */
+function CardCancel({ client, cancel }: { client: PageClient | null; cancel: () => void }) {
+  useCardCancel(client, cancel);
+  return null;
 }
 
 function Frame({ client, route, children }: { client: PageClient | null; route: ServerRoute; children: ReactNode }) {
