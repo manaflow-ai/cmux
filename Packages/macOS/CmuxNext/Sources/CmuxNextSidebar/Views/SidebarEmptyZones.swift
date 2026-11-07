@@ -62,16 +62,20 @@ import AppKit
         list.showDragLayout()
     }
 
+    /// At the lift, before the drag's first look (the rest layout still shows Pinned): a list Pinned the drag empties
+    /// keeps its header and drop row for the whole drag (`keepsPinned`), so its rows can go back.
+    static func keepPinned(_ list: SidebarListView, _ drag: SidebarListDrag) {
+        guard list.displayed.rows.contains(where: { $0.key == .section(.pinned) || $0.key == .emptySection(.pinned) }) else { return }
+        let nodes = list.model.sections.first { $0.id == .pinned }?.nodes ?? []
+        if nodes.allSatisfy({ if case let .workspace(ws) = $0 { drag.hiddenKeys.contains(.workspace(ws.id)) } else { false } }) {
+            drag.keepsPinned = true
+        }
+    }
+
     /// At the lift, after the drag's first look (`displayed`, every zone shut): the zones it can open. A list Pinned
     /// the drag empties keeps its header and zone for the whole drag instead (`keepsPinned`), so the drag can go back.
     /// One layout per drag (for an untitled Pinned), none per move.
     static func begin(_ list: SidebarListView, _ drag: SidebarListDrag) {
-        if list.displayed.rows.contains(where: { $0.key == .section(.pinned) || $0.key == .emptySection(.pinned) }) {
-            let nodes = list.model.sections.first { $0.id == .pinned }?.nodes ?? []
-            if nodes.allSatisfy({ if case let .workspace(ws) = $0 { drag.hiddenKeys.contains(.workspace(ws.id)) } else { false } }) {
-                drag.keepsPinned = true
-            }
-        }
         // A drag the document does not take (a workspace it places nowhere yet) resolves on the list, which drops into
         // no document section: it opens none of theirs.
         let onDocument = drag.docItems != nil

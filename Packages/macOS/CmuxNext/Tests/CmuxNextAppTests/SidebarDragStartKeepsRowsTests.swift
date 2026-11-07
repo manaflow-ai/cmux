@@ -235,6 +235,8 @@ import Testing
         list.press = SidebarPress(key: .workspace(pinned), point: start)
         list.beginDrag(try #require(list.press))
         let drag = try #require(list.drag)
+        #expect(drag.keepsPinned, "the lift did not keep the Pinned it empties")
+        #expect(list.displayed.row(for: .section(.pinned)) != nil, "Pinned's header left at the lift")
         let bottom = (list.displayed.rows.last?.maxY ?? 200) - 4
         var y = start.y
         for target in [bottom, start.y] {
