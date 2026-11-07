@@ -16,7 +16,7 @@
 //! with the 401 the person needs to see (cloud-chaos staging run 42292894478:
 //! seven retries, then the relay gave up, and no sign-in error ever showed).
 //! Its first retry lets an OAuth refresh or a token that is a moment late
-//! (cmux#28111) go through. At the third, acpmux ends the turn as the stalled
+//! (cmux#28111) go through. At the second, acpmux ends the turn as the stalled
 //! end does (`stalled_turn.rs`): the agent gets the cancel, the turn ends
 //! failed with the 401 (`sign_in_refused_error`), and `finish_turn` gives it
 //! the sign-in's kind and recovery text (`claude_auth.rs`, `recovery.rs`).
@@ -103,7 +103,7 @@ fn http_status(info: &Value) -> Option<u64> {
 }
 
 /// The retry at which a model request refused for its sign-in ends the turn (module docs).
-const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 3;
+const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 2;
 
 /// Whether `retry` ([`claude_retry`]'s fields) is Claude Code retrying a request the model API
 /// refused for its sign-in: a 401, or Claude's `authentication_failed`.
