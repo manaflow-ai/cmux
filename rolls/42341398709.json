@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42341398709",
+  "recorded_at": "2026-11-07T05:18:11Z",
+  "reason": "image inputs changed in 34571e9529b8ea39d24b28eaa0fd1a45bc4d20d5..0222649806c347fc01c2b9068f1268a1b75720fe",
+  "dry_run": true,
+  "cmux_tui": "f1c3afd06664b3023f5108703666112ae9848c69",
+  "fixes": [
+    {
+      "sha": "0222649806c347fc01c2b9068f1268a1b75720fe",
+      "mergedAt": "2026-11-06T21:07:45-08:00",
+      "subject": "Cloud VM image roll: fix the 5 review follow-ups before going live (#37409)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T05:18:11Z",
+    "snapshot_id": "sh-6204bfdd1a924543beea99c81f26a261",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42341398709): 34 checks passed"
+  },
+  "promotion": {
+    "result": "dry-run",
+    "job": "success",
+    "commit": "ba5a638b4b99b0a05850ce6b1a6df6ea935b2480",
+    "image": "cloud-native-auto-f1c3afd0-42341398709-1",
+    "revision": "ci-42341398709-1",
+    "at": null
+  },
+  "rolled_back": false
+}
