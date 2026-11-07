@@ -13,7 +13,8 @@
 import { useContext, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
-import { loadPlayableMedia, MediaPlayer, VideoViewer } from "../chips/ReplyMedia";
+import { MediaPlayer, VideoViewer } from "../chips/ReplyMedia";
+import { loadPlayableMedia } from "../chips/replyMediaModel";
 import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
 import { sendMorphRef } from "./sendMorph";
