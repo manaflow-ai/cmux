@@ -238,7 +238,9 @@ public final class GitHubPageProvider: PageProvider {
         let now = ContinuousClock.now
         let kept = details[link.url]
         let entry: Details
-        if let kept, now - kept.began < Self.detailsFreshness || (kept.good && kept.updatedAt == updatedAt) {
+        // A new updatedAt (a comment, a push) reads again at once; the same one reuses a good read, or a
+        // failed one for a minute. The cache's updatedAt moves at most once a minute, so this does too.
+        if let kept, kept.updatedAt == updatedAt, kept.good || now - kept.began < Self.detailsFreshness {
             entry = kept
         } else {
             let reader = detailsReader

@@ -62,6 +62,8 @@ export class GitHubStore {
   /** The checks' own timer, armed only while a job runs or waits and the page is shown. */
   private checksTimer: ReturnType<typeof setTimeout> | undefined;
   private checksAsking = false;
+  /** The newest patch ask per file. */
+  private patchAsks = new Map<string, number>();
   /** Bumped by every new target, so an answer for the one before is dropped. */
   private generation = 0;
 
@@ -188,7 +190,7 @@ export class GitHubStore {
     if (generation !== this.generation) return;
     // A failed read keeps what the page had and asks again with the next answer.
     if (!details) {
-      this.set({ ...this.snapshot, detailsFor: this.snapshot.details ? this.snapshot.detailsFor : undefined });
+      this.set({ ...this.snapshot, detailsFor: undefined });
       return;
     }
     this.set({ ...this.snapshot, details });
@@ -216,6 +218,9 @@ export class GitHubStore {
     if (!target || !this.client) return;
     if (!again && this.snapshot.patches[file]) return;
     const generation = this.generation;
+    // Only the newest ask for a file lands: a reload after a push outruns the older head's answer.
+    const ask = (this.patchAsks.get(file) ?? 0) + 1;
+    this.patchAsks.set(file, ask);
     this.setPatch(file, { state: "loading" });
     let next: FilePatch;
     try {
@@ -233,7 +238,7 @@ export class GitHubStore {
       next = { state: "failed", message: isPageError(error) ? error.message : "" };
     }
     // Dropped when the page left the pull request, or the person folded the file meanwhile.
-    if (generation !== this.generation || !this.snapshot.patches[file]) return;
+    if (generation !== this.generation || !this.snapshot.patches[file] || this.patchAsks.get(file) !== ask) return;
     this.setPatch(file, next);
   }
 

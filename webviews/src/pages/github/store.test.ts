@@ -283,3 +283,43 @@ test("Re-run failed names the runs with a failed job", async () => {
   expect(host.calls.find((each) => each.op === GitHubOps.rerun)?.params).toEqual({ url: MOCK_URL, runs: [9001] });
   expect(store.getSnapshot().rerun).toEqual({ phase: "started" });
 });
+
+test("a failed details refresh asks again with the next answer", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  host.detailsReplies.push({ details: null });
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  // The old details stay on screen, and the next answer asks for them again.
+  expect(store.getSnapshot().details?.body).toBe(mockDetails.body);
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 3 });
+  await store.ask();
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBe(3);
+});
+
+test("an older head's patch never replaces the newer one's", async () => {
+  const host = new RichHost();
+  const releases: ((reply: unknown) => void)[] = [];
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> =>
+    op === GitHubOps.diffFile
+      ? new Promise<R>((resolve) => releases.push(resolve as (reply: unknown) => void))
+      : call<R>(op, params);
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  store.toggleFile("docs/sidebar.md");
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  expect(releases.length).toBe(2);
+  releases[1]!({ patch: "new head" });
+  await settle();
+  releases[0]!({ patch: "old head" });
+  await settle();
+  expect(store.getSnapshot().patches["docs/sidebar.md"]).toEqual({ state: "ready", patch: "new head" });
+});
