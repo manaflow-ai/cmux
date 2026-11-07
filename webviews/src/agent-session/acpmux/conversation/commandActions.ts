@@ -17,6 +17,16 @@ import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxActivity } from "../model";
 import { commandLabelLook, type CommandLabelLook } from "./commandLabel.experiment";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
+import {
+  baseName,
+  isAssignmentOnly,
+  mainStep as workingStep,
+  shellWords,
+  stages,
+  substitutions,
+  unwrap,
+  type Stage,
+} from "./shellSteps";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -32,117 +42,9 @@ export type CommandAction = {
 };
 
 type Act = Omit<CommandAction, "more">;
-type Word = { text: string; raw: string };
 
 // ---------------------------------------------------------------------------------------------
-// Words.
-
-/// A shell step's words, unquoted (`text`) and as typed (`raw`), and `|` between pipeline stages.
-/// `$(…)` and backticks stay inside their word. Steps were split on `&&`, `||`, `;` and newlines
-/// already (shortCommand.ts).
-export function shellWords(step: string): (Word | "|")[] {
-  const out: (Word | "|")[] = [];
-  let text = "";
-  let raw = "";
-  let open = false;
-  let depth = 0;
-  const end = () => {
-    if (open) out.push({ text, raw });
-    text = "";
-    raw = "";
-    open = false;
-  };
-  for (let i = 0; i < step.length; i += 1) {
-    const c = step[i]!;
-    if (depth > 0) {
-      raw += c;
-      text += c;
-      if (c === "(") depth += 1;
-      else if (c === ")") depth -= 1;
-      continue;
-    }
-    if (/\s/.test(c)) {
-      end();
-      continue;
-    }
-    if (c === "|") {
-      end();
-      if (step[i + 1] === "&") i += 1;
-      out.push("|");
-      continue;
-    }
-    open = true;
-    if (c === "'") {
-      const close = step.indexOf("'", i + 1);
-      const stop = close < 0 ? step.length : close;
-      text += step.slice(i + 1, stop);
-      raw += step.slice(i, stop + 1);
-      i = stop;
-    } else if (c === '"') {
-      raw += c;
-      for (i += 1; i < step.length && step[i] !== '"'; i += 1) {
-        if (step[i] === "\\" && i + 1 < step.length) {
-          raw += step[i];
-          i += 1;
-        }
-        raw += step[i];
-        text += step[i];
-      }
-      if (i < step.length) raw += '"';
-    } else if (c === "\\" && i + 1 < step.length) {
-      raw += c + step[i + 1];
-      text += step[i + 1];
-      i += 1;
-    } else if (c === "$" && step[i + 1] === "(") {
-      raw += "$(";
-      text += "$(";
-      depth = 1;
-      i += 1;
-    } else if (c === "`") {
-      const close = step.indexOf("`", i + 1);
-      const stop = close < 0 ? step.length : close;
-      raw += step.slice(i, stop + 1);
-      text += step.slice(i, stop + 1);
-      i = stop;
-    } else {
-      raw += c;
-      text += c;
-    }
-  }
-  end();
-  return out;
-}
-
-/// An output redirect (`2>/dev/null`, `>out.txt`, `2>&1`, `&>log`): `target` when its file is the
-/// next word. Input redirects and heredocs are part of what ran and stay.
-const REDIRECT = /^(?:\d*|&)(?:>>?|>&)(.*)$/;
-function redirect(word: Word): "self" | "target" | undefined {
-  if (/^["'`]/.test(word.raw)) return undefined;
-  const match = REDIRECT.exec(word.raw);
-  if (!match) return undefined;
-  return match[1] ? "self" : "target";
-}
-
-/// A step's pipeline stages, each its words without output redirects.
-function stages(step: string): Word[][] {
-  const out: Word[][] = [[]];
-  let skipNext = false;
-  for (const word of shellWords(step)) {
-    if (word === "|") {
-      out.push([]);
-      continue;
-    }
-    if (skipNext) {
-      skipNext = false;
-      continue;
-    }
-    const kind = redirect(word);
-    if (kind === "target") skipNext = true;
-    if (kind) continue;
-    out.at(-1)!.push(word);
-  }
-  return out.filter((stage) => stage.length > 0);
-}
+// Steps and stages (shellSteps.ts).
 
 /// A stage that only trims or reshapes what came before it: `| head -12`, `| cut -c1-220`, `| wc -l`,
 /// `| sort | uniq`, `| grep -v test`, `| jq .`.
@@ -161,19 +63,71 @@ const FILTERS = new Set([
   "less",
   "more",
 ]);
-function isFilter(stage: Word[]): boolean {
-  const name = baseName(stage[0]!.text);
+function isFilter(stage: Stage): boolean {
+  if (stage.writes) return false;
+  const words = stage.words;
+  const name = baseName(words[0]!.text);
+  if (name === "sort" && words.some((word) => /^-[A-Za-z]*o|^--output/.test(word.raw))) return false;
   if (FILTERS.has(name)) return true;
-  if (name === "cat") return stage.length === 1;
-  if (name === "grep" || name === "rg") return stage.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
+  if (name === "cat") return words.length === 1;
+  if (name === "grep" || name === "rg") return words.some((word) => /^-[A-Za-z]*v[A-Za-z]*$/.test(word.raw));
+  // `| sed -n '1,360p'`: a print of lines, no file, no rewrite.
+  if (name === "sed")
+    return words.length === 3 && words[1]!.raw === "-n" && /^(?:\d+(?:,\d+)?|\$)p$/.test(words[2]!.text);
   return false;
 }
 
-/// The step's main part and whether steps follow it: shortCommand's first step that is not setup
-/// (`cd x &&`, `export …`, `FOO=1`), its program by name.
-function mainStep(command: string): { step: string; more: boolean } {
-  const short = shortCommand(command, ROW_WIDTH);
-  return short.endsWith(" …") ? { step: short.slice(0, -2), more: true } : { step: short, more: false };
+/// A later stage that only reads what came before it, so the first stage's action is all the step
+/// did: a filter, or any grep. Anything else (`| xargs rm`, `| tee out`, `| sh`) may change things.
+function onlyReads(stage: Stage): boolean {
+  const name = baseName(stage.words[0]!.text);
+  return isFilter(stage) || (!stage.writes && ["grep", "rg", "egrep", "fgrep"].includes(name));
+}
+
+/// Code that runs inside a word (`$(…)`, backticks, `<(…)`): the table cannot say what it did.
+const RUNS_INSIDE = /\$\(|`|[<>]\(/;
+
+/// The step that names the command (shellSteps.ts `mainStep`) and whether steps follow it. A
+/// step that is only an assignment names the command its `$(…)` runs: `K=$(pin.sh key | tail -1)`
+/// ran pin.sh. `vars` holds what the assignments before it name (`V=$(ls *.mov)`: `*.mov`).
+function mainStep(command: string): {
+  step: string;
+  more: boolean;
+  vars: Map<string, string[]>;
+  bodies: string[];
+} {
+  let { step, more, before, bodies } = workingStep(command);
+  const vars = new Map<string, string[]>();
+  for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars);
+  for (let depth = 0; depth < 4 && isAssignmentOnly(step); depth += 1) {
+    const inner = shellWords(step).flatMap((word) => (word === "|" ? [] : (substitutions(word.raw) ?? [])))[0];
+    if (!inner) break;
+    const found = workingStep(inner);
+    if (!found.step) break;
+    step = found.step;
+    more ||= found.more;
+    bodies = found.bodies;
+  }
+  return { step, more, vars, bodies };
+}
+
+/// The files an assignment's value names: a path (`F=a/b.json`), or the paths the command in its
+/// `$(…)` names (`V=$(ls "…/0/"*.mov)`).
+function assigned(step: string, vars: Map<string, string[]>) {
+  for (const word of shellWords(step)) {
+    if (word === "|") continue;
+    const at = word.text.indexOf("=");
+    const name = word.text.slice(0, at);
+    const inner = substitutions(word.raw)?.[0];
+    if (inner !== undefined) {
+      const first = stages(workingStep(inner).step)[0];
+      const args = first ? unwrap(first.words.map((part) => part.text)).slice(1) : [];
+      vars.set(name, args.filter(isPathlike).map(baseName));
+    } else {
+      const value = word.text.slice(at + 1);
+      if (isPathlike(value)) vars.set(name, [baseName(value)]);
+    }
+  }
 }
 
 /// The command as a row draws it when the table does not name it: its first step, without output
@@ -183,14 +137,213 @@ export function cleanCommand(command: string): string {
   const { step, more } = mainStep(command);
   const parts = stages(step);
   while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
-  const line = parts.map((stage) => stage.map((word) => word.raw).join(" ")).join(" | ") || step;
+  const line = parts.map((stage, index) => shownWords(stage, index === 0).join(" ")).join(" | ") || step;
   return more ? `${line} …` : line;
+}
+
+/// A stage's words as a row draws them: the first stage without the assignments and wrappers
+/// before its program (`timeout 60`, `FOO=1`), the program by name; code over several lines as its
+/// first line and an ellipsis.
+function shownWords(stage: Stage, first: boolean): string[] {
+  let drop = first ? stage.words.length - unwrap(stage.words.map((word) => word.text)).length : 0;
+  const out: string[] = [];
+  let marker = false;
+  for (const part of stage.shown) {
+    if (part.word && drop > 0) {
+      drop -= 1;
+      continue;
+    }
+    // A heredoc's marker says nothing on the line: its body is not there.
+    if (marker || (part.word && /^<<(?!<)/.test(part.raw))) {
+      marker = !marker && (part.raw === "<<" || part.raw === "<<-");
+      continue;
+    }
+    let raw = part.word && out.length === 0 && first ? programWord(part.raw) : part.raw;
+    if (raw.includes("\n")) raw = firstLine(raw);
+    out.push(raw);
+  }
+  return out;
+}
+
+/// `./scripts/web-lint.sh` reads `web-lint.sh`; a quoted path its last part.
+function programWord(raw: string): string {
+  if (/[$`(]/.test(raw)) return raw;
+  const bare = raw.replace(/^(["'])(.*)\1$/s, "$2");
+  return bare.includes("/") ? baseName(bare) : raw;
+}
+
+/// A word of several lines (an inline script): its first line with words, and an ellipsis.
+function firstLine(raw: string): string {
+  const quote = /^["']/.test(raw) ? raw[0]! : "";
+  const body = quote ? raw.slice(1, raw.endsWith(quote) ? -1 : undefined) : raw;
+  const line = body
+    .split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  return `${quote}${line ?? ""} …${quote}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// A script fed to an interpreter.
+
+/// Interpreters by the language a row names (a proper name, the same in every language).
+const LANGUAGES: Record<string, string> = {
+  python: "Python",
+  python3: "Python",
+  node: "Node.js",
+  deno: "Deno",
+  bun: "Bun",
+  ruby: "Ruby",
+  perl: "Perl",
+  php: "PHP",
+  bash: "Bash",
+  sh: "sh",
+  zsh: "zsh",
+};
+
+/// A file a script names in a string literal: a path, or a name with a data or code suffix.
+const DATA_FILE =
+  /\.(?:jsonl?|txt|md|csv|tsv|log|ya?ml|toml|xcstrings|strings|plist|py|[cm]?[jt]sx?|swift|rs|go|rb|sh|png|jpe?g|gif|webp|mov|mp4|webm|html?|css|sqlite|db|xml|diff|patch)$/i;
+
+/// A script an interpreter runs from a heredoc (`python3 - <<'EOF'`), a here-string (`<<<`) or
+/// code over several lines after `-c`/`-e`, and the first file it names: an argument (`"$F"` as
+/// the file its assignment named), else a path in the script's own strings. Leo, 2026-11-07, on a
+/// live line reading `python3 - <<'EOF'`: "it's just weird, um, that it just says EOF". Only
+/// what the line says: the script reads as a script, never as what it might do.
+export function inlineScript(command: string): { language: string; file?: string; more: boolean } | undefined {
+  const { step, more, vars, bodies } = mainStep(command);
+  const parts = stages(step);
+  while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
+  const stage = parts[0];
+  if (parts.length !== 1 || !stage || stage.writes) return undefined;
+  const texts = stage.words.map((word) => word.text);
+  const lead = texts.length - unwrap(texts).length;
+  const program = texts[lead];
+  const language = program ? LANGUAGES[baseName(program)] : undefined;
+  if (!language) return undefined;
+  let code: string | undefined;
+  const args: string[] = [];
+  const words = stage.words.slice(lead + 1);
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i]!;
+    if (/^<<(?!<)/.test(word.raw)) {
+      code ??= bodies[0] ?? "";
+      if (word.raw === "<<" || word.raw === "<<-") i += 1;
+    } else if (word.raw.startsWith("<<<")) {
+      code ??= word.raw === "<<<" ? (words[(i += 1)]?.text ?? "") : word.text.slice(3);
+    } else if (["-c", "-e", "--eval"].includes(word.raw) && words[i + 1]?.text.includes("\n")) {
+      code ??= words[(i += 1)]!.text;
+    } else if (word.text !== "-" && !word.text.startsWith("-")) args.push(word.text);
+  }
+  if (code === undefined) return undefined;
+  const fromArgs = args.flatMap((arg) => {
+    const ref = /^\$\{?([A-Za-z_]\w*)\}?$/.exec(arg)?.[1];
+    return ref ? (vars.get(ref) ?? []) : isPathlike(arg) ? [baseName(arg)] : [];
+  });
+  const fromCode = [...code.matchAll(/(["'])([^"'\n]{1,200})\1/g)]
+    .map((match) => match[2]!)
+    .filter((text) => isPathlike(text) && !text.includes("://") && DATA_FILE.test(text))
+    .map(baseName);
+  const file = fromArgs[0] ?? fromCode[0];
+  return { language, ...(file ? { file } : {}), more };
+}
+
+/// "Ran a Python script on als.json", "Running a Bash script": the script's words under the row's
+/// own verb, for a row, a running row and the live line.
+export function scriptSaid(t: Translate, command: string, running = false): string | undefined {
+  const noun = scriptNoun(t, command);
+  if (!noun) return undefined;
+  const more = noun.endsWith(" …");
+  const text = t(running ? "tools.runningCommand" : "tools.ranCommand", { command: more ? noun.slice(0, -2) : noun });
+  return more ? `${text} …` : text;
+}
+
+/// The live line's words for a script, without its verb (Thinking.tsx adds "Running"/"Ran").
+export function scriptNoun(t: Translate, command: string): string | undefined {
+  const script = inlineScript(command);
+  if (!script) return undefined;
+  const noun = script.file
+    ? t("command.scriptOn", { language: script.language, file: script.file })
+    : t("command.script", { language: script.language });
+  return script.more ? `${noun} …` : noun;
+}
+
+/// `cat > notes.md <<'EOF'`, `tee notes.md <<EOF`: a heredoc or here-string written to one file,
+/// "Wrote notes.md". An append (`>>`, `tee -a`) or a second file reads as its line.
+function heredocWrite(stage: Stage): Act | undefined {
+  const [program, ...args] = unwrap(stage.words.map((word) => word.text));
+  const input = stage.words.some((word) => word.raw.startsWith("<<<") || /^<<(?!<)/.test(word.raw));
+  if (!input) return undefined;
+  const plain = args.filter((arg) => !arg.startsWith("<<"));
+  const name = baseName(program ?? "");
+  let file: string | undefined;
+  if (name === "cat" && plain.every((arg) => arg === "-" || isMarker(arg)) && stage.targets.length === 1)
+    file = stage.targets[0]!.append ? undefined : stage.targets[0]!.path;
+  else if (name === "tee" && !stage.writes && plain.length === 1 && !plain[0]!.startsWith("-")) file = plain[0];
+  return file ? { key: "tools.wrote.file", values: { file: baseName(file) } } : undefined;
+}
+
+/// A heredoc's end word on its own (`<< 'EOF'` splits into `<<` and `EOF`).
+const isMarker = (word: string) => /^[A-Za-z_][\w.-]*$/.test(word) && word === word.toUpperCase();
+
+// ---------------------------------------------------------------------------------------------
+// A pipeline the table does not name.
+
+/// Interpreters: with `-c`, `-e` or a heredoc their words are code, not arguments.
+const INTERPRETERS = new Set(["python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh", "deno", "bun", "php"]);
+
+function runsCode(stage: Stage): boolean {
+  const [program, ...args] = unwrap(stage.words.map((word) => word.text));
+  if (stage.words.some((word) => word.raw.includes("\n") || word.raw.startsWith("<<"))) return true;
+  return INTERPRETERS.has(baseName(program ?? "")) && args.some((arg) => ["-c", "-e", "--eval", "-"].includes(arg));
+}
+
+/// A path, a file or a glob: `/x/y`, `./a`, `~/b`, `a.json`, `*.mov`.
+function isPathlike(word: string): boolean {
+  if (!word || word.startsWith("-") || /^[{[<]/.test(word) || word.includes("\n") || word.includes("://")) return false;
+  return /[*?]/.test(word) || /^(?:\/|\.{1,2}\/|~\/)/.test(word) || /[^./]\.[A-Za-z0-9]{1,10}$/.test(word);
+}
+
+/// A stage's program and its subcommand words (`acpmux ls`, `lane-gh call get`, `ffmpeg`).
+function stageName(stage: Stage): { name: string; args: string[] } {
+  const [program = "", ...args] = unwrap(stage.words.map((word) => word.text));
+  const name = [baseName(program)];
+  let at = 0;
+  if (!INTERPRETERS.has(name[0]!))
+    while (at < 2 && at < args.length && /^[a-z][a-z_-]*$/.test(args[at]!)) name.push(args[at++]!);
+  return { name: name.join(" "), args: args.slice(at) };
+}
+
+/// A pipeline into code the table cannot read (`ffmpeg … | python3 -c "…"`): its programs, and the
+/// files they ran on, "ffmpeg → python3" and "*.mov". Only what the line says: no meaning is made
+/// up, and a `$V` reads as the files its assignment named. Undefined for any other line, which
+/// reads as written.
+export function pipelineSummary(command: string): { programs: string; files: string[]; more: boolean } | undefined {
+  const { step, more, vars } = mainStep(command);
+  const parts = stages(step);
+  while (parts.length > 1 && isFilter(parts.at(-1)!)) parts.pop();
+  if (parts.length < 2 || !parts.some(runsCode)) return undefined;
+  const files: string[] = [];
+  const names = parts.map((stage) => {
+    const { name, args } = stageName(stage);
+    const code = runsCode(stage);
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i]!;
+      if (code && ["-c", "-e", "--eval"].includes(arg)) {
+        i += 1;
+        continue;
+      }
+      const ref = /^\$\{?([A-Za-z_]\w*)\}?$/.exec(arg)?.[1];
+      const found = ref ? (vars.get(ref) ?? []) : isPathlike(arg) ? [baseName(arg)] : [];
+      for (const file of found) if (!files.includes(file)) files.push(file);
+    }
+    return name;
+  });
+  return { programs: names.join(" → "), files, more };
 }
 
 // ---------------------------------------------------------------------------------------------
 // Arguments.
-
-const baseName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
 
 /// Flags and positionals. `values` lists the flags that take the next word as their value; `--x=y`
 /// and anything after `--` are handled for every program.
@@ -284,10 +437,20 @@ const GIT: Record<string, Rule> = {
       : { key: "command.git.commit" };
   },
   push: (args) => {
-    const { positional, has } = parse(args, ["-o", "--push-option", "--repo"]);
-    if (has("-d", "--delete")) return undefined;
+    // A push that deletes or rewrites says so (`:ref`, `--delete`, `+ref`, `--force`); one that
+    // touches more than one ref, or every ref (`--mirror`, `--all`, `--prune`), reads as its line.
+    const { positional, has } = parse(args, ["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
+    if (has("--mirror", "--all", "--tags", "--prune") || positional.length > 2) return undefined;
     const ref = positional[1];
-    const branch = ref?.slice(ref.lastIndexOf(":") + 1).replace(/^refs\/heads\//, "");
+    const branch = ref
+      ?.slice(ref.lastIndexOf(":") + 1)
+      .replace(/^\+/, "")
+      .replace(/^refs\/heads\//, "");
+    if (has("-d", "--delete") || ref?.startsWith(":"))
+      return branch ? { key: "command.git.deleteRemoteBranch", values: { branch } } : undefined;
+    const force = ref?.startsWith("+") || has("-f", "--force", "--force-with-lease", "--force-if-includes");
+    if (force)
+      return branch ? { key: "command.git.forcePushBranch", values: { branch } } : { key: "command.git.forcePush" };
     return branch ? { key: "command.git.pushBranch", values: { branch } } : { key: "command.git.push" };
   },
   checkout: (args) => switchTo(args, ["-b", "-B"]),
@@ -313,11 +476,16 @@ const GIT: Record<string, Rule> = {
   },
 };
 
+/// A path where a branch would be (`.`, `./src`, `*.ts`): checkout restores files from it.
+const PATHLIKE = /^(?:\.{1,2}(?:\/|$)|\/)|[*?[]/;
+
 function switchTo(args: string[], create: string[]): Act | undefined {
-  const { positional, value } = parse(args, create);
+  const { positional, value, has } = parse(args, create);
+  // A checkout or switch that throws away local changes reads as its line.
+  if (has("-f", "--force", "--discard-changes", "-m", "--merge", "--overwrite-ignore")) return undefined;
   const made = value(...create);
   if (made) return { key: "command.git.newBranch", values: { branch: made } };
-  if (args.includes("--") || positional.length !== 1) return undefined;
+  if (args.includes("--") || positional.length !== 1 || PATHLIKE.test(positional[0]!)) return undefined;
   return { key: "command.git.switch", values: { branch: positional[0]! } };
 }
 
@@ -354,7 +522,11 @@ const GH: Record<string, Record<string, Rule>> = {
     list: () => ({ key: "command.gh.prList" }),
     checks: (args) => target("command.gh.prChecks", "pr", ghTarget(args)),
     diff: (args) => target("command.gh.prDiff", "pr", ghTarget(args)),
-    merge: (args) => target("command.gh.prMerge", "pr", ghTarget(args)),
+    // A merge that also deletes the branch or overrides the rules reads as its line.
+    merge: (args) =>
+      args.some((arg) => ["-d", "--delete-branch", "--admin"].includes(arg))
+        ? undefined
+        : target("command.gh.prMerge", "pr", ghTarget(args)),
     create: () => ({ key: "command.gh.prCreate" }),
   },
   issue: {
@@ -551,6 +723,11 @@ const PROGRAMS: Record<string, Rule> = {
   gh: (args) => {
     const [group, sub, ...rest] = args;
     if (group === "api") {
+      // Only a read: another method, or a field (which makes it a POST), reads as its line.
+      const api = parse(args.slice(1), ["-X", "--method"]);
+      const method = api.value("-X", "--method");
+      if ((method && method.toUpperCase() !== "GET") || api.has("-f", "-F", "--field", "--raw-field", "--input"))
+        return undefined;
       const path = parse(args.slice(1), [
         ...GH_VALUES,
         "-X",
@@ -576,27 +753,34 @@ const PROGRAMS: Record<string, Rule> = {
   ls: (args) => listed(parse(args, ["-I", "--ignore", "-w", "--width"]).positional[0]),
   eza: (args) => listed(parse(args).positional[0]),
   tree: (args) => listed(parse(args, ["-L", "-I", "-P"]).positional[0]),
-  find: (args) => listed(args.find((arg) => !arg.startsWith("-"))),
+  // A find or fd that runs or deletes something reads as its line.
+  find: (args) =>
+    args.some((arg) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/.test(arg))
+      ? undefined
+      : listed(args.find((arg) => !arg.startsWith("-"))),
   fd: (args) =>
-    listed(
-      parse(args, [
-        "-e",
-        "--extension",
-        "-t",
-        "--type",
-        "-d",
-        "--max-depth",
-        "-E",
-        "--exclude",
-        "-x",
-        "--exec",
-        "-X",
-        "--exec-batch",
-        "-c",
-        "--color",
-      ]).positional[1],
-    ),
+    args.some((arg) => ["-x", "--exec", "-X", "--exec-batch"].includes(arg))
+      ? undefined
+      : listed(
+          parse(args, [
+            "-e",
+            "--extension",
+            "-t",
+            "--type",
+            "-d",
+            "--max-depth",
+            "-E",
+            "--exclude",
+            "-x",
+            "--exec",
+            "-X",
+            "--exec-batch",
+            "-c",
+            "--color",
+          ]).positional[1],
+        ),
   cat: (args) => readFiles(args),
+  nl: (args) => readFiles(args, ["-b", "-w", "-s", "-v", "-i", "-n"]),
   bat: (args) =>
     readFiles(args, ["-r", "--line-range", "-l", "--language", "--style", "--theme", "-H", "--highlight-line"]),
   head: (args) => readFiles(args, ["-n", "-c", "--lines", "--bytes"]),
@@ -663,7 +847,8 @@ const PROGRAMS: Record<string, Rule> = {
   },
   "lane-gh": (args): Act | undefined => {
     const [sub, , third, ...rest] = args;
-    if (sub === "push" && third) return { key: "command.git.pushBranch", values: { branch: third } };
+    if (sub === "push" && third && !args.some((arg) => /^(?:-f|-d|--force.*|--delete)$/.test(arg)))
+      return { key: "command.git.pushBranch", values: { branch: third } };
     if (sub === "search" && (third || rest.length))
       return { key: "command.searchedGithub", values: { query: subject([third, ...rest].filter(Boolean).join(" ")) } };
     return undefined;
@@ -695,39 +880,20 @@ function fromTo(key: StringKey, args: string[]): Act | undefined {
   return paths.length === 2 ? { key, values: { from: baseName(paths[0]!), to: baseName(paths[1]!) } } : undefined;
 }
 
-/// Wrappers that run the program after them: `sudo`, `timeout 20`, `env A=1`, `nice -n 5`, `npx`.
-function unwrap(words: string[]): string[] {
-  let rest = words;
-  for (;;) {
-    const head = rest[0];
-    if (head === undefined) return rest;
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head)) {
-      rest = rest.slice(1);
-      continue;
-    }
-    const name = baseName(head);
-    const drop = (values: string[]) => {
-      let i = 1;
-      while (i < rest.length && rest[i]!.startsWith("-")) i += values.includes(rest[i]!) ? 2 : 1;
-      return i;
-    };
-    if (name === "sudo") rest = rest.slice(drop(["-u", "-g", "-C", "-D", "-h", "-p", "-U"]));
-    else if (name === "timeout" || name === "gtimeout") {
-      const at = drop(["-s", "--signal", "-k", "--kill-after"]);
-      rest = rest.slice(at + 1);
-    } else if (name === "env") rest = rest.slice(drop(["-u", "--unset", "-C", "--chdir", "-S"]));
-    else if (name === "nice") rest = rest.slice(drop(["-n", "--adjustment"]));
-    else if (["time", "command", "exec", "nohup", "npx", "bunx", "uvx"].includes(name)) rest = rest.slice(drop([]));
-    else return rest;
-  }
-}
-
 /// What a command did, from the table; undefined for anything it does not list.
 export function commandAction(command: string): CommandAction | undefined {
   const { step, more } = mainStep(command);
-  const first = stages(step)[0];
-  if (!first) return undefined;
-  const words = unwrap(first.map((word) => word.text));
+  // The first stage names the step only when nothing else in it changes anything: no write to a
+  // file, no code run inside a word, and only filters after it.
+  if (RUNS_INSIDE.test(step)) return undefined;
+  const parts = stages(step);
+  const first = parts[0];
+  if (parts.length === 1 && first) {
+    const wrote = heredocWrite(first);
+    if (wrote) return { ...wrote, ...(more ? { more } : {}) };
+  }
+  if (!first || first.writes || !parts.slice(1).every(onlyReads)) return undefined;
+  const words = unwrap(first.words.map((word) => word.text));
   const [program, ...args] = words;
   if (!program) return undefined;
   const rule = PROGRAMS[baseName(program)];
@@ -758,18 +924,38 @@ export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = c
   const command = tool.command?.trim();
   if (!command || look === "command" || look === "cleaned") return undefined;
   const description = tool.description?.trim() || undefined;
-  if (running(tool)) return undefined;
+  // A running script reads as one, never as its heredoc marker (`python3 - <<'EOF'`).
+  if (running(tool)) return scriptSaid(t, command, true);
+  // A call that failed or that a hook blocked never takes the table's past tense: "Merged PR #101"
+  // would claim a merge that never happened. Its description (what it set out to do) or its line
+  // names it, and the row's failure mark ("blocked by hook", "Exit 1") says how it ended.
+  if (tool.status === "failed") return look === "verbs-command" ? undefined : description;
   const action = commandAction(command);
-  if (look === "description") return description ?? (action && actionText(t, action));
+  if (look === "description" && description) return description;
+  if (look === "description")
+    return action ? actionText(t, action) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
   // A compound command's first step is all the table names; a description says what the whole did.
   if (action && !(action.more && description)) return actionText(t, action);
-  return description;
+  return description ?? pipelineSaid(t, command) ?? scriptSaid(t, command);
 }
 
-/// The line a command row draws when nothing names it, "Ran <line>": as typed for the `command`
-/// look, else without the plumbing after it.
-export function commandLine(command: string, look: CommandLabelLook = commandLook()): string {
-  return look === "command" ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
+/// A pipeline into inline code reads as its programs and files, "Ran ffmpeg → python3 on *.mov"
+/// (Leo, 2026-11-07: "surely you can make it, like, stretch across the line a little bit more");
+/// the row's CSS ellipsis cuts what does not fit.
+function pipelineSaid(t: Translate, command: string): string | undefined {
+  const summary = pipelineSummary(command);
+  if (!summary) return undefined;
+  const text = summary.files.length
+    ? t("command.ranOn", { command: summary.programs, target: summary.files.join(", ") })
+    : t("tools.ranCommand", { command: summary.programs });
+  return summary.more ? `${text} …` : text;
+}
+
+/// The line a command row draws when nothing names it, "Ran <line>": a finished call's without the
+/// plumbing after it; as written (its setup left out, whitespace one space) for the `command` look,
+/// a running call and the live line, which name what is running (#36940).
+export function commandLine(command: string, look: CommandLabelLook = commandLook(), finished = true): string {
+  return look === "command" || !finished ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
 }
 
 /// A finished group of commands that all did one kind of thing: "Searched memory twice", "Read 3
@@ -782,6 +968,8 @@ export function commandGroupSaid(
   look: CommandLabelLook = commandLook(),
 ): string | undefined {
   if (look === "command" || look === "cleaned" || tools.length < 2 || tools.some(running)) return undefined;
+  // One failed call and the group's action would claim it for all of them.
+  if (tools.some((tool) => tool.status === "failed")) return undefined;
   const actions: CommandAction[] = [];
   for (const tool of tools) {
     const action = tool.command ? commandAction(tool.command) : undefined;

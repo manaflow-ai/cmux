@@ -70,7 +70,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
   const look = commandLook();
-  const short = commandLine(tool.command ?? "", look);
+  const short = commandLine(tool.command ?? "", look, !isRunning(tool));
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
