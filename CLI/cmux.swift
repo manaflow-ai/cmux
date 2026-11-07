@@ -9698,7 +9698,7 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
-        case "report_pwd", "report_git_branch", "report_pr_action":
+        case "report_pwd", "report_git_branch", "clear_git_branch", "report_pr_action":
             print(try forwardSidebarMetadataCommand(command, commandArgs: commandArgs, client: client, windowOverride: windowId))
         case "clear-status":
             let response = try forwardSidebarMetadataCommand(

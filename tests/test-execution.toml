@@ -21,6 +21,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_clear_git_branch_forwarding.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
