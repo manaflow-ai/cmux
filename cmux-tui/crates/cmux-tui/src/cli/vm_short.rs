@@ -117,7 +117,21 @@ pub(super) enum Resolved {
 }
 
 pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
+    // Not loaded yet, the app lists no VMs: say to retry, never that you have none or that a
+    // `vm_…` id is the VM API's.
+    if listed.get("loaded") == Some(&Value::Bool(false)) {
+        return Resolved::Refused(retryable(refusal(
+            "cloud.not_loaded",
+            "the cmux app has not loaded your Cloud VMs yet",
+            "run this command again in a moment",
+            json!({}),
+        )));
+    }
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    // A VM the app is still making (`creating`, not failed): you have it, it is not listed yet.
+    let making = listed.get("creating").and_then(Value::as_array).is_some_and(|rows| {
+        rows.iter().any(|row| row.get("status").and_then(Value::as_str) != Some("failed"))
+    });
     let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
     let titles: Vec<String> = rows.iter().filter_map(|row| text(row, "title")).collect();
     let Some(named) = named else {
@@ -125,6 +139,12 @@ pub(super) fn resolve(named: Option<&str>, listed: &Value) -> Resolved {
             [only] => {
                 text(only, "machine_id").map_or_else(|| refused_unknown("", &titles), Resolved::Id)
             }
+            [] if making => Resolved::Refused(retryable(refusal(
+                "cloud.vm_starting",
+                "your Cloud VM is still being made",
+                LIST,
+                json!({}),
+            ))),
             [] => Resolved::Refused(refusal(
                 "cloud.no_machines",
                 "you have no Cloud VMs",
@@ -168,6 +188,24 @@ fn refused_unknown(named: &str, titles: &[String]) -> Resolved {
         LIST,
         json!({"name": named, "names": titles}),
     ))
+}
+
+/// Why `short`'s words do not make a command, if they do not: a VM named two ways, or a name
+/// given to `ls`, which lists every VM.
+pub(super) fn misuse(short: &Short) -> Option<&'static str> {
+    match (short.named.is_some(), short.targeted, short.cloud_verb) {
+        (true, true, _) => Some("name the VM by position or with --target, not both"),
+        (true, _, "list-machines") => Some("`cmux vm ls` lists every VM; it takes no name"),
+        _ => None,
+    }
+}
+
+/// `error`, marked retryable.
+fn retryable(mut error: Value) -> Value {
+    if let Some(map) = error.as_object_mut() {
+        map.insert("retryable".to_owned(), json!(true));
+    }
+    error
 }
 
 /// A refusal whose message and `details.next` say what to run next.
@@ -221,8 +259,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     let action = format!("cloud {}", short.cloud_verb);
-    if short.named.is_some() && short.targeted {
-        return Some(usage(&global, "name the VM by position or with --target, not both"));
+    if let Some(message) = misuse(&short) {
+        return Some(usage(&global, message));
     }
     let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,

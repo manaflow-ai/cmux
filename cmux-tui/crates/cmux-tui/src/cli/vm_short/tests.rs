@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{Resolved, Short, app_list, cloud_words, parse, resolve};
+use super::{Resolved, Short, app_list, cloud_words, misuse, parse, resolve};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -106,4 +106,35 @@ fn the_vm_api_keeps_its_options_and_its_verbs_without_a_signed_in_app() {
     assert_eq!(refused.get("code"), Some(&json!("cloud.signed_out")));
     assert_eq!(app_list(&status, Err(gone.clone())), Err(Some(gone)));
     assert_eq!(app_list(&pause, Ok(listed())), Ok(listed()));
+}
+
+/// #37470's review at 4942a86a (F1): an app that has not loaded its VMs, or is still making
+/// one, says to retry; it never says you have none, nor sends a `vm_…` id to the VM API.
+#[test]
+fn an_unloaded_list_or_a_vm_being_made_is_a_retry() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    for named in [None, Some("dev"), Some("vm_abc")] {
+        let Resolved::Refused(error) = resolve(named, &unloaded) else { panic!("{named:?}") };
+        assert_eq!(error.get("code"), Some(&json!("cloud.not_loaded")), "{named:?}");
+        assert_eq!(error.get("retryable"), Some(&json!(true)));
+    }
+    let making =
+        json!({"machines": [], "creating": [{"creation_id": "c-1", "status": "creating"}]});
+    let Resolved::Refused(error) = resolve(None, &making) else { panic!("making") };
+    assert_eq!(error.get("code"), Some(&json!("cloud.vm_starting")));
+    assert_eq!(error.get("retryable"), Some(&json!(true)));
+    let failed = json!({"machines": [], "creating": [{"creation_id": "c-1", "status": "failed"}]});
+    let Resolved::Refused(error) = resolve(None, &failed) else { panic!("failed") };
+    assert_eq!(error.get("code"), Some(&json!("cloud.no_machines")));
+}
+
+/// F2: `ls` lists every VM, so a name is a mistake, not a filter that is dropped.
+#[test]
+fn ls_takes_no_name_and_a_vm_is_named_one_way() {
+    let ls = |typed: &[&str]| misuse(&parse(&words(typed)).unwrap());
+    assert!(ls(&["vm", "ls", "typo"]).is_some());
+    assert!(ls(&["vm", "pause", "dev", "--target", "machine:vm_a1"]).is_some());
+    assert_eq!(ls(&["vm", "ls"]), None);
+    assert_eq!(ls(&["vm", "ls", "--json"]), None);
+    assert_eq!(ls(&["vm", "pause", "dev"]), None);
 }
