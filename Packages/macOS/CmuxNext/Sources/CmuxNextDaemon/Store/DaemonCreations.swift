@@ -81,6 +81,17 @@ import Foundation
         return store.intentLog.replacedAStandIn(surface) && !store.intentLog.entries.contains { $0.createdSurface == surface && ($0.closeWhenCreated || $0.standInClosed) }
     }
 
+    /// Whether `pane`'s tab `id` is what stand-in tab `standIn` became, so it may take the stand-in's cell and selection: the daemon
+    /// named it as a creation's (``tookAStandInsPlace(tab:in:)``), or it carries the terminal host id the stand-in's creation
+    /// minted (a dock's fresh tab, which no reply names). Never a tab moved in, a script's, or a closed stand-in's (F1 on #38085).
+    public func became(standIn: String, tab id: String, in pane: PaneModel) -> Bool {
+        guard !tookAStandInsPlace(tab: id, in: pane) else { return true }
+        guard let terminal = pane.tabs.first(where: { $0.id == id })?.snapshot.terminalID else { return false }
+        return store.intentLog.entries.contains { entry in
+            !entry.closeWhenCreated && !entry.standInClosed && entry.kind.standInTab.map { $0.tabResourceID?.rawValue == standIn && $0.terminalID == terminal } == true
+        }
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 
