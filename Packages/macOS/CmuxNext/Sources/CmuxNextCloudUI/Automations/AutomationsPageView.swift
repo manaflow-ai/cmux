@@ -115,6 +115,7 @@ public struct AutomationsPageView: View {
                 }
             }
         }
+        .thinScrollers()
     }
 
     @ViewBuilder private var detail: some View {

@@ -3289,7 +3289,6 @@ button.cv-video-frames__name:focus-visible {
   gap: 4px;
   max-width: 100%;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 .cv-video-frames__grid {
   display: grid;
