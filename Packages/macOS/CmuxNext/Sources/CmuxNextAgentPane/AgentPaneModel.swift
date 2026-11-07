@@ -763,10 +763,12 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .dictationHandoff:
-            // It posts keys into whichever app is in front: only for the person's own click or key in the
-            // pane, spent once. Not the page's `userGesture`: a page counts a click another process
-            // posted as a gesture too, and posted input never earns this credit (AgentPaneUserGestures).
-            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            // It posts keys into whichever app is in front: only for the person's own click on the mic,
+            // just now (``AgentPaneUserGestures/answerWindow``), spent once. Not the page's
+            // `userGesture` (a page counts a click another process posted too) and not the generic
+            // credit, which any key press leaves for half a minute, so page script cannot wait for
+            // unrelated typing and spend it here. A key on the mic goes through Globe-D instead.
+            guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
             return dictationHandoff.reply(composer)
         case .dictationSources:
             let sources = dictationHandoff.sources()

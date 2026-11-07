@@ -138,6 +138,10 @@ import Testing
         let pageOnly = await model.respond(to: .dictationHandoff, userGesture: true)
         #expect(pageOnly["ok"] as? Bool != true)
         #expect(posted.presses.isEmpty)
+        // A key press the person typed elsewhere in the pane leaves a credit, but not a click: refused.
+        model.transport.gestures.record()
+        _ = await model.respond(to: .dictationHandoff, userGesture: true)
+        #expect(posted.presses.isEmpty)
         // The person's own click in the pane (AgentPaneView's judge records it), spent once.
         model.transport.gestures.record(click: true)
         _ = await model.respond(to: .dictationHandoff, userGesture: true)
