@@ -284,3 +284,27 @@ test("a value the host sets wins over the secure text the person typed", async (
   act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
   expect(presses.at(-1)?.values).toEqual({ password: "swordfish" });
 });
+
+test("the card tells the host a frame after it drew, once per dialog", async () => {
+  installDom();
+  let painted = 0;
+  root = createRoot(dom!.window.document.getElementById("root")!);
+  await act(async () => {
+    root!.render(
+      <OverlayDialog
+        dialog={quit}
+        onPress={() => {}}
+        onEdit={() => {}}
+        onLayout={() => {}}
+        onPainted={() => painted++}
+      />,
+    );
+  });
+  expect(painted).toBe(0);
+  for (let frame = 0; frame < 10 && painted === 0; frame++) {
+    await act(async () => {
+      await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+    });
+  }
+  expect(painted).toBe(1);
+});

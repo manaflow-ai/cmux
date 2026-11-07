@@ -30,6 +30,10 @@ export class DialogStore {
     void this.client.call("cmux.overlay.dialog.press", { id, button, values }).catch(() => {});
   }
 
+  painted(id: number) {
+    void this.client.call("cmux.overlay.dialog.painted", { id }).catch(() => {});
+  }
+
   layout(id: number, card: { x: number; y: number; w: number; h: number }) {
     void this.client.call("cmux.overlay.dialog.layout", { id, card }).catch(() => {});
   }

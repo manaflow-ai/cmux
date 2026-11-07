@@ -23,6 +23,7 @@ function DialogRoute({ store }: { store: DialogStore }) {
       onEdit={(values) => store.edit(dialog.id, values)}
       onPress={(button, values) => store.press(dialog.id, button, values)}
       onLayout={onLayout}
+      onPainted={() => store.painted(dialog.id)}
     />
   );
 }

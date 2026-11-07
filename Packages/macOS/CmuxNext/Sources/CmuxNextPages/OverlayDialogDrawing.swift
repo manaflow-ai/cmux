@@ -51,10 +51,7 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         content.addSubview(parking, positioned: .below, relativeTo: nil)
         parking.addSubview(shown.container)
         let wait = OverlayDialogDrawWait(container: shown.container, parking: parking, ready: ready)
-        provider.whenCardLaidOut(dialog) { [weak page = shown.page] in
-            guard let page else { return wait.finish() }
-            page.whenPainted { wait.finish() }
-        }
+        provider.whenCardPainted(dialog) { wait.finish() }
         wait.deadline.schedule(after: Self.drawDeadline) { @MainActor in wait.finish() }
     }
 
@@ -65,15 +62,20 @@ public final class OverlayDialogDrawing: CmuxDialogDrawing {
         guard let (container, page) = views.removeValue(forKey: ObjectIdentifier(dialog)) else { return }
         // The card keeps what it shows through the overlay host's fade; it takes no more presses.
         pool.provider(of: page)?.retire()
-        container.releasePageWhenOffScreen { [pool] in pool.release(page) }
+        // Scrubbed before it waits for the next dialog: the page drops the card, and with it what the
+        // person typed (a password), once the fade is over.
+        container.releasePageWhenOffScreen { [pool] in
+            pool.provider(of: page)?.show(nil)
+            pool.release(page)
+        }
         // The next dialog is drawn ahead, before it is asked.
         pool.prewarm()
     }
 }
 
 /// The dialog route's ops: the page subscribes to `cmux.overlay.dialog.state` (the dialog it draws,
-/// or none) and calls `cmux.overlay.dialog.edit {id, values}`, `.press {id, button, values}` and
-/// `.layout {id, card}`.
+/// or none) and calls `cmux.overlay.dialog.edit {id, values}`, `.press {id, button, values}`,
+/// `.layout {id, card}` and `.painted {id}`.
 @MainActor
 final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     private weak var dialog: CmuxDialogPresentation?
@@ -86,6 +88,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
+        paintedDialog = nil
         focusSerial = 0
         valuesSerial = 0
         shows = 0
@@ -95,9 +98,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     /// The dialog ended: the page keeps drawing it while it fades, and its presses go nowhere.
     func retire() {
         // A dialog that ended before its card was drawn: its wait ends now.
-        let waiters = cardLaidOut
-        cardLaidOut = []
-        waiters.forEach { $0() }
+        endPaintWaits()
         dialog = nil
         container = nil
     }
@@ -115,12 +116,20 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     /// a secure field's too, over what the person typed.
     private var valuesSerial = 0
 
-    /// Who waits for the shown dialog's first card layout (``OverlayDialogDrawing/whenDrawn(_:in:_:)``).
-    private var cardLaidOut: [() -> Void] = []
+    /// Who waits for the shown dialog's card to paint (``OverlayDialogDrawing/whenDrawn(_:in:_:)``): the
+    /// page says so (`painted`) a frame after it drew this dialog, not the document's first paint.
+    private var cardPainted: [() -> Void] = []
+    private var paintedDialog: ObjectIdentifier?
 
-    func whenCardLaidOut(_ dialog: CmuxDialogPresentation, _ body: @escaping () -> Void) {
+    func whenCardPainted(_ dialog: CmuxDialogPresentation, _ body: @escaping () -> Void) {
         guard dialog === self.dialog else { return body() }
-        if dialog.cardRect != nil { body() } else { cardLaidOut.append(body) }
+        if paintedDialog == ObjectIdentifier(dialog) { body() } else { cardPainted.append(body) }
+    }
+
+    private func endPaintWaits() {
+        let waiters = cardPainted
+        cardPainted = []
+        waiters.forEach { $0() }
     }
 
     func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {
@@ -158,9 +167,9 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
             let rect = CGRect(x: x, y: (dialog.view?.isFlipped ?? false) ? y : height - y - h, width: w, height: h)
             dialog.cardRect = rect
             container?.placeCard(rect)
-            let waiters = cardLaidOut
-            cardLaidOut = []
-            waiters.forEach { $0() }
+        case "cmux.overlay.dialog.painted":
+            paintedDialog = ObjectIdentifier(dialog)
+            endPaintWaits()
         default:
             throw PageError.unknownOp(op)
         }

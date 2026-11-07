@@ -14,9 +14,11 @@ export interface OverlayDialogProps {
   onPress(button: string, values: Record<string, DialogValue>): void;
   /** The card's rect in the page (CSS px), after each layout. */
   onLayout(card: { x: number; y: number; w: number; h: number }): void;
+  /** The card has been on screen a frame: the host fades it in then. */
+  onPainted?(): void;
 }
 
-export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDialogProps) {
+export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: OverlayDialogProps) {
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
@@ -58,6 +60,18 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
     observer.observe(document.documentElement);
     return () => observer.disconnect();
   }, [cardNode, onLayout]);
+
+  // Two frames after the card mounted, one of them has drawn it: the host waits for this, not the
+  // document's first paint, since a pooled page drew an earlier dialog.
+  const painted = useRef(onPainted);
+  painted.current = onPainted;
+  useLayoutEffect(() => {
+    if (!cardNode) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => painted.current?.());
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [cardNode]);
 
   // The buttons on one line, right-aligned, when they fit; else stacked the card's width with the
   // default on top, as a native alert stacks buttons that do not fit (four quit choices, a long locale).
