@@ -51,7 +51,11 @@ fn a_keyed_create_terminal_restates_no_other_workspace() {
             };
             assert!(
                 workspace != Some(public("a").as_str()),
-                "a create in {name} restated workspace a's {resource:?} {id:?}"
+                "a create in {name} restated workspace a's {resource:?} {id:?} (fold seeded {}, \
+                 projections {}, batches {:?})",
+                mux.workspace_registry.lock().unwrap().public_fold_seeded(),
+                serde_json::to_value(mux.resource_projection_stats()).unwrap(),
+                page.batches.iter().map(|batch| batch.changes.as_array().map_or(0, Vec::len)).collect::<Vec<_>>()
             );
         }
     }
