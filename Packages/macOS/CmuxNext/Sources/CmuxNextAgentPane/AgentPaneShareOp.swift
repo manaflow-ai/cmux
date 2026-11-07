@@ -73,7 +73,7 @@ extension AgentPaneModel {
     func shareOp(_ op: AgentPaneShareOp, userGesture: Bool) async -> [String: Any] {
         guard let onShareOp else { return Self.unsupported("share.op") }
         if op.needsGesture, !(userGesture || transport.gestures.consume()) {
-            return AgentPaneReply.failure(code: "gesture_required", message: AgentPaneStrings.transportFailedMessage)
+            return AgentPaneReply.failure(code: "gesture_required", message: Self.transportFailedMessage)
         }
         switch await onShareOp(op) {
         case .value(let value)?: return AgentPaneReply.success(value)
