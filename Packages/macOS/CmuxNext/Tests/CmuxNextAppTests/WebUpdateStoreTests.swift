@@ -25,6 +25,10 @@ import Testing
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/index.html": "s\n",
         "Native/OptChat/optchat-chief/inspector/index.html": "i\n",
     ]
+    /// Measured, never derived by hand: write ``files`` and the empty agent-activity folder
+    /// (``makeTree(at:)``) into a scratch ROOT, then run
+    /// `python3 -I scripts/cmux-next/web-bundle-key.py ROOT --outputs`. A change to the script's
+    /// `OUTPUTS` changes this value.
     static let treeDigest = "82ba929a93ebcc51609a84991ecf129ff7036ba20694bee83abe737ed152e704"
 
     static func makeTree(at root: URL) throws {
