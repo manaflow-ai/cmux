@@ -29,6 +29,7 @@ import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb, keepThumb } from "./imagePool";
+import { imageSize, MAX_DECODE_PIXELS } from "./imageWork";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
@@ -178,21 +179,27 @@ export type PendingAttachment = {
   preview?: string;
 };
 
-/// Past this, a loading tile shows no picture of the file itself: its preview is what shows. A
-/// display choice only; the file attaches whatever its size.
-const INSTANT_PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
+/// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
+/// made: its `data:` URL is a string the page holds and parses on its main thread, and three 8 MB
+/// screenshots' stalled typing (agent-pane-paste-large-screenshots). A display choice only: the file
+/// attaches whatever its size.
+const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
 /// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
 /// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
-/// too large to be worth it, or that cannot be read here (a test's DOM).
-function instantPreview(file: File | MadeFile): Promise<string | undefined> {
+/// past INSTANT_PREVIEW_MAX_BYTES, whose header gives no size, or whose pixels pass the limit its
+/// preview is held to (imageWork.ts MAX_DECODE_PIXELS: a small file can decode to gigabytes), or that
+/// cannot be read here (a test's DOM). Such a tile shows its kind's glyph until its preview is made.
+export async function instantPreview(file: File | MadeFile): Promise<string | undefined> {
   if (
     isMadeFile(file) ||
     !isImageFile(file) ||
     file.size > INSTANT_PREVIEW_MAX_BYTES ||
     typeof FileReader === "undefined"
   )
-    return Promise.resolve(undefined);
+    return undefined;
+  const size = await imageSize(file).catch(() => undefined);
+  if (!size?.width || !size.height || size.width * size.height > MAX_DECODE_PIXELS) return undefined;
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -223,8 +230,6 @@ export function chipRemoved(state: {
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
 type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: SourceKind, again?: string) => Promise<void>;
-
-const NO_FAILURES: Readonly<Record<string, string>> = Object.freeze({});
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
 const PARKED_MAX = 16;
@@ -713,11 +718,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
     return true;
   });
-  /// The original of staged image `id` was not saved (`failed`, why). The failure is recorded
-  /// whatever the chat; only its Retry's visibility depends on where the agent runs
-  /// (`originalFailures` below). Nothing retries on its own: an upload only ever runs from a Retry
-  /// click, in the chat that shows it (Leo, 2026-11-07: "idk why we even show the retry symbol then
-  /// (do we even retry?").
+  /// The original of staged image `id` was not saved (`failed`, why): its chip shows Retry, local
+  /// chat or not, since saving it again is a real retry (a prompt too large for one message goes
+  /// with links to the originals only once they are saved, promptBudget.ts). Nothing retries on its
+  /// own: an upload only ever runs from a Retry click, in the chat that shows it.
   const [originalMissed] = useState(
     () => (id: string, failed: string) => setOriginalFailures((now) => ({ ...now, [id]: failed })),
   );
@@ -846,10 +850,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     setAttachments,
     pending: shown,
     // A chat on this Mac shows none, also one carried in from a chat on another machine.
-    // A chat whose agent runs on this Mac (`localChat`, from its machine) shows no Retry over an
-    // image whose original was not saved: its preview sends as it is, and nothing is blocked. The
-    // failure is kept, so carried to a chat on another machine its Retry shows there.
-    originalFailures: options.localChat === true ? NO_FAILURES : originalFailures,
+    originalFailures,
     originalUploads,
     loading,
     unsettled,

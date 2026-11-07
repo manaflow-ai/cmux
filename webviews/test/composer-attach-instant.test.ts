@@ -1,17 +1,14 @@
 // Leo, 2026-11-07, on a pasted screenshot's chip in a chat on this Mac with a retry arrow over its
 // thumbnail: "do we EVER block them? we dont need to right? since they're local chats anyways? idk
 // why we even show the retry symbol then (do we even retry? i mean it's just going to the path
-// right? hell can't we make this all "appear" a lot faster if shit's just file paths at a certain
+// right? heck can't we make this all "appear" a lot faster if stuff's just file paths at a certain
 // point?"
 //
-// - A pasted image shows its picture at once, from the file itself (an object URL), while its
-//   preview is still being made: never a blank spinner tile until the scale and base64 step ends.
-// - In a chat on this Mac, an image's original that could not be saved beside it never puts a
-//   retry arrow over its thumbnail: its preview sends as it is, and the save tries again on the
-//   person's next key or click without a word.
+// A pasted image shows its picture at once, from the file itself (a `data:` URL the browser makes
+// off the main thread), while its preview is still being made: never a blank spinner tile until
+// the scale and base64 step ends.
 //
-// The page is the pane's dev entry with the in-page mock transport, a chat on this Mac whose host
-// answers nothing (so `chat.upload.begin` starts no upload: the original's save fails).
+// The page is the pane's dev entry with the in-page mock transport.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -54,16 +51,7 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
       Object.assign(window, {
         webkit: {
           messageHandlers: {
-            // Counts the host's answers to `chat.upload.begin` (null: no upload starts).
-            agentSession: {
-              postMessage: async (message: unknown) => {
-                if (JSON.stringify(message ?? null).includes("chat.upload.begin")) {
-                  const counted = window as unknown as { uploadBegins?: number };
-                  counted.uploadBegins = (counted.uploadBegins ?? 0) + 1;
-                }
-                return { ok: true, value: null };
-              },
-            },
+            agentSession: { postMessage: async () => ({ ok: true, value: null }) },
           },
         },
         cmuxAcpmuxActions: {
@@ -77,7 +65,7 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
     return page;
   }
 
-  /// Pastes one large noisy screenshot (heavy to decode and scale) and answers how long, from the
+  /// Pastes one Retina screenshot and answers how long, from the
   /// paste, until a picture first showed in the prompt (an `img` drawn with pixels), and whether its
   /// chip was still loading then.
   const pasteAndTime = (page: Page) =>
@@ -148,22 +136,6 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
     // Before its preview is made, in most pastes: the file's own picture decodes beside the
     // preview's scale and encode, so a fast machine may finish both in one frame now and then.
     expect(whileLoading).toBeGreaterThanOrEqual(3);
-    await page.close();
-  });
-
-  test("a chat on this Mac never puts a retry arrow over a pasted image whose original was not saved", async () => {
-    const page = await newChat();
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
-    await pasteAndTime(page);
-    await page.locator(".acpmux-md-inline-chip[data-state='ready'] .acpmux-attachment-image img").first().waitFor();
-    // The original's save was asked for and refused (the mock host starts no upload), and its
-    // answer has painted.
-    await page.waitForFunction(() => ((window as unknown as { uploadBegins?: number }).uploadBegins ?? 0) > 0);
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)))),
-    );
-    expect(await page.locator(".acpmux-attachment-original-retry").count()).toBe(0);
-    expect(await page.locator(".acpmux-attachment-retry").count()).toBe(0);
     await page.close();
   });
 });

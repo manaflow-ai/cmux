@@ -272,63 +272,11 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
 
-// Leo, 2026-11-07: "since they're local chats anyways? idk why we even show the retry symbol then".
-// A chat on this Mac shows no Retry over an image whose original was not saved, also when the chip
-// failed in a chat on another machine and the prompt was carried here; the preview still sends.
-test("a chat on this Mac shows no Retry over an image whose original was not saved", async () => {
-  const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
-    allowImages: true,
-    pasteTarget: () => undefined,
-    scope,
-    carries: () => true,
-    localChat,
-    upload: async () => ({ error: "The disk is full." }),
-  });
-  const handle: { current: Intake | null } = { current: null };
-  root = createRoot(host);
-  act(() => root!.render(<Harness options={options("remote", false)} handle={handle} />));
-  await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
-  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
-  act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
-  expect(handle.current!.originalFailures).toEqual({});
-  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
-  await act(() => handle.current!.attach([png("other.png")], true));
-  await until(() => handle.current!.attachments.length === 2);
-  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(handle.current!.originalFailures).toEqual({});
-  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
-  expect(promptBlocks("", handle.current!.attachments).map((block) => block.type)).toEqual(["image", "image"]);
-});
-
-// Review (Astra) at 3e6f0649: `localPaths` is no proof the agent is local (a New Tab may start the
-// chat in the Cloud), and a failure carried into a chat on this Mac and back shows its Retry again.
-test("Retry stays for a chat not known to be local, and comes back when carried back from one", async () => {
-  const options = (scope: string, local: "chat" | "paths" | "none"): AttachmentIntakeOptions => ({
-    allowImages: true,
-    pasteTarget: () => undefined,
-    scope,
-    carries: () => true,
-    ...(local === "chat" ? { localChat: true } : {}),
-    ...(local === "paths" ? { localPaths: async () => undefined } : {}),
-    upload: async () => ({ error: "The disk is full." }),
-  });
-  const handle: { current: Intake | null } = { current: null };
-  root = createRoot(host);
-  act(() => root!.render(<Harness options={options("newtab", "paths")} handle={handle} />));
-  await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
-  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
-  act(() => root!.render(<Harness options={options("local", "chat")} handle={handle} />));
-  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
-  act(() => root!.render(<Harness options={options("cloud", "none")} handle={handle} />));
-  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
-});
-
-// Review (Sol) at 3c7e1e46: a failure in a chat on this Mac is still recorded, so a draft carried to
-// a chat on another machine shows Retry there; and nothing uploads on its own, so a key in another
-// chat never sends this image to that chat's machine.
-test("a local failure carried to another machine shows Retry there, and nothing uploads on its own", async () => {
+// Review (Sol) at 04641cba: saving an image's original again is a real retry in a chat on this Mac
+// too (a prompt too large for one message goes with links to the originals only once they are
+// saved), so its Retry shows there, before and after a carry; and nothing uploads on its own, so a
+// key in another chat never sends this image to that chat's machine.
+test("an image whose original was not saved shows Retry in a local chat too, and nothing uploads on its own", async () => {
   const uploads: string[] = [];
   const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
     allowImages: true,
@@ -345,9 +293,8 @@ test("a local failure carried to another machine shows Retry there, and nothing 
   root = createRoot(host);
   act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
   await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => uploads.length === 1 && handle.current!.attachments.length === 1);
-  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
   act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
   for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
   // An upload that should never start has no event to wait for; one task turn lets a listener's
