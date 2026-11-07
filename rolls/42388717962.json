@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42388717962",
+  "recorded_at": "2026-11-07T16:03:46Z",
+  "reason": "cmux-tui d7e68decb837 changes the image's cmux-tui (pinned 293a7a2712f7)",
+  "dry_run": false,
+  "cmux_tui": "d7e68decb8376f7a8d7b6a8686f257e62640ddf5",
+  "fixes": [
+    {
+      "sha": "d7e68decb8376f7a8d7b6a8686f257e62640ddf5",
+      "mergedAt": "2026-11-07T07:41:41-08:00",
+      "subject": "remote: a signal ends a client's first dial, not only its startup timeout (#37906)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T16:03:46Z",
+    "snapshot_id": "sh-d5aec656fa654187b8d469bb1e709d51",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42388717962): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1d7f64e1645c696504d26cb0307bfd2e9d4747b7",
+    "image": "cloud-native-auto-d7e68dec-42388717962-1",
+    "revision": "ci-42388717962-1",
+    "at": "2026-11-07T16:03:46Z"
+  },
+  "rolled_back": false
+}
