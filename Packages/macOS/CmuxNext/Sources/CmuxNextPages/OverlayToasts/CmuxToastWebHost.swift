@@ -50,7 +50,7 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
     /// The toasts' page pool. A first click in an inactive window presses a toast's button, as the
     /// native toast's buttons did (review of #37289 at 97fe7eab, F1), not only the window.
     static func makePool() -> OverlayPagePool<CmuxToastPageProvider> {
-        OverlayPagePool(route: "/toasts", acceptsFirstMouse: true) { CmuxToastPageProvider() }
+        OverlayPagePool(route: "/toasts", acceptsFirstMouse: false) { CmuxToastPageProvider() }
     }
     private var stacks: [ObjectIdentifier: Stack] = [:]
 
