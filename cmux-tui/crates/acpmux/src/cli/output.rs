@@ -204,7 +204,7 @@ impl PromptId {
         if let Some(name) = &self.from_agent {
             mux["fromAgent"] = json!(name);
             if let Some(harness) = &self.from_harness {
-                mux["fromHarness"] = json!(harness);
+                mux.set("fromHarness", json!(harness));
             }
         }
         if let Some(key) = &self.supersede {
