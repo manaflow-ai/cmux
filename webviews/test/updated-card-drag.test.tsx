@@ -84,10 +84,11 @@ function stage() {
   const scope = globalThis as Record<string, unknown>;
   const savedElement = scope.HTMLElement;
   scope.HTMLElement = dom.window.HTMLElement;
-  const pointer = (type: string, x: number, y: number, at: number, target: Element = section) => {
+  const pointer = (type: string, x: number, y: number, at: number, target: Element = section, buttons = 1) => {
     const event = new dom.window.Event(type, { bubbles: true });
     for (const [key, value] of Object.entries({
       button: 0,
+      buttons,
       pointerId: 1,
       clientX: x,
       clientY: y,
@@ -193,6 +194,48 @@ test("a press let go off the card before the slop ends there: a later move drags
     pointer("pointermove", 100, 200, 300);
     expect(section.dataset.dragging).toBeUndefined();
     expect(log).toEqual([]);
+  } finally {
+    close();
+  }
+});
+
+test("a press let go outside the page view sends no pointerup: a later move with no button drags nothing", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    // Released over the native sidebar, outside the card-sized page view: the page hears no pointerup.
+    pointer("pointermove", 100, 300, 200, section, 0);
+    pointer("pointermove", 100, 200, 300, section, 0);
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log).toEqual([]);
+  } finally {
+    close();
+  }
+});
+
+test("a held card whose release was missed drops on the first move with no button", () => {
+  const { log, pointer, section, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 400, 100);
+    pointer("pointermove", 100, 380, 200, section, 0);
+    pointer("pointermove", 100, 200, 300, section, 0);
+    expect(section.dataset.dragging).toBeUndefined();
+    expect(log.at(-1)).toBe("drop bottom 0,-40");
+    expect(log.filter((line) => line.startsWith("drop"))).toHaveLength(1);
+  } finally {
+    close();
+  }
+});
+
+test("the drop starts from where the pointer was let go, not from its last move", () => {
+  const { log, pointer, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointermove", 100, 400, 100);
+    pointer("pointerup", 100, 390, 1100);
+    expect(log.at(-2)).toBe("move 0,-20");
+    expect(log.at(-1)).toBe("drop bottom 0,-30");
   } finally {
     close();
   }
