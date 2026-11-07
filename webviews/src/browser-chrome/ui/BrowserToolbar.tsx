@@ -125,8 +125,8 @@ export function rowMetricsStyle(m: ToolbarRowMetrics): CSSProperties {
 }
 
 /** Icon sizes: the Standard density's, or the host's. */
-type IconSizes = { toolbar: number; chip: number; trailing: number };
-const STANDARD_ICONS: IconSizes = { toolbar: 20, chip: 16, trailing: 18 };
+type IconSizes = { toolbar: number; chip: number; trailing: number; star: number };
+const STANDARD_ICONS: IconSizes = { toolbar: 20, chip: 16, trailing: 18, star: 20 };
 
 /** A press that must not move DOM focus out of the field. */
 const keepFocus = (event: ReactMouseEvent) => event.preventDefault();
@@ -641,10 +641,10 @@ function Omnibar({
           onMouseDown={holdsFocus ? keepFocus : undefined}
           onClick={() => send({ type: "bookmark" })}
         >
-          {/* icon-scale-allow: the native omnibar's trailing icon is 18 pt (OmnibarMetrics.trailingIconSize) */}
+          {/* icon-scale-allow: the star draws at the toolbar glyph side, one ink box with the arrows and the puzzle (OmnibarMetrics.starIconSize) */}
           <Icon
             name={state.bookmark === "on" ? "browser.omnibox.star.active" : "browser.omnibox.star"}
-            size={icons.trailing}
+            size={icons.star}
           />
         </button>
       )}
@@ -706,7 +706,7 @@ export function BrowserToolbar({
     );
   const loading = navigation.loading;
   const icons: IconSizes = metrics
-    ? { toolbar: metrics.toolbarIcon, chip: metrics.chipIcon, trailing: metrics.trailingIcon }
+    ? { toolbar: metrics.toolbarIcon, chip: metrics.chipIcon, trailing: metrics.trailingIcon, star: metrics.starIcon }
     : STANDARD_ICONS;
   const sizes = metrics ? rowMetricsStyle(metrics) : standardStyle;
   const hold = holdsFieldFocus;
