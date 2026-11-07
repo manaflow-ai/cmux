@@ -50,6 +50,8 @@ const SETUP_DEADLINE: Duration = Duration::from_secs(30 * 60);
 const TEARDOWN_DEADLINE: Duration = Duration::from_secs(60);
 /// How long a stopped setup has after SIGTERM before SIGKILL.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+/// How often a running setup looks for another host's cancel file.
+const CANCEL_POLL: Duration = Duration::from_millis(250);
 /// Ports go out in blocks of ten from here, below the ephemeral range.
 const FIRST_PORT: u16 = 40_000;
 const PORT_BLOCK: u16 = 10;
@@ -189,7 +191,7 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run) {
     let _ = write_status(&status_path, status);
     let outcome = shell(place, setup, status.port, &log, SETUP_DEADLINE, Some((handle, status)));
     status.pid = None;
-    if handle.is_cancelled() {
+    if cancelled() {
         let _ = writeln!(log, "Stopped: the worktree is being removed.");
     }
     match outcome {
@@ -282,22 +284,41 @@ fn shell(
         Ok(child) => child,
         Err(error) => return Outcome::NotStarted(error.to_string()),
     };
+    // A setup also ends when another session host removes the worktree:
+    // that host leaves the cancel file, and only this one signals the
+    // group it started.
+    let cancel = setup.is_some().then(|| place.git_dir.join(CANCEL_FILE));
     if let Some((_, status)) = setup {
         status.pid = Some(child.id());
         let _ = write_status(&place.git_dir.join(STATUS_FILE), status);
     }
-    match child.wait_timeout(deadline) {
-        Ok(Some(status)) => Outcome::Exited(status.code()),
-        Ok(None) | Err(_) => {
-            signal_group(child.id(), Signal::Terminate);
-            let _ = child.wait_timeout(STOP_GRACE);
-            // What is left of the group (a child that ignores SIGTERM) goes too.
-            signal_group(child.id(), Signal::Kill);
-            let _ = child.kill();
-            let _ = child.wait();
-            Outcome::TimedOut
+    let started = Instant::now();
+    loop {
+        let left = deadline.saturating_sub(started.elapsed());
+        match child.wait_timeout(left.min(CANCEL_POLL)) {
+            Ok(Some(status)) => return Outcome::Exited(status.code()),
+            Ok(None) if left > CANCEL_POLL => {
+                if cancel.as_ref().is_some_and(|cancel| cancel.exists()) {
+                    end_group(&mut child);
+                    return Outcome::Exited(None);
+                }
+            }
+            Ok(None) | Err(_) => {
+                end_group(&mut child);
+                return Outcome::TimedOut;
+            }
         }
     }
+}
+
+/// SIGTERM to the group `child` leads, then SIGKILL for whatever is left
+/// (a child that ignores SIGTERM).
+fn end_group(child: &mut std::process::Child) {
+    signal_group(child.id(), Signal::Terminate);
+    let _ = child.wait_timeout(STOP_GRACE);
+    signal_group(child.id(), Signal::Kill);
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Runs a worktree's teardown before it is removed, after stopping a setup
@@ -424,35 +445,26 @@ fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
 /// A copy stops at its next file and a setup that has not started never
 /// does; a running setup's group gets SIGTERM, then SIGKILL for whatever is
 /// left. A setup another session host started (or one from before a
-/// restart) is told to stop copying by a file, and stopped by the process
-/// group its status file names once it runs.
+/// restart) is told to stop by a file, and waited for.
 fn stop(place: &Place) {
     let handle = running().lock().unwrap_or_else(PoisonError::into_inner).get(&place.root).cloned();
     let Some(handle) = handle else {
-        // Copying, or about to start the setup: no process to signal yet.
-        let starting = |status: Option<Status>| {
-            status.is_some_and(|status| {
-                status.state == "copying" || (status.state == "running" && status.pid.is_none())
+        // Another session host's setup: it stops itself on the cancel file.
+        // A pid from a status file is never signalled here, since after a
+        // crash or a restart it may name someone else's process.
+        let unfinished = |status: Option<Status>| {
+            status.is_some_and(|status| match status.state.as_str() {
+                "copying" => true,
+                "running" => status.pid.is_none_or(group_alive),
+                _ => false,
             })
         };
-        if starting(read_status(&place.git_dir)) {
+        if unfinished(read_status(&place.git_dir)) {
             let _ = fs::write(place.git_dir.join(CANCEL_FILE), b"");
-            let deadline = Instant::now() + STOP_GRACE;
-            while starting(read_status(&place.git_dir)) && Instant::now() < deadline {
+            let deadline = Instant::now() + CANCEL_POLL + STOP_GRACE * 2;
+            while unfinished(read_status(&place.git_dir)) && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(50));
             }
-        }
-        if let Some(pid) = read_status(&place.git_dir)
-            .filter(|status| status.state == "running")
-            .and_then(|status| status.pid)
-            .filter(|pid| group_alive(*pid))
-        {
-            signal_group(pid, Signal::Terminate);
-            let deadline = Instant::now() + STOP_GRACE;
-            while group_alive(pid) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            signal_group(pid, Signal::Kill);
         }
         return;
     };
@@ -688,5 +700,30 @@ mod tests {
         assert_eq!(values["CONDUCTOR_ROOT_PATH"], "/repo");
         assert_eq!(values["CMUX_WORKSPACE_NAME"], "fix-login");
         assert_eq!(values["CONDUCTOR_PORT"], "40010");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_setup_stops_itself_when_another_host_removes_the_worktree() {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("cmux-setup-stop-{hex}"));
+        fs::create_dir_all(&root).unwrap();
+        let place = Place { root: root.clone(), main_root: None, git_dir: root.clone() };
+        let log = File::create(root.join(LOG_FILE)).unwrap();
+        let cancel = root.join(CANCEL_FILE);
+        let other_host = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            fs::write(cancel, b"").unwrap();
+        });
+        let (handle, mut status) = (Run::default(), Status::default());
+        let started = Instant::now();
+        let outcome =
+            shell(&place, "sleep 30", None, &log, SETUP_DEADLINE, Some((&handle, &mut status)));
+        other_host.join().unwrap();
+        assert!(matches!(outcome, Outcome::Exited(None)));
+        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+        fs::remove_dir_all(root).unwrap();
     }
 }

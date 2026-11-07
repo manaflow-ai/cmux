@@ -166,7 +166,7 @@ pub(crate) fn copy(
 }
 
 /// The paths (relative to `root`) the patterns select: each positive
-/// pattern's matches whose last matching pattern is not a `!`, and whether
+/// pattern's matches that [`deciding`] keeps, and whether
 /// the walk stopped at its folder budget before it was done.
 pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> (Vec<PathBuf>, bool) {
     let mut budget = Budget { left: MAX_VISITED_DIRECTORIES, ran_out: false };
@@ -184,18 +184,24 @@ pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> (Vec<PathBuf>, bool) 
     let selected = found
         .into_iter()
         .filter(|(path, is_directory)| {
-            last_match(patterns, path, *is_directory).is_some_and(|pattern| !pattern.negated)
+            deciding(patterns, path, *is_directory).is_some_and(|pattern| !pattern.negated)
         })
         .map(|(path, _)| path)
         .collect();
     (selected, budget.ran_out)
 }
 
-/// The last pattern that matches `path`: the one that decides it.
-fn last_match<'a>(patterns: &'a [Pattern], path: &Path, is_directory: bool) -> Option<&'a Pattern> {
+/// The pattern that decides `path`: the last one in the list that matches
+/// it or one of its folders, so `!private/` after `**/*.env` keeps
+/// `private/token.env` out, and `private/*.env` after `!private/` takes it
+/// back.
+fn deciding<'a>(patterns: &'a [Pattern], path: &Path, is_directory: bool) -> Option<&'a Pattern> {
     let names: Vec<String> = path.iter().map(|name| name.to_string_lossy().into_owned()).collect();
     patterns.iter().rev().find(|pattern| {
-        (!pattern.directory_only || is_directory) && matches(&pattern.segments, &names)
+        (1..=names.len()).any(|depth| {
+            let folder = depth < names.len() || is_directory;
+            (!pattern.directory_only || folder) && matches(&pattern.segments, &names[..depth])
+        })
     })
 }
 
@@ -347,7 +353,7 @@ impl Copier<'_> {
             return;
         }
         let Ok(metadata) = fs::symlink_metadata(&source) else { return };
-        if last_match(self.patterns, relative, metadata.is_dir()).is_some_and(|last| last.negated) {
+        if deciding(self.patterns, relative, metadata.is_dir()).is_some_and(|last| last.negated) {
             return;
         }
         let link_there =
@@ -370,10 +376,6 @@ impl Copier<'_> {
             }
             return;
         }
-        if fs::symlink_metadata(&destination).is_ok() {
-            self.report.kept += 1;
-            return;
-        }
         let made = if metadata.file_type().is_symlink() {
             if !fs::canonicalize(&source).is_ok_and(|target| target.starts_with(&self.source_root))
             {
@@ -382,10 +384,14 @@ impl Copier<'_> {
             }
             fs::read_link(&source).and_then(|target| symlink(&target, &destination))
         } else {
-            fs::copy(&source, &destination).map(|_| ())
+            copy_new(&source, &destination, &metadata)
         };
         match made {
             Ok(()) => self.report.copied += 1,
+            // The worktree's own file (one saved since the walk began too).
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                self.report.kept += 1;
+            }
             Err(error) => {
                 Report::note(&mut self.report.problems, format!("{}: {error}", relative.display()));
             }
@@ -403,6 +409,29 @@ impl Copier<'_> {
             .is_some_and(|path| path.starts_with(&self.destination_root))
             && fs::create_dir_all(parent).is_ok()
     }
+}
+
+/// Copies a file to a new `destination`, never replacing or writing
+/// through what is there: the create is exclusive and does not follow a
+/// link.
+fn copy_new(source: &Path, destination: &Path, metadata: &fs::Metadata) -> std::io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        options.custom_flags(libc::O_NOFOLLOW).mode(metadata.permissions().mode() & 0o7777);
+    }
+    #[cfg(not(unix))]
+    let _ = metadata;
+    let mut target = options.open(destination)?;
+    let copied = fs::File::open(source).and_then(|mut file| std::io::copy(&mut file, &mut target));
+    if let Err(error) = copied {
+        drop(target);
+        let _ = fs::remove_file(destination);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -493,6 +522,41 @@ mod tests {
         assert_eq!(report.kept, 1);
         fs::remove_dir_all(source).unwrap();
         fs::remove_dir_all(destination).unwrap();
+    }
+
+    #[test]
+    fn a_later_folder_pattern_decides_what_is_inside_it() {
+        let source = scratch("source");
+        let destination = scratch("destination");
+        for folder in ["private", "public", "back"] {
+            fs::create_dir_all(source.join(folder)).unwrap();
+            fs::write(source.join(folder).join("token.env"), folder).unwrap();
+        }
+        let patterns = lines("**/*.env\n!private/\n!back/\nback/*.env\n");
+        let report = copy(&source, &destination, &patterns, &|| false);
+        assert!(!destination.join("private/token.env").exists());
+        assert!(destination.join("public/token.env").is_file());
+        assert!(destination.join("back/token.env").is_file());
+        assert_eq!(report.copied, 2);
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_writes_through_a_link_the_worktree_has() {
+        let source = scratch("source");
+        let destination = scratch("destination");
+        let elsewhere = scratch("elsewhere");
+        fs::write(source.join(".env"), "SECRET=1").unwrap();
+        fs::write(elsewhere.join("target"), "mine").unwrap();
+        std::os::unix::fs::symlink(elsewhere.join("target"), destination.join(".env")).unwrap();
+        let report = copy(&source, &destination, &lines(".env\n"), &|| false);
+        assert_eq!(fs::read_to_string(elsewhere.join("target")).unwrap(), "mine");
+        assert_eq!((report.copied, report.kept), (0, 1));
+        for folder in [source, destination, elsewhere] {
+            fs::remove_dir_all(folder).unwrap();
+        }
     }
 
     #[cfg(unix)]
