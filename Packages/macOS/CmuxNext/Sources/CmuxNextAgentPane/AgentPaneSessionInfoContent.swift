@@ -921,7 +921,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
     /// Lights the grip's box while the pointer is in it.
     private func trackGrip(_ event: NSEvent) {
-        guard let hit = gripHitRect, event.window != nil else { return }
+        guard let hit = gripHitRect, window != nil else { return }
         gripHovered = hit.contains(convert(event.locationInWindow, from: nil))
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
