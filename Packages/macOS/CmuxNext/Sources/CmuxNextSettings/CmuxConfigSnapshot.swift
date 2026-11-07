@@ -19,8 +19,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
-    public var uiScale: Double = UIScaleSetting().fallback
-    public var interfaceScale: Double = InterfaceScaleSetting().fallback
+    public var uiScale: Double = UIScaleSetting.fallback
+    public var interfaceScale: Double = InterfaceScaleSetting.placeholder
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -197,9 +197,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "tabs" when unset or invalid.
-    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
+    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorDefault
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
-    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
+    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleDefault
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
@@ -263,7 +263,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// theme's `selection-background`; nil (the theme's) when unset or invalid.
     public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
-    public var accent: ThemeAccent = AccentSetting().fallback
+    public var accent: ThemeAccent = AccentSetting.fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -411,11 +411,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
+            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorDefault)
         snapshot.focusIndicator = indicator
         if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
         let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
+            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleDefault)
         snapshot.inactiveTabStyle = inactiveTabStyle
         if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
@@ -503,7 +503,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.customDensities = CustomDensitiesSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        if let custom = root.value(at: CustomDensitySelectionSetting().configPath) {
+        if let custom = root.value(at: CustomDensitySelectionSetting.configPath) {
             if let id = custom.stringValue, snapshot.customDensities.contains(where: { $0.id == id }) {
                 snapshot.customDensity = id
             } else {

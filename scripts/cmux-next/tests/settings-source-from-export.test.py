@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 EXPORT = ROOT / "schemas/settings/settings-schema.json"
 # Fields of a source row the export does not carry (Swift names, developer notes, legacy aliases).
-SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases"}
+SOURCE_ONLY = {"name", "note", "swift_enum", "swift_owner", "aliases", "choices_from"}
 
 
 def load(name, path):
@@ -61,6 +61,9 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     if drafted.get("palette_shown") and source.get("page_hidden"):
                         # The export does not carry the reason of a row the palette still offers.
                         drafted["page_hidden"] = source["page_hidden"]
+                    if "choices_from" in row:
+                        # The source lists the leading choices; the Swift member lists the rest.
+                        drafted["choices"] = drafted["choices"][:len(source["choices"])]
                     self.assertEqual(source, drafted, "%s: %s" % (path, row["key"]))
                     self.assertEqual((entry["section"], entry["group"]), (exported["section"], exported["group"]), row["key"])
                     order.append(self.rows.index(exported))
