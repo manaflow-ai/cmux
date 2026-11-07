@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42359530580",
+  "recorded_at": "2026-11-07T09:30:33Z",
+  "reason": "cmux-tui b3c7f3863363 changes the image's cmux-tui (pinned e905d8ad6bc4)",
+  "dry_run": false,
+  "cmux_tui": "b3c7f386336373a2e8d3817bead8bd98800ccd09",
+  "fixes": [
+    {
+      "sha": "b3c7f386336373a2e8d3817bead8bd98800ccd09",
+      "mergedAt": "2026-11-07T01:10:15-08:00",
+      "subject": "Gemini plan approvals show their plan: acpmux reads the plan file for the approval card (#34456)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:30:33Z",
+    "snapshot_id": "sh-c6061ed2a3c54283874a8cdd967dbe81",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42359530580): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ccab8f6552f63722f7a4f29dc50d6a78658fbdf6",
+    "image": "cloud-native-auto-b3c7f386-42359530580-1",
+    "revision": "ci-42359530580-1",
+    "at": "2026-11-07T09:30:33Z"
+  },
+  "rolled_back": false
+}
