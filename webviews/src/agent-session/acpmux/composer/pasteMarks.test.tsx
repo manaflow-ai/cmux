@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { promptBlocks } from "../attachments";
 import { agentText, readsAsAgent } from "../agentText";
-import { PasteChip } from "../conversation/PromptText";
+import { PasteChip, PromptText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember } from "./pasteMarks";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
@@ -36,11 +36,16 @@ test("a pasted handoff goes as a pasted block beside the person's typed line", (
   expect(texts[1]._meta).toEqual({ cmux: { pasted: true } });
 });
 
-// (d) A typed prompt, and a short one-line paste in it (a path), stay the person's own text.
-test("typed text and a short one-line paste stay the person's", () => {
+// (d) A typed prompt, and an ordinary paste in it (a path, a few lines, a dictation app's paragraph),
+// stay the person's own text (ask-42dfdea96c): only agent output or an oversized paste is marked.
+test("typed text and an ordinary paste stay the person's", () => {
   expect(marksPaste("src/app.ts")).toBe(false);
-  expect(marksPaste("one\ntwo")).toBe(true);
-  expect(marksPaste("x".repeat(200))).toBe(true);
+  expect(marksPaste("one\ntwo")).toBe(false);
+  expect(marksPaste("x".repeat(515))).toBe(false);
+  // Review of #37516 (F3): measured untrimmed, as the chip was, so space around a paste just past
+  // the limit cannot drop its mark when Edit in Prompt puts it back.
+  expect(marksPaste(`${"x".repeat(9_990)}${" ".repeat(20)}`)).toBe(true);
+  expect(marksPaste(Array.from({ length: 751 }, (_, n) => `w${n}`).join(" "))).toBe(true);
   const prompt = { text: `${MINE} see src/app.ts`, attachments: [] };
   expect(markPastes(prompt, remember([], "src/app.ts"))).toBe(prompt);
   const blocks = promptBlocks(prompt.text, prompt.attachments);
@@ -90,7 +95,7 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-function render(text: string): HTMLElement {
+function render(text: string, node?: React.ReactNode): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
@@ -106,7 +111,7 @@ function render(text: string): HTMLElement {
   const host = dom.window.document.getElementById("root")!;
   act(() => {
     root = createRoot(host);
-    root.render(<PasteChip rowId="row" index={0} text={text} needle="" onOpen={() => {}} />);
+    root.render(node ?? <PasteChip rowId="row" index={0} text={text} needle="" onOpen={() => {}} />);
   });
   return host;
 }
@@ -134,4 +139,52 @@ test("a plain paste's card stays Pasted text", () => {
   const host = render("line one\nline two\nline three");
   expect(host.querySelector(".cv-user__paste-card")?.hasAttribute("data-agent")).toBe(false);
   expect(host.querySelector(".cv-user__paste-name")?.textContent).toBe("Pasted text");
+});
+
+// ask-42dfdea96c: the bubble folds only an oversized paste, once, as one quiet region; an ordinary
+// one (Leo's own 515-character message) reads as plain text with no label and no card.
+const ORDINARY = "Like, it says pasted text, but this is just the normal text that I had. ".repeat(7).trim();
+const OVERSIZED = Array.from({ length: 130 }, (_, n) => `line ${n + 1} of the build log`).join("\n");
+
+test("an ordinary pasted range shows as plain text, no label, no card", () => {
+  const text = `see this\n${ORDINARY}`;
+  const host = render(
+    "",
+    <PromptText rowId="row" text={text} show={(part) => part} pasted={[{ start: 9, end: text.length }]} />,
+  );
+  expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+  expect(host.textContent).not.toContain("Pasted text");
+  expect(host.textContent).toContain(ORDINARY);
+});
+
+test("an oversized pasted range folds once, with no card inside a card", () => {
+  const text = `why?\n${OVERSIZED}`;
+  const host = render(
+    "",
+    <PromptText rowId="row" text={text} show={(part) => part} pasted={[{ start: 5, end: text.length }]} />,
+  );
+  const cards = host.querySelectorAll(".cv-user__paste-card");
+  expect(cards).toHaveLength(1);
+  expect(cards[0]!.querySelector(".cv-user__paste-card")).toBeNull();
+  expect(cards[0]!.getAttribute("data-look")).toBe("quiet");
+});
+
+// ask-792a64a12f: Leo's 707-character message, recorded as pasted (a record from before the fix, or
+// a paste event from a dictation app), shows its actual characters: plain text, no label, no card,
+// and no Show more fold (Leo, 2026-11-07: "We want to show the actual characters. We don't want to
+// limit this that hard.").
+const SEVEN_OH_SEVEN = "And also, like, we do not want to have this card thing going on, this double card thing. "
+  .repeat(9)
+  .slice(0, 707);
+
+test("a 707-character message recorded as pasted shows plain and whole", () => {
+  expect(SEVEN_OH_SEVEN).toHaveLength(707);
+  const host = render(
+    "",
+    <PromptText rowId="row" text={SEVEN_OH_SEVEN} show={(part) => part} pasted={[{ start: 0, end: 707 }]} />,
+  );
+  expect(host.querySelector(".cv-user__paste-card")).toBeNull();
+  expect(host.textContent).not.toContain("Pasted text");
+  expect(host.textContent).toContain(SEVEN_OH_SEVEN);
+  expect(host.querySelector(".cv-user__text.is-clamped")).toBeNull();
 });

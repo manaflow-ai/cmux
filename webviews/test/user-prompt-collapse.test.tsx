@@ -195,8 +195,8 @@ try {
   });
 
   test("measuring a long prompt confirms its initial clamp without a second commit", () => {
-    measuredPrompt(240, ({ render, commits, measurements }) => {
-      const text = lines(12);
+    measuredPrompt(640, ({ render, commits, measurements }) => {
+      const text = lines(32);
       render(text);
       expect(measurements()).toBeGreaterThan(0);
       expect(body().textContent).toBe(text);
@@ -206,11 +206,11 @@ try {
     });
   });
 
-  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
+  test("a measured prompt folds and unfolds when its width crosses thirty lines", () => {
     measuredPrompt(20, ({ render, resize }) => {
-      const text = "word ".repeat(12).trim();
+      const text = "word ".repeat(32).trim();
       render(text);
-      resize(240);
+      resize(640);
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
       resize(40);
@@ -221,15 +221,15 @@ try {
   });
 
   test("new content ignores the previous prompt measurement and still follows later resize", () => {
-    measuredPrompt(240, ({ render, resize }) => {
+    measuredPrompt(640, ({ render, resize }) => {
       render("A short guess that wraps in a narrow bubble");
       expect(body().classList.contains("is-clamped")).toBe(true);
       // Same mounted component, different text: the old short guess must not override a new
       // long guess, and the new measurement must be able to correct that guess either way.
       resize(40);
-      render(lines(12));
+      render(lines(32));
       expect(toggle()).toBeNull();
-      resize(240);
+      resize(640);
       expect(body().classList.contains("is-clamped")).toBe(true);
       render("Replacement short text");
       expect(body().classList.contains("is-clamped")).toBe(true);
@@ -243,7 +243,7 @@ try {
     resetTranscriptDisclosure();
     const text = lines(2000);
     render(prompt("user-1", text));
-    expect(COLLAPSED_PROMPT_LINES).toBe(10);
+    expect(COLLAPSED_PROMPT_LINES).toBe(30);
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(body().classList.contains("is-faded")).toBe(true);
     // The whole prompt stays in the bubble: select and Find read all of it; only its height is clamped.
@@ -457,7 +457,7 @@ try {
   test("Find opens the closed paste chip that holds the match", () => {
     resetTranscriptDisclosure();
     const typed = "See the log";
-    const paste = lines(50, "frame");
+    const paste = lines(400, "frame");
     const start = typed.length + 1;
     const row = prompt("user-7", `${typed}\n${paste}`, { pasted: [{ start, end: start + paste.length }] });
     render(row, { rowId: "user-7", card: false, needle: "frame 42", repaint: () => {} });
@@ -468,7 +468,7 @@ try {
   test("Find's current match lands in the opened paste, never on the chip's name or line count", () => {
     resetTranscriptDisclosure();
     const typed = "Why does this fail?";
-    const paste = lines(30, "error at frame");
+    const paste = lines(200, "error at frame");
     const text = `${typed}\n${paste}`;
     const start = typed.length + 1;
     const row = prompt("user-8", text, { pasted: [{ start, end: start + paste.length }] });
@@ -493,7 +493,7 @@ try {
       // Nothing in the chip itself is a match: its name and count are labels, not the prompt's text.
       const all = [...((set.get("acpmux-find") as { ranges: Range[] } | undefined)?.ranges ?? []), current!];
       expect(all.some((range) => range.startContainer.parentElement?.closest(".cv-user__paste"))).toBe(false);
-      expect(all.length).toBe(30);
+      expect(all.length).toBe(200);
     } finally {
       Object.assign(globalThis, { CSS: css, Highlight: highlight });
     }
@@ -551,7 +551,7 @@ try {
     try {
       act(() => root.unmount());
       root = createRoot(host);
-      render(prompt("user-fold-style", lines(20)));
+      render(prompt("user-fold-style", lines(40)));
       expect(durationReads).toBe(0);
       click(toggle()!);
       expect(body().classList.contains("is-clamped")).toBe(false);
@@ -591,11 +591,11 @@ try {
       }
     };
     try {
-      render(prompt("user-short-geometry", "word ".repeat(12).trim()));
+      render(prompt("user-short-geometry", "word ".repeat(32).trim()));
       expect(toggle()).toBeNull();
       expect(observers.size).toBeGreaterThan(0);
       // A later font load or narrower pane wraps the same mounted prompt past ten lines.
-      drawnHeight = 240;
+      drawnHeight = 640;
       act(() => {
         for (const changed of observers) changed();
       });

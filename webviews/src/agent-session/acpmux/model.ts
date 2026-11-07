@@ -2,6 +2,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { BUBBLE } from "./transcriptSpacing";
+import { isLargePaste } from "./pastedText";
 import {
   footerAfter,
   gridLength,
@@ -2438,7 +2439,14 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  // Only an oversized paste folds to a card (conversation/PromptText.tsx, pastedText.ts
+  // isLargePaste); an ordinary one is measured as the prompt's own text.
+  const text = row.text;
+  const folded =
+    row.kind === "user" && row.pasted?.length
+      ? row.pasted.filter((range) => isLargePaste(text.slice(range.start, range.end)))
+      : [];
+  const pasted = folded.length > 0;
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
   // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
@@ -2486,7 +2494,7 @@ function measuredRowHeight(
       // however long it is (conversation/UserBubble.tsx).
       const { lineHeight } = metrics();
       contentHeight = 0;
-      for (const part of promptParts(row.text, row.pasted!))
+      for (const part of promptParts(row.text, folded))
         contentHeight +=
           part.kind === "paste"
             ? pasteChipHeight(lineHeight)

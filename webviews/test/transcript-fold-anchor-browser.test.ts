@@ -635,7 +635,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   // its pixel (Show more holds the bubble's top: the text grows below it), and no element ever runs
   // two animations at once (Leo 2026-10-22: "a few animations that didnt quite work for collapsing
   // and expanding wrt tool calls and stufff").
-  const longPrompt = Array.from({ length: 24 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+  const longPrompt = Array.from({ length: 40 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
   const execute = (id: string, command: string) => ({
     kind: "tool",
     text: "",

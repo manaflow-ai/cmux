@@ -1,13 +1,14 @@
-// A long prompt collapses as Claude's does (Leo 2026-10-21): its first ten lines, the last one
-// fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
+// A long prompt collapses (Leo 2026-10-21): its first thirty lines, the last one fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
 // a paste is a card of its first lines over the composer's label ("Pasted text · N lines · NK
-// characters"), that opens in place. model.ts estimates the row
+// characters"), that opens in place. Thirty, not ten: an ordinary message of a few paragraphs reads
+// whole (Leo, 2026-11-07, on a 707-character message folded: "We want to show the actual
+// characters. We don't want to limit this that hard."). model.ts estimates the row
 // from the same numbers, so a prompt that mounts moves nothing below it.
 
 import { sliceWhole } from "../../../ui/wholeChars";
 
 /// A prompt taller than this many lines opens collapsed to them.
-export const COLLAPSED_PROMPT_LINES = 10;
+export const COLLAPSED_PROMPT_LINES = 30;
 /// The Show more line under a collapsed prompt (`.cv-user__more`: 4px above a 20px line).
 export const PROMPT_MORE_HEIGHT = 24;
 /// The lines of its text a pasted block's card shows closed.
@@ -21,7 +22,7 @@ export const PASTE_PREVIEW_CHARS = 1_000;
 export const pasteChipHeight = (lineHeight: number) => PASTE_PREVIEW_LINES * lineHeight + 44;
 /// Before the bubble is laid out (and where it never is), a prompt longer than this many
 /// characters is taken to wrap past the collapsed lines.
-const LONG_PROMPT_CHARS = 1_000;
+const LONG_PROMPT_CHARS = 3_000;
 
 /// The collapsed height of prompt content `height` tall in `lineHeight` lines: itself when it fits
 /// the collapsed lines, else those lines and the Show more line.
@@ -34,7 +35,7 @@ export function collapsedPromptHeight(height: number, lineHeight: number): numbe
 /// one text node: no Markdown, no link scan and no break points, each of which costs the main thread
 /// per character or per token, and a prompt of megabytes froze the chat that held it (Leo,
 /// 2026-10-31: "this is completely hardlocked bc of message size"). Collapsed, it draws only its
-/// head (`HUGE_PROMPT_HEAD_CHARS`), far more than ten lines at any width; Show more draws it whole.
+/// head (`HUGE_PROMPT_HEAD_CHARS`), far more than thirty lines at any width; Show more draws it whole.
 export const HUGE_PROMPT_CHARS = 200_000;
 export const HUGE_PROMPT_HEAD_CHARS = 4_000;
 

@@ -186,6 +186,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -298,6 +299,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>

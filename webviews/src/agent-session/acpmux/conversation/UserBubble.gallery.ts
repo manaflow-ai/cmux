@@ -4,7 +4,7 @@
 // then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
-// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
+// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first thirty
 // lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
@@ -235,7 +235,7 @@ export default agentPaneEntry({
       play: hoverTooltip("Copy"),
     },
     "long-collapsed": {
-      note: "A 60-line prompt opens on its first ten lines, the last ones fading out, with Show more under them.",
+      note: "A 60-line prompt opens on its first thirty lines, the last ones fading out, with Show more under them.",
       snapshot: longPrompt(),
     },
     "long-expanded": {

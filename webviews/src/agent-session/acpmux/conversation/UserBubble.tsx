@@ -11,7 +11,7 @@
 // (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 // Fork forks the chat through the prompt's own turn, as its right-click Fork does. The images a
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
-// once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
+// once sent). A long prompt opens collapsed on its first thirty lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt. A video
 // it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
 import {

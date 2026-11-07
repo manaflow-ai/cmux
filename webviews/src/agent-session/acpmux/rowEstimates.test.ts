@@ -326,16 +326,16 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 // bubble leaves its line, transcriptSpacing.ts BUBBLE), with its 28px hover row under it and the
 // 8px message gap. Estimated any taller, the row shrinks once drawn and the rows below jump up.
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
-test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
+test("a 2,000-line prompt is estimated at its collapsed height, at most thirty lines", () => {
   const { lineHeight } = currentChatMetrics();
   const padding = BUBBLE.oneLine - lineHeight;
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
-  expect(long!).toBeLessThan(padding + 10.5 * lineHeight + 24 + 28 + 8);
+  expect(long!).toBeLessThan(padding + 30.5 * lineHeight + 24 + 28 + 8);
 });
 
-test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
+test("a prompt of thirty lines or fewer is estimated whole, with no Show more line", () => {
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
@@ -351,6 +351,22 @@ test("a prompt with a 2,300-line paste is its typed line and one card", () => {
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
   expect(height).toBeCloseTo(BUBBLE.oneLine + pasteChipHeight(currentChatMetrics().lineHeight), 5);
+});
+
+// Only an oversized paste folds (pastedText.ts isLargePaste); an ordinary one reads as the prompt's
+// own text (ask-792a64a12f), so it is estimated as that text, not as a card.
+test("a prompt with an ordinary paste is estimated as the same prompt typed", () => {
+  const typed = "Why does this fail?";
+  const paste = ["error: retry budget exhausted", "  at upload (uploader.ts:88:7)", "  at main (index.ts:12:3)"].join(
+    "\n",
+  );
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
+  const [asPasted, asTyped] = heightsOf([
+    { id: "p", version: 1, at: 0, kind: "user", text, pasted },
+    { id: "t", version: 1, at: 0, kind: "user", text },
+  ]);
+  expect(asPasted).toBeCloseTo(asTyped!, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is

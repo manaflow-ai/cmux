@@ -53,13 +53,13 @@ const rows = [
 /// The same chat ending on a long prompt cut to its first lines, with "Show more" under it, and a
 /// short reply: a line that is not a tool's, opened at the bottom.
 const LONG_PROMPT = Array.from(
-  { length: 18 },
+  { length: 36 },
   (_, index) => `${index + 1}. Check that case ${index + 1} of the fetch retries fails fast on a client error.`,
 ).join("\n");
 const promptRows = [
   ...earlier,
   user(LONG_PROMPT, 6),
-  assistant("All eighteen cases fail fast now.", 4),
+  assistant("All thirty-six cases fail fast now.", 4),
   summary(3.9, { status: "completed", durationMs: 21_000, toolCount: 0 }),
 ];
 

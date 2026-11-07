@@ -11,6 +11,7 @@ import {
   inlineCopyParent,
   orderedByMarks,
 } from "../attachments";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
@@ -19,6 +20,7 @@ import type { MarkdownFieldHandle } from "../MarkdownField";
 import {
   AttachmentChip,
   InstantPreview,
+  KeepFileButton,
   RetryButton,
   UploadProgress,
   type PendingAttachment,
@@ -46,6 +48,9 @@ type Options = {
   /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
   revive(id: string): boolean;
   expand(id: string): void;
+  /// A pasted chip sent as a .txt file instead (composer/pastedChips.ts `keepAsFile`); unset, its chip
+  /// offers only Expand.
+  keepFile?(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
   /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
@@ -244,6 +249,13 @@ export function useInlineAttachments(options: Options) {
       if (attachment) keep(attachment);
       live.current.expand(id);
     },
+    /// A pasted chip sent as a .txt file: kept first, as an open is, so an undo that brings its node
+    /// back brings its text too.
+    keepFile: (id: string) => {
+      const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
+      if (attachment) keep(attachment);
+      live.current.keepFile?.(id);
+    },
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
@@ -276,6 +288,7 @@ export function useInlineAttachments(options: Options) {
         onCancel={api.cancel}
         onRetry={api.retry}
         onExpand={api.expand}
+        {...(options.keepFile ? { onKeepFile: api.keepFile } : {})}
         codex={options.codex ?? false}
         originalFailed={options.originalFailures?.[id]}
       />,
@@ -298,6 +311,7 @@ const InlineChip = memo(function InlineChip({
   onCancel,
   onRetry,
   onExpand,
+  onKeepFile,
   codex,
   originalFailed,
 }: {
@@ -308,6 +322,7 @@ const InlineChip = memo(function InlineChip({
   onCancel(id: string): void;
   onRetry(id: string): void;
   onExpand(id: string): void;
+  onKeepFile?(id: string): void;
   codex: boolean;
   originalFailed: string | undefined;
 }) {
@@ -382,25 +397,40 @@ const InlineChip = memo(function InlineChip({
   if (attachment.kind === "pasted") {
     const text = attachment.text ?? "";
     const label = `${t("composer.pastedText")} · ${pastedSize(t, language, text)}`;
+    // Its right-click menu has what the strip's has (attachmentIntake.tsx `menu`): Edit in Prompt,
+    // Keep as .txt and Remove.
+    const items = [
+      { id: "open", label: t("composer.pastedText.edit"), onSelect: () => onExpand(id) },
+      ...(onKeepFile ? [{ id: "keep", label: t("composer.pastedText.keepFile"), onSelect: () => onKeepFile(id) }] : []),
+      {
+        id: "remove",
+        label: t("composer.removeAttachment", { name }),
+        separatorBefore: true,
+        onSelect: () => onRemove(id),
+      },
+    ];
     return (
-      <span
-        className="acpmux-md-inline-chip acpmux-text-card"
-        data-state="ready"
-        data-kind="file"
-        data-preview="text"
-        /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
-        title={t("composer.pastedText.edit")}
-      >
-        <button
-          type="button"
-          className="acpmux-md-inline-retry acpmux-text-card__open"
-          aria-label={`${attachment.name || pasteName(text)}, ${label}`}
-          onClick={() => onExpand(id)}
+      <ContextMenu className="acpmux-attachment-menu" items={items}>
+        <span
+          className="acpmux-md-inline-chip acpmux-text-card"
+          data-state="ready"
+          data-kind="file"
+          data-preview="text"
+          /* tooltip-allow: the card shows the paste's first lines; the tooltip says a click puts it back in the prompt */
+          title={t("composer.pastedText.edit")}
         >
-          <TextAttachmentCard text={text} label={label} wrap />
-        </button>
-        {remove}
-      </span>
+          <button
+            type="button"
+            className="acpmux-md-inline-retry acpmux-text-card__open"
+            aria-label={`${attachment.name || pasteName(text)}, ${label}`}
+            onClick={() => onExpand(id)}
+          >
+            <TextAttachmentCard text={text} label={label} wrap />
+          </button>
+          {onKeepFile ? <KeepFileButton onKeep={() => onKeepFile(id)} /> : null}
+          {remove}
+        </span>
+      </ContextMenu>
     );
   }
   // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back

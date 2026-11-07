@@ -27,12 +27,14 @@ afterEach(() => setChatDisplay({}));
 // transcriptGap). Every estimate here is 36 under its pre-grid value. Since #31719 a one-line
 // bubble is 44 tall (design/transcript-spacing.md "Prompt bubble"): its block padding is what a 44
 // leaves around the line, so every estimate moved by that padding's change from the 16 before it
-// (+5.25 at font 14's 22.75 line, -4.5 at font 20's 32.5), and no prompt wraps differently.
+// (+5.25 at font 14's 22.75 line, -4.5 at font 20's 32.5), and no prompt wraps differently. The
+// long sample wraps to 23 lines at 320 wide; since the fold moved to 30 lines (promptCollapse.ts
+// COLLAPSED_PROMPT_LINES) it is placed whole, as the bubble draws it, not at the old fold.
 for (const [font, expected] of [
   [
     14,
     [
-      [66.75, 272.75, 89.5],
+      [66.75, 544.5, 89.5],
       [44, 248.75, 44],
       [44, 135, 44],
     ],
@@ -40,7 +42,7 @@ for (const [font, expected] of [
   [
     20,
     [
-      [76.5, 360.5, 109],
+      [76.5, 759, 109],
       [44, 336.5, 44],
       [44, 174, 44],
     ],
