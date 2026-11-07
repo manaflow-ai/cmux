@@ -52,20 +52,6 @@ public struct BackdropSelectionSetting: Sendable {
         return raw == "none" || raw == dailyID || folderPath(raw) != nil || BackdropSelection(id: raw) != nil
     }
 
-    /// Portable examples used by schema export and conformance tests. System
-    /// paths are a domain rather than a fixed enum because each macOS install
-    /// publishes a different wallpaper set.
-    static var acceptedSamples: [JSONValue] {
-        [.string("none"), .string(dailyID), .string(BackdropSelection.desktopID)] + BackdropArt.allCases.map { .string($0.rawValue) } +
-            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"), .string("file:/Users/Shared/Harbor.png"),
-             .string("folder:/Users/Shared/Wallpapers")]
-    }
-
-    static var refusedSamples: [JSONValue] {
-        [.string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"), .string("file:"), .string("folder:relative"),
-         .string("folder:"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
-    }
-
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in
     /// (cx-t2x); turning it on by default is this one line (for example `.art(.degasHalevy)`).
     public nonisolated static let defaultSelection: BackdropSelection? = nil

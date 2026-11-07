@@ -200,6 +200,34 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(self.sha(), self.old)
 
 
+class Fetch(unittest.TestCase):
+    """fetch() against files.cmux.com, which answers Python's default user agent with 403."""
+
+    def test_fetch_names_itself_rather_than_python_urllib(self):
+        import importlib.util
+        import io
+        spec = importlib.util.spec_from_file_location("hot_apply_fetch_under_test", SCRIPT)
+        hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_fetch_under_test"] = hot
+        spec.loader.exec_module(hot)
+        sent = []
+
+        def urlopen(request, timeout=None):
+            # The fleet proof, 2026-11-07: completion.json came back "HTTP Error 403: Forbidden".
+            agent = request.get_header("User-agent") if hasattr(request, "get_header") else None
+            sent.append(agent)
+            if not agent or agent.startswith("Python-urllib"):
+                raise hot.urllib.error.HTTPError(str(request), 403, "Forbidden", {}, None)
+            return io.BytesIO(b"{}")
+        real = hot.urllib.request.urlopen
+        hot.urllib.request.urlopen = urlopen
+        try:
+            self.assertEqual(hot.fetch("https://files.cmux.com/cmux-tui/tree/k/completion.json"), b"{}")
+        finally:
+            hot.urllib.request.urlopen = real
+        self.assertTrue(sent[0].startswith("cmux-hot-apply"))
+
+
 class FindSocket(unittest.TestCase):
     """find_socket with ps, lsof and the daemon's `server status` stubbed."""
 
@@ -283,6 +311,28 @@ class FindSocket(unittest.TestCase):
         self.hot.subprocess.run = run
         self.assertEqual(self.hot.find_sockets(self.app, Path("cmux")), [procs["3002"], procs["3001"]])
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), procs["3002"])
+
+    def test_a_hung_app_session_is_not_passed_over_for_the_chiefs(self):
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"3001": "/v/T/cmux-tui-501/cmux-chief-e8875805.sock", "3002": "/v/T/cmux-tui-501/cmux-app--c117.sock"}
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+            if "cmux-app" in argv[argv.index("--socket") + 1]:
+                raise subprocess.TimeoutExpired(argv, 10)
+            return subprocess.CompletedProcess(argv, 0, '{"pid": 3001}', "")
+        self.hot.subprocess.run = run
+        with self.assertRaises(RuntimeError):
+            self.hot.find_sockets(self.app, Path("cmux"))
+
+    def test_an_app_under_a_folder_holding_the_bin_segment_is_found(self):
+        self.app = Path(f"/Apps/{self.hot.BIN}/old/cmux NIGHTLY.app")
+        self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
     def test_a_daemon_started_through_a_linked_folder_is_found(self):
         # The fleet proof, 2026-11-07: the copy was given as /private/tmp/..., and its daemon ran as
