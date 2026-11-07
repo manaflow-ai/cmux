@@ -2007,6 +2007,66 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
     }
 
+    func testWorkspacePromptForRunningProcessOffersOnlyWarningsThatAreOn() {
+        let manager = makeManager()
+        let first = manager.tabs[0]
+        let second = manager.tabs[1]
+        markRunningProcess(first)
+        markRunningProcess(second)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in true }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
+        drainMainQueue()
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
+
+        // The second prompt is the running-process warning alone. Offering the
+        // workspace warning again would show a checkbox that changes nothing.
+        XCTAssertEqual(offered, [[.workspace, .safety], [.safety]])
+    }
+
+    func testBatchPromptForRunningProcessDoesNotOfferWorkspaceWarningThatIsOff() {
+        let manager = makeManager()
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
+        let targets = [manager.tabs[0], manager.tabs[1]]
+        targets.forEach(markRunningProcess)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets.map(\.id), allowPinned: true)
+
+        XCTAssertEqual(offered, [[.safety]])
+        XCTAssertEqual(manager.tabs.count, 3, "Cancel keeps the workspaces open")
+    }
+
+    func testWindowBatchPromptForRunningProcessDoesNotOfferWindowWarningThatIsOff() {
+        let manager = makeManager()
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
+        markRunningProcess(manager.tabs[1])
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
+
+        XCTAssertEqual(offered, [[.safety]])
+        XCTAssertEqual(manager.tabs.count, 3, "Cancel keeps the window open")
+    }
+
     func testUntickedDontAskAgainKeepsWarningOn() {
         let manager = makeManager()
         let workspace = manager.tabs[1]
