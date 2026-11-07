@@ -58,25 +58,25 @@ struct KeyResizeLayoutsPerFrameTests {
         rig.root.layoutSubtreeIfNeeded()
         rig.commit()
 
-        var start = calls()
+        var start = Self.calls()
         let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         let keyTurnTime = ContinuousClock.now - pressed
-        let keyTurn = since(start)
-        var extra: [String] = keyTurn.isEmpty ? [] : ["key turn (\(keyTurnTime)): \(text(keyTurn))"]
+        let keyTurn = Self.since(start)
+        var extra: [String] = keyTurn.isEmpty ? [] : ["key turn (\(keyTurnTime)): \(Self.text(keyTurn))"]
         var perFrame: [String] = []
         var frames = 0
         while frames < 240 {
-            let before = sizes(under: root)
-            start = calls()
+            let before = Self.sizes(under: root)
+            start = Self.calls()
             let began = ContinuousClock.now
             let moving = rig.frame()
             let took = ContinuousClock.now - began
             frames += 1
-            let laid = since(start)
+            let laid = Self.since(start)
             var resized: [String: Int] = [:]
-            for (id, entry) in sizes(under: root) where before[id]?.size != entry.size { resized[entry.viewClass, default: 0] += 1 }
-            if frames <= 3 { perFrame.append("frame \(frames) (\(took)): laid out [\(text(laid))], resized [\(text(resized))]") }
+            for (id, entry) in Self.sizes(under: root) where before[id]?.size != entry.size { resized[entry.viewClass, default: 0] += 1 }
+            if frames <= 3 { perFrame.append("frame \(frames) (\(took)): laid out [\(Self.text(laid))], resized [\(Self.text(resized))]") }
             for (viewClass, count) in laid where count > resized[viewClass, default: 0] {
                 extra.append("frame \(frames): \(viewClass) laid out \(count)x, \(resized[viewClass, default: 0]) resized")
             }
