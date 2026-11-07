@@ -16072,265 +16072,529 @@
       }
     },
     "chatMenu.setAvatar": {
-      "comment": "Agent pane chat header menu: choose a picture or GIF on this Mac as this agent session's avatar, drawn on its cards and sender chip",
+      "comment": "Agent pane chat header menu: choose a picture or GIF on this Mac as this chat's own avatar (this agent session's, not the Chief's or the person's), drawn on its cards and sender chip; the row draws the chat's current avatar when it has one",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Avatar…"
+            "value": "Set Chat Avatar…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعيين صورة رمزية…"
+            "value": "تعيين صورة رمزية للمحادثة…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Postavi avatar…"
+            "value": "Postavi avatar chata…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angiv avatar…"
+            "value": "Angiv chatavatar…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avatar festlegen…"
+            "value": "Chat-Avatar festlegen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Definir avatar…"
+            "value": "Definir avatar del chat…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Définir l’avatar…"
+            "value": "Définir l’avatar du chat…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Imposta avatar…"
+            "value": "Imposta avatar della chat…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アバターを設定…"
+            "value": "チャットのアバターを設定…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំណត់រូបតំណាង…"
+            "value": "កំណត់រូបតំណាងការជជែក…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아바타 설정…"
+            "value": "채팅 아바타 설정…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angi avatar…"
+            "value": "Angi chatavatar…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ustaw awatar…"
+            "value": "Ustaw awatar czatu…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Definir avatar…"
+            "value": "Definir avatar do chat…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Задать аватар…"
+            "value": "Задать аватар чата…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตั้งค่าอวาตาร์…"
+            "value": "ตั้งค่าอวาตาร์แชท…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avatar Ayarla…"
+            "value": "Sohbet Avatarını Ayarla…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установити аватар…"
+            "value": "Установити аватар чату…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đặt ảnh đại diện…"
+            "value": "Đặt ảnh đại diện cuộc trò chuyện…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "设置头像…"
+            "value": "设置聊天头像…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "設定頭像…"
+            "value": "設定聊天頭像…"
           }
         }
       }
     },
     "chatMenu.removeAvatar": {
-      "comment": "Agent pane chat header menu: remove this agent session's own avatar, so its harness mark shows again",
+      "comment": "Agent pane chat header menu: remove this chat's own avatar (this agent session's), so its harness mark shows again",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove Avatar"
+            "value": "Remove Chat Avatar"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إزالة الصورة الرمزية"
+            "value": "إزالة الصورة الرمزية للمحادثة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ukloni avatar"
+            "value": "Ukloni avatar chata"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjern avatar"
+            "value": "Fjern chatavatar"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avatar entfernen"
+            "value": "Chat-Avatar entfernen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quitar avatar"
+            "value": "Quitar avatar del chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Supprimer l’avatar"
+            "value": "Supprimer l’avatar du chat"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rimuovi avatar"
+            "value": "Rimuovi avatar della chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アバターを削除"
+            "value": "チャットのアバターを削除"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដករូបតំណាងចេញ"
+            "value": "ដករូបតំណាងការជជែកចេញ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아바타 제거"
+            "value": "채팅 아바타 제거"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjern avatar"
+            "value": "Fjern chatavatar"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usuń awatar"
+            "value": "Usuń awatar czatu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remover avatar"
+            "value": "Remover avatar do chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удалить аватар"
+            "value": "Удалить аватар чата"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลบอวาตาร์"
+            "value": "ลบอวาตาร์แชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avatarı Kaldır"
+            "value": "Sohbet Avatarını Kaldır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вилучити аватар"
+            "value": "Вилучити аватар чату"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xóa ảnh đại diện"
+            "value": "Xóa ảnh đại diện cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "移除头像"
+            "value": "移除聊天头像"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "移除頭像"
+            "value": "移除聊天頭像"
+          }
+        }
+      }
+    },
+    "chatMenu.showInMini": {
+      "comment": "Agent pane chat header menu: show this chat in the Mini (the small floating Chief display) in place of the Chief; Mini and Chief are product names",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Mini"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض في Mini"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži u Miniju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Mini"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Mini anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar en Mini"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher dans Mini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra in Mini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Miniに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្នុង Mini"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini에 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Mini"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż w Mini"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar no Mini"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать в Mini"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงใน Mini"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini'de Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати в Mini"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị trong Mini"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Mini 中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Mini 中顯示"
+          }
+        }
+      }
+    },
+    "chatMenu.showChiefInMini": {
+      "comment": "Agent pane chat header menu, while the Mini (the small floating Chief display) shows this chat: show the Chief in the Mini again; Mini and Chief are product names",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chief in Mini"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض Chief في Mini"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži Chiefa u Miniju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief i Mini"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief im Mini anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Chief en Mini"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher Chief dans Mini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra Chief in Mini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ChiefをMiniに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ Chief ក្នុង Mini"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini에 Chief 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief i Mini"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż Chiefa w Mini"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Chief no Mini"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать Chief в Mini"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง Chief ใน Mini"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'i Mini'de Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати Chief у Mini"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị Chief trong Mini"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Mini 中显示 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Mini 中顯示 Chief"
           }
         }
       }
