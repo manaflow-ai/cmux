@@ -1,8 +1,9 @@
+import AppKit
 import Foundation
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextServer
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Testing
 
@@ -311,6 +312,34 @@ import Testing
         #expect(!panel.isVisible)
         menu.openInvite()
         #expect(made == 2, "a later opening makes a new card panel")
+    }
+
+    private static func click(_ panel: WebCardPanel, _ type: NSEvent.EventType, at time: TimeInterval) {
+        guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: 20, y: 20), modifierFlags: [], timestamp: time,
+                                             windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                             pressure: 1) else { return }
+        panel.sendEvent(event)
+    }
+
+    @Test func aGuardMovedUnderAnEarlierClickLendsItNothing() throws {
+        let card = CountingCard(PairInviteCardProvider.route)
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [card]))
+        panel.isPersonEvent = { _ in true }
+        panel.present(card: card.card, over: nil, takeKeys: false)
+        let everywhere = CGRect(x: -10_000, y: -10_000, width: 20_000, height: 20_000)
+        let start = ProcessInfo.processInfo.systemUptime + 10
+        panel.pageResized(card: card.card, width: 460, height: 200, control: CGRect(x: -500, y: -500, width: 1, height: 1))
+        panel.rearm(at: 0)
+        // The person clicks somewhere else on the card (Name); then a script moves Confirm's guard under it.
+        Self.click(panel, .leftMouseDown, at: start)
+        Self.click(panel, .leftMouseUp, at: start + 0.05)
+        panel.pageResized(card: card.card, width: 460, height: 200, control: everywhere)
+        let stolen = PageCallContext(page: "cmux.server-cards", userGesture: true, gestureEvent: start + 0.05)
+        #expect(!panel.isPersonClick(stolen), "a guard set after the click never counts it")
+        // A click on the control as it stands still counts.
+        Self.click(panel, .leftMouseDown, at: start + 5)
+        Self.click(panel, .leftMouseUp, at: start + 5.05)
+        #expect(panel.isPersonClick(PageCallContext(page: "cmux.server-cards", userGesture: true, gestureEvent: start + 5.05)))
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {
