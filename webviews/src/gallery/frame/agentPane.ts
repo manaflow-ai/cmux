@@ -157,7 +157,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       default: {
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
-        const value = state.native?.[message.method ?? ""] ?? null;
+        const fixture = state.native?.[message.method ?? ""];
+        const value = (typeof fixture === "function" ? fixture(message.params) : fixture) ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)
           return { ok: false, error: (value as { nativeError: unknown }).nativeError };
