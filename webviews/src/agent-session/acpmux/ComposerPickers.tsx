@@ -73,6 +73,8 @@ import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
+import { contextRingMotion } from "./contextRingMotion.experiment";
+import "./contextRingMotion.css";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -1499,7 +1501,9 @@ const CONTEXT_RING_LOOKS: Record<
 /// (contextCard.css). With `plan` (`agentPane.composerRing` is "planUsage") and a limit the harness
 /// reported, the ring draws the plan window closest to its cap instead and its card is the plan
 /// usage popover (PlanUsageCard.tsx); with none reported it stays on the context, never a 0%.
+/// A new reading eases the arc to it (useRingMotion); opening or switching to a chat shows its own.
 export function ContextRing({
+  chat,
   used,
   size,
   setup,
@@ -1509,6 +1513,8 @@ export function ContextRing({
   onOpenDetails,
   plan,
 }: {
+  /// The chat the reading is of: a new chat's ring shows its value at once, with no ease from the last.
+  chat?: string;
   used?: number;
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
@@ -1556,11 +1562,13 @@ export function ContextRing({
   // As Claude desktop's: a small ring with the share used drawn over its track as an arc from
   // twelve o'clock; never a pie and never a spinner. Leo (2026-11-03) read the faint-track arc at 68%
   // as a loading spinner, so the shipped look (`track`) draws the remaining share as a clearly visible
-  // track with flat arc ends: the whole circle reads as one gauge with no gap. The ring never animates.
+  // track with flat arc ends: the whole circle reads as one gauge with no gap. At rest the ring is
+  // still; a new reading in the same chat eases the arc to it (useRingMotion).
   const look = experimentArm(contextRingLook);
   const ring = CONTEXT_RING_LOOKS[look];
   const arcRadius = ring.radius;
-  const arcCircumference = 2 * Math.PI * arcRadius;
+  const meter = useRingMotion(chat, planShown ? "plan" : contextKnown ? "context" : undefined, fraction);
+  const counts = meter.motion !== "ease-number-jumps" && meter.motion !== "instant";
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% card.
@@ -1671,7 +1679,17 @@ export function ContextRing({
           first.focus();
         }}
       >
-        <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+        <svg
+          key={meter.key}
+          className="acpmux-context-meter"
+          data-ring-motion={meter.motion}
+          style={meter.style}
+          width={14}
+          height={14}
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          focusable="false"
+        >
           <circle
             className="acpmux-context-track"
             cx="7"
@@ -1693,15 +1711,25 @@ export function ContextRing({
               strokeOpacity={ring.usedOpacity}
               strokeWidth={ring.width}
               strokeLinecap={fraction >= 1 || !ring.roundEnds ? "butt" : "round"}
-              strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
+              // Its dash is the share used, from the eased --acpmux-ring-used (contextRingMotion.css).
+              pathLength={1}
               transform="rotate(-90 7 7)"
             />
           )}
         </svg>
       </button>
       {look === "percent" && known && (
-        <span className="acpmux-context-caption" aria-hidden="true">
-          {percent}%
+        // The percent counts with the arc (the ::before reads the same eased number), except in the
+        // arms that compare it jumping.
+        <span
+          key={meter.key}
+          className="acpmux-context-caption"
+          aria-hidden="true"
+          data-ring-motion={meter.motion}
+          data-ring-counts={counts ? "" : undefined}
+          style={meter.style}
+        >
+          {counts ? null : `${percent}%`}
         </span>
       )}
       <AnchoredCard
@@ -1744,6 +1772,27 @@ export function ContextRing({
       </AnchoredCard>
     </span>
   );
+}
+
+/// The context ring's eased reading (Leo, 2026-11-07, of a compaction: "I feel like that should,
+/// like, play a cute little, like, eased animation that goes down"). The share is one registered
+/// number, --acpmux-ring-used, on the ring and its caption; a CSS transition eases it, so a reading
+/// mid-way starts from what is drawn (contextRingMotion.css). The two are keyed by the chat and what the ring reads, and the
+/// key turns to that pair only once it has a reading: opening a chat, switching to one, the first
+/// report, or switching between context and plan usage mounts them at the value, with nothing to
+/// ease from. A reading that goes away (a session reset) holds the last drawn share, so the next
+/// one eases from there.
+function useRingMotion(chat: string | undefined, source: "context" | "plan" | undefined, fraction: number) {
+  const motion = experimentArm(contextRingMotion);
+  const reading = source && `${chat ?? ""}:${source}`;
+  const held = useRef<{ key: string; fraction: number } | undefined>(undefined);
+  // During render, so the first render with a reading already carries its key and value.
+  if (reading) held.current = { key: reading, fraction };
+  else if (held.current && !held.current.key.startsWith(`${chat ?? ""}:`)) held.current = undefined;
+  const key = held.current?.key ?? "none";
+  const shown = held.current?.fraction ?? 0;
+  const style = { "--acpmux-ring-used": shown } as React.CSSProperties;
+  return { key, motion, style };
 }
 
 // The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux and the app enforce.

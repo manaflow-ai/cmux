@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDaemon
 public import CmuxNextSettings
 public import Foundation
@@ -54,6 +55,11 @@ public final class UsageRecorder {
         var setEnabled: @Sendable (Bool) async throws -> Void
         /// `usage-record`: the source stem and the events text.
         var record: @Sendable (String, String) async throws -> Void
+        /// The wait before retrying a failed switch-off: the backoff's next step (1 s growing to 60 s).
+        var offRetryWait: @Sendable (inout Backoff) async throws -> Void = { backoff in
+            // concurrency-allow: Backoff's async sleep spaces retries after a failure; it blocks no thread
+            try await backoff.wait(owner: "usage.switch-off")
+        }
     }
 
     /// What to do with the setting's value and this Mac's record.
@@ -92,6 +98,10 @@ public final class UsageRecorder {
     /// The one switch on its way to the daemon, not yet answered. Switches go one at a time, so an
     /// answer never lands after a newer switch and leaves the marker on after the person's off.
     private var switchInFlight: Bool?
+    /// The wait before sending a failed switch-off again, and how many have failed in a row. It ends
+    /// when the daemon confirms off, or when the decision turns on.
+    private var offRetry: Task<Void, Never>?
+    private var offBackoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     private var launchRecorded = false
     private var askedThisLaunch = false
     /// Team sharing, the second opt-in (nil: none in this build or test).
@@ -219,6 +229,7 @@ public final class UsageRecorder {
         if on, queue == nil { begin() }
         if !on, queue != nil { end() }
         switchWanted = on
+        if on { cancelOffRetry() }
         sendSwitch()
     }
 
@@ -249,16 +260,44 @@ public final class UsageRecorder {
     /// decision sends a failed one again. A failed switch-on (an older daemon, or none) ends this
     /// on-period: nothing would be written, so nothing is kept or tapped. A decision that changed
     /// while the switch was on its way is sent now.
+    ///
+    /// A failed switch-off is sent again after a backoff until the daemon confirms it: the marker
+    /// would otherwise stay on and acpmux keep recording after the person turned recording off.
+    /// Each launch sends its first decision either way (``switchSent`` starts nil).
     private func switched(_ on: Bool, queue: UsageEventQueue?, ok: Bool) {
         switchInFlight = nil
         if ok {
             switchSent = on
+            if !on { cancelOffRetry() }
             // Sharing waits for the daemon's recording marker (it refuses a share switch without it).
             if on, queue != nil { sharing?.recording(true) }
         } else if on, let queue, queue === self.queue {
             end()
+        } else if !on, switchWanted == false {
+            retryOff()
         }
         if switchWanted != on { sendSwitch() }
+    }
+
+    /// Sends the switch-off again after the next backoff.
+    private func retryOff() {
+        var backoff = offBackoff
+        let wait = ports.offRetryWait
+        offRetry?.cancel()
+        // task-owner: one wait before the next switch-off; cancelled once off is confirmed or the
+        // decision turns on (cancelOffRetry), and ends with the recorder.
+        offRetry = Task { [weak self] in
+            guard (try? await wait(&backoff)) != nil, !Task.isCancelled, let self, switchWanted == false else { return }
+            offBackoff = backoff
+            offRetry = nil
+            sendSwitch()
+        }
+    }
+
+    private func cancelOffRetry() {
+        offRetry?.cancel()
+        offRetry = nil
+        offBackoff.reset()
     }
 
     private func begin() {

@@ -53,6 +53,10 @@ describe("the questions the composer hat holds", () => {
     expect(oneClickAnswers(fixture("pending-multi"))).toEqual([]);
     expect(oneClickAnswers(fixture("pending-4-questions"))).toEqual([]);
     expect(oneClickAnswers(fixture("pending-with-preview"))).toEqual([]);
+    // A single choice with one option is still one click.
+    const single = fixture("pending-single");
+    const one = { ...single, items: [{ ...single.items[0]!, options: single.items[0]!.options.slice(0, 1) }] };
+    expect(oneClickAnswers(one)).toHaveLength(1);
   });
 
   test("the chat's own question comes first; the card answers the one it shows, the hat points to it", () => {

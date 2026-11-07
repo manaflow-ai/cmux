@@ -233,6 +233,36 @@ import Testing
         #expect(!recorder.isRecording)
     }
 
+    /// A failed switch-off is sent again until the daemon confirms it (Codex review F1 of 4cf46c11):
+    /// before, the marker could stay on and acpmux keep recording after the person turned it off.
+    /// The retries stop once off is confirmed, and a decision that turns on cancels them.
+    @Test func aFailedSwitchOffIsSentAgainUntilTheDaemonConfirmsIt() async {
+        let log = PortLog()
+        let refusals = Mutex(2)
+        var ports = UsageRecorder.Ports(
+            channel: "dev", build: "1", previousRun: { "clean" }, counts: { UsageCounts() }, appActive: { true },
+            ask: { _, _, _, _ in false },
+            setEnabled: { on in
+                if !on, refusals.withLock({ left in defer { left -= 1 }; return left > 0 }) {
+                    log.calls.withLock { $0.append("refused \(on)") }
+                    throw Refused()
+                }
+                log.calls.withLock { $0.append("set-enabled \(on)") }
+            },
+            record: { _, _ in })
+        ports.offRetryWait = { _ in await Task.yield() }
+        let recorder = UsageRecorder(ports: ports, managedDisables: { false },
+                                     defaults: UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard)
+        recorder.apply(true)
+        for _ in 0..<50 where log.all.isEmpty { await Task.yield() }
+        recorder.apply(false)
+        for _ in 0..<200 where !log.all.contains("set-enabled false") { await Task.yield() }
+        #expect(log.all == ["set-enabled true", "refused false", "refused false", "set-enabled false"])
+        // Confirmed off: nothing more is sent.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(log.all.count == 4)
+    }
+
     // MARK: Queue
 
     @Test func aStoppedQueueKeepsAndSendsNothing() async {
