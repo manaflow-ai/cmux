@@ -74,8 +74,8 @@ import Testing
         [pane.frame, pane.contentHost.frame, pane.stripView.frame]
     }
 
-    /// Runs with Reduce Motion `reduce` and `ui.animations.newTab` (the strip's structural motion switch, on by
-    /// default) on; restores both.
+    /// Runs with Reduce Motion `reduce` and `ui.animations.newTab` (a new tab's growth, on by default) on; restores
+    /// both. A close does not read `newTab` (`aCloseSlidesWithNewTabMotionOff`).
     static func withMotion(reduce: Bool, _ body: () throws -> Void) throws {
         Motion.reduceMotionOverride = reduce
         defer { Motion.reduceMotionOverride = nil }
@@ -248,7 +248,8 @@ import Testing
                     (item.id, try #require(strip.cells[item.id], "round \(round): \(item.id.rawValue) left at once: no shrink"))
                 }
                 let begin = try #require(Self.moveBegin([staying] + closing.map(\.1)), "round \(round): the close started no strip move")
-                let edge = staying.layer.frame.maxX
+                let closeWidth = strip.metrics.chrome.closeEndWidth
+                let edge = staying.layer.frame.maxX - closeWidth
                 for (id, cell) in closing {
                     #expect(abs(cell.layer.frame.minX - edge) < 0.5,
                             "round \(round): \(id.rawValue) rests at x \(cell.layer.frame.minX), not on the staying tab's right edge \(edge)")
@@ -258,7 +259,7 @@ import Testing
                     let stay = Self.shown(staying, at: time)
                     for (id, cell) in closing {
                         let x = Self.shown(cell, at: time).x
-                        #expect(x >= stay.x + stay.width - 0.5,
+                        #expect(x >= stay.x + stay.width - closeWidth - 0.5,
                                 "round \(round) tick \(k): \(id.rawValue) shows at x \(x), under the staying tab (right edge \(stay.x + stay.width))")
                     }
                 }
