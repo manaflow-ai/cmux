@@ -1490,6 +1490,17 @@ button.acpmux-session-info-scope__parent:focus-visible {
   width: var(--grid-icon-box);
   height: var(--grid-icon-box);
 }
+/* Background tasks' glyphs (a command's >_, a wakeup's clock, a cron job's arrow, a server's globe)
+   draw at the row text's icon size, 14px (rowIconSize(12)), fitted to Environment's ink box and
+   stroke, centred in the 16px icon column so their labels stay on the text column. The rule above
+   drew them in the full 16px box, where the row crop took the clock's ring past every other row icon
+   (Leo, 2026-11-07, of a wakeup's clock: "this is too big"). */
+.acpmux-session-info :is(.acpmux-session-info-task, .acpmux-session-info-task__open) > svg.acpmux-row-glyph {
+  --acpmux-session-info-task-glyph: calc(var(--grid-icon-box) - var(--grid-base) / 2);
+  width: var(--acpmux-session-info-task-glyph);
+  height: var(--acpmux-session-info-task-glyph);
+  margin-inline: calc((var(--grid-icon-box) - var(--acpmux-session-info-task-glyph)) / 2);
+}
 /* A fold row's chevron is 12px, centred in the 16px icon column, as the head's is. */
 .acpmux-session-info .acpmux-session-info-fold > svg {
   width: calc(var(--grid-icon-box) - var(--grid-base));
