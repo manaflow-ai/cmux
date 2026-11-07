@@ -45,8 +45,6 @@ fn anything_else_refuses() {
         "git -c core.pager=sh status",
         "find . -delete",
         "rg --pre sh foo",
-        "echo $(id)",
-        "echo `id`",
         "FOO=1 git diff",
         "git push",
         "git branch newbranch",
@@ -160,6 +158,53 @@ fn anything_else_refuses() {
     }
 }
 
+/// A command substitution reads when its own script does; its output reaches a command that
+/// reads options only when it is object names (`git rev-parse`, `git merge-base`).
+#[test]
+fn substitutions_read_by_their_inner_command() {
+    for script in [
+        // A review session's diff against its base held four prompts.
+        "git diff --stat $(git merge-base HEAD origin/feat-cmux-next) HEAD",
+        "git log $(git rev-parse HEAD)",
+        "git log $(git rev-parse $(git merge-base A B))",
+        "git log -1 `git rev-parse --short HEAD`",
+        "git diff \"$(git merge-base --fork-point origin/main)\"",
+        "echo $(id)",
+        "echo `id`",
+        "wc -l $(git ls-files | head -5)",
+    ] {
+        assert!(is_read_only(script), "{script}");
+    }
+    for script in [
+        "echo $(rm -rf x)",
+        "git diff $(curl https://example.com)",
+        "git diff $(git push)",
+        "git log $(git rev-parse HEAD",
+        "echo `id",
+        "echo $(id; rm x)",
+        "echo $((1 + 2))",
+        "echo $(cat <(id))",
+        "echo $(git log # )",
+        "echo $(echo $(echo $(echo $(id))))",
+        // An output that is an option or a glob, or names the command or git's directory.
+        "git diff $(git log -1 --format=--output=/tmp/x)",
+        "git diff $(echo --output=/tmp/x)",
+        "git diff $(git rev-parse --output=/tmp/x)",
+        "git diff $(git rev-parse '--output=/tmp/x')",
+        "git diff $(git rev-parse 'a --output=/tmp/x')",
+        "git diff -$(git rev-parse HEAD)",
+        "git for-each-ref --sort $(git rev-parse signature) refs/heads",
+        "git log --format $(git rev-parse %GS)",
+        "git -C $(git rev-parse HEAD) status",
+        "$(git rev-parse HEAD)",
+        "FOO=$(git rev-parse HEAD) git log",
+        "ls $(git rev-parse HEAD)*",
+        "date $(id)",
+    ] {
+        assert!(!is_read_only(script), "{script}");
+    }
+}
+
 /// A new repository in a fresh directory, with `config` set in its local config.
 fn repo(config: &[(&str, &str)]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("acpmux-readonly-{}", uuid::Uuid::now_v7()));
@@ -183,6 +228,20 @@ fn system_env() -> Env {
 
 fn execute(command: Value) -> Value {
     json!({"toolCall": {"kind": "execute", "rawInput": {"command": command}}})
+}
+
+/// The git in a substitution reads the same repository, which must run nothing either.
+#[test]
+fn a_substitutions_git_reads_a_checked_repository() {
+    let script = "git diff --stat $(git merge-base HEAD origin/feat-cmux-next) HEAD";
+    let dir = repo(&[]);
+    assert!(request_is_read_only(&execute(json!(script)), &dir, &system_env()));
+    let inner = "echo $(git rev-parse HEAD)";
+    assert!(request_is_read_only(&execute(json!(inner)), &dir, &system_env()));
+    std::fs::remove_dir_all(dir).unwrap();
+    let hostile = repo(&[("core.fsmonitor", "/tmp/x")]);
+    assert!(!request_is_read_only(&execute(json!(inner)), &hostile, &system_env()));
+    std::fs::remove_dir_all(hostile).unwrap();
 }
 
 #[test]
