@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42384105979",
+  "recorded_at": "2026-11-07T15:08:59Z",
+  "reason": "cmux-tui bf66a6a787be changes the image's cmux-tui (pinned bcb1220bbf81)",
+  "dry_run": false,
+  "cmux_tui": "bf66a6a787beae8b8896c82eeae7238dbc39a10b",
+  "fixes": [
+    {
+      "sha": "bf66a6a787beae8b8896c82eeae7238dbc39a10b",
+      "mergedAt": "2026-11-07T14:43:48Z",
+      "subject": "chore(next): base autofix at c3c5b3b1ad81"
+    },
+    {
+      "sha": "2b585a5b5b47a419c90ac9e81e74a07654d0231d",
+      "mergedAt": "2026-11-07T06:41:53-08:00",
+      "subject": "cmux-sdk-ffi: a cancel that cannot be sent returns CMUX_SDK_ERR_IO (#37856)"
+    },
+    {
+      "sha": "6aeee089213e971a792aa26f39e28ec95db5aa88",
+      "mergedAt": "2026-11-07T06:40:23-08:00",
+      "subject": "cmux chat: the chat.on read's socket probe stays inside its 1.5 s deadline (#37822)"
+    },
+    {
+      "sha": "ab61ea98c7b465846a5b8f9c1d4b487ef26efa64",
+      "mergedAt": "2026-11-07T06:35:03-08:00",
+      "subject": "Relay owner context inventory and overrides through native sessions (#37775)"
+    },
+    {
+      "sha": "ab1dcce3efc55b9e5c3cfac1e2715fac4337e11e",
+      "mergedAt": "2026-11-07T06:32:36-08:00",
+      "subject": "Agent pane: answer the agent's questions from the composer hat (#37698)"
+    },
+    {
+      "sha": "398ad4b9819e62410d61076ce2550316b218c1b1",
+      "mergedAt": "2026-11-07T06:30:58-08:00",
+      "subject": "Subagent pane: its own transcript and state, never its chat's (#37697)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T15:08:59Z",
+    "snapshot_id": "sh-5843a163c2154575a05e4a518a9a2bd6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42384105979): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bf8b2bfb8a1b3f4e0774dd9bb8b05ebf7be349af",
+    "image": "cloud-native-auto-bf66a6a7-42384105979-1",
+    "revision": "ci-42384105979-1",
+    "at": "2026-11-07T15:08:59Z"
+  },
+  "rolled_back": false
+}
