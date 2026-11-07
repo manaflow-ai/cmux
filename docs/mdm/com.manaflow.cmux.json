@@ -22,27 +22,6 @@
       "title" : "Composer Ring",
       "type" : "string"
     },
-    "agentPane.dictationShortcut" : {
-      "default" : "",
-      "description" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
-      "title" : "Dictation App Shortcut",
-      "type" : "string"
-    },
-    "agentPane.dictationSource" : {
-      "default" : "cmux",
-      "description" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
-      "enum" : [
-        "cmux",
-        "macos",
-        "chatgpt",
-        "claude",
-        "gemini",
-        "wisprFlow",
-        "superwhisper"
-      ],
-      "title" : "Dictate With",
-      "type" : "string"
-    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -1892,6 +1871,12 @@
       "default" : true,
       "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
       "title" : "Open Links in cmux Browser",
+      "type" : "boolean"
+    },
+    "browser.openPullRequestsInGitHubPage" : {
+      "default" : true,
+      "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+      "title" : "Open Pull Requests in cmux GitHub Page",
       "type" : "boolean"
     },
     "browser.openSignInPagesInCmux" : {
