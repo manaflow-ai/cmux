@@ -191,3 +191,30 @@ struct SitePermissionEngineResetTests {
         #expect(tab.pageInfoFake.appliedChanges.allSatisfy { $0.1 == $0.0.defaultSetting })
     }
 }
+
+/// A Page Info window that grows after it appears (Site data's rows arriving after its loading
+/// view) stays on the screen's visible frame.
+struct PageInfoWindowResizeTests {
+    let visible = NSRect(x: 0, y: 40, width: 1440, height: 860)
+
+    @Test func aWindowThatGrowsKeepsItsTopEdgeWhileThereIsRoom() {
+        let frame = NSRect(x: 500, y: 600, width: 480, height: 120)
+        let next = PageInfoWebWindow.resized(frame, to: CGSize(width: 480, height: 300), within: visible)
+        #expect(next == NSRect(x: 500, y: 420, width: 480, height: 300))
+    }
+
+    @Test func aWindowThatWouldGrowPastTheBottomMovesUp() {
+        // Centered while loading, then 640 pt of rows: its bottom would land below the Dock.
+        let frame = NSRect(x: 500, y: 410, width: 480, height: 120)
+        let next = PageInfoWebWindow.resized(frame, to: CGSize(width: 480, height: 640), within: visible)
+        #expect(next.minY == visible.minY)
+        #expect(next.height == 640)
+        #expect(next.maxY <= visible.maxY)
+    }
+
+    @Test func withoutAScreenTheTopEdgeStays() {
+        let frame = NSRect(x: 0, y: 100, width: 480, height: 120)
+        let next = PageInfoWebWindow.resized(frame, to: CGSize(width: 480, height: 400), within: nil)
+        #expect(next.maxY == frame.maxY)
+    }
+}
