@@ -377,13 +377,42 @@ public final class PaneToolbarView: NSView {
     /// offer none kept 0, so the chat's tools ran to the pane's edge there (Leo 2026-11-07: "there's sometimes this,
     /// like, ghost area where it thinks there's, like, a fifth icon"). With nothing shown the chat's last tool sits on
     /// the pane's trailing control column, where "…" sits, in every pane.
-    public var tabRowWidth: CGFloat {
+    public var tabRowWidth: CGFloat { tabRowWidth(more: hasMore) }
+
+    /// ``tabRowWidth`` with or without "…" (`more`): a pane decides whether a parked chat's tools fit its row from the
+    /// toolbar as it is beside the chat, which shows no "…", not as it is beside the terminal selected now (#37548).
+    public func tabRowWidth(more: Bool) -> CGFloat {
         let allButtons = buttons + nativeButtons
-        let count = shownCount
+        let count = allButtons.count + (more ? 1 : 0)
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let moreWidth = hasMore ? TitlebarBandButton.side : 0
+        let moreWidth = more ? TitlebarBandButton.side : 0
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
         return buttonWidth + moreWidth + gaps + Self.trailingGap
+    }
+
+    /// ``tabRowWidth`` in a pane that gives the bar at most `limit` points: up to the leading edge of the last button
+    /// ``layout()`` still shows at that width. A narrow pane folds buttons that do not fit into "…"'s menu, and a bar
+    /// as wide as the cap kept their room empty in the row beside the chat's tools (#37548, Leo 2026-11-07: "there's
+    /// sometimes this, like, ghost area where it thinks there's, like, a fifth icon or something").
+    public func tabRowWidth(fitting limit: CGFloat) -> CGFloat {
+        let full = tabRowWidth
+        guard full > limit else { return full }
+        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        let allButtons = buttons + nativeButtons
+        let trailingSlot: CGFloat = hasMore || reservedCount > allButtons.count ? 1 : 0
+        // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
+        // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
+        var cursor = limit - Self.trailingGap - trailingSlot * (side + gap)
+        var leading = hasMore ? limit - Self.trailingGap - side : limit - Self.trailingGap
+        for index in allButtons.indices.reversed() {
+            let available = max(0, cursor)
+            guard available >= side else { break }
+            let width = min(allButtons[index].preferredWidth, available), x = cursor - width
+            guard x >= 0 else { break }
+            if !(index < items.count && items[index].alwaysVisible) { leading = min(leading, x) }
+            cursor = x - gap
+        }
+        return max(0, min(limit, limit - leading))
     }
 
     override public func layout() {

@@ -14,10 +14,18 @@ extension PaneContentView {
         needsLayout = true
     }
 
-    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the row (``PaneToolbarView/tabRowWidth``).
+    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip); `sharing`: beside a chat's tools in the
+    /// row (``PaneToolbarView/tabRowWidth(fitting:)``: only the buttons that still show in the half of the pane it may take).
     func toolbarWidth(shown: CGFloat, sharing: Bool = false) -> CGFloat {
         guard let view = toolbar?.view, shown > 0 else { return 0 }
-        return min(sharing ? view.tabRowWidth : view.intrinsicContentSize.width, bounds.width / 2)
+        return sharing ? view.tabRowWidth(fitting: bounds.width / 2) : min(view.intrinsicContentSize.width, bounds.width / 2)
+    }
+
+    /// The toolbar beside a parked chat, which shows no "…" (#37548): the width it had the last time a chat of this pane
+    /// was selected, else the toolbar now without "…".
+    func parkedChatToolbarWidth(shown: CGFloat) -> CGFloat {
+        guard let view = toolbar?.view, shown > 0 else { return 0 }
+        return min(trailingSlots.parkedChatToolbar ?? view.tabRowWidth(more: false), bounds.width / 2)
     }
 
     /// "…"'s pins beside a strip pinned to a browser's band.

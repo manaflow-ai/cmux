@@ -30,9 +30,14 @@ import CmuxNextSettings
     var supportsNativeTools = false
     public var nativeToolsEnabled: Bool { supportsNativeTools && ChromeTunables.nativeRowTools.value }
 
+    /// The last positive width any chat's page reported, in CSS pixels: the need of a chat whose page has not
+    /// reported yet, so its first show lays its tools in the row at once instead of under it (a chat's tools are
+    /// the same set in every chat, give or take a chip, and the page's report moves them by that much in the row).
+    static var anyNeed: CGFloat = 0
+
     /// The page reported its tools' width.
     func report(width: CGFloat) {
-        if width > 0 { neededWidth = width }
+        if width > 0 { neededWidth = width; Self.anyNeed = width }
         guard width != toolsWidth else { return }
         toolsWidth = width
         onChange?()
@@ -54,17 +59,20 @@ import CmuxNextSettings
                 nativeRowTools: offeredNativeRowTools ?? false, soloTab: offered?.soloTab ?? false)
     }
 
-    /// The tools' width in points at `zoom` (points per CSS pixel); nil while the page draws no
-    /// tools in the row.
-    public func sharedWidth(zoom: CGFloat) -> CGFloat? {
-        guard toolsWidth > 0 else { return nil }
-        return toolsWidth * max(0.25, zoom)
-    }
+    /// The tools' slot in the row in points at `zoom` (points per CSS pixel): the need (``sharedNeed(zoom:)``), not the
+    /// width the page reports this moment. The page reports 0 and then its width again each time the row is offered anew
+    /// (a tab selected, opened or closed changes the pane's toolbar and so the row's inset), and on a show before its first
+    /// report it has none: a pane that followed the report laid the chat under the strip until the width came back, so
+    /// its tools showed in a second row under the tabs and then jumped up into the row under the pointer (Leo
+    /// 2026-11-07: "the top right button area is somehow, like, shifting its layout"). Nil before any chat reported.
+    public func sharedWidth(zoom: CGFloat) -> CGFloat? { sharedNeed(zoom: zoom) }
 
-    /// ``neededWidth`` in points at `zoom`; nil before the page reported.
+    /// ``neededWidth`` in points at `zoom`; before this page reported, the last any chat's page did (``anyNeed``);
+    /// nil before any did.
     public func sharedNeed(zoom: CGFloat) -> CGFloat? {
-        guard neededWidth > 0 else { return nil }
-        return neededWidth * max(0.25, zoom)
+        let need = neededWidth > 0 ? neededWidth : Self.anyNeed
+        guard need > 0 else { return nil }
+        return need * max(0.25, zoom)
     }
 
     /// Offers `view`'s page the top `height` points of the pane, less `trailingInset` at the trailing
@@ -75,7 +83,7 @@ import CmuxNextSettings
         let nativeRowTools = view.model.tabRow.nativeToolsEnabled
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0, soloTab: on && !row.tabsShown)
-        let shares = on && row.toolsWidth > 0
+        let shares = on && row.sharedWidth(zoom: zoom) != nil
         view.setTabRowCover(shares ? height : 0) // the pane lays the view under the strip only then
         // The engine, not the shared host (which runs WebKit too, where the page is under the toolbar).
         row.holeFill = holeFill(chromium: view.chromiumPage != nil, shares: shares, tabsShown: row.tabsShown,
