@@ -76,6 +76,15 @@ public struct ProjectStateClient: Sendable {
                                     idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
     }
+
+    /// Saves the project's worktree recipe (`project.update` `worktree`).
+    public func saveWorktreeRecipe(path: String, worktree: JSONValue, idempotencyKey: String) async throws {
+        _ = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "project.update",
+                                    params: ["path": .string(path), "worktree": worktree],
+                                    idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<JSONValue>.self)
+    }
 }
 
 /// A `project.list` reply without its `projects` array.
