@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42391976214",
+  "recorded_at": "2026-11-07T16:41:51Z",
+  "reason": "cmux-tui 65f7f01d9eaf changes the image's cmux-tui (pinned bb1a1848ff26)",
+  "dry_run": false,
+  "cmux_tui": "65f7f01d9eafde67638377ae1eb34bfa910b9c55",
+  "fixes": [
+    {
+      "sha": "65f7f01d9eafde67638377ae1eb34bfa910b9c55",
+      "mergedAt": "2026-11-07T08:20:12-08:00",
+      "subject": "cmux-action-catalog: Show in Mini (agentPane.showInMini), as the app's catalog has it since #37728 (#37901)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T16:41:51Z",
+    "snapshot_id": "sh-34076cbd87274e9c833ca4364b2e7d02",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42391976214): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "657d0b10371a0b258925c39e23965d02c2581311",
+    "image": "cloud-native-auto-65f7f01d-42391976214-1",
+    "revision": "ci-42391976214-1",
+    "at": "2026-11-07T16:41:51Z"
+  },
+  "rolled_back": false
+}
