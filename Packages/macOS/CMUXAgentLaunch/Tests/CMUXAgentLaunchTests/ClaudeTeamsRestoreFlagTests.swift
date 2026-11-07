@@ -460,4 +460,53 @@ struct ClaudeTeamsRestoreFlagTests {
             ]
         )
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/26318: a value-taking option cmux did not know kept its flag but
+    /// lost its value and every argument after it, so restore failed with "argument missing".
+    @Test("Preserves values of value-taking Claude options across the prompt boundary", arguments: [
+        ["--autocompact", "1000000"],
+        ["--autocompact", "auto"],
+        ["--permission-prompts", "host"],
+        ["--system-prompt-snapshot", "off"],
+    ])
+    func preservesValueTakingOptionValues(option: [String]) {
+        let launch = [
+            "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "claude-teams",
+            "--teammate-mode",
+            "auto",
+            "--model",
+            "opus",
+            "--dangerously-skip-permissions",
+        ] + option + [
+            "--dangerously-load-development-channels",
+            "server:feedback-channel",
+        ]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(launch, launcher: "claudeTeams", fallbackKind: "claude")
+                == launch
+        )
+        let direct = ["/usr/local/bin/claude", "--model", "opus"] + option
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(direct, launcher: "claude", fallbackKind: "claude")
+                == direct
+        )
+    }
+
+    @Test("Keeps truncated Claude records invalid instead of resuming with missing restrictions", arguments: ["claudeTeams", "claude"])
+    func preservesTrailingValueOptionLeftByTruncatedRecord(launcher: String) {
+        let launch = launcher == "claudeTeams"
+            ? ["/Applications/cmux.app/Contents/Resources/bin/cmux", "claude-teams", "--model", "opus"]
+            : ["/usr/local/bin/claude", "--model", "opus"]
+        // The lost suffix may include restrictions such as --disallowed-tools Bash. Keep Claude's
+        // missing-value error rather than silently treating the incomplete configuration as valid.
+        let truncated = launch + ["--autocompact"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                truncated,
+                launcher: launcher,
+                fallbackKind: "claude"
+            ) == truncated
+        )
+    }
 }
