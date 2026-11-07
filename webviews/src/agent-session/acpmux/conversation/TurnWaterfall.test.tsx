@@ -198,3 +198,46 @@ test("two spans of one reused call id draw under their own keys", () => {
   );
   expect(markup.match(/cv-waterfall__span/g)?.length).toBe(2);
 });
+
+test("the header's empty corner says the turn's total and its calls, in the axis's time format", () => {
+  const shell = (id: string, from: number, to: number): AcpmuxActivity => ({
+    kind: "tool",
+    text: `sleep ${id}`,
+    tool: {
+      id,
+      title: `sleep ${id}`,
+      kind: "execute",
+      command: `sleep ${id}`,
+      status: "completed",
+      startedAt: from,
+      endedAt: to,
+    },
+  });
+  const summary = (markup: string) =>
+    markup.match(/class="cv-waterfall__summary"[^>]*>(.*?)<\/span><div/)?.[1]?.replace(/<[^>]+>/g, "");
+  // Three commands over a 1m 30s turn (Leo's screenshot): the corner reads as the table's total.
+  const commands = renderToStaticMarkup(
+    <TurnWaterfall
+      row={{ at: 90_000, durationMs: 90_000 }}
+      work={[shell("1", 0, 2_000), shell("2", 2_000, 6_000), shell("3", 6_000, 89_000)]}
+    />,
+  );
+  expect(summary(commands)).toBe("3 commands · 1m 30s");
+  // The corner sits in the header row, before the axis, so it shares the axis's line.
+  expect(commands.indexOf("cv-waterfall__summary")).toBeLessThan(commands.indexOf("cv-waterfall__axis"));
+  // Mixed kinds of call count as calls; one is singular; a thought is not a call.
+  const thought: AcpmuxActivity = { kind: "thought", text: "Hmm", startedAt: 0, endedAt: 500 };
+  expect(
+    summary(
+      renderToStaticMarkup(
+        <TurnWaterfall
+          row={{ at: 4_200, durationMs: 4_200 }}
+          work={[thought, shell("1", 500, 1_000), call("a", 1_000, 4_000)]}
+        />,
+      ),
+    ),
+  ).toBe("2 calls · 4.2s");
+  expect(
+    summary(renderToStaticMarkup(<TurnWaterfall row={{ at: 840, durationMs: 840 }} work={[call("a", 0, 800)]} />)),
+  ).toBe("1 call · 840ms");
+});
