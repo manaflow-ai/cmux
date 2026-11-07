@@ -32,7 +32,7 @@ import CmuxNextScreenshots
 /// not its child; another of the app's titled windows in front at the same
 /// level, with its own child windows and sheets, is left out. The window, its
 /// child windows and those windows are one window server composite
-/// (``NSWindow/compositedSnapshotWithOverlays()``), so a glass popover or menu
+/// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``), so a glass popover or menu
 /// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
@@ -73,7 +73,7 @@ enum DebugWindowSnapshot {
         do {
             // The window with its child windows and the app's menus, cards and popovers over it,
             // composited together as on screen; else AppKit drawing (no child windows).
-            let together = window.compositedSnapshotWithOverlays()
+            let together = await window.compositedImageWithOverlays()
             let snapshot = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) } ?? window.snapshotImage()
             // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
@@ -128,13 +128,12 @@ enum DebugWindowSnapshot {
             // without it, AppKit drawing with the live web views hidden, so the
             // page snapshots below fill each rectangle exactly once, and the
             // overlay panels painted on top at the end.
-            let together = window.compositedSnapshotWithOverlays()
+            // The overlays are cut from the composite in the same capture, before the page images' awaits: a popover
+            // that opened meanwhile is not in the composite, and its cut would be the window under it.
+            let together = await window.compositedImageWithOverlays(cuttingOverlays: { !WindowOverlayHost.isPageWindow($0) })
             let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? window.renderSnapshot(hiding: webViews)
-            // The overlays cut from the composite now, before the page images' awaits: a popover
-            // that opened meanwhile is not in the composite, and its cut would be the window under it.
-            let overlays = base.method == .composited
-                ? window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) : nil
+            let overlays = together?.overlays
             var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
@@ -196,10 +195,10 @@ enum DebugWindowSnapshot {
                 if let floating { layers.append(.window(floating.image)) }
                 floatingCount = floating?.count ?? 0
             }
-            let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let painted = await WindowImageLayer.compositedOffMain(base: base.image, windowSize: window.frame.size, layers: layers)
             let output = painted ?? base.image
-            // AppKit/WebKit capture and compositing stay on the main actor;
-            // PNG compression and the file write run off-main.
+            // The window server captures, the overlay mask, the paint, the PNG compression and
+            // the file write run off the main actor; main reads only AppKit state.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
