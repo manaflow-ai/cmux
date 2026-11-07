@@ -181,6 +181,8 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
             .map(|(row, acknowledged)| {
                 let post = mux.notification_post(&row.id);
                 let poster = post.as_ref().and_then(|post| post.poster.as_ref());
+                // What the row's agent said, while this daemon keeps it (memory only).
+                let texts = mux.agent_feed_texts(row.id.as_str());
                 json!({
                     "id": row.id,
                     "notification": post.as_ref().map(|post| post.notification),
@@ -202,6 +204,9 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                         .as_ref()
                         .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
                         .as_deref(),
+                    "message": texts.as_ref().and_then(|texts| texts.message.as_deref()),
+                    "prompt": texts.as_ref().and_then(|texts| texts.prompt.as_deref()),
+                    "detail": texts.as_ref().map(|texts| &*texts.detail),
                 })
             })
             .collect::<Vec<_>>(),
