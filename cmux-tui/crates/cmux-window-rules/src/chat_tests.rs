@@ -220,7 +220,7 @@ fn cmd_i_from_a_script_is_not_the_docked_chats() {
         DockedOpen { has_arguments: true, ..base.clone() },
         DockedOpen { can_host: false, ..base.clone() },
         DockedOpen { dock_roles: false, ..base.clone() },
-        DockedOpen { shown: false, ..base.clone() },
+        DockedOpen { shown: false, ..base },
     ] {
         assert_eq!(docked_open(&facts), DockedOpenDecision::NotHandled);
     }
@@ -276,7 +276,7 @@ fn a_chat_opens_at_the_windows_focus() {
         ..window.clone()
     };
     assert_eq!(destination(&[moving], &workspaces), at(0, "a1"));
-    let unknown = ChatWindow { focus_workspace: Some("b".into()), ..window.clone() };
+    let unknown = ChatWindow { focus_workspace: Some("b".into()), ..window };
     assert_eq!(destination(&[unknown], &workspaces), at(0, "a2"), "the pane focused last");
 }
 
@@ -292,7 +292,7 @@ fn a_chat_skips_a_workspace_without_a_key_or_a_pane() {
         ..ChatWindow::default()
     };
     let second = ChatWindow { recency: strings(&["b"]), ..ChatWindow::default() };
-    assert_eq!(destination(&[first.clone()], &workspaces), None);
+    assert_eq!(destination(std::slice::from_ref(&first), &workspaces), None);
     assert_eq!(destination(&[first, second], &workspaces), at(2, "b1"), "the first of equals");
     assert_eq!(latest_pane(&workspaces), at(2, "b1"));
     assert_eq!(latest_pane(&[]), None);
@@ -467,11 +467,8 @@ fn the_focused_tab_moves_into_a_new_dock() {
         DockMove::Refuse { needs: DockNeeds::EdgeDocks }
     );
     assert_eq!(dock_move(&DockMoveFacts { has_tab: false, ..base.clone() }), DockMove::NoTab);
-    let two_panes = DockMoveFacts {
-        column_panes: strings(&["p", "q"]),
-        shown_others: strings(&["q"]),
-        ..base.clone()
-    };
+    let two_panes =
+        DockMoveFacts { column_panes: strings(&["p", "q"]), shown_others: strings(&["q"]), ..base };
     assert_eq!(dock_move(&two_panes), DockMove::Move { respawn: false, anchor: "q".into() });
     let two_tabs = DockMoveFacts { pane_tabs: 2, ..two_panes.clone() };
     assert_eq!(dock_move(&two_tabs), DockMove::Move { respawn: false, anchor: "p".into() });

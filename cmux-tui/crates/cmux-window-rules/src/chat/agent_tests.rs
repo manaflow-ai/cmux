@@ -78,7 +78,7 @@ fn a_chat_on_a_machine_sets_its_host_and_route() {
         host_plan(&ready),
         HostPlan { host: Some("local".to_owned()), open: HostOpen::Local }
     );
-    let peer = HostFacts { route: HostRoute::Peer { peer: "blue".to_owned() }, ..ready.clone() };
+    let peer = HostFacts { route: HostRoute::Peer { peer: "blue".to_owned() }, ..ready };
     assert_eq!(host_plan(&peer).host.as_deref(), Some("blue"));
     let away = HostFacts { active_local: false, ..peer };
     assert_eq!(host_plan(&away).open, HostOpen::LocalPlacement);
@@ -89,7 +89,7 @@ fn a_chat_on_a_machine_sets_its_host_and_route() {
     let cloud = HostFacts {
         route: HostRoute::Cloud { machine: "m".to_owned() },
         active_local: false,
-        ..ready.clone()
+        ..ready
     };
     assert_eq!(
         host_plan(&cloud),
