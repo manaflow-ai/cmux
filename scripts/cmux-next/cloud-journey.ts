@@ -1349,7 +1349,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           throw new Error(`${e.message} (the chat machine: ${(d?.stdout ?? "unread").replace(/\n/g, "; ").slice(0, 1500)})`);
         });
         // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
-        if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
+        if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+          // Through the gateway, what the stub was sent: each request's path, whether it streamed, the tools it
+          // offered and whether its body could be read (a side reply means no tools, or a body it could not parse).
+          const rows = gatewayStub && gwExec ? (await gwExec(`cat ${shq(gwStubLog)} 2>/dev/null`).catch(() => null))?.stdout ?? "" : "";
+          const seen = rows.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
+            .map((x: any) => `${x.method} ${x.path} stream=${x.stream} tools=${(x.tools ?? []).length}${x.side ? " side" : ""}${x.unread_body !== undefined ? ` unread_body=${x.unread_body} encoding=${x.encoding || "none"}` : ""}`);
+          throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}${seen.length ? ` (the stub saw: ${seen.slice(-8).join("; ")})` : ""}`);
+        }
         return { value: last, detail: last.slice(0, 280) };
       });
       if (modelStub && provider) {
@@ -1385,7 +1392,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(
             `H=/home/cmux; for f in "$H/.codex/auth.json" "$H/.claude/.credentials.json"; do [ -e "$f" ] && echo "has $f"; done; ` +
               `grep -qs CLAUDE_CODE_OAUTH_TOKEN "$H/.claude/settings.json" && echo "has CLAUDE_CODE_OAUTH_TOKEN"; ` +
-              `grep -rlsE '"refresh_token"|sk-ant-oat' "$H/.codex" "$H/.claude" "$H/.config/cmux" 2>/dev/null | sed 's/^/has /'; echo "@@done"`,
+              // Credential files only (JSON, TOML, env): Codex's bundled plugin docs under ~/.codex/.tmp mention
+              // refresh tokens in prose (gateway-e2e run 42388544286).
+              `grep -rlsE --include='*.json' --include='*.toml' --include='*.env' --exclude-dir=.tmp '"refresh_token"|sk-ant-oat' "$H/.codex" "$H/.claude" "$H/.config/cmux" 2>/dev/null | sed 's/^/has /'; echo "@@done"`,
           );
           if (!r.stdout.includes("@@done")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
           const found = r.stdout.split("\n").filter((l) => l.startsWith("has "));
