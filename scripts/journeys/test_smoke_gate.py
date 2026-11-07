@@ -551,6 +551,16 @@ class RealKeySteps(unittest.TestCase):
         self.assertEqual(self.ext.step_smoke_type(self.journey("debug"), {"text": "x"})["key_path"], "debug.key")
         self.assertEqual(self.sent, [])
 
+    def test_the_main_window_is_the_one_debug_layers_names_not_the_largest(self):
+        # The overlay panel has the shell's frame and is listed above it: by size alone the window drag went to it.
+        j = self.journey("real")
+        j.app.rpc = lambda method, params=None: {"windows": [{"frame": [0, 0, 100, 50], "screen_frame": [0, 0, 1512, 982],
+                                                               "window_number": 3}]} if method == "debug.layers" else {}
+        self.assertEqual(self.rk._main_window(j), 3)
+        j = self.journey("real")
+        j.app.rpc = lambda method, params=None: {}
+        self.assertEqual(self.rk._main_window(j), 9)
+
     def test_a_refused_key_is_not_run_never_a_red(self):
         self.session.call = lambda tool, args: (True, {}, {"isError": True}) if tool != "list_windows" else \
             (False, {"windows": [{"pid": 7, "window_id": 9, "layer": 0, "bounds": {"width": 9, "height": 9}}]}, {})

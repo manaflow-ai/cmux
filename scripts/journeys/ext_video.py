@@ -449,7 +449,28 @@ def step_hid_drag(j, step):
     screen = R.window_to_screen(j, start)
     at = R.describe_rows(R.windows_at(R._window_rows(j), screen)) if screen is not None else "unknown (no window frame)"
     raise D.NotRun(f"hid_drag: no CuaDriver drag reached the app (its journal has no mouse-down): {json.dumps(tried)[:700]}; "
-                   f"windows at the start point now: {at}; drag schema: {json.dumps(_cua_tools(j).get('drag'))[:400]}")
+                   f"windows at the start point now: {at}; the app's child windows there: {_children_at(j, screen)}; "
+                   f"drag schema: {json.dumps(_cua_tools(j).get('drag'))[:400]}")
+
+
+def _children_at(j, screen):
+    """The main window's child windows (debug.layers: role, class) whose frame holds SCREEN (screen points from the
+    top-left). A page's window there with no divider catcher panel (DividerMousePanel) above it takes a desktop drag
+    from the divider: the 2x col-drag film (cmux21 2026-11-07 19:45Z) had the page window at the divider's centre and
+    no panel, where the 1x films have a 7 pt panel first."""
+    win = R._layers_window(j)
+    if screen is None or not win or not win.get("primary_max_y"):
+        return "unknown (no window frame)"
+    hits = []
+    for c in win.get("children") or []:
+        frame = c.get("frame") or []
+        if len(frame) < 4:
+            continue
+        x, y, w, h = (float(v) for v in frame[:4])
+        top = win["primary_max_y"] - (y + h)
+        if x <= screen[0] < x + w and top <= screen[1] < top + h:
+            hits.append(f"{c.get('role')} {c.get('class')} {'visible' if c.get('visible') else 'hidden'} {[x, top, w, h]}")
+    return "; ".join(hits) or "none"
 
 
 def step_hid_probe(j, step):

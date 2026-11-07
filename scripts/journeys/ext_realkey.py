@@ -222,8 +222,11 @@ def _session(j):
 
 
 def _main_window(j):
-    """CuaDriver's id of the app's main (shell) window: its largest on-screen layer-0 window (a page's Chromium
-    window is a smaller one inside it). Cached per app process; read again after a relaunch."""
+    """CuaDriver's id of the app's main (shell) window: the window number debug.layers names for it; without one, its
+    largest on-screen layer-0 window (a page's Chromium window is a smaller one inside it). Not by size alone: the
+    overlay panel has the shell's frame and sits above it, so the list has it first (2x col-drag film, cmux21
+    2026-11-07 19:45Z: the window drag went to the panel, 227517, not the shell). Cached per app process; read again
+    after a relaunch."""
     cached = getattr(j, "cua_window", None)
     if cached and cached[0] == j.app.pid:
         return cached[1]
@@ -233,8 +236,10 @@ def _main_window(j):
             and w.get("layer", 0) == 0 and w.get("is_on_screen", w.get("on_screen", True))]
     if not mine:
         raise D.NotRun(f"real keys: CuaDriver lists no on-screen window of the app (pid {j.app.pid})")
+    number = (_layers_window(j) or {}).get("number")
+    named = [w for w in mine if number is not None and int(w.get("window_id") or -1) == int(number)]
     area = lambda w: float((w.get("bounds") or {}).get("width") or 0) * float((w.get("bounds") or {}).get("height") or 0)
-    wid = int(max(mine, key=area).get("window_id"))
+    wid = int((named[0] if named else max(mine, key=area)).get("window_id"))
     j.cua_window = (j.app.pid, wid)
     return wid
 
@@ -432,8 +437,9 @@ def _pane_center(j, pane):
 
 
 def _layers_window(j):
-    """{frame, screen, visible, primary_max_y} of the app's first main window (debug.layers; bottom-left global
-    points). primary_max_y: the height of the screen whose origin is (0, 0) when debug.layers names it, else the
+    """{frame, screen, visible, primary_max_y, number, children} of the app's first main window (debug.layers;
+    bottom-left global points; number: its window number, CuaDriver's window_id; children: its child windows'
+    {role, class, visible, frame}). primary_max_y: the height of the screen whose origin is (0, 0) when debug.layers names it, else the
     window's own screen top (the minis have one display)."""
     report = j.app.rpc("debug.layers") or {}
     for w in report.get("windows") or []:
@@ -441,7 +447,9 @@ def _layers_window(j):
             screen = w["screen_frame"]
             primary = report.get("primary_screen_frame") or (screen if screen[0] == 0 and screen[1] == 0 else None)
             return {"frame": w["frame"], "screen": screen, "visible": w.get("screen_visible_frame"),
-                    "primary_max_y": (primary[1] + primary[3]) if primary else None}
+                    "primary_max_y": (primary[1] + primary[3]) if primary else None, "number": w.get("window_number"),
+                    "children": [{k: c.get(k) for k in ("role", "class", "visible", "frame")}
+                                 for c in w.get("child_windows") or [] if isinstance(c, dict)]}
     return None
 
 
