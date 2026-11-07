@@ -75,3 +75,44 @@ fn trust_read_absent_or_unlisted_claude_json_stays_unknown() {
     assert!(started.elapsed() < std::time::Duration::from_millis(100), "{:?}", started.elapsed());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `read_settled` over a scripted sequence of reads: what it parsed, how many reads, its waits.
+fn settle(reads: &[std::io::Result<&str>]) -> (Option<Value>, usize, Vec<u64>) {
+    let mut next = reads.iter();
+    let mut count = 0;
+    let mut waits = Vec::new();
+    let parsed = read_settled(
+        || {
+            count += 1;
+            match next.next().expect("read past the script") {
+                Ok(text) => Ok((*text).to_owned()),
+                Err(e) => Err(std::io::Error::from(e.kind())),
+            }
+        },
+        |text| serde_json::from_str::<Value>(text).ok(),
+        |wait| waits.push(wait.as_millis() as u64),
+    );
+    (parsed, count, waits)
+}
+
+#[test]
+fn trust_read_settles_on_the_first_whole_read() {
+    let (parsed, reads, waits) = settle(&[Ok(""), Ok(r#"{"projects": {"#), Ok(r#"{"a": 1}"#)]);
+    assert_eq!(parsed, Some(json!({"a": 1})));
+    assert_eq!((reads, waits), (3, vec![10, 20]));
+}
+
+#[test]
+fn trust_read_gives_up_on_a_file_that_never_parses_within_its_bound() {
+    let (parsed, reads, waits) = settle(&[Ok("{"), Ok("{"), Ok("{"), Ok("{"), Ok("{")]);
+    assert_eq!(parsed, None);
+    assert_eq!(reads, 5);
+    assert_eq!(waits.iter().sum::<u64>(), 150, "{waits:?}");
+}
+
+#[test]
+fn trust_read_takes_no_file_at_once() {
+    let (parsed, reads, waits) = settle(&[Err(std::io::ErrorKind::NotFound.into())]);
+    assert_eq!(parsed, None);
+    assert_eq!((reads, waits), (1, vec![]));
+}
