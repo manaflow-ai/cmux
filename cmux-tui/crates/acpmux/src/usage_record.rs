@@ -47,9 +47,10 @@ struct Writer {
     tx: SyncSender<Event>,
     #[cfg_attr(not(test), allow(dead_code))]
     thread: Option<std::thread::JoinHandle<()>>,
-    /// Tests without a writer: the receiving end, held so the queue stays open.
+    /// Tests without a writer: the receiving end, held so the queue stays open (in a mutex:
+    /// a `Receiver` is not `Sync`, and the hub must be).
     #[cfg(test)]
-    _rx: Option<Receiver<Event>>,
+    _rx: Option<std::sync::Mutex<Receiver<Event>>>,
 }
 
 impl UsageRecord {
@@ -104,7 +105,7 @@ impl UsageRecord {
         let (tx, rx) = mpsc::sync_channel(self.queue);
         #[cfg(test)]
         if self.no_writer {
-            return Some(Writer { tx, thread: None, _rx: Some(rx) });
+            return Some(Writer { tx, thread: None, _rx: Some(std::sync::Mutex::new(rx)) });
         }
         let thread = std::thread::Builder::new()
             .name("acpmux-usage".into())
