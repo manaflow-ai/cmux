@@ -36,7 +36,11 @@ extension TerminalSurfaceView {
                           shown?.width ?? 0, shown?.height ?? 0,
                           counters.frames, counters.host_off_main_presents, counters.host_fresh_presents,
                           counters.host_display_passes, counters.host_main_draws, counters.host_late_presents,
-                          owned ? 1 : 0, presenter, owned ? Self.name(surfaceView.hostFrame(present: false)) : "-"]
+                          owned ? 1 : 0, presenter, owned ? Self.name(surfaceView.hostFrame(present: false)) : "-",
+                          // RESIZE P0 9 diag (nomerge): output queued / parsed uptime ns and bytes parsed (TerminalOutputLane)
+                          surfaceView.lane?.debugQueuedNanos.load(ordering: .relaxed) ?? 0,
+                          surfaceView.lane?.debugParsedNanos.load(ordering: .relaxed) ?? 0,
+                          surfaceView.lane?.debugParsedBytes.load(ordering: .relaxed) ?? 0]
         return ["terminal": [row]]
     }
 

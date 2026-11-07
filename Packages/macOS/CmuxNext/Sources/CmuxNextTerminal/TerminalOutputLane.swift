@@ -54,9 +54,20 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// RESIZE P0 9 diag (nomerge): CLOCK_UPTIME_RAW ns of the last output chunk queued and parsed, and the bytes parsed
+    /// so far, for the motion trace's terminal row (TerminalSurfaceView+MotionSample).
+    let debugQueuedNanos = Atomic<UInt64>(0)
+    let debugParsedNanos = Atomic<UInt64>(0)
+    let debugParsedBytes = Atomic<UInt64>(0)
+    #endif
+
     func processOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        debugQueuedNanos.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), ordering: .relaxed)
+        #endif
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
@@ -66,6 +77,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             }
             TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
             #if DEBUG || CMUX_BENCH_HOOKS
+            _ = debugParsedBytes.add(UInt64(data.count), ordering: .relaxed)
+            debugParsedNanos.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), ordering: .relaxed)
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif
         }
