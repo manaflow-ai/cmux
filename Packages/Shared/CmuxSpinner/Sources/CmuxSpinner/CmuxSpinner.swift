@@ -13,7 +13,7 @@ public struct CmuxSpinner: View {
 
     /// - Parameters:
     ///   - size: The side in points; nil follows the environment's control size.
-    ///   - tint: The arc's ink; nil is secondary label ink.
+    ///   - tint: The arc's ink; nil is secondary label ink. The `.tint(_:)` modifier is not read, so pass it here.
     ///   - label: Words under the spinner (what is loading), or none.
     public init(size: CGFloat? = nil, tint: Color? = nil, label: Text? = nil) {
         self.size = size
