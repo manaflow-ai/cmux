@@ -521,4 +521,29 @@ mod tests {
         assert_eq!(kinds("agent_start_retrying").len(), 1, "a start ran after the shutdown");
         let _ = std::fs::remove_file(&gate);
     }
+
+    /// Cloud chaos fault `daemon-restart-session-new` (staging, f1c3afd06): the daemon got
+    /// SIGTERM while a chat's first prompt started its agent, and the prompt was answered with
+    /// what the shutdown did to that start ("no agent session", "agent process closed"), which
+    /// the CLI types as a non-retryable `agent_error`. The shutdown hands the turn to the next
+    /// daemon, so the prompt hears that the daemon is restarting, as a restart mid-turn does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_restart_while_the_agent_starts_answers_that_the_daemon_restarts() {
+        // A 9 s budget: the start is in flight, not waiting to be tried again.
+        let (hub, s, gate) = gated(9_000).await;
+        let run = send(&hub, &s);
+        until("the agent start never began", || {
+            s.spawn_lock.try_lock().is_err() && s.child.try_lock().is_ok_and(|c| c.is_some())
+        })
+        .await;
+        hub.shutdown_all().await;
+        let answer =
+            tokio::time::timeout(WAIT, run).await.expect("the prompt never ended").unwrap();
+        let e = answer.expect_err("a prompt whose agent never started was answered");
+        assert_eq!(e.message, crate::hub::SHUTTING_DOWN, "{e:?}");
+        // The next daemon queues it again (`unstarted_prompt.rs`): no end of its own.
+        let ended = kinds(&hub, &s, "turn_result");
+        assert!(ended.iter().all(|m| m["status"] != "failed"), "{ended:?}");
+        let _ = std::fs::remove_file(&gate);
+    }
 }

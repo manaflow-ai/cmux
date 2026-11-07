@@ -452,6 +452,11 @@ pub struct SessionMeta {
     /// Never copied to a fork or a moved-in session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<Lineage>,
+    /// Who created it (`hub/created_by.rs`): the person, an agent session or a script,
+    /// decided by the daemon at creation from the connection, never from a request
+    /// value. `None` for a fork, a moved-in session, and one saved before this existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<CreatedBy>,
     /// The log holds a subagent entry with a retry waiting or in flight that no later entry
     /// cleared yet (`hub/subagent_retry.rs`): the next load clears it, as the restart dropped
     /// that retry. Never copied to a fork.
@@ -496,6 +501,32 @@ pub struct Lineage {
     /// The parent's tool call that started it, when acpmux could tell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+}
+
+/// Who created a session (`hub/created_by.rs`), the shape cmux-tui's
+/// `workspace.create {created_by}` takes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct CreatedBy {
+    pub kind: CreatorKind,
+    /// The cmux workspace it was created from (lowercase UUID): the agent session's
+    /// workspace for an agent, else the one the create named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// The acpmux session whose agent created it; only for `agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CreatorKind {
+    /// This host's app, or a connection that proved it is the person.
+    Person,
+    /// An agent session: its shell's `acpmux new` (a proven caller token) or its
+    /// `start_session` tool.
+    Agent,
+    /// Any other client: a script or the CLI outside a chat.
+    Script,
 }
 
 /// A sub-session's place in its family (`hub/subsessions.rs`).

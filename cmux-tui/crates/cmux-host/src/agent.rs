@@ -40,6 +40,8 @@ pub enum Wake {
     BakeFile,
     /// `server.json` was written.
     ConfigFile,
+    /// `/var/lib/cmux/carrier.json` was written.
+    CarrierFile,
     /// The observation retry timer.
     Retry,
     /// The periodic announce timer.
@@ -99,6 +101,11 @@ pub trait Platform {
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>>;
     /// The supervised session host's pid.
     fn daemon_pid(&self) -> Option<u32>;
+    /// Whether the supervised session host runs with another relay carrier
+    /// route than `carrier.json` names now (`carrier_entry.rs`).
+    fn carrier_changed(&mut self) -> bool {
+        false
+    }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
     /// Answers accepted identity clients only after the fresh observation's actions.
@@ -182,9 +189,14 @@ impl<P: Platform> Agent<P> {
             self.log.line(&format!("adopt-daemon pid={pid}"));
         }
         let first = self.platform.observe();
-        if self
-            .dispatch([Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)])
-        {
+        let mut boot =
+            vec![Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)];
+        // A session host kept from before an agent restart may run with an
+        // older carrier route.
+        if adopted.is_some() && self.platform.carrier_changed() {
+            boot.push(Input::CarrierChanged);
+        }
+        if self.dispatch(boot) {
             return Ok(());
         }
         loop {
@@ -245,6 +257,11 @@ impl<P: Platform> Agent<P> {
                     observe = true;
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
+                Wake::CarrierFile => {
+                    if self.platform.carrier_changed() {
+                        rest.push(Input::CarrierChanged);
+                    }
+                }
                 Wake::DriverFile => {
                     self.platform.invalidate_remote_authority();
                     observe = true;
@@ -414,6 +431,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
         Wake::ConfigFile => "config-file",
+        Wake::CarrierFile => "carrier-file",
         Wake::Retry => "retry",
         Wake::AnnounceTimer => "announce-timer",
         Wake::Terminate => "terminate",
@@ -443,6 +461,11 @@ mod identity_tests {
         reads: usize,
         replies: Vec<(usize, Option<String>)>,
         invalidations: std::cell::Cell<usize>,
+        /// `carrier_changed` answers, in order (then `false`).
+        carrier: VecDeque<bool>,
+        exits: VecDeque<Exit>,
+        /// Every action run, by name.
+        ran: Vec<&'static str>,
     }
 
     impl Platform for Fake {
@@ -453,7 +476,7 @@ mod identity_tests {
             Ok(vec![self.wakes.pop_front().unwrap()])
         }
         fn reap(&mut self) -> Vec<Exit> {
-            vec![]
+            self.exits.drain(..).collect()
         }
         fn observe(&mut self) -> Observation {
             self.reads += 1;
@@ -467,8 +490,12 @@ mod identity_tests {
         fn adopt_daemon(&mut self) -> Option<u32> {
             Some(1)
         }
-        fn run(&mut self, _: &Action) -> io::Result<Option<Input>> {
+        fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
+            self.ran.push(action.name());
             Ok(None)
+        }
+        fn carrier_changed(&mut self) -> bool {
+            self.carrier.pop_front().unwrap_or(false)
         }
         fn daemon_pid(&self) -> Option<u32> {
             Some(1)
@@ -489,6 +516,9 @@ mod identity_tests {
             reads: 0,
             replies: vec![],
             invalidations: std::cell::Cell::new(0),
+            carrier: VecDeque::new(),
+            exits: VecDeque::new(),
+            ran: vec![],
         };
         let mut agent =
             Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
@@ -508,6 +538,9 @@ mod identity_tests {
             reads: 0,
             replies: vec![],
             invalidations: std::cell::Cell::new(0),
+            carrier: VecDeque::new(),
+            exits: VecDeque::new(),
+            ran: vec![],
         };
         let path = std::env::temp_dir().join(format!(
             "cmux-host-clock-{}-{}.log",
@@ -550,5 +583,52 @@ mod identity_tests {
         assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS), Wake::ClockSet);
         assert_eq!(clock_set_wake(base, base + 140_000_000_000), Wake::ClockSet);
         assert_eq!(clock_set_wake(base, base - 30_000_000_000), Wake::ClockSet);
+    }
+
+    /// The session host (adopted, so `Running`) under a fake spawner: the
+    /// run of `wakes` with `carrier_changed` answering `carrier`; returns
+    /// the actions run.
+    fn run_carrier(wakes: &[Wake], carrier: &[bool]) -> Vec<&'static str> {
+        let fake = Fake {
+            observations: std::iter::repeat_n(Some("a"), 16).collect(),
+            wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
+            reads: 0,
+            replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+            carrier: carrier.iter().copied().collect(),
+            exits: [Exit::Daemon { lived_ms: 60_000 }].into(),
+            ran: vec![],
+        };
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
+        agent.run().unwrap();
+        std::mem::take(&mut agent.platform.ran)
+    }
+
+    #[test]
+    fn carrier_json_appearing_respawns_the_session_host() {
+        // Boot: the adopted host matches; then carrier.json is written.
+        let ran = run_carrier(&[Wake::CarrierFile, Wake::ProcessExit], &[false, true]);
+        let terminate = ran.iter().position(|a| *a == "terminate-daemon").expect("no stop");
+        let spawn = ran.iter().position(|a| *a == "spawn-daemon").expect("no respawn");
+        assert!(terminate < spawn, "{ran:?}");
+        assert!(!ran.contains(&"stop-terminal-hosts"), "{ran:?}");
+    }
+
+    #[test]
+    fn an_adopted_host_with_an_old_route_respawns_at_boot() {
+        let ran = run_carrier(&[Wake::ProcessExit], &[true]);
+        assert_eq!(
+            ran.iter().filter(|a| matches!(**a, "terminate-daemon" | "spawn-daemon")).count(),
+            2,
+            "{ran:?}"
+        );
+    }
+
+    #[test]
+    fn an_unchanged_route_restarts_nothing() {
+        let ran = run_carrier(&[Wake::CarrierFile, Wake::CarrierFile], &[false, false, false]);
+        assert!(!ran.contains(&"terminate-daemon"), "{ran:?}");
+        assert!(!ran.contains(&"spawn-daemon"), "{ran:?}");
     }
 }

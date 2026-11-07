@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -28,6 +29,8 @@ final class LocationTrailService {
     /// The trail's failure log (cx-hnmbt.14): each skipped settle, step, report and reply.
     let log = HistoryTrailLog()
     private var observation: Task<Void, Never>?
+    /// Forwards trackpad swipes to the page under the pointer; the page's commit runs `navigate`.
+    private var swipes: PageSwipeForwarder?
     /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
     private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
     private let reportDrain: Task<Void, Never>
@@ -69,6 +72,8 @@ final class LocationTrailService {
         services.pages.navigate = { [weak services] back in
             _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
+        // A two-finger swipe over a page: the page draws it and asks for the same actions (history.md 4.2b).
+        swipes = PageSwipeForwarder { [weak self] in (self?.canNavigate(.back) ?? false, self?.canNavigate(.forward) ?? false) }
         let store = services.daemon.store
         // Another client changed the daemon's trail (the React History page): read it again.
         store.sideEvents.subscribe { [weak self] event in

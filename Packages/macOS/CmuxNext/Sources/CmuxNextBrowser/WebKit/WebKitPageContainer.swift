@@ -39,6 +39,15 @@ final class WebKitPageContainer: NSView {
     /// Its pane started a key resize (`WebKitPageContainer+PaneMotion`): the tab reads the page's color for the gap.
     var onPaneMotion: (() -> Void)?
 
+    /// The appearance the page draws in changed (a theme, or macOS light/dark): the tab reads the page's color again,
+    /// since a page that follows `prefers-color-scheme` changes its own background with it.
+    var onAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChange?()
+    }
+
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         onSubviewsChange?()
