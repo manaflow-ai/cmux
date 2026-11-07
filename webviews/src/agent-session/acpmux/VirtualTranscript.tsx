@@ -66,6 +66,7 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
+import { rowsWithLiveOutput, useLiveToolRow } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -250,7 +251,9 @@ function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>):
 }
 
 /// What a row's content draws from (the registry component's props, and the component).
-type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
+/// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
+/// of the pane's snapshot (liveToolOutput.ts).
+type RowContentProps = { Component: React.ComponentType<RowProps>; liveTools?: boolean } & RowProps;
 
 /// A row's content, drawn again only when what it draws from changes: never for its frame's place
 /// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
@@ -264,12 +267,14 @@ type RowContentProps = { Component: React.ComponentType<RowProps> } & RowProps;
 /// which. A new row object reaches the renderer, whose memo decides; a history row keeps its object
 /// across snapshots, so a scroll still draws none of them again.
 export const RowContent = React.memo(
-  function RowContent({ Component, ...props }: RowContentProps) {
+  function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     // Counted when committed: a render React set aside (an interrupted concurrent pass) drew nothing.
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    return <Component {...props} />;
+    // A running command's output that moved on without the pane: this row alone draws it.
+    const row = useLiveToolRow(props.row, liveTools);
+    return <Component {...props} row={row} />;
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -2672,7 +2677,8 @@ function TranscriptView({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      const text = transcriptRangeText(rows, rowIds);
+      // A running command's output since the pane last drew is in liveToolOutput.ts, not `rows`.
+      const text = transcriptRangeText(rowsWithLiveOutput(rows), rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
@@ -4347,6 +4353,7 @@ function TranscriptView({
                       >
                         <RowContent
                           Component={Component}
+                          liveTools={streams}
                           row={row}
                           replyActions={actions}
                           sessionId={sessionId}

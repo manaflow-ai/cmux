@@ -144,7 +144,9 @@ import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
+import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRow, streamingRowBlocked, textOnlyRow } from "./streamingRow";
+import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
@@ -182,6 +184,7 @@ import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type Turn
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
+import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
@@ -2504,10 +2507,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     lastStartedNames.current = started;
     return started.names;
   }, [snapshot.rows]);
-  const askedToolCalls = useMemo(
-    () => pendingToolCalls(snapshot),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
-    [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
+  // The same set while it holds the same calls: it is read by memoized parts (Session Info, the
+  // summary card), and the rows it is read from are new on every snapshot the pane draws.
+  const askedToolCalls = useSameValue(
+    useMemo(
+      () => pendingToolCalls(snapshot),
+      // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
+      [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
+    ),
   );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
@@ -5290,6 +5297,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The direct client's newest snapshot, drawn or not: a running command's output update is told
+  /// apart from the one before it (liveToolOutput.ts `toolOutputOnly`).
+  const receivedSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The draw (liveToolOutput.ts `redraw`) of the snapshot the pane set last.
+  const toolOutputEpoch = useRef(0);
+  // The pane drew a new snapshot: its rows hold every call's output as of that draw again.
+  useLayoutEffect(() => liveToolOutput.settle(toolOutputEpoch.current), [clientSnapshot]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
@@ -6920,12 +6934,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
             // the composer and Session Info keep the snapshot they drew.
             const drawn = drawnSnapshot.current;
+            const received = receivedSnapshot.current;
+            receivedSnapshot.current = next;
             const at = drawn ? streamedOnly(drawn, next) : -1;
             if (drawn && at >= 0) {
               streamingRow.set(next.rows[at]!, drawn.rows[at]!);
               return;
             }
+            // Only a running command's output grew: the row that draws it reads it
+            // (liveToolOutput.ts); the pane, its header and Session Info keep what they drew.
+            const call = drawn && received && !streamingRowBlocked() ? toolOutputOnly(received, next) : undefined;
+            if (call) {
+              liveToolOutput.set(call.id, call.output, call.before);
+              return;
+            }
             streamingRow.clear();
+            toolOutputEpoch.current = liveToolOutput.redraw();
             drawnSnapshot.current = next;
             setSnapshot((previous) => {
               if (
@@ -9810,7 +9834,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
             />
           )}
-          {secret && (
+          {secret?.elevation && (
+            <ElevationCard
+              key={secret.secretId}
+              ask={secret}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              onAnswer={answerSecret(secret)}
+            />
+          )}
+          {secret && !secret.elevation && (
             <SecretCard
               key={secret.secretId}
               ask={secret}
@@ -11168,6 +11200,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
                     {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
+                      chat={snapshot.sessionId}
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
                         callNative,

@@ -150,6 +150,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { markOneRowChange } from "./rowChanges";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -595,6 +596,9 @@ const OPEN_HOLD_MS = 1500;
 let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// A sudo card and its answer (acpmux hub/elevation.rs): only this machine's own chats ask, so only
+/// a local attach asks for them (a peer's attach stays at 8 kinds).
+const ELEVATION_KINDS = ["elevation_request", "elevation_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -1573,6 +1577,9 @@ function promptImages(value: unknown): PromptImage[] {
   );
 }
 
+/// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
+const MANY_SLOTS = Symbol("many");
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -1593,6 +1600,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
+  /// The one slot of `ordered` written in place since `snapshot` was made, when that is all that
+  /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
+  /// `markOneRowChange`), so the pane reads that row alone, not every row.
+  private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The last snapshot handed out, which the next one's change is from.
+  private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
@@ -1637,6 +1650,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1692,7 +1706,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
     }
-    if (changed) this.snapshot = undefined;
+    if (changed) {
+      this.snapshot = undefined;
+      this.changedSlot = MANY_SLOTS;
+    }
   }
 
   // Producers identify stream progress from the event, even when its row retains settled tools.
@@ -1736,8 +1753,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const index = this.orderedIndex.get(id);
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
+      this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
       return;
     }
+    this.changedSlot = MANY_SLOTS;
     const last = ordered.at(-1);
     const order = this.order.get(id) ?? 0;
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
@@ -1850,13 +1869,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
+      this.changedSlot = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
     if (!this.snapshot) {
+      const from = this.published;
       this.snapshot = this.ordered.slice();
+      if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
+        markOneRowChange(this.snapshot, from, this.changedSlot);
+      this.published = this.snapshot;
+      this.changedSlot = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -5118,7 +5143,7 @@ export class AcpmuxDirectClient {
         ...SECRET_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
-        ...(this.localOrigin ? QUEUE_KINDS : []),
+        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS] : []),
       ],
       eventStream: true,
       visible,
@@ -6309,7 +6334,18 @@ export class AcpmuxDirectClient {
         name: String(msg.name ?? ""),
         reason: String(msg.reason ?? ""),
       };
-    else if (event.kind === "secret_decision") {
+    else if (event.kind === "elevation_request")
+      this.pendingSecret = {
+        secretId: String(msg.secretId ?? ""),
+        name: "sudo",
+        reason: String(msg.reason ?? ""),
+        elevation: {
+          argv: Array.isArray(msg.argv) ? msg.argv.map(String) : [],
+          host: String(msg.host ?? ""),
+          ...(typeof msg.timeoutSecs === "number" ? { timeoutSecs: msg.timeoutSecs } : {}),
+        },
+      };
+    else if (event.kind === "secret_decision" || event.kind === "elevation_decision") {
       if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
