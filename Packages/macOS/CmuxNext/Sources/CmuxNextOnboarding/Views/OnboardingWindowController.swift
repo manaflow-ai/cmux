@@ -1,6 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
+import os
 
 /// The tool window (Agents, Import from Browser, Computer Use setup): the
 /// window's one glass backdrop with only a close button, and in it the
@@ -12,6 +14,11 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     private let page: PageWebView?
     private var helperPanels: ComputerUseHelperPanels?
+    /// Reveals the window if the page has not painted by ``revealLimit``.
+    private let revealDeadline = DemandTimer(owner: "onboarding.window.reveal")
+    /// The longest the window stays transparent waiting for the page's first frame (the pane paint hold's limit).
+    static let revealLimit: Duration = .milliseconds(500)
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
     /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
@@ -70,12 +77,33 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     /// Shows the window (placement and no-activate rules: `WindowPlacement`).
+    /// The window is transparent until the page paints its first frame (or ``revealLimit`` passes),
+    /// so it never shows empty glass with the page popping in. It shows at once so the page paints.
+    /// With no page (its bundle is missing) the window has nothing to show: it closes unshown, as
+    /// its close button would (the step is left, not skipped or done), and nothing starts.
     public func present() {
         guard let window else { return }
+        guard let page else {
+            Self.logger.error("onboarding page did not load (\(self.model.step.rawValue, privacy: .public)): the window closes unshown")
+            window.close()
+            return
+        }
+        if !page.hasPainted {
+            window.alphaValue = 0
+            page.whenPainted { [weak self] in self?.reveal() }
+            revealDeadline.schedule(after: Self.revealLimit) { @MainActor [weak self] in self?.reveal() }
+        }
         WindowPlacement.present(window)
         leaveCloseButtonUncovered()
-        page?.focusPage()
+        page.focusPage()
         model.stepDidAppear()
+    }
+
+    /// Shows the transparent window (the page painted, or the limit passed); once.
+    private func reveal() {
+        revealDeadline.cancel()
+        guard let window, window.alphaValue < 1 else { return }
+        window.alphaValue = 1
     }
 
     /// A Chromium page is a child window over the whole window, the titlebar too (a full-size
