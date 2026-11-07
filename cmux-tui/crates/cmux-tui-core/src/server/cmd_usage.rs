@@ -1,8 +1,10 @@
 //! `usage-record` and `usage-set-enabled`: the app's opt-in usage recording
-//! (cmux-usage: interaction shape, never content). Trusted local only: a
-//! remote or WebSocket peer can neither switch recording on nor write into
-//! the person's usage folder. Each function is one `Command` arm of
-//! `handle_command_with_cancellation`.
+//! (cmux-usage: interaction shape, never content). The verified cmux app only
+//! (the `frontend` actor): the app sends the switch after the person's own
+//! write and per-Mac consent, so no other client (an agent in a pane, a
+//! script, the `cmux` CLI, a remote or WebSocket peer) can switch recording
+//! on or write into the person's usage folder. Each function is one `Command`
+//! arm of `handle_command_with_cancellation`.
 //!
 //! A request runs on its connection's own thread (server/line_connection.rs),
 //! so the append is a plain file write here; it holds only this module's
@@ -42,9 +44,7 @@ static RECORDERS: Mutex<Option<HashMap<(PathBuf, String), Recorder>>> = Mutex::n
 
 /// `usage-record`: append the app's batch to `<usage dir>/<source>.jsonl`.
 pub(super) fn record(mux: &Arc<Mux>, client: u64, params: &RecordParams) -> anyhow::Result<Value> {
-    if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("usage recording requires a trusted local connection");
-    }
+    require_app(mux, client)?;
     let dir = default_dir()?;
     record_in(&dir, &params.source, &params.events)
 }
@@ -55,11 +55,19 @@ pub(super) fn set_enabled(
     client: u64,
     params: &SetEnabledParams,
 ) -> anyhow::Result<Value> {
-    if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("usage recording requires a trusted local connection");
-    }
+    require_app(mux, client)?;
     let dir = default_dir()?;
     set_enabled_in(&dir, params.on)
+}
+
+/// Refuses every client but the verified cmux app: a role-main Unix
+/// connection whose code signature or install key was proved in
+/// `client-hello` (the check `cloud_conversations::is_app` makes).
+fn require_app(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if !matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. }) {
+        anyhow::bail!("usage recording is switched and written only by the verified cmux app");
+    }
+    Ok(())
 }
 
 fn default_dir() -> anyhow::Result<UsageDir> {

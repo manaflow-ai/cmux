@@ -202,6 +202,37 @@ import Testing
         #expect(log.all == ["set-enabled true", "set-enabled false"])
     }
 
+    /// Off while a switch-on is on its way (Codex review F2 of 7cdcdba8): the off waits for the on's
+    /// answer and is sent after it, so the daemon ends off; before, the off was dropped as already
+    /// sent and the late on left acpmux recording after the person turned it off.
+    @Test func anOffDuringASwitchOnIsSentAfterItSoTheDaemonEndsOff() async {
+        let log = PortLog()
+        let holding = PortLog()
+        let ports = UsageRecorder.Ports(
+            channel: "dev", build: "1", previousRun: { "clean" }, counts: { UsageCounts() }, appActive: { true },
+            ask: { _, _, _, _ in false },
+            setEnabled: { on in
+                while on, !holding.all.isEmpty { await Task.yield() }
+                log.calls.withLock { $0.append("set-enabled \(on)") }
+            },
+            record: { _, _ in })
+        let recorder = UsageRecorder(ports: ports, managedDisables: { false },
+                                     defaults: UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard)
+        recorder.apply(true)
+        recorder.apply(false)
+        for _ in 0..<50 where log.all.count < 2 { await Task.yield() }
+        #expect(log.all == ["set-enabled true", "set-enabled false"])
+
+        holding.calls.withLock { $0 = ["hold"] }
+        recorder.apply(true)
+        for _ in 0..<10 { await Task.yield() }
+        recorder.apply(false)
+        holding.calls.withLock { $0 = [] }
+        for _ in 0..<50 where log.all.count < 4 { await Task.yield() }
+        #expect(log.all.suffix(2) == ["set-enabled true", "set-enabled false"])
+        #expect(!recorder.isRecording)
+    }
+
     // MARK: Queue
 
     @Test func aStoppedQueueKeepsAndSendsNothing() async {

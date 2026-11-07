@@ -87,8 +87,11 @@ public final class UsageRecorder {
     /// The daemon's switch as last confirmed; nil before the first decision (then it is sent either
     /// way, so a marker an earlier run left on goes off when this one does not record).
     private var switchSent: Bool?
-    /// The switch on its way to the daemon, not yet answered.
-    private var switchPending: Bool?
+    /// The latest decision; the daemon's switch follows it.
+    private var switchWanted = false
+    /// The one switch on its way to the daemon, not yet answered. Switches go one at a time, so an
+    /// answer never lands after a newer switch and leaves the marker on after the person's off.
+    private var switchInFlight: Bool?
     private var launchRecorded = false
     private var askedThisLaunch = false
 
@@ -202,8 +205,16 @@ public final class UsageRecorder {
     func apply(_ on: Bool) {
         if on, queue == nil { begin() }
         if !on, queue != nil { end() }
-        guard switchSent != on, switchPending != on else { return }
-        switchPending = on
+        switchWanted = on
+        sendSwitch()
+    }
+
+    /// Sends the latest decision when it differs from the daemon's confirmed switch and no switch is
+    /// on its way; ``switched(_:queue:ok:)`` sends again when the decision changed meanwhile.
+    private func sendSwitch() {
+        let on = switchWanted
+        guard switchInFlight == nil, switchSent != on else { return }
+        switchInFlight = on
         let setEnabled = ports.setEnabled
         let queue = queue
         let logger = logger
@@ -223,14 +234,16 @@ public final class UsageRecorder {
 
     /// The daemon answered the switch to `on`. Only an answered switch counts as sent, so the next
     /// decision sends a failed one again. A failed switch-on (an older daemon, or none) ends this
-    /// on-period: nothing would be written, so nothing is kept or tapped.
+    /// on-period: nothing would be written, so nothing is kept or tapped. A decision that changed
+    /// while the switch was on its way is sent now.
     private func switched(_ on: Bool, queue: UsageEventQueue?, ok: Bool) {
-        if switchPending == on { switchPending = nil }
+        switchInFlight = nil
         if ok {
             switchSent = on
         } else if on, let queue, queue === self.queue {
             end()
         }
+        if switchWanted != on { sendSwitch() }
     }
 
     private func begin() {

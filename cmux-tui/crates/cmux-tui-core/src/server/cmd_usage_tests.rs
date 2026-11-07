@@ -1,7 +1,10 @@
-//! `usage-record` / `usage-set-enabled`: refused off the trusted local
-//! transport, and a batch lands in the usage folder only while it is on.
+//! `usage-record` / `usage-set-enabled`: refused for every client but the
+//! verified cmux app, and a batch lands in the usage folder only while it is on.
 
 use super::*;
+use crate::server::origin_gate::{
+    set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
+};
 use crate::server::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
 
 fn temp_dir(name: &str) -> UsageDir {
@@ -23,17 +26,38 @@ fn client(mux: &Arc<Mux>, transport: ClientTransport) -> u64 {
 const BATCH: &str =
     r#"[{"at":5,"ev":{"t":"active","on":true}},{"at":6,"ev":{"t":"active","on":false}}]"#;
 
+fn assert_refused(mux: &Arc<Mux>, client: u64) {
+    let params = RecordParams { source: "app-dev".into(), events: BATCH.into() };
+    let error = record(mux, client, &params).expect_err("refused");
+    assert!(error.to_string().contains("verified cmux app"), "{error}");
+    let error = set_enabled(mux, client, &SetEnabledParams { on: true }).expect_err("refused");
+    assert!(error.to_string().contains("verified cmux app"), "{error}");
+}
+
 #[test]
 fn usage_commands_refuse_a_remote_or_websocket_client() {
     let mux = Mux::new_for_test("usage-refuse", crate::SurfaceOptions::default());
     for transport in [ClientTransport::Remote, ClientTransport::WebSocket] {
-        let client = client(&mux, transport);
-        let params = RecordParams { source: "app-dev".into(), events: BATCH.into() };
-        let error = record(&mux, client, &params).expect_err("refused");
-        assert!(error.to_string().contains("trusted local connection"), "{error}");
-        let error = set_enabled(&mux, client, &SetEnabledParams { on: true }).expect_err("refused");
-        assert!(error.to_string().contains("trusted local connection"), "{error}");
+        assert_refused(&mux, client(&mux, transport));
     }
+}
+
+/// A plain local client (an agent in a pane, a script, the `cmux` CLI)
+/// cannot switch recording on behind the setting and the per-Mac consent,
+/// and neither can a role-main connection that never proved it is the app.
+#[test]
+fn usage_commands_refuse_a_local_client_that_is_not_the_verified_app() {
+    let mux = Mux::new_for_test("usage-refuse-local", crate::SurfaceOptions::default());
+    assert_refused(&mux, client(&mux, ClientTransport::Unix));
+
+    let main = client(&mux, ClientTransport::Unix);
+    set_role_for_test(&mux, main, "main");
+    set_peer_key_for_test(&mux, main, "token:100.1");
+    assert_refused(&mux, main);
+
+    // The verified app passes the gate (the folder write is covered below).
+    set_verified_app_for_test(&mux, main, true);
+    assert!(require_app(&mux, main).is_ok());
 }
 
 #[test]

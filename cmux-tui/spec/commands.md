@@ -580,7 +580,9 @@ too. Rows are zeroed (`secure_delete`); the worker then checkpoints the WAL
 
 Appends one batch of the app's opt-in usage events (crate `cmux-usage`: the
 shape of how cmux is used, never content) to `<usage dir>/<source>.jsonl`.
-Trusted local (Unix-classified) connections only.
+The verified cmux app only (the `frontend` actor: a role-main Unix connection
+whose code signature or install key was proved in `client-hello`); any other
+client is refused.
 
 Params: `{source: string, events: string}`. `source` is the writer's file stem
 (`app-nightly`, `app-dev`); text that is not a plain identifier is recorded as
@@ -603,7 +605,10 @@ before they are written. The usage dir is `CMUX_USAGE_DIR`, else
 | since | protocol 12 |
 
 Switches opt-in usage recording on or off, from the person's own choice in the
-app. Trusted local (Unix-classified) connections only.
+app, after its setting and per-Mac consent. The verified cmux app only (the
+`frontend` actor); any other client (an agent in a pane, a script, the `cmux`
+CLI, a remote or WebSocket peer) is refused, so none can switch recording on
+behind the person's choice.
 
 Params: `{on: boolean}`. Result: `{on: boolean, dir: string}`, `dir` being the
 usage dir. On writes the `enabled` marker and makes the folder and salt if
