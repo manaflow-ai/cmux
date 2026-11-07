@@ -299,6 +299,20 @@ import Testing
         #expect(second.closes == 1, "a dismiss before the first size ends the session too")
     }
 
+    @Test func stoppingServingClosesTheOpenInviteCard() throws {
+        let invite = CountingCard(PairInviteCardProvider.route)
+        let panel = try #require(WebCardPanel(descriptor: .serverCards, cards: [invite]))
+        var made = 0
+        let menu = ServerMenuBarController(makeCards: { made += 1; return panel })
+        menu.openInvite()
+        #expect(invite.opens == 1)
+        menu.hide()
+        #expect(invite.closes == 1, "server.stopServing ends the invite's session (its socket)")
+        #expect(!panel.isVisible)
+        menu.openInvite()
+        #expect(made == 2, "a later opening makes a new card panel")
+    }
+
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {
         let fake = Fake()
         let provider = fake.provider()
