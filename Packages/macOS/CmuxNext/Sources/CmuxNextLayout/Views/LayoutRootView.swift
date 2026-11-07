@@ -172,6 +172,7 @@ public final class LayoutRootView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
+        context.springsOnRenderServer = { [weak self] in self.map { !$0.driver.isManual } ?? false }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }

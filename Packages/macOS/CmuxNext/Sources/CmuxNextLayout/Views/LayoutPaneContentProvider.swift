@@ -122,6 +122,10 @@ final class LayoutViewContext {
 
     var style: LayoutStyle { model.style }
 
+    /// Whether a split's slide-in may move on the render server (``ScreenServerMotion``): the window's display link is the
+    /// clock. False under a manual driver (tests step the springs themselves and read every frame).
+    var springsOnRenderServer: () -> Bool = { false }
+
     /// Pins Reduce Motion for this view only (tests), instead of the
     /// process-wide `Motion.reduceMotionOverride`, which leaks into every
     /// test that runs while an async test is suspended.

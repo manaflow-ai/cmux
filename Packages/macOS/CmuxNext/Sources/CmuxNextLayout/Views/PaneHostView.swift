@@ -181,6 +181,11 @@ final class PaneHostView: NSView, RestingPlacement {
     /// content's anchor).
     private weak var heldArea: PaneContentAreaView?
 
+    /// A slide-in the render server moves (``ScreenServerMotion``): where the host showed when it began, in its screen's
+    /// coordinates, and its springs' begin time. The overlay's ring and dim take the same springs at their next sync,
+    /// which clears it.
+    var serverMotion: PaneServerMotion?
+
     /// The host's size at rest (its spring rect's target), set with ``restOffset`` on every
     /// presented frame; nil before the screen first places it.
     var restSize: CGSize?

@@ -86,6 +86,11 @@ extension LayoutRootView {
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
+                // The ring and dim ride a render-server slide-in with their host, from where it began.
+                if let motion = host.serverMotion {
+                    host.serverMotion = nil
+                    ServerSpring.carry(chrome, from: convert(motion.start, from: screen), token: motion.token, begin: motion.begin)
+                }
                 chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }

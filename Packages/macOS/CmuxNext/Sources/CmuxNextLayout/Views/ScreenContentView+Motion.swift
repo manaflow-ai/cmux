@@ -317,6 +317,9 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
+        // A slide-in handed to the render server: every frame is at rest now, and its springs carry what shows from the
+        // start frames, in this pass's commit.
+        if serverMotion != nil { startServerMotion(strip: strip, scale: scale) }
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)

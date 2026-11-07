@@ -97,6 +97,9 @@ final class ScreenContentView: NSView {
     var userMotionActive = false
     /// What the screen shows once per display frame: a strip pan's events, a presentation the frame's input held.
     var frameInput = ScreenFrameInput()
+    /// A slide-in split handed to the render server in `reconcile` (``ScreenServerMotion``): its start frames, sprung
+    /// on the render server by the next presentation pass, which places every frame at rest.
+    var serverMotion: ScreenServerMotion?
     /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
     /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
     var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
@@ -447,6 +450,10 @@ final class ScreenContentView: NSView {
             }
         }
 
+        // A chat's slide-in split moves on the render server, so a busy main thread never stops it (``ScreenServerMotion``).
+        if structural, !arrivals.isEmpty, handoff == nil, !wasMoving, animateFrames, !covering, !returning, !departing {
+            handOffToRenderServer(arrivals: arrivals)
+        }
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
