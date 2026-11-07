@@ -203,6 +203,25 @@ async fn a_local_prompt_records_its_provenance_on_its_user_message() {
     assert_eq!(second.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{second}");
 }
 
+/// A Web connection is the person's only by a paired device's proof (`pairing.rs` `origin_of`:
+/// the phone's `client` credential): the listener token a dashboard or browser socket holds
+/// proves no person (`hub/person.rs`), so its unnamed prompt is unverified.
+#[tokio::test]
+async fn an_unnamed_web_prompt_is_the_persons_only_from_a_paired_device() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (auth, id, kind) in [
+        (ConnAuth::ListenerToken, "p-dashboard", Some(json!("unverified"))),
+        (ConnAuth::Device, "p-phone", None),
+    ] {
+        let mut web = Client::open_authed(&hub, Origin::Web, auth);
+        web.call("session/prompt", prompt(&session, id, "hi", None)).await;
+        let message = local.user_message(&session, id).await;
+        assert_eq!(message.pointer("/_meta/provenance/kind").cloned(), kind, "{auth:?}: {message}");
+    }
+}
+
 #[tokio::test]
 async fn a_malformed_provenance_is_refused() {
     let hub = hub();
