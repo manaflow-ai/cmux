@@ -420,12 +420,16 @@ async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Resul
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
     let (viewer_net, host_net, _, target) = start_wg(args).await?;
     let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
-    let mut bulk_listener = host_net.listen(BULK_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(target).await.map_err(err)?;
     let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
     stream_session(host, viewer, args, clock, record.clone()).await;
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    // A fresh tunnel, so frames still queued from the stream cannot share it.
+    let (viewer_net, host_net, _, target) = start_wg(args).await?;
+    let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(SocketAddr::new(target.ip(), BULK_PORT)).await.map_err(err)?;
-    let host = bulk_listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
     lock(&record).bulk_mbit_s = bulk(host, viewer, args.bulk_bytes).await;
     viewer_net.shutdown().await;
     host_net.shutdown().await;
