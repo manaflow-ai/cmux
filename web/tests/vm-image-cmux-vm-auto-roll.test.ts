@@ -144,10 +144,10 @@ describe("auto-roll settle", () => {
   const image = entry("500").id;
   const previous = locate(wrangler, "production").images[0]!.id;
   const roll = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, attempt: 1, ...over,
+    kind: "roll", image, deploy: "success", product: "success", bootImage: image, deployedFirst: image, tipFirst: image, tipHas: true, deployedHas: true, deployedStagingHas: true, attempt: 1, ...over,
   });
   const back = (over: Partial<SettleInput>): SettleInput => ({
-    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, attempt: 1, ...over,
+    kind: "rollback", image, deploy: "success", product: "success", bootImage: previous, deployedFirst: previous, tipFirst: previous, tipHas: false, deployedHas: false, deployedStagingHas: false, attempt: 1, ...over,
   });
 
   test("a roll whose deploy and product create booted the image is green", () => {
@@ -183,6 +183,16 @@ describe("auto-roll settle", () => {
       expect(settle(back({ deploy: "failure", product: "", attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
     }
     expect(settle(back({ deploy: "cancelled", product: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback_failed");
+  });
+
+  test("a staging-only rollback with no production image is verified by the deployed lists, not a production boot", () => {
+    // Production lists nothing (it boots its pin), so no create boots a "first entry".
+    const none = { deployedFirst: "", tipFirst: "", bootImage: "", product: "" };
+    expect(settle(back(none)).outcome).toBe("verified");
+    expect(settle(back(none)).reason).toMatch(/boots its pin/);
+    // Still in staging in the deployed commit, or a deploy that did not succeed: not verified.
+    expect(settle(back({ ...none, deployedStagingHas: true })).outcome).toBe("retry");
+    expect(settle(back({ ...none, deploy: "failure" })).outcome).toBe("retry");
   });
 
   test("a rollback's settle never asks for another rollback commit", () => {

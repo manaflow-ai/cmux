@@ -189,6 +189,8 @@ export type SettleInput = {
   tipHas: boolean;
   /** Whether the image is in production's list in the deployed commit. */
   deployedHas: boolean;
+  /** Whether the image is in staging's list in the deployed commit. */
+  deployedStagingHas: boolean;
   /** Rollback only: which production deploy of the rollback this was, 1 for the rollback commit's own. */
   attempt: number;
 };
@@ -218,6 +220,10 @@ export function settle(s: SettleInput): Settle {
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
     return done("verified", `rollback of ${s.image}: ${s.deployedFirst} boots in production again (${seen})`);
+  // Production lists no image (it boots the platform's pin) and the rollback only took the image out of staging:
+  // no production create can boot a "first entry", so the deployed lists are the proof. A failed deploy still retries.
+  if (s.deploy === "success" && s.deployedFirst === "" && !s.deployedHas && !s.deployedStagingHas)
+    return done("verified", `rollback of ${s.image}: gone from both lists in the deployed commit; production lists no image and boots its pin (${seen})`);
   if (s.attempt < ROLLBACK_DEPLOYS) return done("retry", `rollback of ${s.image} not verified on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying again`, s.attempt + 1);
   return done("rollback_failed", `rollback of ${s.image} not verified after ${ROLLBACK_DEPLOYS} production deploys (${seen}); production may still boot it`);
 }
@@ -379,6 +385,7 @@ async function main(argv: string[]): Promise<number> {
       tipFirst: tip.prod[0] ?? "",
       tipHas: tip.prod.includes(image) || tip.staging.includes(image),
       deployedHas: deployed.prod.includes(image),
+      deployedStagingHas: deployed.staging.includes(image),
       attempt,
     };
     console.log(JSON.stringify({ ...settle(input), deployedFirst: input.deployedFirst, tipFirst: input.tipFirst }, null, 2));
