@@ -228,12 +228,104 @@ class FindSocket(unittest.TestCase):
             return status(argv)
         self.hot.subprocess.run = run
 
+    def stub_acpmux(self, with_daemon):
+        """The copy's acpmux daemon (bin/acpmux, a link to bin/cmux), and with WITH_DAEMON its cmux-tui
+        daemon too; `server status` on acpmux's socket hangs, as it serves another protocol."""
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"5151": (f"{prefix}/acpmux", "daemon run --ready-fd 3", "/home/u/.acpmux/builds/x/acpmux.sock")}
+        if with_daemon:
+            procs["4242"] = (f"{prefix}/cmux-tui", "--session s server", "/tmp/s.sock")
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                full = argv[-1] == "pid=,command="
+                return subprocess.CompletedProcess(argv, 0, "".join(
+                    f"{pid} {exe}{' ' + args if full else ''}\n" for pid, (exe, args, _) in procs.items()), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid][2]}\n", "")
+            sock = argv[argv.index("--socket") + 1]
+            if "acpmux" in sock:
+                raise subprocess.TimeoutExpired(argv, 10)
+            return subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', "")
+        self.hot.subprocess.run = run
+
+    def test_the_acpmux_daemon_beside_the_terminal_daemon_is_skipped(self):
+        self.stub_acpmux(with_daemon=True)
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    def test_a_copy_running_only_acpmux_has_no_terminal_daemon(self):
+        # The fleet proof's fresh nightly copy, 2026-11-06: acpmux ran, the terminal daemon did not yet.
+        self.stub_acpmux(with_daemon=False)
+        self.assertIsNone(self.hot.find_socket(self.app, Path("cmux")))
+
     def test_a_daemon_that_answers_is_found(self):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""))
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
     def test_a_daemon_whose_argv0_is_its_bare_name_is_found_by_its_executable(self):
         self.stub(lambda argv: subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', ""), argv0="cmux-tui")
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    def test_the_apps_own_session_is_picked_over_its_chiefs(self):
+        # The fleet proof's copy, 2026-11-07, ran a cmux-chief-... daemon beside cmux-app--... from bin/.
+        prefix = str(self.app / self.hot.BIN)
+        procs = {"3001": "/v/T/cmux-tui-501/cmux-chief-e8875805.sock", "3002": "/v/T/cmux-tui-501/cmux-app--c117.sock"}
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":
+                return subprocess.CompletedProcess(argv, 0, "".join(f"{pid} {prefix}/cmux-tui --headless\n" for pid in procs), "")
+            if argv[0] == "lsof":
+                pid = argv[argv.index("-p") + 1]
+                return subprocess.CompletedProcess(argv, 0, f"p{pid}\nn{procs[pid]}\n", "")
+            sock = argv[argv.index("--socket") + 1]
+            return subprocess.CompletedProcess(argv, 0, '{"pid": %s}' % next(p for p, n in procs.items() if n == sock), "")
+        self.hot.subprocess.run = run
+        self.assertEqual(self.hot.find_sockets(self.app, Path("cmux")), [procs["3002"], procs["3001"]])
+        self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), procs["3002"])
+
+    def test_a_daemon_started_through_a_linked_folder_is_found(self):
+        # The fleet proof, 2026-11-07: the copy was given as /private/tmp/..., and its daemon ran as
+        # /tmp/.../bin/cmux-tui (macOS links /tmp to /private/tmp), so neither path form matched.
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp, "private-tmp")
+            (real / "cmux NIGHTLY.app" / self.hot.BIN).mkdir(parents=True)
+            Path(tmp, "tmp").symlink_to(real)
+            self.app = real / "cmux NIGHTLY.app"
+            linked = Path(tmp, "tmp", "cmux NIGHTLY.app", self.hot.BIN, "cmux-tui")
+
+            def run(argv, **kwargs):
+                if argv[0] == "ps":
+                    return subprocess.CompletedProcess(argv, 0, f"4242 {linked} --headless --session s\n", "")
+                if argv[0] == "lsof":
+                    return subprocess.CompletedProcess(argv, 0, "p4242\nn/tmp/s.sock\n", "")
+                return subprocess.CompletedProcess(argv, 0, '{"pid": 4242}', "")
+            self.hot.subprocess.run = run
+            self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
+
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "Linux /proc")
+    def test_a_linux_daemon_with_only_its_basename_in_ps_is_found_by_proc_exe(self):
+        # A real process whose executable is in the app: a copy of sleep at APP/Contents/Resources/bin.
+        tmp = Path(tempfile.mkdtemp(prefix="hot-apply-proc-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
+        self.app = tmp / "cmux NIGHTLY.app"
+        bin_dir = self.app / self.hot.BIN
+        bin_dir.mkdir(parents=True)
+        sleeper = bin_dir / "cmux-tui"
+        sleeper.write_bytes(Path(subprocess.run(["sh", "-c", "command -v sleep"], capture_output=True,
+                                                text=True).stdout.strip()).resolve().read_bytes())
+        sleeper.chmod(0o755)
+        child = subprocess.Popen(["cmux-tui", "30"], executable=str(sleeper))
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+
+        def run(argv, **kwargs):
+            if argv[0] == "ps":  # basename only, as /proc/self/exe re-runs show
+                return subprocess.CompletedProcess(argv, 0, f"{child.pid} cmux-tui\n", "")
+            if argv[0] == "lsof":
+                return subprocess.CompletedProcess(argv, 0, f"p{child.pid}\nn/tmp/s.sock\n", "")
+            return subprocess.CompletedProcess(argv, 0, f'{{"pid": {child.pid}}}', "")
+        self.hot.subprocess.run = run
         self.assertEqual(self.hot.find_socket(self.app, Path("cmux")), "/tmp/s.sock")
 
     def test_a_status_that_never_answers_is_not_taken_for_no_daemon(self):
