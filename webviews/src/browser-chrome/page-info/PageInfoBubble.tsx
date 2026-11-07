@@ -89,7 +89,6 @@ function Row({ icon, title, subtitle, accessory, danger, onActivate, checked, to
         <Switch
           size="sm"
           className="pi-switch"
-          data-pi-focus
           aria-label={title}
           checked={toggle.toggle}
           onCheckedChange={(on) => toggle.onToggle(on)}
@@ -534,7 +533,10 @@ export function PageInfoBubble({
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)];
-      const at = items.indexOf(document.activeElement as HTMLElement);
+      // Arrows move row by row: a row's switch (Tab reaches it) counts as its row.
+      const active = document.activeElement as HTMLElement | null;
+      const row = active?.closest(".pi-row")?.querySelector<HTMLElement>(FOCUSABLE) ?? active;
+      const at = row ? items.indexOf(row) : -1;
       const step = event.key === "ArrowDown" ? 1 : -1;
       const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length;
       items[next]?.focus();
