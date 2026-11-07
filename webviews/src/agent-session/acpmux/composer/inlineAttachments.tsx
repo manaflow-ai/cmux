@@ -130,12 +130,13 @@ export function useInlineAttachments(options: Options) {
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
     /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
-    place(chips: readonly PendingAttachment[], _kind: DroppedKind) {
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
       if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
-      if (!field.current?.insertInline(ids)) for (const id of ids) placed.current.delete(id);
+      // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
+      if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
     },
     ready() {
       const { attachments, field, placing } = live.current;

@@ -738,8 +738,8 @@ function ComposerFrame({
     attach,
     attachLater,
   } = useAttachmentIntake({
-    place: (chips) => {
-      if (!shell) box.current?.place(chips);
+    place: (chips, kind) => {
+      if (!shell) box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,

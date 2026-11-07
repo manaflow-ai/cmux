@@ -373,21 +373,32 @@ export function inlinePlugin(views: InlineViews) {
 }
 
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
-/// code block) or the editor has no such node. A selection across lines, or the whole prompt (Select
-/// All), is taken out first, as a paste of text takes it, and the attachments go where it was: a
-/// paste over it never left its placeholder in the strip above the text, to jump into the text once
-/// read (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above").
-export function insertInline(view: EditorView, ids: readonly string[]): boolean {
+/// code block) or the editor has no such node.
+///
+/// `replace`: the person's own paste or drop, which takes the selection's place as a paste of text
+/// does, a selection across lines or the whole prompt (Select All) included. Their placeholder then
+/// goes where the selection was, never into the strip above the text to jump into the text once read
+/// (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above"). Without
+/// it (an attachment placed later, once read or once the field can take it) nothing typed is ever
+/// replaced: the attachments go in at the selection's end.
+export function insertInline(view: EditorView, ids: readonly string[], replace = false): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
   const tr = view.state.tr;
   const { selection } = tr;
-  const crosses = selection.$from.parent !== selection.$to.parent || !selection.$from.parent.inlineContent;
-  if (!selection.empty && crosses) {
+  if (!replace) {
+    if (!selection.empty) {
+      const $end = tr.doc.resolve(selection.to);
+      tr.setSelection(
+        $end.parent.inlineContent ? TextSelection.create(tr.doc, selection.to) : Selection.near($end, -1),
+      );
+    }
+  } else if (
+    !selection.empty &&
+    (selection.$from.parent !== selection.$to.parent || !selection.$from.parent.inlineContent)
+  ) {
     // Not into a code block it would end in: the attachment could not go there.
-    const $start = selection.$from;
-    const $end = selection.$to;
-    const lands = $start.parent.inlineContent ? $start.parent : $end.parent;
+    const lands = selection.$from.parent.inlineContent ? selection.$from.parent : selection.$to.parent;
     if (lands.type.spec.code) return false;
     tr.deleteSelection();
   }

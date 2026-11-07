@@ -74,7 +74,8 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
-  place?(chips: readonly PendingAttachment[]): void;
+  /// `kind`: how they came (a paste takes the selection's place; a drop or a pick replaces nothing).
+  place?(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -353,7 +354,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown);
+      current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.

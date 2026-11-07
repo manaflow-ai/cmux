@@ -790,14 +790,14 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-muted);
   opacity: 0.85;
 }
-/* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms; a quick
-   paste never flashes one (--acpmux-paste-late-after, 400 ms). One run each, then they hold; the tile
-   leaves with the read. */
-:root {
-  --acpmux-paste-late-after: calc(var(--cmux-motion-quick, 80ms) * 5);
-}
+/* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms
+   (pasteLoading.tsx sets data-late from one timer); a quick paste never flashes one. */
 .acpmux-paste-late {
   display: inline-flex;
+}
+/* Transparent, not hidden: an upload's assistive <progress> inside is read all along. */
+.acpmux-paste-late:not([data-late]) {
+  opacity: 0;
 }
 .acpmux-paste-bar {
   position: absolute;
@@ -857,25 +857,16 @@ button.acpmux-attachment-pasted-open:hover {
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading {
     animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
   }
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late {
-    animation: acpmux-paste-late-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) var(--acpmux-paste-late-after) both;
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
+    animation: acpmux-paste-late-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
   }
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-bar::after {
-    animation: acpmux-paste-bar-fill calc(var(--cmux-motion-large, 240ms) * 25) var(--agent-ease-out, ease-out)
-      var(--acpmux-paste-late-after) both;
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-bar[data-late]::after {
+    animation: acpmux-paste-bar-fill calc(var(--cmux-motion-large, 240ms) * 25) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
     .acpmux-md-inline-chip[data-loaded]
     .acpmux-attachment-image
     img {
     animation: acpmux-paste-reveal var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
-  }
-}
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late {
-  animation: acpmux-paste-late-in calc(var(--cmux-motion-quick, 80ms) * 0) linear var(--acpmux-paste-late-after) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-paste-late {
-    animation: acpmux-paste-late-in calc(var(--cmux-motion-quick, 80ms) * 0) linear var(--acpmux-paste-late-after) both;
   }
 }
