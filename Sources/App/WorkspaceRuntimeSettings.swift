@@ -209,6 +209,10 @@ enum TerminalManagedGhosttySettings {
     static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [
             "term = \(TerminalSurface.managedTerminalType)",
+            // Keep complex-script clusters intact while the caret moves through a
+            // line. Ghostty's default cursor break can split Khmer shaping runs,
+            // leaving dependent marks and coeng forms positioned independently.
+            "font-shaping-break = no-cursor",
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }
