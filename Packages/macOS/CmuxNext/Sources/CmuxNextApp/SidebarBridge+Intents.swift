@@ -76,7 +76,8 @@ extension SidebarBridge {
                 return
             }
             guard let plan, plan != .nothing else { return }
-            // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts it (its top under `top`).
+            // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
+            // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
             let daemon = plan == .onMachine ? named : plan == .onWindow ? own : nil
             let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
             let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }

@@ -417,7 +417,7 @@ USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
   cmux cloud <action> --help
 
-These actions run through the cmux app, signed in (`cmux cloud sign-in`).
+These actions run through the cmux app, signed in (`cmux login`).
 An action on one machine needs --target machine:MACHINE_ID, even with one
 machine: `cmux cloud list-machines` prints each machine's target. Without the
 app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
@@ -430,10 +430,8 @@ QUICK START
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  Then, the next prompt to that chat and its reply (SESSION_ID from the answer):
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   Machines:
   cmux cloud list-machines --json
@@ -449,7 +447,7 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
   cmux cloud <アクション> --help
 
-これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
+これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
 （CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。
@@ -461,10 +459,8 @@ const INTRO_JA: &str = "\
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  続けて同じチャットに次のプロンプトを送り、返信を表示する（SESSION_ID は返答から）:
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   マシン:
   cmux cloud list-machines --json
@@ -529,6 +525,7 @@ This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
+  -- TEXT            The same, read as text even when it starts with `-`
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --name MACHINE     Use the machine with this name, or create it
@@ -545,10 +542,8 @@ EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
-FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+FOLLOW-UPS (SESSION_ID from the answer)
+  cmux chat send SESSION_ID 'next prompt' --wait
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
