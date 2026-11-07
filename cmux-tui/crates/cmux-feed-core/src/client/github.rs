@@ -100,7 +100,8 @@ pub fn parse_http(output: &[u8]) -> Response {
     let Some((at, len)) = split else {
         return Response { status: 200, etag: None, body: output.to_vec() };
     };
-    let header = String::from_utf8_lossy(&output[..at]);
+    let (head, rest) = output.split_at_checked(at).unwrap_or((output, &[]));
+    let header = String::from_utf8_lossy(head);
     let mut lines = header.lines();
     let status = lines
         .next()
@@ -113,7 +114,7 @@ pub fn parse_http(output: &[u8]) -> Response {
         .filter(|(name, _)| name.trim().eq_ignore_ascii_case("etag"))
         .map(|(_, value)| value.trim().to_owned())
         .next_back();
-    Response { status, etag, body: output[at + len..].to_vec() }
+    Response { status, etag, body: rest.get(len..).unwrap_or_default().to_vec() }
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -188,7 +189,7 @@ impl Pull {
             .or_else(|| {
                 let url = value.get("repository_url")?.as_str()?;
                 let parts: Vec<&str> = url.split('/').filter(|part| !part.is_empty()).collect();
-                Some(parts[parts.len().saturating_sub(2)..].join("/"))
+                Some(parts.get(parts.len().saturating_sub(2)..).unwrap_or_default().join("/"))
             })
             .unwrap_or_default();
         Some(Self {
@@ -255,11 +256,13 @@ impl Detail {
             "url": self.url,
             "checks": self.checks,
         });
-        if let Some(body) = &self.body {
-            value["body"] = json!(body);
-        }
-        if let Some(branch) = &self.branch {
-            value["branch"] = json!(branch);
+        if let Some(object) = value.as_object_mut() {
+            if let Some(body) = &self.body {
+                object.insert("body".to_owned(), json!(body));
+            }
+            if let Some(branch) = &self.branch {
+                object.insert("branch".to_owned(), json!(branch));
+            }
         }
         value
     }

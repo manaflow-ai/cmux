@@ -61,14 +61,16 @@ impl ViewContext<'_> {
     pub fn item(&self, item: &FeedItem) -> Value {
         let mut value = item.to_value();
         let place = (self.place)(item);
-        value["pending"] = json!(self.mirror.is_pending(&item.id));
-        value["row"] = json!(Row::of(item, place.as_ref()));
         let detail = self.github.and_then(|github| github.detail(item));
-        if let Some(detail) = detail {
-            value["github"] = detail.to_value();
-        }
-        if let Some(actions) = github::actions(item, detail) {
-            value["github_actions"] = json!(actions);
+        if let Some(object) = value.as_object_mut() {
+            object.insert("pending".to_owned(), json!(self.mirror.is_pending(&item.id)));
+            object.insert("row".to_owned(), json!(Row::of(item, place.as_ref())));
+            if let Some(detail) = detail {
+                object.insert("github".to_owned(), detail.to_value());
+            }
+            if let Some(actions) = github::actions(item, detail) {
+                object.insert("github_actions".to_owned(), json!(actions));
+            }
         }
         value
     }
@@ -114,10 +116,10 @@ impl ViewContext<'_> {
             .collect();
         let counts = self.mirror.counts();
         let connection = self.mirror.connection();
-        let mut connection_value = json!({"state": connection.state()});
-        if let Some(reason) = connection.reason() {
-            connection_value["reason"] = json!(reason);
-        }
+        let connection_value = match connection.reason() {
+            Some(reason) => json!({"state": connection.state(), "reason": reason}),
+            None => json!({"state": connection.state()}),
+        };
         json!({
             "revision": self.mirror.revision(),
             "loaded": self.mirror.loaded(),
@@ -138,29 +140,31 @@ impl ViewContext<'_> {
 
 /// One row: an item, or a collapsed thread headed by its newest item.
 struct Entry<'a> {
-    /// Newest first; the head is the first member.
+    /// The newest item.
+    head: &'a FeedItem,
+    /// The thread's older items, newest first.
     members: Vec<&'a FeedItem>,
 }
 
 impl<'a> Entry<'a> {
     fn single(item: &'a FeedItem) -> Self {
-        Self { members: vec![item] }
+        Self { head: item, members: Vec::new() }
     }
 
     fn to_value(&self, context: &ViewContext<'_>) -> Value {
-        let head = self.members[0];
+        let head = self.head;
         // Unique across groups: a thread can head an entry in Today and
         // another in Earlier, and open requests of one thread stay apart.
         let id = match &head.thread {
             Some(thread) => format!("thread:{thread}:{}", head.id),
             None => head.id.clone(),
         };
-        let members: Vec<Value> = self.members[1..].iter().map(|item| context.item(item)).collect();
+        let members: Vec<Value> = self.members.iter().map(|item| context.item(item)).collect();
         json!({
             "id": id,
             "item": context.item(head),
             "members": members,
-            "unread": self.members.iter().filter(|item| item.is_unread()).count(),
+            "unread": std::iter::once(head).chain(self.members.iter().copied()).filter(|item| item.is_unread()).count(),
         })
     }
 }
@@ -173,7 +177,11 @@ fn threads(items: Vec<&FeedItem>) -> Vec<Entry<'_>> {
     for item in items {
         match &item.thread {
             Some(thread) => match index.get(thread.as_str()) {
-                Some(&at) => entries[at].members.push(item),
+                Some(&at) => {
+                    if let Some(entry) = entries.get_mut(at) {
+                        entry.members.push(item);
+                    }
+                }
                 None => {
                     index.insert(thread.as_str(), entries.len());
                     entries.push(Entry::single(item));

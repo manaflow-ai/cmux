@@ -109,10 +109,11 @@ pub fn normalized(answer: &Value, questions: &[ChoiceQuestion]) -> Result<Value,
     for question in questions {
         let selection = answers.get(&question.id).cloned().unwrap_or_default();
         let other = selection.other.as_deref().unwrap_or_default().trim().to_owned();
-        let mut entry = json!({"selected": selection.selected});
-        if !other.is_empty() {
-            entry["other"] = json!(other);
-        }
+        let entry = if other.is_empty() {
+            json!({"selected": selection.selected})
+        } else {
+            json!({"selected": selection.selected, "other": other})
+        };
         out.insert(question.id.clone(), entry);
     }
     Ok(json!({"answers": out}))

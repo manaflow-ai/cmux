@@ -8,7 +8,9 @@
 //! the app posts update cards and knows whether it is active. Ops that wait
 //! (an intent's settle line, `gh`, acpmux) answer from their own thread.
 
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Weak};
+#[cfg(unix)]
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use cmux_feed_core::client::github::{MAX_INTERVAL_S, MIN_INTERVAL_S};
@@ -53,10 +55,12 @@ fn failure(derived: RequestOrigin, operation: &str, error: FeedError) -> Resourc
             ResourceError::operation_failed(operation, reason, json!({"code": "feed.unavailable"}))
         }
         FeedError::Rejected(reject) => {
-            let mut extra = json!({"code": reject.code()});
-            if let Reject::Closed(item) = &reject {
-                extra["details"] = json!({"item": item.to_value()});
-            }
+            let extra = match &reject {
+                Reject::Closed(item) => {
+                    json!({"code": reject.code(), "details": {"item": item.to_value()}})
+                }
+                _ => json!({"code": reject.code()}),
+            };
             ResourceError::operation_failed(operation, reject.message(), extra)
         }
     }
@@ -212,18 +216,21 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
 /// The acpmux mailbox over this machine's acpmux socket; one link, opened
 /// again after a failure.
 struct AcpmuxMailbox {
+    #[cfg_attr(not(unix), allow(dead_code))]
     mux: Weak<Mux>,
     #[cfg(unix)]
     link: Mutex<Option<Arc<super::agent_session_attach::agent_session_link::AcpmuxLink>>>,
 }
 
 impl Mailbox for AcpmuxMailbox {
+    #[cfg(unix)]
     fn available(&self) -> bool {
-        cfg!(unix)
-            && self
-                .mux
-                .upgrade()
-                .is_some_and(|mux| mux.control_clients.agent_sessions.socket().is_some())
+        self.mux.upgrade().is_some_and(|mux| mux.control_clients.agent_sessions.socket().is_some())
+    }
+
+    #[cfg(not(unix))]
+    fn available(&self) -> bool {
+        false
     }
 
     #[cfg(unix)]

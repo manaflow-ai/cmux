@@ -59,11 +59,11 @@ impl PlaceIndex {
         let tab = lookup("tab", &self.tab_ids)
             .or_else(|| lookup("terminal", &self.terminals))
             .or_else(|| lookup("acp_session", &self.sessions))
-            .map(|index| &self.tabs[index]);
+            .and_then(|index| self.tabs.get(index));
         let workspace = tab
             .and_then(|tab| tab.workspace)
             .or_else(|| lookup("workspace", &self.workspace_ids))
-            .map(|index| self.workspaces[index].clone());
+            .and_then(|index| self.workspaces.get(index).cloned());
         if tab.is_none() && workspace.is_none() {
             return None;
         }
