@@ -50,7 +50,7 @@ final class DividerHandleView: NSView {
     let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
-    /// Hovered or dragged with a line shown: a column edge's line is then the wider edge line.
+    /// Hovered or dragged with a line shown.
     private var isActive: Bool { (isHovered || isDragging) && showsActiveLine }
     /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
     /// would hear neither. Installed on the press, removed when the drag ends.
@@ -162,7 +162,7 @@ final class DividerHandleView: NSView {
     private var lineFrame: CGRect {
         // At rest a column edge's line is as thin as a split's (the faint line between panes); hovered or dragged
         // it is the edge line, at least 2 pt, so the edge of a whole column reads as one.
-        let t = isColumnEdge && isActive ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
+        let t = isColumnEdge && (isHovered || isDragging) ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
         case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)

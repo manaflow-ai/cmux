@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 extension ScreenContentView {
     /// Whether the handle of `kind` draws its line at rest: the style's line between panes, or, while
@@ -13,8 +14,10 @@ extension ScreenContentView {
         let style = context.style
         if kind.usesRowSeparator { return style.showsRowSeparator }
         if case let .columnEdge(column) = kind {
-            guard style.showsDividerLine, let edge = baseGeometry.columnEdges.first(where: { $0.column == column }) else { return false }
-            return edge.dockEdge != nil || baseGeometry.columnOrder.last != column
+            // Where a split draws its line: the style's, or a theme's split divider color (`DividerHandleView`).
+            guard let edge = baseGeometry.columnEdges.first(where: { $0.column == column }),
+                  edge.dockEdge != nil || baseGeometry.columnOrder.last != column else { return false }
+            return style.showsDividerLine || performWithTheme { Palette.surfaceOverride(.splitDivider) != nil }
         }
         if style.showsDividerLine { return true }
         guard style.drawsLines, style.showsPaneBorder, case let .split(id) = kind,
