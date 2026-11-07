@@ -82,6 +82,22 @@ fn claims_are_read_from_the_token() {
 }
 
 #[test]
+fn a_token_with_an_empty_segment_has_no_claims() {
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(format!(r#"{{"exp":1900000600,"sub":"user_1","team":"{TEAM}"}}"#));
+    assert_eq!(claims(&format!("h.{payload}.s")).team.as_deref(), Some(TEAM));
+    for token in [
+        format!(".{payload}.s"),
+        format!("h.{payload}."),
+        format!(".{payload}."),
+        "h..s".to_owned(),
+        "..".to_owned(),
+    ] {
+        assert_eq!(claims(&token), Claims::default(), "{token}");
+    }
+}
+
+#[test]
 fn each_user_has_their_own_install_key() {
     let key = install_key_account("stack_1");
     assert!(key.starts_with("install-key-") && key.len() == "install-key-".len() + 16, "{key}");

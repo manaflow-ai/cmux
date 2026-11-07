@@ -331,3 +331,7 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 - Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+- To hand another session an image (a screenshot, a mockup), attach the file:
+  `acpmux send NAME --no-wait "…" --attach /abs/shot.png`, or `attach` in the MCP
+  `send` tool. It shows as a preview. Never pass a provider's own file id
+  (ChatGPT's `libfile_…`, an upload id): nobody here can open one.
