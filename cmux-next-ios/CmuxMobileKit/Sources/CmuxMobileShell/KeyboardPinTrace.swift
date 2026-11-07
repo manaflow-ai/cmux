@@ -41,6 +41,66 @@ final class KeyboardPinTrace: NSObject {
     /// the probe's `file=` (KeyboardToggleInterruptUITests prints it).
     static let traceURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("kbd-pin-trace.txt")
 
+    /// Where a finger on a control, as drawn, lands mid-animation
+    /// (`tapProbe(identifier:)`): one `label:hit|miss(...)` per probe.
+    private var taps: [String] = []
+
+    /// Hit-tests where a finger on the accessibility element `identifier`
+    /// lands right now, as UIKit routes a touch: at the element's DRAWN
+    /// centre (its host view's presentation offset applied), through the
+    /// scene's windows from the top. A hit is the element's own host view
+    /// with the touch inside the element in that view's (model) coordinates,
+    /// which is what a SwiftUI button there reads; anything else is a miss.
+    static func tapProbe(identifier: String, label: String) {
+        guard let shared, let window = shared.keyWindow, let scene = window.windowScene else { return }
+        guard let (element, host) = Self.element(identifier, in: window) else {
+            shared.record(tap: "\(label):miss(no-element)")
+            return
+        }
+        let model = host.convert(host.bounds, to: window)
+        let drawn = MobileKeyboardProbe().onScreen(host, in: window)
+        let frame = window.convert(element.accessibilityFrame, from: nil)
+        let point = CGPoint(x: frame.midX + drawn.minX - model.minX, y: frame.midY + drawn.minY - model.minY)
+        var hit: UIView?
+        for candidate in scene.windows.sorted(by: { $0.windowLevel > $1.windowLevel }) where !candidate.isHidden {
+            if let view = candidate.hitTest(candidate.convert(point, from: window), with: nil) { hit = view; break }
+        }
+        let inHost = hit.map { $0 === host || $0.isDescendant(of: host) } ?? false
+        let local = host.convert(point, from: window)
+        let inElement = host.convert(frame, from: window).contains(local)
+        let shift = String(format: "%.0f", drawn.minY - model.minY)
+        if inHost, inElement {
+            shared.record(tap: "\(label):hit(\(shift))")
+        } else {
+            let name = hit.map { NSStringFromClass(type(of: $0)).split(separator: ".").last.map(String.init) ?? "?" } ?? "none"
+            shared.record(tap: "\(label):miss(\(name),\(shift))")
+        }
+    }
+
+    private func record(tap: String) {
+        taps.append(tap)
+        write(String(format: "t=%.4f tap=%@", CACurrentMediaTime() - start, tap))
+    }
+
+    /// The accessibility element `identifier` in `window`, with the view it lives in.
+    static func element(_ identifier: String, in window: UIWindow) -> (NSObject, UIView)? {
+        func search(_ object: NSObject, host: UIView, depth: Int) -> (NSObject, UIView)? {
+            guard depth < 40 else { return nil }
+            if (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == identifier { return (object, host) }
+            if let view = object as? UIView {
+                guard !view.isHidden else { return nil }
+                for sub in view.subviews { if let found = search(sub, host: sub, depth: depth + 1) { return found } }
+            }
+            let children: [Any] = object.accessibilityElements
+                ?? (0..<max(0, object.accessibilityElementCount())).compactMap { object.accessibilityElement(at: $0) }
+            for case let child as NSObject in children where !(child is UIView) {
+                if let found = search(child, host: host, depth: depth + 1) { return found }
+            }
+            return nil
+        }
+        return search(window, host: window, depth: 0)
+    }
+
     private var demo = "-"
     /// The last keyboard notifications, `name@t:dur/inherited/endY`.
     private var events: [String] = []
@@ -152,6 +212,7 @@ final class KeyboardPinTrace: NSObject {
             "fj=\(fieldSteps.jumps)",
             String(format: "fjmax=%.1f", fieldSteps.largestJump),
             "demo=\(demo)",
+            "kt=" + (taps.isEmpty ? "-" : taps.joined(separator: ",")),
             "file=" + Self.traceURL.path.replacingOccurrences(of: " ", with: "%20"),
             "fjlog=" + (fieldSteps.log.isEmpty ? "-" : fieldSteps.log.joined(separator: ",")),
             "evlog=" + (events.isEmpty ? "-" : events.joined(separator: ",")),

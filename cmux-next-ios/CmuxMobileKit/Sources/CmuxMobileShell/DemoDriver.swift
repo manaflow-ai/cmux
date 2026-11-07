@@ -212,6 +212,10 @@ struct DemoDriver {
         guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
         func toggle(_ label: String) {
             KeyboardPinTrace.note(label)
+            // Mid-animation presses: where a finger on the key as drawn lands.
+            if label.hasPrefix("re") || label == "burst" {
+                KeyboardPinTrace.tapProbe(identifier: "terminal.key.keyboard", label: label)
+            }
             model.toggleKeyboard()
         }
         let intervals = [0.05, 0.1, 0.15, 0.2, 0.3, 0.45]
