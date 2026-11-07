@@ -118,6 +118,9 @@ parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--hover-ms", type=float, default=300,
                     help="click_hover: how long the pointer rests on the row before the click")
+parser.add_argument("--trace-clicks", action="store_true",
+                    help="click cases: also arm the app's chat-open trace before each click (`trace` in the record: its marks, "
+                         "from the arm, about 120 ms before the click, and the surfaces the pane showed)")
 parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
 parser.add_argument("--strip-tolerance", type=float, default=0.001,
                     help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
@@ -869,8 +872,15 @@ def measure_click(run, case, session, base, label, index=0):
             if not str(hovered.get("row_hovered") or "").endswith(key):
                 return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
             time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
+    armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
+    if armed is not None:
+        trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
+                                                  "page_timing": True}, timeout=30) or {}
+        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms",
+                                                      "longest_empty_ms", "timed_out", "page_timing")}
+        record["trace"]["armed"] = armed if armed.get("error") else None
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
     time.sleep(0.5)  # test script: the switch back settles
