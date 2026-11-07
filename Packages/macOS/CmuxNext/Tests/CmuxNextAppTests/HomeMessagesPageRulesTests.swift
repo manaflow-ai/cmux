@@ -190,9 +190,9 @@ struct HomeMessagesPageRulesTests {
         let services = HomeChiefDefaultTests.services()
         Self.kept.append(services)
         var ran: [String] = []
-        _ = services.registry.bind(HomeMessagesFirstRunProvider.openTerminalAction, invoke: { _ in ran.append("terminal") })
-        _ = services.registry.bind(HomeMessagesFirstRunProvider.startAgentAction, invoke: { _ in ran.append("agent") })
-        let provider = HomeMessagesFirstRunProvider(services: services, shown: { nil })
+        _ = services.registry.bind(ActionID(rawValue: HomeMessagesFirstRunProvider.openTerminalAction), invoke: { _ in ran.append("terminal") })
+        _ = services.registry.bind(ActionID(rawValue: HomeMessagesFirstRunProvider.startAgentAction), invoke: { _ in ran.append("agent") })
+        let provider = HomeMessagesFirstRunProvider(sources: PageFactory.firstRunSources(services), shown: { nil })
         let click = PageCallContext(page: PageDescriptor.homeMessages.id, userGesture: true)
         let op = HomeMessagesFirstRunProvider.prefix + ".action"
         _ = try await provider.call(op, params: .object(["action": .string("openTerminal")]), context: click)
