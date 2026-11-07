@@ -2145,6 +2145,148 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
 
+SIGNED_HOST = "signed host admission"
+SIGNED_HOST_FILE = "nightly-next-cua-signed-host.yml"
+
+
+class SignedHostGitHub(FakeGitHub):
+    """cmux#37855 at 960fd459 (2026-11-07): the head's run 10 of nightly-next-cua-signed-host.yml (workflow 7) failed
+    'signed host admission'. The workflow runs on pull requests and a schedule, and a schedule fires only from the
+    default branch, so feat-cmux-next had no run of it at all."""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = SIGNED_HOST
+        self.base_runs = []
+        self.dispatched: list[tuple[str, str, str]] = []
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10"):
+            self.routes.append(route)
+            return {"id": 10, "workflow_id": 7, "name": "nightly-next Computer Use signed host",
+                    "path": f".github/workflows/{SIGNED_HOST_FILE}"}
+        return super().json(route, paginate=paginate)
+
+    def dispatch(self, repo, workflow, ref):
+        self.dispatched.append((repo, workflow, ref))
+        return 77
+
+
+class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
+    """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
+    the check after it completes compares against it as any base run."""
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_no_base_run_dispatches_once_on_the_base_tip(self):
+        gh = SignedHostGitHub()
+        with self.assertRaisesRegex(excuse.Refused, f"no feat-cmux-next run of its workflow has a verdict.*"
+                                    f"dispatched {SIGNED_HOST_FILE} run 77 on the feat-cmux-next tip"):
+            self.judge(gh)
+        self.assertEqual(gh.dispatched, [(REPO, SIGNED_HOST_FILE, "feat-cmux-next")])
+
+    def test_a_running_dispatch_is_waited_on_not_repeated(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 77, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "in_progress", "conclusion": None, "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T14:50:00Z"}]
+        with self.assertRaisesRegex(excuse.Refused, "its feat-cmux-next dispatch run 77 is in_progress"):
+            self.judge(gh)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_recent_dispatch_with_no_verdict_is_not_repeated_within_the_hour(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 77, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T14:50:00Z"}]
+        now = excuse.datetime.fromisoformat("2026-11-07T15:10:00+00:00")
+        with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
+            clock.now.return_value = now
+            with self.assertRaisesRegex(excuse.Refused, "dispatch run 77 gave no verdict for it; "
+                                        "the next dispatch starts after 15:50Z"):
+                self.judge(gh)
+        self.assertEqual(gh.dispatched, [])
+
+    def test_an_old_dispatch_with_no_verdict_dispatches_again(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 70, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-06T10:00:00Z"}]
+        with self.assertRaisesRegex(excuse.Refused, "dispatched .* run 77"):
+            self.judge(gh)
+        self.assertEqual(len(gh.dispatched), 1)
+
+    def test_a_host_that_cannot_dispatch_says_so_and_still_refuses(self):
+        gh = SignedHostGitHub()
+
+        def refuse(repo, workflow, ref):
+            raise excuse.Refused("lane-gh: the broker refuses POST")
+
+        gh.dispatch = refuse
+        with self.assertRaisesRegex(excuse.Refused, "could start from this host .*broker refuses POST"):
+            self.judge(gh)
+
+    def test_the_same_red_on_the_dispatched_base_run_is_excused(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        self.assertIn(f"excused '{SIGNED_HOST}'", self.judge(gh))
+        self.assertEqual(gh.dispatched, [])
+
+    def test_the_checks_own_fail_line_is_matched_against_the_base(self):
+        # cmux#37855's head and base run 42383535506: the check's FAIL line, then only the generic exit annotation.
+        said = ("FAIL: signed app pid {} never kept an accepted host connection to "
+                "/var/folders/_2/149jf1ds4_gft1x2_v7b_75m0000gn/T/cmux-cua/61f287448cbb61ce/cua.sock")
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        gh.logs[1] = log(SIGNED_HOST, TEST_STEP, said.format(1387), "##[error]Process completed with exit code 1.")
+        gh.logs[2] = log(SIGNED_HOST, TEST_STEP, said.format(2201), "##[error]Process completed with exit code 1.")
+        self.assertIn(f"excused '{SIGNED_HOST}'", self.judge(gh))
+        gh.logs[2] = log(SIGNED_HOST, TEST_STEP, "FAIL: unsigned peer was not refused by /tmp/x.sock: 'accepted'",
+                         "##[error]Process completed with exit code 1.")
+        with self.assertRaises(excuse.Refused):
+            self.judge(gh)
+
+    def test_a_fail_line_is_no_error_line_for_another_job(self):
+        job = failed_job(1, 10, HEAD, name=SWIFT)
+        self.assertEqual(excuse.signature(job, log(SWIFT, TEST_STEP, "FAIL: something"))[2], set())
+
+    def test_a_crash_is_never_excused_even_when_the_base_dispatch_fails(self):
+        gh = SignedHostGitHub()
+        gh.base_runs = [{"id": 20, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                         "created_at": "2026-11-07T15:00:00Z"}]
+        gh.logs[1] = log(SIGNED_HOST, TEST_STEP, "Fatal error: Unexpectedly found nil", "##[error]Process completed")
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge(gh)
+
+    def test_a_workflow_outside_base_dispatch_never_dispatches(self):
+        gh = SignedHostGitHub()
+        json = gh.json
+
+        def answer(route, *, paginate=False):
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7, "path": ".github/workflows/ci.yml"}
+            return json(route, paginate=paginate)
+
+        gh.json = answer
+        with self.assertRaises(excuse.Refused) as refused:
+            self.judge(gh)
+        self.assertNotIn("dispatch", str(refused.exception).split("tip suite runs)")[-1])
+        self.assertEqual(gh.dispatched, [])
+
+    def test_each_base_dispatch_workflow_can_be_dispatched(self):
+        yaml = excuse.yaml_module()
+        for branch, file in excuse.BASE_DISPATCH:
+            workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
+            triggers = workflow.get(True, workflow.get("on")) or {}
+            self.assertIn("workflow_dispatch", triggers, file)
+
+
 class RollupsFromNeeds(unittest.TestCase):
     """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
 
