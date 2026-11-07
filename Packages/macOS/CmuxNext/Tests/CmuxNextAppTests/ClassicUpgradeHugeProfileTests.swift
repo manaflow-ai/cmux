@@ -78,6 +78,8 @@ struct ClassicUpgradeHugeProfileTests {
         }
         if let before = tapBefore, let after = sim.tap?.timings() {
             let perWorkspace = Double(max(made, 1))
+            print("CLASSIC-PROFILE \(label) streams=\(after.streams) replayed_deltas=\(after.replayedDeltas - before.replayedDeltas) " +
+                  "big_delta=\(String((after.bigDelta ?? "none").prefix(3000)))")
             print(String(format: "CLASSIC-PROFILE %@ events=%.1f/ws bytes=%.0f/ws", label,
                          Double(after.events.count - before.events.count) / perWorkspace,
                          Double(after.events.bytes - before.events.bytes) / perWorkspace))
@@ -110,6 +112,7 @@ struct ClassicUpgradeHugeProfileTests {
     /// sections at the window's end (histograms included) as JSON.
     private static func printStats(_ label: String, before: Data?, after: Data?, made: Int) {
         let decode = { (line: Data?) in line.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+        print("CLASSIC-PROFILE \(label) server-stats raw=\(String(decoding: (after ?? Data()).prefix(1500), as: UTF8.self))")
         let (before, after) = (decode(before), decode(after))
         guard let after else {
             print("CLASSIC-PROFILE \(label) server-stats unavailable")
