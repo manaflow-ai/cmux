@@ -24,7 +24,8 @@ struct AgentChatRefusalReasonTests {
     /// A person's run with an agent chat's key context, but no chat in any pane.
     static func noChatRun() -> ActionInvocation {
         var invocation = ActionInvocation(arguments: ["model": .string("opus")], origin: .user)
-        invocation.keyContext = [.agentPaneFocused]
+        // Create Checkpoint also needs a checkpoint to be capturable, or the registry turns it away first.
+        invocation.keyContext = [.agentPaneFocused, .checkpointCaptureAvailable]
         return invocation
     }
 
@@ -37,7 +38,8 @@ struct AgentChatRefusalReasonTests {
         }
         let reason = try #require(refusal, "\(id) ran with no chat")
         #expect(reason != MiscHandlerStrings.noAgentChat, "\(id) refused with Dictation's reason")
-        #expect(reason.contains(title), "\(id): \"\(reason)\" does not name \(title)")
+        // With no pane at all, a tab action's "No pane is focused." is the honest reason too.
+        #expect(reason.contains(title) || reason == MiscHandlerStrings.noPane, "\(id): \"\(reason)\" does not name \(title)")
     }
 
     /// Dictation's refusal is its own: it never takes a chat action's words.
