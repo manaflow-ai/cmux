@@ -141,14 +141,19 @@ extension WindowManager {
             bringToFront(target)
             return
         }
-        let openBefore = Set(value.openWindows.map(\.id))
+        let openBefore = Set(value.openWindows.map(\.id)), ownerBefore = value.owner(of: workspaceID)
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it. A pick in this
-        // window's sidebar brings forward only a window the claim just opened, never another open one (the claim
-        // refused, as for an incognito window's workspace): it could be on another macOS Space (cmux#37371).
+        // window's sidebar brings forward only a window the claim just opened, never another open one: it could be
+        // on another macOS Space (cmux#37371). A held Cloud workspace the claim filed into another open window of
+        // its kind says why it did not show here (a claim that refused already said so).
         if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
-            if Self.raisesOwnerAfterClaim(from: origin, ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
+            if Self.raisesOwnerAfterClaim(from: origin, ownerWasOpen: openBefore.contains(owner)) {
+                bringToFront(target)
+            } else if owner != ownerBefore {
+                services.registry.refuse(RefusalStrings.incognitoMismatch)
+            }
             return
         }
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
