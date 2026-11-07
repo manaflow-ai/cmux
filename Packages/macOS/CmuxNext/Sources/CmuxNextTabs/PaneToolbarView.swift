@@ -371,6 +371,21 @@ public final class PaneToolbarView: NSView {
 
     private var shownCount: Int { buttons.count + nativeButtons.count + (hasMore ? 1 : 0) }
 
+    /// The bar's width beside a page whose own tools share the tab row (a chat's header): what it shows now and the
+    /// trailing gap, never room kept for a hidden "…" or pin (``reservedCount``). That room is the selected tab's to
+    /// keep the strip still; beside a chat it is an empty slot after the chat's own "…", and a pane whose other tabs
+    /// offer none kept 0, so the chat's tools ran to the pane's edge there (Leo 2026-11-07: "there's sometimes this,
+    /// like, ghost area where it thinks there's, like, a fifth icon"). With nothing shown the chat's last tool sits on
+    /// the pane's trailing control column, where "…" sits, in every pane.
+    public var tabRowWidth: CGFloat {
+        let allButtons = buttons + nativeButtons
+        let count = shownCount
+        let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let moreWidth = hasMore ? TitlebarBandButton.side : 0
+        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        return buttonWidth + moreWidth + gaps + Self.trailingGap
+    }
+
     override public func layout() {
         super.layout()
         let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
