@@ -695,10 +695,10 @@ impl Peer {
     /// The tokens for a connect: the last read's (`peer_tokens.rs`), else a read; true when
     /// they came from the last read, so a refusal reads again.
     async fn connect_tokens(&self) -> Result<(tokens::Tokens, bool), String> {
-        if self.token.is_none() || self.peer_token.is_none() {
-            if let Some(kept) = self.read_tokens.get() {
-                return Ok((kept, true));
-            }
+        if (self.token.is_none() || self.peer_token.is_none())
+            && let Some(kept) = self.read_tokens.get()
+        {
+            return Ok((kept, true));
         }
         Ok((self.remote_tokens_settled().await?, false))
     }
