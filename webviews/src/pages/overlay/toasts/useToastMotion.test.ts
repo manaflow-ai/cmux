@@ -63,5 +63,7 @@ describe("readToastsState", () => {
   test("anything else reads as no toasts", () => {
     expect(readToastsState(null)).toEqual({ toasts: [], floor: 0 });
     expect(readToastsState({ floor: -3, toasts: "x" })).toEqual({ toasts: [], floor: 0 });
+    // Review 2 of #37289 (F3): an empty entry is dropped, not read.
+    expect(readToastsState({ toasts: [null, undefined, 3] })).toEqual({ toasts: [], floor: 0 });
   });
 });

@@ -55,6 +55,7 @@ export function readToastsState(data: unknown): ToastsState {
   const floor = typeof value.floor === "number" && Number.isFinite(value.floor) ? Math.max(0, value.floor) : 0;
   const toasts: ToastState[] = [];
   for (const item of Array.isArray(value.toasts) ? value.toasts : []) {
+    if (typeof item !== "object" || item === null) continue;
     const toast = item as Partial<ToastState> & { action?: Partial<ToastAction> };
     if (typeof toast.serial !== "number" || typeof toast.id !== "string" || typeof toast.message !== "string") continue;
     const action =

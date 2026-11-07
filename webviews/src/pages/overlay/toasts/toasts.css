@@ -57,6 +57,8 @@
   max-width: 360px;
   margin: 0;
   overflow: hidden;
+  /* A message of several lines (Home's stop-all notice) keeps its line breaks, as the native label did. */
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;

@@ -132,13 +132,15 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
 
     private func received(_ report: CmuxToastPageProvider.Report, in window: NSWindow) {
         guard let stack = stacks[ObjectIdentifier(window)] else { return }
+        // A press or hover counts only on a toast this window shows (a pooled page's late report does not).
+        let shows = { (serial: Int) in stack.shown.contains { $0.serial == serial } }
         switch report {
         case .action(let serial):
-            stack.center?.personRanAction(serial: serial)
+            if shows(serial) { stack.center?.personRanAction(serial: serial) }
         case .close(let serial):
-            stack.center?.personClosed(serial: serial)
+            if shows(serial) { stack.center?.personClosed(serial: serial) }
         case .hover(let serial, let hovered):
-            stack.center?.pointer(onToast: serial, hovered)
+            if shows(serial) { stack.center?.pointer(onToast: serial, hovered) }
         case .layout(let rects, let fading):
             // Rects of toasts the center no longer shows take no clicks.
             let live = Set(stack.shown.map(\.serial))
