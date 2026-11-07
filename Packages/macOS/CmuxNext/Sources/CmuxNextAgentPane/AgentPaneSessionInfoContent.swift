@@ -730,8 +730,15 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         let dots = SessionInfoGripView.size.width
         let dotsRight = gripCoversTrailing ? bounds.width - SessionInfoMetrics.trail : bounds.width - (SessionInfoMetrics.trail - dots) / 2
         let midX = dotsRight - dots / 2
-        return CGRect(x: midX - box / 2, y: (bounds.height - pill) / 2, width: box, height: pill)
+        // Centred on the drawn grip, which sits on the title's line: a row whose subtitle wraps puts its
+        // title, and so its grip, above the row's middle, and the box must still hold every dot.
+        let midY = gripMidY ?? bounds.midY
+        let y = max(0, min(midY - pill / 2, bounds.height - pill))
+        return CGRect(x: midX - box / 2, y: y, width: box, height: pill)
     }
+
+    /// The drawn grip's vertical centre (its title's line), set by ``layout()``.
+    private var gripMidY: CGFloat?
 
     /// The grip's own box is lit (the pointer is on it, or it drags).
     var gripLit: Bool { gripFill.backgroundColor != nil }
@@ -860,6 +867,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             grip.frame = CGRect(x: hit.midX - size.width / 2, y: y + (titleSize.height - size.height) / 2,
                                 width: size.width, height: size.height)
         }
+        gripMidY = grip?.frame.midY
         gripFill.frame = gripHitRect ?? .zero
         y += titleSize.height
         if let subtitle {

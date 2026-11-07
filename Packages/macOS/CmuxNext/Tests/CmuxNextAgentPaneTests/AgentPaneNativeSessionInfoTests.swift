@@ -798,6 +798,46 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(!changes.isDragging)
     }
 
+    /// A Cloud machine row whose lifetime subtitle wraps puts its title, and its grip, above the row's
+    /// middle: the grip's box follows the drawn grip, so a drag that starts on its top dot reorders.
+    @Test func aDragFromTheTopDotOfAMultilineRowsGripReorders() throws {
+        var moved: [String] = []
+        let ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil },
+                                 move: { id, _, _ in moved.append(id) })
+        let line = SessionInfoLineView(line: SessionInfoLine(
+            id: "environment", kind: .row, symbol: "cloud", title: "cmux Cloud",
+            subtitle: "Stops after 30 minutes idle; deleted after 7 days without a chat. Keeps its disk while stopped.",
+            reorderable: true), ink: ink)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 260, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 260, height: 200))
+        window.contentView = container
+        let height = line.height(forWidth: 260)
+        #expect(height > SessionInfoMetrics.rowHeight)
+        line.frame = CGRect(x: 0, y: 0, width: 260, height: height)
+        container.addSubview(line)
+        line.layoutSubtreeIfNeeded()
+        let grip = try #require(line.subviews.compactMap { $0 as? SessionInfoGripView }.first)
+        let hit = try #require(line.gripHitRect)
+        // The box holds the whole drawn grip, top dot to bottom dot.
+        #expect(hit.contains(CGPoint(x: grip.frame.midX, y: grip.frame.minY + 1)))
+        #expect(hit.contains(CGPoint(x: grip.frame.midX, y: grip.frame.maxY - 1)))
+        #expect(abs(hit.midY - grip.frame.midY) < 0.5)
+        func mouse(_ type: NSEvent.EventType, _ point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: line.convert(point, to: nil), modifierFlags: [],
+                                           timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1))
+        }
+        // The top dot: x 1.25, y 3 in the grip's 6 by 14 box.
+        let top = NSPoint(x: grip.frame.minX + 1.25, y: grip.frame.minY + 3)
+        line.mouseDown(with: try mouse(.leftMouseDown, top))
+        line.mouseDragged(with: try mouse(.leftMouseDragged, NSPoint(x: top.x, y: top.y + 20)))
+        #expect(line.isDragging)
+        line.mouseUp(with: try mouse(.leftMouseUp, NSPoint(x: top.x, y: top.y + 20)))
+        #expect(moved == ["environment"])
+    }
+
     /// No section header ever draws a fill behind it, hovered or not, and a lit row that leaves the
     /// panel (a refresh re-adds every line) comes back unlit instead of keeping its fill at rest (Leo,
     /// 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
