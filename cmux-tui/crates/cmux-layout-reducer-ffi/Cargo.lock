@@ -102,6 +102,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-tasks-core",
+ "cmux-window-rules",
  "serde",
  "serde_json",
 ]
@@ -113,6 +114,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-window-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

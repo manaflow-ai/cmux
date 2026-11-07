@@ -154,3 +154,12 @@ fn the_wire_reads_the_apps_spelling() {
         serde_json::json!({"kind": "agent", "name": null})
     );
 }
+
+#[test]
+fn tab_warnings_off_read_no_terminal() {
+    let agent_only = Warnings { warn_tab: false, warn_agent: true };
+    assert_eq!(
+        reads(&[agent(Some("claude")), terminal()], agent_only),
+        Some(Reads { agents: vec![Some("Claude".to_owned())], others: vec![] })
+    );
+}
