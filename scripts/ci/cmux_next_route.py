@@ -144,6 +144,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-handlers/",
+    "cmux-tui/crates/cmux-cloud-tasks/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",

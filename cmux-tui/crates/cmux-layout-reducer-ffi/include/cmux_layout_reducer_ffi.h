@@ -89,6 +89,19 @@ uint8_t cmux_tab_drop_edge_pane_edge(uint8_t edge);
 uint8_t cmux_pane_edge_opposite(uint8_t edge);
 uint8_t cmux_pane_edge_drop_zone(uint8_t edge);
 uint8_t cmux_pane_edge_split_axis(uint8_t edge);
+/* The store's optimistic overlay rules, operation "optimistic" of
+ * cmux_layout_reducer_json (cmux-layout-reducer optimistic.rs). One request
+ * tagged by "op"; the answer is the view the pending intent shows, or null
+ * when it shows nothing:
+ *   split              {screen, target, dir, ratio, leaf, split_id, column?, row?} -> {layout, columns, pane_at}
+ *   dock               {screen, leaf, column, dock} -> {layout, columns}
+ *   remove_pane        {screen, pane} -> {layout, columns}
+ *   move_tab           {same_pane, from, index, target_count} -> {final}
+ *   place_workspace    {groups, from, kind, group?, index?} -> {index}
+ *   row_heights        {rows, heights} -> {heights}
+ *   daemon_move_index  {visible, moving, index, held} -> {final, current}
+ * Layout nodes and columns use the daemon's wire shapes. Called per intent
+ * apply and overlay restore, never per frame. */
 /* Focus operations of cmux_layout_reducer_json (cmux-focus-core wire.rs):
  *   focus_input_world   InputObservation -> {violations:[{invariant,window?,detail}], unsettled:[window]}
  *   focus_input_step    {old, event, new, window?} (FocusState read views, a FocusEvent) -> {violations}

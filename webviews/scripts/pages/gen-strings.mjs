@@ -213,6 +213,12 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Cloud progress page (cmux-page://cmux.cloud-progress/): a Cloud machine on its way to its terminal.
+  // Its table lives next to it; the words are the retired AppKit view's (Cloud.xcstrings `cloud.progress.`).
+  "cloud-progress": {
+    out: "webviews/src/pages/cloud-progress/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
+  },
   // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
   "mobile-pairing": {
     out: "webviews/src/pages/mobile-pairing/generated/strings.json",
