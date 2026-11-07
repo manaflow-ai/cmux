@@ -31,7 +31,15 @@ const PROCESS_VARS: &[&str] = &[
     "LC_ALL",
     "CMUX_TUI_STATE_DIR",
     "CMUX_CU_FAKE_DESKTOP",
+    // Whether a person shares the display (1: cmux cloud images, 0: someone
+    // watches an Xvfb display); the worker reads it, so it must get through.
+    "CMUX_CU_HEADLESS",
 ];
+
+/// The plain process variables (PROCESS_VARS) the worker gets from `own`.
+fn process_env(own: impl Fn(&str) -> Option<OsString>) -> Vec<(String, OsString)> {
+    PROCESS_VARS.iter().filter_map(|name| own(name).map(|v| ((*name).to_string(), v))).collect()
+}
 
 pub(crate) struct NativeLauncher {
     exe: PathBuf,
@@ -110,11 +118,7 @@ impl Launcher for NativeLauncher {
                         session)"
                 .into());
         }
-        for name in PROCESS_VARS {
-            if let Some(value) = std::env::var_os(name) {
-                env.push(((*name).to_string(), value));
-            }
-        }
+        env.extend(process_env(|name| std::env::var_os(name)));
         if let Some(dir) = log.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -183,5 +187,11 @@ mod tests {
             parse_environment("DISPLAY=:0\nBROKEN\nA=b=c\n"),
             [("DISPLAY".to_string(), ":0".to_string()), ("A".into(), "b=c".into())]
         );
+    }
+
+    #[test]
+    fn the_headless_switch_reaches_the_worker() {
+        let own = |name: &str| (name == "CMUX_CU_HEADLESS").then(|| OsString::from("0"));
+        assert_eq!(process_env(own), [("CMUX_CU_HEADLESS".to_string(), OsString::from("0"))]);
     }
 }

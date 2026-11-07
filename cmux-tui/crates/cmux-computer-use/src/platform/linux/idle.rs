@@ -63,7 +63,7 @@ pub fn person_idle(idle_ms: u64, now: u64, last_injection: u64) -> bool {
 
 pub fn open() -> Arc<dyn PersonActivity> {
     let env = super::Env::from_process();
-    if std::env::var("CMUX_CU_HEADLESS").is_ok_and(|v| v == "1") {
+    if super::headless_override() == Some(true) {
         return Arc::new(NoTakeover);
     }
     if env.wayland_socket().is_some() {

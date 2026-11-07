@@ -47,8 +47,9 @@ impl WlrootsDesktop {
         if let Some(i) = &ipc {
             names.extend(i.outputs());
         }
-        let headless = std::env::var("CMUX_CU_HEADLESS").is_ok_and(|v| v == "1")
-            || (!names.is_empty() && names.iter().all(|n| n.starts_with("HEADLESS")));
+        let headless = super::headless_override().unwrap_or_else(|| {
+            !names.is_empty() && names.iter().all(|n| n.starts_with("HEADLESS"))
+        });
         Ok(Self {
             wl: Mutex::new(wl),
             ipc,

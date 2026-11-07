@@ -12,7 +12,8 @@
 //! pointer, so XTest may be used for background input there, still only on
 //! a window that is on top at the point or holds the keyboard focus. An
 //! Xvnc server is treated as a person's desktop: someone may be watching
-//! and using it over VNC.
+//! and using it over VNC. `CMUX_CU_HEADLESS=0` treats an Xvfb display the
+//! same way (someone watches it).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -150,8 +151,8 @@ impl X11Desktop {
             has_composite,
             has_damage,
         };
-        me.headless = std::env::var("CMUX_CU_HEADLESS").is_ok_and(|v| v == "1")
-            || me.monitors().iter().any(|m| m.name == "screen");
+        me.headless = super::headless_override()
+            .unwrap_or_else(|| me.monitors().iter().any(|m| m.name == "screen"));
         Ok(me)
     }
 

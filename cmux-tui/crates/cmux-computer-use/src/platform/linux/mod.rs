@@ -202,6 +202,19 @@ pub fn cursor_overlay() -> Arc<dyn CursorSink> {
 }
 
 // ---------------------------------------------------------------------------
+/// `CMUX_CU_HEADLESS`: `1` says no person shares this display (cmux cloud
+/// images set it), `0` says one may, which turns off the headless guess from
+/// the outputs (an Xvfb `screen` monitor, `HEADLESS-*` Wayland outputs), for
+/// an Xvfb display someone watches, and for evals that put a person on one.
+/// Unset or anything else: `None`, the backend guesses.
+pub(crate) fn headless_override() -> Option<bool> {
+    match std::env::var("CMUX_CU_HEADLESS").ok()?.trim() {
+        "1" => Some(true),
+        "0" => Some(false),
+        _ => None,
+    }
+}
+
 // Our own synthetic input, so the idle monitors do not count it as the person.
 
 static LAST_INJECTION_MS: AtomicU64 = AtomicU64::new(0);
