@@ -91,6 +91,8 @@ public final class MicrophoneActivity {
 
     /// A device came or went (or watching began): listen to each input device there is now.
     private func followDevices() {
+        // A device change queued just before the last unwatch adds no listener back.
+        guard !watchers.isEmpty else { return }
         let inputs = Set(Self.inputDevices())
         for gone in Array(devices.keys) where !inputs.contains(gone) { unlisten(gone) }
         for device in inputs where devices[device] == nil {
