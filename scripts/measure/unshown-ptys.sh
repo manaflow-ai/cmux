@@ -44,7 +44,7 @@ binary() { # label revision
 
 ulimit -n "$(ulimit -Hn)" 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 if [ -n "$against" ]; then
-  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet origin "$against"
+  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet origin "$against" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$against"
   binary against "$against"
 fi
 binary ref HEAD

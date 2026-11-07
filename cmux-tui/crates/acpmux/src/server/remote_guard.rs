@@ -101,6 +101,20 @@ pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
     origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
 }
 
+/// Who a connection is from its own proof alone: `control_of` with no request marker
+/// (`_meta.acpmux.via`), which a client sets itself. `hub/created_by.rs` reads this.
+pub(super) fn proven_control(origin: super::Origin, auth: super::ConnAuth) -> crate::hub::Control {
+    use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
+    match origin {
+        super::Origin::Local | super::Origin::LocalApp => Control::Local,
+        super::Origin::Web => Control::Web,
+        super::Origin::Peer => Control::Peer,
+    }
+}
+
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
 /// `auth` is the proof the connection presented: an unauthenticated one is
