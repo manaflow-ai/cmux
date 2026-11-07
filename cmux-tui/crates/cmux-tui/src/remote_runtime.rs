@@ -260,6 +260,10 @@ pub struct DaemonRuntimeOptions {
     pub trusted_carrier_websocket: bool,
     pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
+    /// The carrier grant config (`--carrier-grant-config`,
+    /// `cmux_remote::grant::GrantConfig`); without it the daemon refuses
+    /// every grant.
+    pub carrier_grant_config: Option<PathBuf>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
     pub resume_lease: Duration,
@@ -2165,6 +2169,9 @@ async fn run_daemon(
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
+        if let Some(path) = &options.carrier_grant_config {
+            install_grant_verifier(&auth, path);
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
@@ -2516,6 +2523,29 @@ async fn recover_inactive_predecessor_state(
     remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
         .context("could not remove stale remote daemon lifecycle evidence")?;
     Ok(())
+}
+
+/// Installs the carrier grant verifier from `path`. A config that cannot be
+/// read leaves grants refused (the daemon's default) and says why; the
+/// daemon still serves every other route.
+fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
+    let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
+        let machine = verifier.config().machine.clone();
+        auth.set_grant_verifier(Arc::new(verifier))
+            .map(|()| machine)
+            .map_err(|error| error.to_string())
+    });
+    match installed {
+        Ok(machine) => {
+            crate::client_log::stderr_log!(
+                "remote",
+                "{BIN}: carrier grants admitted for {machine}"
+            );
+        }
+        Err(error) => {
+            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
+        }
+    }
 }
 
 async fn load_daemon_auth_during_handoff(
@@ -3680,6 +3710,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3741,6 +3772,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3780,6 +3812,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3833,6 +3866,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -3886,6 +3920,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3930,6 +3965,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3984,6 +4020,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4033,6 +4070,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4081,6 +4119,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4128,6 +4167,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4193,6 +4233,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4256,6 +4297,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4301,6 +4343,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4386,6 +4429,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4432,6 +4476,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4471,6 +4516,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4518,6 +4564,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4545,6 +4592,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4595,6 +4643,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4630,6 +4679,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4743,6 +4793,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4800,6 +4851,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4885,6 +4937,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -5090,6 +5143,7 @@ mod tests {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: vec![relay_options],
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
             resume_lease: Duration::from_secs(1),
@@ -5377,6 +5431,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -6318,6 +6373,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -6352,6 +6408,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),

@@ -35,7 +35,7 @@
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
 //! per scroll event and frame).
 
-use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
+use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -172,6 +172,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_edits" => {
+                let request: sidebar_edits::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
