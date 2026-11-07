@@ -1,0 +1,13 @@
+{
+  "title": "Agent chat: a divider drag's modifier hint lifts above the composer, which stays put",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 6, "optional": "agent backend unavailable on this runner"},
+    {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 2},
+    {"title": "A second agent chat on the right", "cmux": ["agent", "new-chat"], "wait": 6, "optional": "agent backend unavailable on this runner"},
+    {"title": "Two chats, no toast: where the composers rest", "wait": 1},
+    {"title": "Shift-drag the divider: the Snap hint shows over the panes' foot, above the composers", "rpc": {"method": "debug.mouse", "params": {"action": "drag", "divider": "split:", "by_x": -80, "steps": 20, "modifiers": ["shift"], "release": false}}, "wait": 2, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Still dragging with Shift: the composers have not moved", "rpc": {"method": "debug.mouse", "params": {"action": "drag", "divider": "split:", "by_x": 60, "steps": 20, "modifiers": ["shift"], "press": false, "release": false}}, "wait": 2, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Release: the hint goes, the composers stay", "rpc": {"method": "debug.mouse", "params": {"action": "up", "divider": "split:"}}, "wait": 2, "optional": "debug.mouse is DEBUG only"}
+  ]
+}
