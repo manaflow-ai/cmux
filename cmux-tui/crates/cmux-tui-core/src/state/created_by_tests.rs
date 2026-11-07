@@ -54,12 +54,15 @@ fn focus(mux: &Arc<Mux>, id: &str) {
 /// terminal's `CMUX_WORKSPACE_ID` holds) works the same.
 #[test]
 fn an_agent_workspace_goes_below_its_creator_not_the_selection() {
-    let _after = NewWorkspacePlacement::AfterCurrent.set_for_test();
     let session = Session::new("created-by-beside");
     let mux = session.open();
+    // a, b, c in that order whatever a create does to the selection.
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
     let c = empty_workspace(&mux, "c");
+    drop(bottom);
+    let _after = NewWorkspacePlacement::AfterCurrent.set_for_test();
     focus(&mux, &c);
     let x = created(&mux, "x", json!({"kind": "agent", "workspace": a, "session": "s-1"}));
     let y = created(&mux, "y", json!({"kind": "agent", "workspace": a}));
