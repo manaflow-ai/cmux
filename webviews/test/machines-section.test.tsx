@@ -194,7 +194,10 @@ test("Remove asks first, then the joined row leaves in the same frame, before th
     button.textContent?.startsWith("Remove"),
   )!;
   // Return presses Remove: it holds the focus and is the form's submit.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  // Base UI moves the focus on a later animation frame: wait for it, frame by frame.
+  for (let frame = 0; frame < 20 && host.ownerDocument.activeElement !== remove; frame++) {
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  }
   expect(host.ownerDocument.activeElement).toBe(remove);
   expect(remove.getAttribute("type")).toBe("submit");
   await act(async () => remove.click());
@@ -229,4 +232,21 @@ test("a Remove the host refuses brings the row back; Cancel removes nothing", as
   await act(async () => remove.click());
   expect(host.querySelectorAll(".machines-row")).toHaveLength(before);
   expect(rowNamed(name)).toBeDefined();
+});
+
+test("a removed joined machine this app also runs comes back as its plain machine row", async () => {
+  const { provider } = await mount();
+  const linked = joinedRows[0]!;
+  const before = host.querySelectorAll(".machines-row").length;
+  await act(async () => rowNamed(linked.name).querySelector<HTMLElement>(".machines-remove")!.click());
+  const remove = [...host.ownerDocument.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((button) =>
+    button.textContent?.startsWith("Remove"),
+  )!;
+  await act(async () => remove.click());
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before - 1);
+  // The host's next list keeps the machine (same id), no longer joined: it shows again.
+  const plain = sampleSnapshot.rows.map((row) => (row.id === linked.id ? { ...row, joined: undefined } : row));
+  await act(async () => provider.push({ ...sampleSnapshot, rows: plain }));
+  expect(host.querySelectorAll(".machines-row")).toHaveLength(before);
+  expect(rowNamed(linked.name)?.querySelector(".machines-remove")).toBeNull();
 });

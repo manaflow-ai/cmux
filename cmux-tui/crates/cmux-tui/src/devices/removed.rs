@@ -7,7 +7,8 @@
 //! `removed-machines.json` in the host state directory (next to the device audit log,
 //! `remote_host::config::dir`), owner-only:
 //! `{"machines": [{"id": "m_1", "at": <unix seconds>}]}`. A file that cannot be read
-//! hides nothing; the list then shows the machine as revoked, as before.
+//! hides nothing (the list then shows the machine as revoked, as before), and a removal
+//! refuses to write over it.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -53,11 +54,18 @@ pub(crate) fn add_in(dir: &Path, id: &str, at: u64) -> anyhow::Result<()> {
     let lock =
         options.open(&lock_path).with_context(|| format!("cannot open {}", lock_path.display()))?;
     lock.lock().with_context(|| format!("cannot lock {}", lock_path.display()))?;
-    let mut doc = std::fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .filter(|doc| doc.get("machines").is_some_and(Value::is_array))
-        .unwrap_or_else(|| json!({"machines": []}));
+    // A missing file starts the list; one that cannot be read or parsed is never written over,
+    // which would bring back every machine it hides.
+    let mut doc = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
+            .ok()
+            .filter(|doc| doc.get("machines").is_some_and(Value::is_array))
+            .ok_or_else(|| {
+                anyhow!("{} is not a removed-machines list; fix or delete it", path.display())
+            })?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"machines": []}),
+        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+    };
     let Some(machines) = doc.get_mut("machines").and_then(Value::as_array_mut) else {
         return Err(anyhow!("{} has no machines list", path.display()));
     };

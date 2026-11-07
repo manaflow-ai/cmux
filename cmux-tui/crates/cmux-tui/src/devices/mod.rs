@@ -22,7 +22,7 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
-use model::{Device, Listing, Role, Sources, State, Via};
+use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)

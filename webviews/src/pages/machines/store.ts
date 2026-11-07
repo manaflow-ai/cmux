@@ -66,11 +66,12 @@ export class MachinesStore {
     }
   }
 
-  /** Shows `snapshot` (the host's newest). A removed row it no longer lists is done. */
+  /** Shows `snapshot` (the host's newest). A removed row it no longer lists as joined is done: gone,
+   * or (a joined machine this app also runs) back as a plain machine row with the same id. */
   land(snapshot: MachinesSnapshot): void {
     this.version += 1;
-    const listed = new Set(snapshot.rows.map((row) => row.id));
-    const removed = new Set([...this.state.removed].filter((id) => listed.has(id)));
+    const joined = new Set(snapshot.rows.filter((row) => row.joined).map((row) => row.id));
+    const removed = new Set([...this.state.removed].filter((id) => joined.has(id)));
     this.set({ ...this.state, snapshot, removed });
   }
 

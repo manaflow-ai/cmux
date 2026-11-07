@@ -517,13 +517,18 @@ fn removed_joined_machines_leave_the_list_and_revoked_ones_stay() {
     assert_eq!(names, ["build-box", "no id"], "only the removed one leaves; a revoked one stays");
 }
 
-/// A removed-machines file that cannot be read hides nothing, and a write replaces it whole.
+/// A removed-machines file that cannot be read hides nothing, and a removal refuses to write
+/// over it (that would bring back every machine it hid).
 #[test]
 fn an_unreadable_removed_file_hides_nothing() {
     use super::removed;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join(removed::FILE), b"{not json").unwrap();
+    let path = dir.path().join(removed::FILE);
+    std::fs::write(&path, b"{not json").unwrap();
     assert!(removed::ids_in(dir.path()).is_empty());
+    assert!(removed::add_in(dir.path(), "m_9", 3).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"{not json", "left as it was");
+    std::fs::remove_file(&path).unwrap();
     removed::add_in(dir.path(), "m_9", 3).unwrap();
     assert!(removed::ids_in(dir.path()).contains("m_9"));
     assert!(!dir.path().join(format!("{}.{}.tmp", removed::FILE, std::process::id())).exists());
