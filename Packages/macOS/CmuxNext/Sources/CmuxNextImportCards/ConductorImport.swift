@@ -77,8 +77,9 @@ public struct ConductorImport {
         let unlisted = plan.projects.filter { project in
             project.skipped == nil && project.path.map { !listed.contains($0) } == true
         }
-        // Nothing to make, add or explain: the preview would say nothing new.
-        guard !plan.adopting.isEmpty || !unlisted.isEmpty || !plan.recoverable.isEmpty || !plan.cleanup.isEmpty else {
+        // Nothing to make, add, save or explain: the preview would say nothing new.
+        guard !plan.adopting.isEmpty || !unlisted.isEmpty || !plan.recipes.isEmpty || !plan.recoverable.isEmpty
+            || !plan.cleanup.isEmpty else {
             Self.toast(ConductorImportStrings.allHere)
             return 0
         }
@@ -97,12 +98,22 @@ public struct ConductorImport {
         // A repository that could not be added keeps its workspaces unrecorded, so Import Again
         // offers them with it; the other repositories still come over, and the run ends failed.
         var failedProjects: [String] = []
+        var failedRecipes: [String] = []
         for project in unlisted {
             guard let path = project.path else { continue }
             do {
                 try await daemon.addProject(path: path, idempotencyKey: "conductor-import-\(run)-project-\(project.repoID)")
             } catch {
                 failedProjects.append(project.repoID)
+            }
+        }
+        // Each project's worktree recipe, as the preview showed it. One that cannot be saved
+        // fails the run at its end; the others and the workspaces still come over.
+        for (project, recipe) in plan.recipes where !failedProjects.contains(project.repoID) {
+            do {
+                try await daemon.saveRecipe(recipe, idempotencyKey: "conductor-import-\(run)-recipe-\(project.repoID)")
+            } catch {
+                failedRecipes.append(project.repoID)
             }
         }
         let adopting = plan.adopting.filter { !failedProjects.contains($0.project.repoID) }
@@ -132,6 +143,7 @@ public struct ConductorImport {
             progress?(Double(index + 1) / Double(adopting.count))
         }
         if !failedProjects.isEmpty { throw ConductorImportFailure.projects(failedProjects) }
+        if !failedRecipes.isEmpty { throw ConductorImportFailure.recipes(failedRecipes) }
         if opened > 0 {
             Self.toast(ConductorImportStrings.opened)
         } else if !plan.recoverable.isEmpty {
@@ -172,9 +184,27 @@ public struct ConductorImport {
         if !plan.cleanup.isEmpty { lines.append(ConductorImportStrings.cleanup(plan.cleanup.count)) }
         let names = Set(plan.projects.filter { $0.skipped == nil }.flatMap(\.envNames)).sorted()
         if !names.isEmpty { lines.append(ConductorImportStrings.environment(names.prefix(12).joined(separator: ", "))) }
+        let recipes = plan.recipes
+        if !recipes.isEmpty { lines.append(ConductorImportStrings.recipes(recipes.count)) }
+        for (project, recipe) in recipes.prefix(listedWorkspaces) {
+            lines.append("• \(String(project.name.prefix(64))): \(recipeSummary(recipe))")
+        }
+        if recipes.count > listedWorkspaces { lines.append("• …") }
         if plan.warnings.contains(where: { $0.code == "archive-deletes-folder" }) { lines.append(ConductorImportStrings.archiveWarning) }
         lines.append(ConductorImportStrings.deadline)
         return lines
+    }
+
+    /// A recipe as the preview shows it, before it is saved: each command as written under its
+    /// key in cmux's recipe (`setup`, `run`, `teardown`) and the files to copy (`include`).
+    static func recipeSummary(_ recipe: ConductorImportPlan.Recipe) -> String {
+        let shown = { (text: String) in text.count > 80 ? "\(text.prefix(80))…" : text }
+        var parts: [String] = []
+        if let setup = recipe.setup { parts.append("setup: \(shown(setup))") }
+        if let run = recipe.run { parts.append("run: \(shown(run))") }
+        if let teardown = recipe.teardown { parts.append("teardown: \(shown(teardown))") }
+        if let include = recipe.include, !include.isEmpty { parts.append("include: \(shown(include.joined(separator: ", ")))") }
+        return parts.joined(separator: " · ")
     }
 
     private static func toast(_ message: String) {
@@ -196,11 +226,14 @@ enum ConductorImportFailure: Error, Equatable, CustomStringConvertible {
     case plan(String)
     /// These Conductor repositories (by id) could not be added as projects.
     case projects([String])
+    /// These Conductor repositories' (by id) worktree recipes could not be saved.
+    case recipes([String])
 
     var description: String {
         switch self {
         case .plan(let reason): "conductor import plan: \(reason)"
         case .projects(let ids): "conductor import: projects not added: \(ids.joined(separator: ", "))"
+        case .recipes(let ids): "conductor import: worktree recipes not saved: \(ids.joined(separator: ", "))"
         }
     }
 }

@@ -20,6 +20,8 @@ struct ConductorImportRunTests {
         var listed: [String] = []
         var closeError: (any Error)?
         var refusedPaths: Set<String> = []
+        var refusedRecipes: Set<String> = []
+        private(set) var recipes: [String: CmuxNextDaemon.JSONValue] = [:]
         var refusedStage: ConductorImportStage?
         var recordError: any Error = DaemonError.command(
             cmd: "conductor_import.record", message: "taken", code: "validation.invalid",
@@ -41,6 +43,11 @@ struct ConductorImportRunTests {
         func addProject(path: String, idempotencyKey: String) async throws {
             if refusedPaths.contains(path) { throw Broke() }
             added.append(path)
+        }
+
+        func saveRecipe(_ recipe: ConductorImportPlan.Recipe, idempotencyKey: String) async throws {
+            if refusedRecipes.contains(recipe.projectPath) { throw Broke() }
+            recipes[recipe.projectPath] = recipe.worktree
         }
 
         func record(workspace: String, stage: ConductorImportStage, cmuxWorkspace: String?, runCompleted: Bool,
@@ -75,8 +82,12 @@ struct ConductorImportRunTests {
         #"{"id":"\#(id)","name":"\#(id)","branch":"b-\#(id)","path":"/w/\#(id)","disposition":{"kind":"\#(kind)"},"checked":\#(checked),"chats":null}"#
     }
 
-    private static func project(_ id: String, _ workspaces: [String]) -> String {
-        #"{"repo_id":"\#(id)","name":"\#(id)","path":"/src/\#(id)","skipped":null,"setup":null,"teardown":null,"worktreeinclude":[],"env_names":[],"workspaces":[\#(workspaces.joined(separator: ","))]}"#
+    private static func project(_ id: String, _ workspaces: [String], recipe: String = "null") -> String {
+        #"{"repo_id":"\#(id)","name":"\#(id)","path":"/src/\#(id)","skipped":null,"setup":null,"teardown":null,"worktreeinclude":[],"env_names":[],"workspaces":[\#(workspaces.joined(separator: ","))],"recipe":\#(recipe)}"#
+    }
+
+    private static func recipe(_ id: String) -> String {
+        #"{"project_path":"/real/\#(id)","setup":"bun install","run":"bun dev","include":[".env"]}"#
     }
 
     private static func reply(_ projects: [String], cleanup: [String] = []) throws -> ConductorImportReply {
@@ -182,5 +193,33 @@ struct ConductorImportRunTests {
         #expect(try await Self.run(daemon, Host(), preview) == 0)
         #expect(preview.shown == 0)
         #expect(daemon.added.isEmpty)
+    }
+
+    /// Each project's recipe is saved on the cmux project the plan names, as the preview listed it,
+    /// even when the project was listed already.
+    @Test func eachProjectsRecipeIsSavedOnItsProject() async throws {
+        let daemon = Daemon(try Self.reply([
+            Self.project("r1", [Self.workspace("w1", kind: "already-imported", checked: false)], recipe: Self.recipe("r1")),
+        ]))
+        daemon.listed = ["/src/r1"]
+        let preview = Preview()
+        #expect(try await Self.run(daemon, Host(), preview) == 0)
+        #expect(preview.shown == 1)
+        #expect(daemon.recipes["/real/r1"] == CmuxNextDaemon.JSONValue.object([
+            "setup": .string("bun install"), "run": .string("bun dev"), "include": .array([.string(".env")]),
+        ]))
+        let lines = ConductorImport.previewLines(daemon.reply.plan!)
+        #expect(lines.contains("• r1: setup: bun install · run: bun dev · include: .env"))
+    }
+
+    /// A recipe that cannot be saved fails the run at its end; the workspaces still come over.
+    @Test func aFailedRecipeSaveFailsTheRunAfterTheWorkspaces() async throws {
+        let daemon = Daemon(try Self.reply([
+            Self.project("r1", [Self.workspace("w1", kind: "adopt", checked: true)], recipe: Self.recipe("r1")),
+        ]))
+        daemon.refusedRecipes = ["/real/r1"]
+        let host = Host()
+        await #expect(throws: ConductorImportFailure.recipes(["r1"])) { _ = try await Self.run(daemon, host, Preview()) }
+        #expect(host.opened == ["/w/w1"])
     }
 }
