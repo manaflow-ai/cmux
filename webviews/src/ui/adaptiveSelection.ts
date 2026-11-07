@@ -37,8 +37,16 @@ const isWebKit = (view: Window) =>
 export function updateSelectionFill(doc: Document, floor: HighlightFloor = HIGHLIGHT_FLOORS.selection): void {
   const view = doc.defaultView;
   const selection = doc.getSelection();
-  if (!view || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  if (!view || !selection) return;
   const root = doc.documentElement;
+  // A field's selection (the composer, Find's field, the Markdown source) is not the document's: it
+  // draws in the config's color, never in a fill fit to another surface earlier.
+  const active = doc.activeElement;
+  if (active && /^(INPUT|TEXTAREA)$/.test(active.tagName)) {
+    root.style.removeProperty(SELECTION_FILL_PROPERTY);
+    return;
+  }
+  if (selection.rangeCount === 0 || selection.isCollapsed) return;
   const resolved = resolveCssColor(doc, SELECTION_BASE);
   if (!resolved) {
     root.style.removeProperty(SELECTION_FILL_PROPERTY);

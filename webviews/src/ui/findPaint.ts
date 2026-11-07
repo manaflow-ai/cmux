@@ -95,7 +95,18 @@ function watchTheme(doc: Document): void {
   };
   view.addEventListener("cmux-theme", schedule);
   view.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", schedule);
+  // A page's own look on its root (the Markdown page's paper theme, Reading Settings) changes with no
+  // host event. Only the theme attributes: the root's style carries the selection fill, set on every
+  // selection change (adaptiveSelection.ts).
+  new view.MutationObserver(schedule).observe(doc.documentElement, {
+    attributes: true,
+    attributeFilter: THEME_ATTRIBUTES,
+  });
 }
+
+/** Root attributes that change a page's colors: its scheme class, the agent pane's theme and the
+ * Markdown page's paper theme (settings.ts applyMarkdownLook). */
+const THEME_ATTRIBUTES = ["class", "data-theme", "data-cmux-md-theme", "data-cmux-see-through"];
 
 /** Removes every highlight `name`'s painter set. */
 export function clearAdaptiveFind(name: string): void {

@@ -396,3 +396,41 @@ test("a timestamp's tooltip under an open Find bar flips below its row, never ov
     setPopupInsetTop(0, "findBar");
   }
 });
+
+test("a header control's tooltip above an open Find bar starts below the bar", () => {
+  // next-review F3 at e03f60d5: a control at y=2-26 with Find down to y=72 put its tooltip at y=30.
+  const bounds = { left: 0, top: 76, width: 1000, height: 724 };
+  const placed = tooltipPosition(
+    { left: 900, top: 2, width: 24, height: 24 },
+    { width: 120, height: 24 },
+    { width: 1000, height: 800 },
+    "top",
+    1,
+    bounds,
+  );
+  expect(placed.top).toBeGreaterThanOrEqual(76);
+});
+
+test("a tooltip already open when the Find bar opens goes away", async () => {
+  // router-review follow-up at e03f60d5: native Cmd-F reaches the page as no key, so the bar's own
+  // inset change (ChatFindBar.tsx) is what takes the tooltip away.
+  const doc = page(
+    `<div id="scroll" style="overflow-y: auto"><time id="time" title="Nov 7, 2026, 12:05 AM">12:05 AM</time></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const time = doc.getElementById("time")!;
+  time.getBoundingClientRect = () => box(800, 60, 60, 18);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 160, 24);
+  await hover(time);
+  expect(tip.hidden).toBe(false);
+  try {
+    // The inset's listeners run as it is set: the tooltip leaves (or starts its fade) in that turn.
+    setPopupInsetTop(52, "findBar");
+    expect(tip.hidden || tip.hasAttribute("data-ending-style")).toBe(true);
+  } finally {
+    setPopupInsetTop(0, "findBar");
+  }
+});

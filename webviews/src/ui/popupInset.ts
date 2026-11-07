@@ -28,6 +28,11 @@ export function setPopupInsetTop(height: number, source = "tabRow"): void {
 
 const read = () => insetTop;
 
+/// Calls `listener` whenever what covers the page's top changes; returns the unsubscriber.
+export function onPopupInsetChange(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 /// What `source` alone covers now (0 when it covers nothing): a renderer that already keeps clear of
 /// the others its own way reads one source (titleTooltips.ts and Find's bar).
 export function popupInsetOf(source: string): number {

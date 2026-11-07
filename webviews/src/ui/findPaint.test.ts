@@ -74,3 +74,25 @@ test("a cleared painter is not repainted by a later theme change", async () => {
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect([...registry.keys()].filter((key) => key.startsWith(`${NAME}-fit-`))).toEqual([]);
 });
+
+test("the Markdown page's paper theme switch repaints, with no host event", async () => {
+  // next-review F2 at e03f60d5: Reading Settings sets data-cmux-md-theme (settings.ts) and nothing else.
+  dom = new JSDOM(`<!doctype html><body><p id="p">library</p></body>`, { pretendToBeVisual: true });
+  const doc = dom.window.document;
+  const registry = new Map<string, unknown>();
+  Object.assign(globalThis, {
+    CSS: { highlights: registry },
+    Highlight: class {
+      priority = 0;
+      constructor(..._ranges: Range[]) {}
+    },
+  });
+  const range = doc.createRange();
+  range.selectNodeContents(doc.getElementById("p")!);
+  paintAdaptiveFind(doc, NAME, colors, [range], []);
+  registry.clear();
+  doc.documentElement.dataset.cmuxMdTheme = "dark";
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect([...registry.keys()].filter((key) => key.startsWith(`${NAME}-fit-`)).length).toBe(1);
+});

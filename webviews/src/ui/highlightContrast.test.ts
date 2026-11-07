@@ -127,3 +127,22 @@ describe("fitHighlightOn across surfaces", () => {
       expect(contrast(fit.fill, surface)).toBeGreaterThanOrEqual(HIGHLIGHT_FLOORS.selection.surface);
   });
 });
+
+describe("Find's current match keeps its own text AA", () => {
+  // next-review F1 at e03f60d5: on a mid-gray surface the relaxed floor let the fill go dark amber
+  // under dark text (1.25:1). Its text color is the highlight's own, so it must stay 4.5:1.
+  test("on a mid-gray surface the current match's text stays AA", () => {
+    const fit = fitHighlight(rgba("#f5c542"), hex("#777777"), hex("#1d1d1f"), HIGHLIGHT_FLOORS.findCurrent, {
+      freeInk: true,
+    });
+    expect(contrast(fit.ink, fit.fill)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(fit.fill, hex("#777777"))).toBeGreaterThanOrEqual(HIGHLIGHT_FLOORS.findCurrent.surface);
+  });
+
+  test("dark text on a light gray surface keeps AA too", () => {
+    const fit = fitHighlight(rgba("#e8821e"), hex("#cccccc"), hex("#1a1208"), HIGHLIGHT_FLOORS.findCurrent, {
+      freeInk: true,
+    });
+    expect(contrast(fit.ink, fit.fill)).toBeGreaterThanOrEqual(4.5);
+  });
+});

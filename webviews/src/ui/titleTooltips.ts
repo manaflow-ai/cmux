@@ -16,7 +16,7 @@
 // Text the element cuts off shows in full, wrapping in the same compact bubble.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
-import { popupInsetOf } from "./popupInset";
+import { onPopupInsetChange, popupInsetOf } from "./popupInset";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
@@ -86,7 +86,8 @@ export function tooltipPosition(
       return { left: Math.round(left), top: Math.round(top) };
     }
   }
-  const below = anchor.top + anchor.height + gap;
+  // Below an anchor above the bounds' top (a header control over an open Find bar) starts at that top.
+  const below = Math.max(minTop, anchor.top + anchor.height + gap);
   const above = anchor.top - gap - size.height;
   const top =
     side !== "bottom"
@@ -430,7 +431,10 @@ export function installTooltips(
   doc.addEventListener("keydown", dismiss, true);
   doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("blur", dismiss);
+  // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
+  const unwatchInset = onPopupInsetChange(dismiss);
   return () => {
+    unwatchInset();
     dismiss();
     intent.dispose();
     doc.removeEventListener("pointerover", onOver);

@@ -104,10 +104,12 @@ export function fitHighlightOn(
   for (const surface of surfaces)
     if (contrast(over(base, surface), surface) < contrast(over(base, worst), worst)) worst = surface;
   const start = over(base, worst);
-  // Text already fainter than AA on its surface (a muted label) keeps what the fill's step from the
-  // surface leaves it: contrast ratios multiply along lightness, so asking more could never pass.
+  // The page's own text color (a selection, the other matches) keeps what the fill's step from the
+  // surface leaves it when it is fainter than that already: contrast ratios multiply along lightness,
+  // so asking more could never pass. A color the highlight draws its text in itself (`freeInk`, Find's
+  // current match) is chosen for the fill and always keeps AA, switching to black or white if needed.
   const inkFloor = (text: RGB, surface: RGB) =>
-    Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
+    options.freeInk ? floor.ink : Math.min(floor.ink, contrast(text, surface) / (floor.surface * INK_SLACK));
   const score = (fill: RGB, text: RGB) =>
     Math.min(
       ...surfaces.map((surface) =>
@@ -117,7 +119,9 @@ export function fitHighlightOn(
   const readable = (fill: RGB, text: RGB) =>
     surfaces.every((surface) => contrast(text, fill) >= inkFloor(text, surface));
   if (score(start, ink) >= 1) return { fill: start, ink };
-  const inks = options.freeInk ? [ink, readableInk(start)] : [ink];
+  // A highlight that draws its own text may take black or white where its own color cannot pass
+  // (a 3:1 fill on a light gray surface is dark, and needs white text).
+  const inks = options.freeInk ? [ink, BLACK, WHITE] : [ink];
   let best: FitHighlight = { fill: start, ink };
   let bestScore = score(start, ink);
   const origin = toOklch(start);
@@ -134,8 +138,8 @@ export function fitHighlightOn(
           best = { fill, ink: text };
           bestScore = value;
         }
-        // Past the point where the text stops reading on it, no further step helps.
-        if (!readable(fill, text)) break;
+        // Toward the text, past the point where it stops reading on the fill, no further step helps.
+        if (direction === toward && !readable(fill, text)) break;
       }
     }
   }
