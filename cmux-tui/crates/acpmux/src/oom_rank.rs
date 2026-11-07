@@ -19,6 +19,11 @@
 //!   killable as before, now ahead of the daemon and of the person's own
 //!   programs (200), and never inherit the daemon's protection.
 //!
+//! Where the kernel refuses every lower step (no `CAP_SYS_RESOURCE`, a floor
+//! at or above the daemon's value), the daemon stays as it was and logs it
+//! ([`describe`]): agents at [`AGENT`] still rank above it, since raising
+//! never needs a privilege.
+//!
 //! Not done: an earlyoom `--avoid` rule needs root (`/etc/default/earlyoom`),
 //! and earlyoom ranks by the same `oom_score`, so the adjustment covers it.
 //! Best effort: a write the kernel refuses leaves the process as it was.
@@ -31,10 +36,57 @@ pub const AGENT: i32 = 500;
 /// What the daemon asks for, lowest first; the first the kernel takes stays.
 pub const DAEMON_STEPS: [&[u8]; 4] = [b"-900", b"-500", b"0", b"100"];
 
+/// What [`protect_daemon`] found and left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Protection {
+    /// `oom_score_adj` before.
+    pub was: i32,
+    /// `oom_score_adj` after: `was` when the kernel refused every lower step.
+    pub now: i32,
+}
+
 /// The daemon: its `oom_score_adj` as low as the kernel lets it, and never
-/// higher than it was. The value it now runs at.
-pub fn protect_daemon() -> Option<i32> {
+/// higher than it was; None where there is none to read (not Linux). A
+/// kernel that refuses every step (no `CAP_SYS_RESOURCE` and a floor at or
+/// above where it runs) leaves it as it was: agents still rank above it at
+/// [`AGENT`], unless it runs at [`AGENT`] or more.
+pub fn protect_daemon() -> Option<Protection> {
     imp::protect_daemon()
+}
+
+/// The daemon's log line for `p`: lowered, or why it was not.
+pub fn describe(p: Protection) -> String {
+    if p.now < p.was {
+        format!(
+            "oom_score_adj {} -> {}: agents ({AGENT}) are ended before the daemon",
+            p.was, p.now
+        )
+    } else if p.now < AGENT {
+        format!(
+            "oom_score_adj kept at {}: the kernel refused a lower value (its floor without CAP_SYS_RESOURCE); agents ({AGENT}) are still ended first",
+            p.now
+        )
+    } else {
+        format!(
+            "oom_score_adj kept at {}: the kernel refused a lower value, so agents ({AGENT}) do not rank above the daemon",
+            p.now
+        )
+    }
+}
+
+/// The first of [`DAEMON_STEPS`] below `was` that `write` takes, or `was`
+/// when it takes none.
+fn lower(was: i32, mut write: impl FnMut(&[u8]) -> bool) -> i32 {
+    for step in DAEMON_STEPS {
+        let Some(value) = parse(step) else { continue };
+        if value >= was {
+            break;
+        }
+        if write(step) {
+            return value;
+        }
+    }
+    was
 }
 
 /// This process (an agent host, a task runner): its `oom_score_adj` raised to
@@ -109,17 +161,10 @@ mod imp {
         }
     }
 
-    pub(super) fn protect_daemon() -> Option<i32> {
-        let now = read()?;
-        for step in super::DAEMON_STEPS {
-            if super::parse(step).is_some_and(|v| v >= now) {
-                break;
-            }
-            if write(step) {
-                break;
-            }
-        }
-        read()
+    pub(super) fn protect_daemon() -> Option<super::Protection> {
+        let was = read()?;
+        super::lower(was, write);
+        Some(super::Protection { was, now: read().unwrap_or(was) })
     }
 
     pub(super) fn raise_agent() -> Option<i32> {
@@ -132,7 +177,7 @@ mod imp {
 
 #[cfg(not(target_os = "linux"))]
 mod imp {
-    pub(super) fn protect_daemon() -> Option<i32> {
+    pub(super) fn protect_daemon() -> Option<super::Protection> {
         None
     }
     pub(super) fn raise_agent() -> Option<i32> {
@@ -153,6 +198,34 @@ mod tests {
         assert_eq!(parse(b"-"), None);
         assert_eq!(parse(b"x"), None);
         assert_eq!(parse(&AGENT.to_string().into_bytes()), Some(AGENT));
+    }
+
+    /// The kernel refuses a value below the floor it set (no
+    /// `CAP_SYS_RESOURCE`): the daemon stays where it was, says so, and agents
+    /// at [`AGENT`] still rank above it.
+    #[test]
+    fn a_refused_lowering_keeps_the_daemon_and_agents_still_rank_first() {
+        let mut tried = Vec::new();
+        let kept = lower(200, |step| {
+            tried.push(String::from_utf8_lossy(step).into_owned());
+            false
+        });
+        assert_eq!(kept, 200);
+        assert_eq!(tried, ["-900", "-500", "0", "100"], "every lower step, lowest first");
+        assert!(AGENT > kept);
+        let line = describe(Protection { was: 200, now: kept });
+        assert!(
+            line.contains("refused") && line.contains("agents (500) are still ended first"),
+            "{line}"
+        );
+        // A floor of 100 (a stock systemd user manager): the first step it takes stays.
+        assert_eq!(lower(200, |step| step == b"100"), 100);
+        assert_eq!(lower(200, |step| step == b"0" || step == b"100"), 0);
+        // Never raised: nothing below where it already is is tried.
+        assert_eq!(lower(-900, |_| panic!("tried to write")), -900);
+        assert_eq!(lower(50, |step| step == b"100"), 50);
+        assert!(describe(Protection { was: 200, now: 100 }).contains("200 -> 100"));
+        assert!(describe(Protection { was: 600, now: 600 }).contains("do not rank above"));
     }
 
     /// A child's own `oom_score_adj` after `hook` ran at its exec.

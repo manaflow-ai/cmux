@@ -255,7 +255,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
             // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
-            crate::oom_rank::protect_daemon();
+            if let Some(p) = crate::oom_rank::protect_daemon() {
+                tracing::info!("{}", crate::oom_rank::describe(p));
+            }
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
