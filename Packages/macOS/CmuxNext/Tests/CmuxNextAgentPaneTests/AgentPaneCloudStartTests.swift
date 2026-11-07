@@ -213,6 +213,33 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.isEmpty)
     }
 
+    /// The page left Cloud while the sign-in still waited on its folder checks (or the send line),
+    /// before it reached the browser: no browser opens, and the hold is not kept.
+    @Test func leavingCloudBeforeTheBrowserOpensNoBrowser() async throws {
+        let starts = Starts()
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let model = Self.pane(starts, root: root)
+        var signIns = 0
+        model.onCloudSignIn = {
+            signIns += 1
+            return true
+        }
+        model.onCloudSignedIn = { false }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true, "cwd": folder,
+        ]])
+        let send = Task { ((await model.respond(to: request))["error"] as? [String: Any])?["code"] as? String }
+        // The send runs up to its first folder check, off the main actor, and waits there.
+        await Task.yield()
+        #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+        #expect(await send.value == "cloud_sign_in_cancelled")
+        #expect(signIns == 0)
+        #expect(starts.seen.isEmpty)
+        #expect(model.transport.replacements.beginSandbox())
+    }
+
     private static func signInRequest() -> AgentPaneRequest {
         AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
             "task": "preserved prompt", "key": UUID().uuidString, "home": true,

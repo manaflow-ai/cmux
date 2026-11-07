@@ -220,6 +220,9 @@ struct AgentPaneHandOff {
     private func cloudChecked(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        // Taken before the folder checks and `held`'s waits: a `cloud.signInCancel` that arrives
+        // during them withdraws this sign-in, so it opens no browser and keeps no hold.
+        let requestGeneration = model.cloudSignInGeneration
         if let reservationKey = start.reservationKey,
            !model.ownsCloudReservation(reservationKey) {
             // A page cannot attach a lease owned by another compose or pane. The native model is
@@ -268,7 +271,11 @@ struct AgentPaneHandOff {
             // Reserve the send's click before opening the browser. The callback may take longer
             // than a gesture lives; this hold authorizes only this already-validated request.
             if signingIn {
-                let generation = model.cloudSignInGeneration
+                let generation = requestGeneration
+                guard model.cloudSignInGeneration == generation else {
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+                }
                 // Already signed in (another pane, window or Settings did it meanwhile): no browser.
                 // `cloud.signInCancel` ends a browser wait at once, not when the browser returns:
                 // the hold goes with it, so the person's new pick can start right away.
