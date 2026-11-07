@@ -167,6 +167,37 @@ export function TextField(
   return node
 }
 
+/** A native switch, two-way bound like TextField: `value` is the state, `onChange` gets the new one. */
+export function Toggle(value: Bindable<boolean>, options: { label?: Bindable<string>; disabled?: Bindable<boolean>; onChange?: (on: boolean) => unknown } = {}): ViewNode {
+  const node = new ViewNode("Toggle")
+  node.props.value = value
+  if (options.label !== undefined) node.props.label = options.label
+  if (options.disabled !== undefined) node.props.disabled = options.disabled
+  if (options.onChange) node.handlers.change = options.onChange as Handler
+  return node
+}
+
+/** A native slider over `min...max` (default 0...1), snapped to `step`; `onChange` gets the number. */
+export function Slider(value: Bindable<number>, options: { min?: number; max?: number; step?: number; disabled?: Bindable<boolean>; onChange?: (v: number) => unknown } = {}): ViewNode {
+  const node = new ViewNode("Slider")
+  node.props.value = value
+  node.props.min = options.min ?? 0
+  node.props.max = options.max ?? 1
+  if (options.step !== undefined) node.props.step = options.step
+  if (options.disabled !== undefined) node.props.disabled = options.disabled
+  if (options.onChange) node.handlers.change = options.onChange as Handler
+  return node
+}
+
+/** The app's own card surface with its padding and radius: `style` `glass` (default, the sidebar card's glass) or `card` (opaque). */
+export function Panel(propsOrChildren?: { title?: Bindable<string>; style?: "glass" | "card"; spacing?: number } | Children, maybeChildren?: Children): ViewNode {
+  const hasProps = propsOrChildren !== undefined && !Array.isArray(propsOrChildren)
+  const node = new ViewNode("Panel", clean((hasProps ? maybeChildren : (propsOrChildren as Children)) ?? []))
+  if (hasProps) Object.assign(node.props, propsOrChildren)
+  node.props.style ??= "glass"
+  return node
+}
+
 /** The standard sidebar row: matches built-in rows so app sections look native. */
 export function Row(props: {
   title: Bindable<string>

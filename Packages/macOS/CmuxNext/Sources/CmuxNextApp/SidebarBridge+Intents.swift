@@ -77,7 +77,7 @@ extension SidebarBridge {
                 return
             }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
-            // new workspace in it (its top under the default `top`).
+            // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
             // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
@@ -199,7 +199,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
         let shownAt = services.sidebarDoc.store?.shownChanges
         var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                     hidesHome: services.sidebarLayout.document.hidesHome, selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)

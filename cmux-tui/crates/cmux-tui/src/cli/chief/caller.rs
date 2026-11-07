@@ -144,8 +144,8 @@ pub(in crate::cli) fn host_name() -> Option<String> {
     if status != 0 {
         return None;
     }
-    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
-    let name = String::from_utf8_lossy(&buffer[..end]).trim().to_owned();
+    let name = buffer.split(|b| *b == 0).next().unwrap_or_default();
+    let name = String::from_utf8_lossy(name).trim().to_owned();
     (!name.is_empty()).then_some(name)
 }
 

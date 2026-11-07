@@ -35,21 +35,17 @@ extension CmuxSidebarView {
     /// host's gate allows it. When false the change applies in one frame.
     static var animatesMovement: Bool { !reducesMotion && (movementGate?() ?? true) }
 
-    /// The host's gate for a Chief's avatar loop (cmux-next: `Motion.home.animatesLoops`, so calm
-    /// mode, the animation speed `off` and Home's motion switch also apply); nil: only Reduce Motion
-    /// decides. A change applies when `reduceMotionDidChange` posts.
-    public var avatarLoopGate: (@MainActor () -> Bool)? {
-        get { controller.avatarMotion.gate }
-        set { controller.avatarMotion.gate = newValue }
-    }
-
-    /// How a Chief's avatar moves (the host's Debug setting); a change restyles every avatar at once.
-    public var avatarMotionStyle: CmuxSidebarAvatarMotionStyle {
-        get { controller.avatarMotion.style }
+    /// Whether anything in the list animates; false (the default) shows every change at once.
+    ///
+    /// The user asked on 2026-11-03 (msg 20105) for no animation in the Home chat list: rows that move or
+    /// appear, the typing bubble's pop, fade and pulse, the swipe, and the tile and pin drags. A Chief's
+    /// avatar never shows its state (the user, 2026-11-04: "no special things besides unread"). Only a test of that motion turns it on; the gates above still apply then.
+    public var animates: Bool {
+        get { controller.animates }
         set {
-            guard newValue != controller.avatarMotion.style else { return }
-            controller.avatarMotion.style = newValue
-            controller.refreshAvatarMotion()
+            guard newValue != controller.animates else { return }
+            controller.animates = newValue
+            applyReduceMotion()
         }
     }
 
@@ -73,15 +69,12 @@ extension CmuxSidebarView {
         ]
     }
 
-    /// Stills (or restarts) every typing bubble and Chief avatar loop in the list.
+    /// Stills (or restarts) every typing bubble in the list.
     func applyReduceMotion() {
         var layers: [CALayer] = layer.map { [$0] } ?? []
         while let layer = layers.popLast() {
-            if let bubble = layer as? SidebarTypingLayer { bubble.animate() }
+            if let bubble = layer as? SidebarTypingLayer { bubble.still = !controller.animates; bubble.animate() }
             layers += layer.sublayers ?? []
         }
-        // From the controller's own rows and tiles: this view's `layer` is nil until an ancestor
-        // makes it layer-backed, so the walk above may not reach them.
-        controller.refreshAvatarMotion()
     }
 }

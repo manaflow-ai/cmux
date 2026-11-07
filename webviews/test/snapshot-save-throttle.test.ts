@@ -36,7 +36,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { saveSnapshot, savedSessions, turnEndedBetween } = await import("../src/agent-session/acpmux/App");
+const { saveSnapshot, savedSessions, turnEndedBetween } = await import("../src/agent-session/acpmux/snapshotCache");
 
 afterAll(() => {
   for (const [key, had, value] of saved) {

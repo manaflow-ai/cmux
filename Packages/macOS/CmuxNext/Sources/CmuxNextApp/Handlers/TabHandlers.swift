@@ -173,19 +173,18 @@ enum TabHandlers {
     /// screen.focus: the screen's workspace shown, the screen selected.
     static func revealScreen(screenID: String, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.id == screenID || $0.resourceID?.rawValue == screenID }) {
+        // Each machine's index, local first (the order `allWorkspaces` walked).
+        for daemon in ctx.services.machines.daemons {
+            if let screen = daemon.store.screen(idOrResource: screenID), let workspace = daemon.store.workspace(holding: screen) {
                 return reveal(workspace: workspace, screen: screen, pane: nil, tab: nil, ctx: ctx)
             }
         }
         let _: Bool? = ctx.notFound(RefusalStrings.noScreen(screenID))
     }
 
+    /// The workspace and screen holding this very `pane`, from each machine's index (O(machines)).
     private static func owner(of pane: PaneModel, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return (workspace, screen) }
-        }
-        return nil
+        ctx.services.machines.daemons.lazy.compactMap { $0.store.location(of: pane) }.first.map { ($0.workspace, $0.screen) }
     }
 
     /// The one reveal of tab.focus, pane.focus and screen.focus: the window

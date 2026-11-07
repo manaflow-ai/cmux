@@ -183,7 +183,7 @@ public struct ArtifactRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(artifact.name).font(.body).lineLimit(1)
                 HStack(spacing: 4) {
-                    if let detail = artifact.detail {
+                    if let detail = artifact.detail, !detail.isEmpty {
                         Text(detail).foregroundStyle(.secondary)
                         Text("·").foregroundStyle(.tertiary)
                     }
@@ -260,7 +260,7 @@ struct ArtifactTile: View {
                     .accessibilityHidden(true)
                 Text(artifact.name).font(.footnote).lineLimit(2)
             }
-            if let detail = artifact.detail {
+            if let detail = artifact.detail, !detail.isEmpty {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }

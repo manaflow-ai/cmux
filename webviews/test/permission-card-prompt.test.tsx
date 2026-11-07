@@ -176,7 +176,11 @@ test("keys act only with nothing focused or focus in the card", () => {
   // A focused button keeps its own Return; a digit still answers.
   expect(key("Enter", button)).toBeUndefined();
   expect(key("3", button)).toBe("deny");
-  // Modifiers, repeats and input methods never answer.
+  // ⌘↩ allows once, as Claude desktop's "Allow ⌘↩", on a focused button too; never in a field.
+  expect(key("Enter", doc.body, { metaKey: true })).toBe("allow_once");
+  expect(key("Enter", button, { metaKey: true })).toBe("allow_once");
+  expect(key("Enter", field, { metaKey: true })).toBeUndefined();
+  // Other modifiers, repeats and input methods never answer.
   expect(key("1", doc.body, { metaKey: true })).toBeUndefined();
   expect(key("1", doc.body, { repeat: true })).toBeUndefined();
   expect(key("Enter", doc.body, { isComposing: true })).toBeUndefined();
@@ -189,10 +193,17 @@ test("keys act only with nothing focused or focus in the card", () => {
     );
   expect(open("Escape", doc.body)).toBe("closeFeedback");
   expect(open("1", doc.body)).toBeUndefined();
+  expect(
+    permissionKeyAction(
+      { key: "Enter", target: doc.body, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false },
+      card,
+      true,
+    ),
+  ).toBeUndefined();
   button.remove();
 });
 
-async function mount(permission: AcpmuxPermission, harness = "claude") {
+async function mount(permission: AcpmuxPermission, harness = "claude", fullAccessMode?: string) {
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   const answers: string[] = [];
@@ -202,6 +213,7 @@ async function mount(permission: AcpmuxPermission, harness = "claude") {
       <PermissionCard
         permission={permission}
         harness={harness}
+        fullAccessMode={fullAccessMode}
         onAnswer={(id) => answers.push(id)}
         onDenyWithFeedback={async (id, text) => {
           denials.push([id, text]);
@@ -233,7 +245,7 @@ test("the card draws the title, the clamped command and the three buttons, and e
     "cd webviews && bun run check",
   );
   expect(card.host.querySelector(".ui-glass")).not.toBeNull();
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Always allow", "Allow once"]);
   await card.click(".acpmux-permission-command-toggle");
   expect(card.host.querySelector(".acpmux-permission-command-full")?.textContent).toBe(SCRIPT);
   expect(card.host.querySelector(".acpmux-permission-command-toggle")?.textContent).toBe("Hide full command");
@@ -261,12 +273,12 @@ test("a long rule shows once, on the scope line, never in a button, and describe
   const card = await mount(
     bash({ permissionId: "rule", rule: RULE, scope: { kind: "directory", value: "/Users/you/media/reel" } }),
   );
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Always allow", "Allow once"]);
   const buttons = [...card.host.querySelectorAll(".acpmux-permission-buttons button")];
   expect(buttons.map((button) => button.querySelector(".acpmux-permission-action-label")?.textContent)).toEqual([
-    "Allow once",
-    "Always allow",
     "Deny",
+    "Always allow",
+    "Allow once",
   ]);
   for (const button of buttons) expect(button.textContent).not.toContain("ffmpeg");
   const lines = card.host.querySelectorAll(".acpmux-permission-scope");
@@ -302,7 +314,7 @@ test("long agent labels get short buttons from their ACP kind, in one row, and t
     }),
     "codex",
   );
-  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny", "Always deny"]);
+  expect(card.buttons()).toEqual(["Always deny", "Deny", "Always allow", "Allow once"]);
   expect(card.host.querySelectorAll(".acpmux-permission-buttons").length).toBe(1);
   // Sized to their labels: no equal-width grid and no per-card answer count drives the row.
   expect(card.host.querySelector<HTMLElement>(".acpmux-permission-buttons")!.getAttribute("style")).toBeNull();
@@ -401,7 +413,7 @@ test("an ask without an Always allow option draws no such button and 2 does noth
       ],
     }),
   );
-  expect(card.buttons()).toEqual(["Allow once", "Deny"]);
+  expect(card.buttons()).toEqual(["Deny", "Allow once"]);
   await card.press("2");
   expect(card.answers).toEqual([]);
   await card.unmount();
@@ -421,5 +433,60 @@ test("the answer row is content-width buttons, never stretched to equal cells", 
   expect(row).not.toContain("1fr");
   const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
   expect(button).toContain("flex:none");
-  expect(button).toContain("align-items:baseline");
+  // Centred, so the label sits level with its Esc or ⌘ ↩ keycaps.
+  expect(button).toContain("align-items:center");
+  // Deny keeps the leading edge, the allows the trailing one, as Claude desktop's card.
+  expect(rule(".acpmux-permission-ask .acpmux-permission-allows")).toContain("margin-inline-start:auto");
+});
+
+// Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there's the
+// bypass permissions, it doesn't bypass every single thing ... We need to have that proper
+// rendering as well." In Bypass permissions an ask that still comes says the mode doesn't cover it.
+test("in the chat's highest mode an ask that still comes says the mode doesn't cover it, once", async () => {
+  const stillAsks: AcpmuxPermission = {
+    permissionId: "still-asks",
+    kind: "fetch",
+    title: "Open developer.apple.com/account in the browser",
+    pending: true,
+    options: [
+      { id: "allow_once", name: "Answer", kind: "allow_once", allow: true },
+      { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+    ],
+  };
+  const line = (host: Element) => host.querySelectorAll(".acpmux-permission-one-time");
+
+  const plain = await mount(stillAsks);
+  expect(line(plain.host)).toHaveLength(0);
+  await plain.unmount();
+
+  const bypass = await mount(stillAsks, "claude", "Bypass permissions");
+  expect(line(bypass.host)).toHaveLength(1);
+  expect(line(bypass.host)[0]!.textContent).toBe(
+    translate("permission.fullAccessStillAsks", { mode: "Bypass permissions" }),
+  );
+  expect(line(bypass.host)[0]!.textContent).toContain("Bypass permissions");
+  expect(bypass.buttons()).toEqual([translate("permission.deny"), translate("permission.allowOnce")]);
+  await bypass.press("1");
+  expect(bypass.answers).toEqual(["allow_once"]);
+  await bypass.unmount();
+
+  // No one-time allow offered: the line says only that the ask needs an answer.
+  const denyOnly = await mount(
+    { ...stillAsks, permissionId: "deny-only", options: [stillAsks.options[1]!] },
+    "codex",
+    "Full access",
+  );
+  expect(line(denyOnly.host)[0]!.textContent).toBe(
+    translate("permission.fullAccessStillAsksNoOnce", { mode: "Full access" }),
+  );
+  await denyOnly.unmount();
+
+  // An answered ask (a record) draws no line.
+  const answered = await mount(
+    { ...stillAsks, permissionId: "answered", pending: false },
+    "claude",
+    "Bypass permissions",
+  );
+  expect(line(answered.host)).toHaveLength(0);
+  await answered.unmount();
 });

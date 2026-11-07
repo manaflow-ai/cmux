@@ -212,8 +212,10 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var caller: String?
     /// The user and team signed in when it was asked (the App's `CloudService.account`).
     public var account: [String?]
+    /// The run's `--login` word; nil for none. Runs that differ in it are different runs.
+    public var login: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?]) {
-        (self.machine, self.agent, self.cwd, self.caller, self.account) = (machine, agent, cwd, caller, account)
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], login: String? = nil) {
+        (self.machine, self.agent, self.cwd, self.caller, self.account, self.login) = (machine, agent, cwd, caller, account, login)
     }
 }

@@ -35,9 +35,13 @@ mod run;
 mod runner;
 mod store;
 mod sys;
+mod teleport;
 mod trigger;
 
-pub use automation::{Automation, AutomationSpec, Body, new_automation_id};
+pub use automation::{
+    Automation, AutomationSpec, Body, Handoff, LOCAL_HOME, Origin, Tombstone, is_handoff_id,
+    new_automation_id, new_handoff_id,
+};
 pub use catch_up::{CatchUp, FirePlan, ON_TIME_SECONDS, plan_fires};
 pub use clock::{Civil, Zone};
 pub use cron::CronExpr;
@@ -45,5 +49,8 @@ pub use run::{Run, RunState, manual_run_id, run_id};
 pub use runner::{
     ExecOutcome, Executor, Job, TickReport, finish, recover_orphans, start_manual, tick,
 };
-pub use store::{AutomationState, RunnerLock, Store, StoreError};
+pub use store::{AutomationState, RunnerLock, Store, StoreError, TOMBSTONE_MS};
+pub use teleport::{
+    Destination, ImportHandoff, ImportSpec, Imported, export_spec, parse_destination,
+};
 pub use trigger::{ScheduleError, Trigger};

@@ -8,6 +8,8 @@ use std::os::fd::RawFd;
 const SYSPROTO_CONTROL: libc::c_int = 2;
 /// `UTUN_OPT_IFNAME` from `<net/if_utun.h>`.
 const UTUN_OPT_IFNAME: libc::c_int = 2;
+/// `AF_SYSTEM` from `<sys/socket.h>`: the family of kernel control sockets.
+const AF_SYSTEM: libc::c_int = 32;
 /// Highest fd scanned for the utun socket; a provider holds few fds.
 const MAX_FD: RawFd = 1024;
 
@@ -18,8 +20,26 @@ pub fn find_utun_fd() -> Option<RawFd> {
     (0..=MAX_FD).find(|&fd| interface_name(fd).is_some_and(|name| name.starts_with("utun")))
 }
 
+/// Whether `fd` is a kernel control socket (`AF_SYSTEM`), the kind a utun is.
+///
+/// The utun name query alone cannot tell: on a local socket the same level and option
+/// are `LOCAL_PEERPID`, which answers with the peer's pid. WireGuard's Apple client
+/// checks the peer address family the same way before it trusts an fd.
+pub(crate) fn is_kernel_control(fd: RawFd) -> bool {
+    // SAFETY: an all-zero `sockaddr_storage` is a valid value.
+    let mut address: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+    let mut length = libc::socklen_t::try_from(size_of::<libc::sockaddr_storage>()).unwrap_or(0);
+    // SAFETY: `address` is writable for `length` bytes; getpeername fails
+    // cleanly on a closed, unconnected or non-socket fd.
+    let result = unsafe { libc::getpeername(fd, (&raw mut address).cast(), &mut length) };
+    result == 0 && libc::c_int::from(address.ss_family) == AF_SYSTEM
+}
+
 /// The interface name of a utun control socket, or `None` for any other fd.
 pub(crate) fn interface_name(fd: RawFd) -> Option<String> {
+    if !is_kernel_control(fd) {
+        return None;
+    }
     let mut name = [0u8; libc::IFNAMSIZ];
     let mut length = name.len() as libc::socklen_t;
     // SAFETY: `name` is a writable buffer of `length` bytes; getsockopt

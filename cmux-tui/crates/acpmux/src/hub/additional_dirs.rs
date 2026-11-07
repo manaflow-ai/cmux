@@ -84,6 +84,59 @@ pub(crate) fn acp_value(meta: &SessionMeta) -> Option<Value> {
     })
 }
 
+impl Hub {
+    /// `_acpmux/set_directories`: the chat's folders become `additionalDirectories` (an empty
+    /// list clears them), and its agent restarts on them, resuming the same conversation, as a
+    /// tool switch does (`tools.rs` `set_tools`): now between turns, at the end of a running
+    /// turn, or at the next start of an agent that is not running. Watchers hear it as a `mux`
+    /// record of kind `directories`.
+    pub async fn set_directories(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        params: &Value,
+    ) -> Result<Value, RpcError> {
+        if params.get(FIELD).is_none_or(Value::is_null) {
+            return Err(refused("is required (an empty list clears them)"));
+        }
+        let dirs = without_cwd(requested(params).await?, &session.meta().cwd);
+        let changed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = m.additional_directories != dirs;
+            m.additional_directories = dirs.clone();
+            changed
+        };
+        let applied = if !changed {
+            "unchanged"
+        } else {
+            self.append(session, "mux", "directories", json!({FIELD: dirs}));
+            self.save_meta_answered(session)?;
+            if session.child.lock().await.is_none() {
+                "nextStart"
+            } else {
+                // As `restart_harnesses`: a turn that ended before it saw the flag restarts nothing,
+                // so the lock is tried again once the flag is set.
+                let mut turn = session.turn_lock.try_lock().ok();
+                if turn.is_none() {
+                    session.route_switch.store(true, Ordering::SeqCst);
+                    turn = session
+                        .turn_lock
+                        .try_lock()
+                        .ok()
+                        .filter(|_| session.route_switch.load(Ordering::SeqCst));
+                }
+                match turn {
+                    Some(_turn) => {
+                        self.restart_on_route(session).await?;
+                        "now"
+                    }
+                    None => "afterTurn",
+                }
+            }
+        };
+        Ok(json!({"sessionId": session.id, FIELD: dirs, "applied": applied}))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

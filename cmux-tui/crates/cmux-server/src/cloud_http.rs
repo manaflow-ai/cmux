@@ -1,10 +1,11 @@
 //! Bounded JSON HTTP for the Cloud machine agent. Synchronous callers run off
 //! async executors; an owned runtime cancels requests and bodies on expiry.
 
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use tokio::sync::watch;
 
 use crate::store::fetch::check_url;
 
@@ -18,6 +19,28 @@ use transport::Transport;
 pub struct JsonPoster {
     transport: Mutex<Option<Transport>>,
     allow_http: bool,
+    network: watch::Receiver<u64>,
+}
+
+/// Counts the machine's address changes; see [`network_changed`].
+static NETWORK: LazyLock<watch::Sender<u64>> = LazyLock::new(|| watch::Sender::new(0));
+
+/// The machine's addresses changed (a late network attach, a resume onto another host). A connection opened before
+/// can be dead with nothing saying so, and a request on it hangs to its 20 s bound. Every poster's request in flight
+/// fails at once, so its caller retries, and every pooled connection is dropped before its next request.
+pub fn network_changed() {
+    NETWORK.send_modify(|changes| *changes += 1);
+}
+
+/// How many times the addresses changed so far: an attempt that failed after the count moved failed on the change,
+/// and its retry can go at once.
+pub fn network_changes() -> u64 {
+    *NETWORK.borrow()
+}
+
+/// The count of [`network_changed`] calls, to wait on.
+pub fn network_watch() -> watch::Receiver<u64> {
+    NETWORK.subscribe()
 }
 
 #[cfg(test)]
@@ -39,8 +62,20 @@ impl JsonPoster {
     }
 
     fn build(allow_http: bool) -> Result<JsonPoster, String> {
+        JsonPoster::watching(allow_http, NETWORK.subscribe())
+    }
+
+    /// Watches `network` instead of the machine's address changes. Tests only.
+    #[cfg(test)]
+    pub(crate) fn allowing_http_on(network: &watch::Sender<u64>) -> Result<JsonPoster, String> {
+        JsonPoster::watching(true, network.subscribe())
+    }
+
+    fn watching(allow_http: bool, network: watch::Receiver<u64>) -> Result<JsonPoster, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        Ok(JsonPoster { transport: Mutex::new(Some(Transport::new(allow_http)?)), allow_http })
+        let epoch = *network.borrow();
+        let transport = Transport::new(allow_http, epoch)?;
+        Ok(JsonPoster { transport: Mutex::new(Some(transport)), allow_http, network })
     }
 
     /// An authenticated JSON GET with POST's HTTPS, size and 20 s bounds; a
@@ -86,6 +121,12 @@ impl JsonPoster {
         Ok((status, parsed))
     }
 
+    /// An authenticated POST without a request body. The carrier-ticket
+    /// route distinguishes no body from the JSON object `{}`.
+    pub fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.send("POST", url, None, bearer)
+    }
+
     /// One original budget through authentication, policy and keyset reads.
     /// GETs never carry credentials. Errors contain neither URLs nor bodies.
     pub fn request_with_deadline(
@@ -115,13 +156,25 @@ impl JsonPoster {
         // This synchronous owner is serial. Contention cannot queue a request
         // beyond its original budget.
         let mut slot = self.transport.try_lock().map_err(|_| "Cloud transport unavailable")?;
-        if slot.is_none() {
-            *slot = Some(Transport::new(self.allow_http)?);
+        let mut network = self.network.clone();
+        let epoch = *network.borrow_and_update();
+        // A pool from before the latest address change may hold a dead connection.
+        if slot.as_ref().is_some_and(|transport| transport.epoch() != epoch)
+            && let Some(stale) = slot.take()
+        {
+            stale.stop();
         }
-        let result = slot
-            .as_ref()
-            .ok_or("Cloud transport unavailable")?
-            .request(method, url, body, bearer, deadline);
+        if slot.is_none() {
+            *slot = Some(Transport::new(self.allow_http, epoch)?);
+        }
+        let result = slot.as_ref().ok_or("Cloud transport unavailable")?.request(
+            method,
+            url,
+            body,
+            bearer,
+            deadline,
+            &mut network,
+        );
         if result.is_err()
             && let Some(transport) = slot.take()
         {
@@ -130,6 +183,17 @@ impl JsonPoster {
             transport.stop();
         }
         result
+    }
+
+    /// Drops the pooled connection, so the next request dials a fresh one. After a pause the pool's connection is
+    /// dead and nothing says so: a request on it would hang to its 20 s bound. A request in flight keeps its
+    /// transport, and drops it itself if it fails.
+    pub fn reset(&self) {
+        if let Ok(mut slot) = self.transport.try_lock()
+            && let Some(transport) = slot.take()
+        {
+            transport.stop();
+        }
     }
 
     /// Compatibility for callers with an active-clock absolute deadline.

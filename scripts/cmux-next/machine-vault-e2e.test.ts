@@ -4,9 +4,16 @@ import {
   KILL_GRACE_MS,
   DEV_API,
   DEV_PLATFORM,
-  KEY_VAR,
+  AGENT_SCRIPT,
+  STUB_SCRIPT,
+  agentScript,
+  stubTurns,
+  LOGIN_VAR,
   NONCE_VAR,
+  PLACEHOLDER,
   PROMPT,
+  ALLOWED_HOST,
+  EGRESS_CAPABILITY,
   VAULT_CAPABILITY,
   type ChildResult,
   type Deps,
@@ -14,6 +21,7 @@ import {
   lastJson,
   realDeps,
   refusal,
+  replyPasses,
   replyText,
   runE2E
 } from "./machine-vault-e2e.ts"
@@ -23,9 +31,10 @@ const EMAIL = "ci-account@example.invalid"
 const PASSWORD = "fake-password-value"
 const STACK_ACCESS = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJzdGFjay11c2VyIn0.c3RhY2tzaWduYXR1cmU"
 const ACCESS = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIn0.eyJzdWIiOiJ1c2VyXzEifQ.YWNjZXNzc2lnbmF0dXJl"
-const API_KEY = "sk-ant-api03-FAKEkeyVALUEfor-tests-0123456789"
+const LOGIN = "sk-ant-oat01-FAKEloginVALUEfor-tests-0123456789"
 const NONCE = "0123456789abcdef0123456789abcdef"
 const HOME = "/Users/cmuxvault11"
+const GOOD = `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}\nHello from a vault test run.`
 
 const opts: Options = {
   origin: DEV_PLATFORM,
@@ -43,9 +52,11 @@ const opts: Options = {
 interface Knobs {
   noCapability?: boolean
   vaultEnv?: string[]
+  envDelivery?: boolean
   reply?: string
   addExit?: number
-  existingKey?: boolean
+  /** pgrep's exit for the user's acpmux and claude processes after cleanup (1: none left). */
+  holdersExit?: number
   /** A child prints this text (a leak). */
   leak?: string
   homeBody?: string
@@ -107,7 +118,7 @@ function fakes(k: Knobs = {}) {
   /** Every request, "METHOD url[ op]". */
   const requests: string[] = []
   let rms = 0
-  const vault = new Set<string>(k.existingKey ? [KEY_VAR] : [])
+  const vault = new Set<string>()
   const ok = (stdout = ""): ChildResult => ({ code: 0, stdout, stderr: k.leak ?? "" })
   const deps: Deps = {
     fetch: async (url, init) => {
@@ -178,17 +189,21 @@ function fakes(k: Knobs = {}) {
           return { code: k.addExit ?? 0, stdout: JSON.stringify({ event: "joined", joinTokenId: "jt_1", vault: true, joined: { machineId: "m_1", name: "x" } }), stderr: k.leak ?? "" }
         }
       }
-      if (argv[0] === "sudo") {
-        if (text.includes("/bin/kill")) return ok()
-        if (text.endsWith("acpmux capabilities")) return ok(k.noCapability ? "machine.join.stdin.v1\n" : `machine.join.stdin.v1\n${VAULT_CAPABILITY}\n`)
-        if (text.includes("machine vault status")) {
-          return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR, KEY_VAR]).map((name) => ({ name, revision: 1 })) }, null, 2))
-        }
-        if (text.includes(" run ") && k.agentHangs) {
+      if (argv[0] === opts.ssh) {
+        stdins.ssh = stdin ?? ""
+        if (k.agentHangs) {
           await aborted(signal)
           return { code: null, stdout: "", stderr: "" }
         }
-        if (text.includes(" run ")) return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `${NONCE}\n`, stopReason: "end_turn" }, null, 2))
+        return ok(JSON.stringify({ sessionId: "s", name: "n", reply: k.reply ?? `${GOOD}\n`, stopReason: "end_turn" }, null, 2))
+      }
+      if (argv[0] === "/usr/bin/pgrep") return { code: k.holdersExit ?? 1, stdout: "", stderr: "" }
+      if (argv[0] === "sudo") {
+        if (text.includes("/bin/kill")) return ok()
+        if (text.endsWith("acpmux capabilities")) return ok(k.noCapability ? "machine.join.stdin.v1\n" : `machine.join.stdin.v1\n${VAULT_CAPABILITY}\n${EGRESS_CAPABILITY}\n`)
+        if (text.includes("machine vault status")) {
+          return ok(JSON.stringify({ joined: true, secretStore: "keychain", lastResult: "ok", env: (k.vaultEnv ?? [NONCE_VAR]).map((name) => ({ name, revision: 1, delivery: k.envDelivery ? "env" : "proxy" })) }, null, 2))
+        }
         if (text.includes("/usr/bin/find")) return { code: 0, stdout: "", stderr: "" }
         if (text.includes("/usr/bin/tar")) {
           return { code: k.tarExit ?? 0, stdout: tarOf({ "./.zshenv": k.homeBody ?? "export X=1\n", ...k.homeFiles }), stderr: k.tarStderr ?? "" }
@@ -209,31 +224,86 @@ function fakes(k: Knobs = {}) {
   return { deps, calls, stdins, files, removed, revoked, lines, vault, requests }
 }
 
-const env = (apiKey = API_KEY) => ({ CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD, CMUX_E2E_ANTHROPIC_API_KEY: apiKey })
+const env = (login = LOGIN) => ({ CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD, CLAUDE_CODE_OAUTH_TOKEN: login })
+const isAgent = (a: string[]) => a[0] === opts.ssh
 
 describe("machine-vault-e2e", () => {
-  test("passes when the agent replies with the nonce, and cleans up", async () => {
+  test("on the model stub: a made-up login, Claude Code pointed at the stub, every model request carried that login", async () => {
+    const f = fakes()
+    let log = ""
+    f.deps.readFile = (path) => (path === "/tmp/stub.jsonl" ? log : "")
+    const run = f.deps.run
+    f.deps.run = async (argv, o) => {
+      if (argv[0] === opts.ssh) {
+        const sha = new Bun.CryptoHasher("sha256").update((o.stdin ?? "").trim()).digest("hex")
+        log = [1, 2, 3, 4].map((step) => JSON.stringify({ protocol: "anthropic", method: "POST", path: "/v1/messages", stream: true, step, cred_sha256: sha })).join("\n") + "\n"
+      }
+      return run(argv, o)
+    }
+    const e = await runE2E(opts, { ...env(""), MODEL_STUB_URL: "http://127.0.0.1:18123", MODEL_STUB_LOG: "/tmp/stub.jsonl" }, f.deps)
+    expect(e.result).toBe("pass")
+    expect(e.reason).toContain("on the model stub")
+    expect(e.model).toEqual({ mode: "stub", requests: 4, loginMatched: true })
+    expect(f.stdins.ssh).toMatch(/^sk-ant-oat01-vaultstub-[0-9a-f]+\n$/)
+    const agent = f.calls.find(isAgent)!
+    expect(agent[3]).toBe(agentScript("http://127.0.0.1:18123"))
+    expect(agent[3]).toContain("ANTHROPIC_BASE_URL")
+    expect(agent[3]).toContain("http://127.0.0.1:18123")
+    expect(AGENT_SCRIPT).not.toContain("ANTHROPIC_BASE_URL")
+  })
+
+  test("on the model stub: a model request with another login fails the run", async () => {
+    const f = fakes()
+    f.deps.readFile = () => JSON.stringify({ protocol: "anthropic", method: "POST", path: "/v1/messages", cred_sha256: "0".repeat(64) }) + "\n"
+    const e = await runE2E(opts, { ...env(""), MODEL_STUB_URL: "http://127.0.0.1:18123", MODEL_STUB_LOG: "/tmp/stub.jsonl" }, f.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("did not carry the login")
+    expect(e.model.loginMatched).toBe(false)
+  })
+
+  test("the stub address must be loopback, and the stub's script is the prompt's three commands", () => {
+    expect(() => agentScript("http://evil.example:80")).toThrow()
+    expect(() => agentScript("http://127.0.0.1:1; rm -rf ~")).toThrow()
+    expect(stubTurns('{"protocol":"anthropic","method":"POST","path":"/v1/messages","cred_sha256":"a"}\nnot json\n{"protocol":"anthropic","method":"POST","path":"/v1/messages/count_tokens"}\n')).toHaveLength(1)
+    const script = JSON.parse(require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "../..", STUB_SCRIPT), "utf8"))
+    const shells = script.steps.filter((s: any) => s.shell).map((s: any) => s.shell)
+    for (const piece of [`printenv ${NONCE_VAR}`, `https://${ALLOWED_HOST}/headers`, "https://httpbin.org/headers"]) expect(shells.join("\n")).toContain(piece)
+  })
+
+  test("passes when the subscription-signed-in agent replies with the nonce, and cleans up", async () => {
     const f = fakes()
     const e = await runE2E(opts, env(), f.deps)
-    expect(e.reason).toBe("vault set, joined over ssh, vault on the machine, the agent read it, cleaned up, no secrets found")
+    expect(e.reason).toBe("vault set, joined over ssh, vault on the machine, the agent signed in with the subscription saw only the placeholder, the allowed host got the value and the other host the placeholder, cleaned up, no secrets found")
     expect(e.result).toBe("pass")
-    expect(e.agentReply).toBe("pass")
+    expect(e.agentResult).toBe("pass")
+    expect(e.agentReply).toBe(GOOD)
+    expect(e.claudeLogin).toEqual({ delivery: "ssh-stdin", daemonRestarted: true })
     expect(e.nonce).toBe(NONCE)
-    // Values go on stdin, never argv.
+    // Values go on stdin, never argv: the nonce to the vault, the login to the ssh session alone.
     expect(f.stdins[NONCE_VAR]).toBe(`${NONCE}\n`)
-    expect(f.stdins[KEY_VAR]).toBe(`${API_KEY}\n`)
-    for (const argv of f.calls) expect(argv.join(" ")).not.toContain(API_KEY)
+    // The nonce is proxy-delivered and allowed to the one echo host.
+    const set = f.calls.find((a) => a.includes("set"))!
+    expect(set.slice(set.indexOf("set") + 1, set.indexOf("set") + 4)).toEqual([NONCE_VAR, "--host", ALLOWED_HOST])
+    expect(f.stdins.ssh).toBe(`${LOGIN}\n`)
+    for (const argv of f.calls) expect(argv.join(" ")).not.toContain(LOGIN)
+    // The login never enters the vault.
+    expect(f.calls.some((a) => a.includes(LOGIN_VAR) && a.includes("vault"))).toBe(false)
+    expect(Object.keys(f.stdins).sort()).toEqual([NONCE_VAR, "ssh"])
     // The one command.
     const add = f.calls.find((a) => a.includes("add"))!
     expect(add.slice(1, 8)).toEqual(["--json", "machine", "add", "--vault", "--yes", "--name", opts.name])
     expect(add).toContain(`${opts.user}@localhost`)
-    // The agent prompt and harness.
-    const run = f.calls.find((a) => a.includes("run"))!
-    expect(run).toContain(PROMPT)
-    expect(run.slice(run.indexOf("-m"), run.indexOf("-m") + 2)).toEqual(["-m", "claude"])
+    // The agent: one ssh session to the user, the script its only argument.
+    const run = f.calls.find(isAgent)!
+    expect(run).toEqual([opts.ssh, "--", `${opts.user}@localhost`, AGENT_SCRIPT])
+    expect(AGENT_SCRIPT).toContain(`'${PROMPT}'`)
+    expect(AGENT_SCRIPT).toContain("-m claude")
     // This run's machine and the stale CI one, never another machine.
     expect(f.revoked.sort()).toEqual(["m_1", "m_old"])
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
+    expect(e.cleanup.loginHoldersStopped).toBe(true)
+    expect(e.secretScan.home.login).toBe(0)
+    expect(e.secretScan.log.login).toBe(0)
     expect(e.cleanup.tokenFileRemoved).toBe(true)
     expect(e.cleanup.installRevoked).toBe(true)
     expect(f.removed).toEqual([`${opts.work}/cloud-token`])
@@ -241,22 +311,25 @@ describe("machine-vault-e2e", () => {
     expect(f.files.has(`${opts.work}/cloud-token`)).toBe(false)
     expect(f.lines.join("\n")).toContain(`::add-mask::${ACCESS}`)
     const evidence = f.files.get(opts.evidence)!
-    for (const s of [EMAIL, PASSWORD, STACK_ACCESS, ACCESS, API_KEY]) {
+    for (const s of [EMAIL, PASSWORD, STACK_ACCESS, ACCESS, LOGIN]) {
       expect(evidence).not.toContain(s)
       expect(f.lines.filter((l) => !l.startsWith("::add-mask::")).join("\n")).not.toContain(s)
     }
-    expect(f.lines).toContain(`::add-mask::${API_KEY}`)
+    expect(f.lines).toContain(`::add-mask::${LOGIN}`)
+    // The mask comes before anything else is printed.
+    expect(f.lines.findIndex((l) => l === `::add-mask::${LOGIN}`)).toBeLessThan(f.lines.findIndex((l) => !l.startsWith("::add-mask::")))
   })
 
-  test("without the API key the agent part is skipped and the run fails", async () => {
+  test("without the Claude login the agent part is skipped and the run fails", async () => {
     const f = fakes()
     const e = await runE2E(opts, env(""), f.deps)
-    expect(e.agentReply).toBe("skipped (no CMUX_E2E_ANTHROPIC_API_KEY)")
+    expect(e.agentResult).toBe("skipped (no CLAUDE_CODE_OAUTH_TOKEN)")
+    expect(e.agentReply).toBeNull()
     expect(e.result).toBe("fail")
-    expect(e.vaultSet.anthropicKey).toBe("skipped")
     expect(f.lines.some((l) => l.startsWith("::notice::"))).toBe(true)
-    expect(f.calls.some((a) => a.includes("run"))).toBe(false)
+    expect(f.calls.some(isAgent)).toBe(false)
     expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
+    expect(e.secretScan.log.login).toBeNull()
   })
 
   test("an acpmux without the vault capability is refused", async () => {
@@ -270,22 +343,46 @@ describe("machine-vault-e2e", () => {
 
   test("a wrong reply fails", async () => {
     const e = await runE2E(opts, env(), fakes({ reply: "something else" }).deps)
-    expect(e.agentReply).toBe("mismatch")
+    expect(e.agentResult).toBe("mismatch")
+    expect(e.agentReply).toBe("something else")
     expect(e.result).toBe("fail")
+    // The three values alone, with no sentence of the model's own, are not a real reply.
+    const bare = await runE2E(opts, env(), fakes({ reply: `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}` }).deps)
+    expect(bare.agentResult).toBe("mismatch")
   })
+
+  test("the reply must show the placeholder in the env, the nonce at the allowed host only, and a sentence", () => {
+    const ok = (env: string, allowed: string, denied: string, rest = "Hi there, all good here.") =>
+      replyPasses(`env=${env}\nallowed=${allowed}\ndenied=${denied}\n${rest}`, NONCE)
+    expect(ok(PLACEHOLDER, NONCE, PLACEHOLDER)).toBe(true)
+    expect(replyPasses(`\`env=${PLACEHOLDER}\`\n\`allowed=${NONCE}\`\n\`denied=${PLACEHOLDER}\`\n\nHello from Claude Code today.`, NONCE)).toBe(true)
+    expect(ok(PLACEHOLDER, NONCE, PLACEHOLDER, "")).toBe(false)
+    // The agent saw the value: the old env delivery.
+    expect(ok(NONCE, NONCE, NONCE)).toBe(false)
+    // The value reached the host it does not allow.
+    expect(ok(PLACEHOLDER, NONCE, NONCE)).toBe(false)
+    // The proxy did not put the value in for the allowed host.
+    expect(ok(PLACEHOLDER, PLACEHOLDER, PLACEHOLDER)).toBe(false)
+    expect(ok(PLACEHOLDER, "other", PLACEHOLDER)).toBe(false)
+  })
+
+  test("the nonce on env delivery, or an acpmux without the egress proxy, fails", async () => {
+    const env1 = await runE2E(opts, env(), fakes({ envDelivery: true }).deps)
+    expect(env1.result).toBe("fail")
+    expect(env1.reason).toContain(`${NONCE_VAR} is not delivered through the proxy`)
+  })
+
+  test("a process still holding the login after cleanup fails the run", async () => {
+    const e = await runE2E(opts, env(), fakes({ holdersExit: 0 }).deps)
+    expect(e.result).toBe("fail")
+    expect(e.cleanup.loginHoldersStopped).toBe(false)
+    expect(e.reason).toContain("a process that held the Claude login is still running after cleanup")
+  }, 15_000)
 
   test("the nonce missing from the machine's vault fails", async () => {
-    const e = await runE2E(opts, env(), fakes({ vaultEnv: [KEY_VAR] }).deps)
+    const e = await runE2E(opts, env(), fakes({ vaultEnv: ["OTHER"] }).deps)
     expect(e.result).toBe("fail")
     expect(e.reason).toContain(`${NONCE_VAR} is not on the machine`)
-  })
-
-  test("an existing ANTHROPIC_API_KEY is neither overwritten nor removed", async () => {
-    const f = fakes({ existingKey: true })
-    const e = await runE2E(opts, env(), f.deps)
-    expect(e.vaultSet.anthropicKey).toBe("kept-existing")
-    expect(f.stdins[KEY_VAR]).toBeUndefined()
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
   })
 
   test("a failed join still revokes and removes the vault entries", async () => {
@@ -294,16 +391,32 @@ describe("machine-vault-e2e", () => {
     expect(e.result).toBe("fail")
     expect(e.reason).toContain("machine add: exit 1")
     expect(f.revoked).toContain("m_1")
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
   })
 
   test("a secret in a child's output or in the home fails the run", async () => {
-    const leaked = await runE2E(opts, env(), fakes({ leak: `oops ${API_KEY}` }).deps)
+    const leaked = await runE2E(opts, env(), fakes({ leak: `oops ${LOGIN}` }).deps)
     expect(leaked.result).toBe("fail")
-    expect(leaked.reason).toContain("the output holds a secret value")
-    const inHome = await runE2E(opts, env(), fakes({ homeBody: `export ANTHROPIC_API_KEY=${API_KEY}\n` }).deps)
+    expect(leaked.reason).toContain("the output holds the Claude login")
+    expect(leaked.secretScan.log.login).toBeGreaterThan(0)
+    const inHome = await runE2E(opts, env(), fakes({ homeBody: `export CLAUDE_CODE_OAUTH_TOKEN=${LOGIN}\n` }).deps)
     expect(inHome.result).toBe("fail")
-    expect(inHome.reason).toContain("the home holds")
+    expect(inHome.reason).toContain("the home holds the Claude login")
+    expect(inHome.secretScan.home.login).toBe(1)
+    expect(inHome.secretScan.home.files).toEqual(["./.zshenv"])
+    // A file name that is itself a secret is redacted.
+    const nf = fakes({ homeFiles: { [`./${LOGIN}`]: "x" } })
+    await runE2E(opts, env(), nf.deps)
+    // The written evidence keeps the redacted path (it is not the redaction-failure stub).
+    const written = JSON.parse(nf.files.get(opts.evidence) ?? "{}")
+    expect(written.secretScan.home.files).toEqual(["./[secret]"])
+  })
+
+  test("a reply in the login's shape is never written as evidence", async () => {
+    const f = fakes({ reply: `env=${PLACEHOLDER}\nallowed=${NONCE}\ndenied=${PLACEHOLDER}\nsk-ant-oat01-something else here` })
+    const e = await runE2E(opts, env(), f.deps)
+    expect(e.result).toBe("fail")
+    expect(f.files.get(opts.evidence)).not.toContain("sk-ant-")
   })
 
   test("program files' constants are not join tokens; a token in any other file is", async () => {
@@ -336,11 +449,11 @@ describe("machine-vault-e2e", () => {
   test("a cancel while a vault write is in flight waits for it, then removes it", async () => {
     let release: () => void = () => undefined
     const gate = new Promise<void>((resolve) => (release = resolve))
-    const f = fakes({ holdSet: { [KEY_VAR]: gate } })
+    const f = fakes({ holdSet: { [NONCE_VAR]: gate } })
     let cancel: () => Promise<void> = async () => undefined
     const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
-    // Let the flow reach the held ANTHROPIC_API_KEY write.
-    for (let i = 0; i < 200 && f.stdins[NONCE_VAR] === undefined; i++) await Bun.sleep(1)
+    // Let the flow reach the held nonce write.
+    for (let i = 0; i < 200 && !f.calls.some((a) => a.includes("set")); i++) await Bun.sleep(1)
     await Bun.sleep(5)
     const cleaning = cancel()
     await Bun.sleep(5)
@@ -348,9 +461,8 @@ describe("machine-vault-e2e", () => {
     await cleaning
     const e = await running
     expect(e.result).toBe("fail")
-    expect(f.vault.has(KEY_VAR)).toBe(false)
     expect(f.vault.has(NONCE_VAR)).toBe(false)
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
     // Nothing the main flow would have done next ran: no join.
     expect(f.calls.some((a) => a.includes("add"))).toBe(false)
   })
@@ -381,22 +493,6 @@ describe("machine-vault-e2e", () => {
     const rm = await runE2E(opts, env(), fakes({ rmFails: true }).deps)
     expect(rm.result).toBe("fail")
     expect(rm.reason).toContain("is still in the vault after cleanup")
-  })
-
-  test("the API key is in the vault only from right before the join to right after the reply", async () => {
-    const f = fakes()
-    const e = await runE2E(opts, env(), f.deps)
-    expect(e.result).toBe("pass")
-    const at = (pred: (a: string[]) => boolean) => f.calls.findIndex(pred)
-    const setKey = at((a) => a.includes("set") && a.includes(KEY_VAR))
-    const add = at((a) => a.includes("add"))
-    const run = at((a) => a.includes("run"))
-    const rmKey = at((a) => a.includes("rm") && a.includes(KEY_VAR))
-    expect(setKey).toBe(add - 1)
-    expect(rmKey).toBe(run + 1)
-    // Cleanup does not remove it again, and still checks the list.
-    expect(f.calls.filter((a) => a.includes("rm") && a.includes(KEY_VAR)).length).toBe(1)
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
   })
 
   test("cleanup revokes the join's machine by id first, then confirms it on the list", async () => {
@@ -434,7 +530,7 @@ describe("machine-vault-e2e", () => {
     const f = fakes({ agentHangs: true, stall: ["install.revoke"] })
     let cancel: () => Promise<void> = async () => undefined
     const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
-    for (let i = 0; i < 2_000 && !f.calls.some((a) => a.includes("run")); i++) await Bun.sleep(1)
+    for (let i = 0; i < 2_000 && !f.calls.some(isAgent); i++) await Bun.sleep(1)
     const started = Date.now()
     await cancel()
     const took = Date.now() - started
@@ -467,7 +563,7 @@ describe("machine-vault-e2e", () => {
     const e = await running
     expect(e.result).toBe("fail")
     expect(f.vault.size).toBe(0)
-    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR])
     expect(e.reason).not.toContain("interrupted")
   }, 15_000)
 
@@ -491,7 +587,7 @@ describe("machine-vault-e2e", () => {
     const f = fakes({ agentHangs: true, stall: ["/revoke", "install.revoke", "sessions/current"], cleanupCmdsHang: true })
     let cancel: () => Promise<void> = async () => undefined
     const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
-    for (let i = 0; i < 2_000 && !f.calls.some((a) => a.includes("run")); i++) await Bun.sleep(1)
+    for (let i = 0; i < 2_000 && !f.calls.some(isAgent); i++) await Bun.sleep(1)
     const started = Date.now()
     await cancel()
     const took = Date.now() - started

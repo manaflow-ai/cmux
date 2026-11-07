@@ -9,7 +9,7 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { UpdatedCard, UpdateReadyHighlights, type BriefLayout } from "./UpdateSurfaces";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -55,6 +55,14 @@ type Props = {
   /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
    *  thing unthemed"): a light, a dark and a custom (purple) theme. */
   theme?: keyof typeof themes;
+  /** Where the popover with no change list puts See release notes. */
+  briefLayout?: BriefLayout;
+  /** The decoration in the card's slot (ThemeDecorations `updated-card`): "doodle", else none. */
+  decoration?: string | null;
+  /** The doodle draws on (false: drawn from the start). */
+  animate?: boolean;
+  /** The stage's width (the sidebar's), default 260. */
+  width?: number;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -181,6 +189,15 @@ const longNotes: UpdateHighlights = {
   })),
 };
 
+/** The doodle's face has loaded (doodleFont.ts): a still shows the handwriting, not its fallback. */
+function doodleFontLoaded(doc: Document): boolean {
+  let loaded = false;
+  doc.fonts.forEach((face) => {
+    if (face.family.replaceAll('"', "") === "cmux-doodle" && face.status === "loaded") loaded = true;
+  });
+  return loaded;
+}
+
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
@@ -191,6 +208,10 @@ function UpdateSurfacesGallery({
   wallpaper: onWallpaper = false,
   maxHeight,
   theme,
+  briefLayout,
+  decoration = null,
+  animate = false,
+  width,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -198,17 +219,26 @@ function UpdateSurfacesGallery({
     <div
       className="wn-gallery-stage"
       style={{
-        width: surface === "card" ? 260 : 360,
+        width: width ?? (surface === "card" ? 260 : 360),
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
       }}
     >
       {surface === "card" ? (
-        <UpdatedCard data={data} span={notes} strings={strings} actions={{ openChangelog: noop, dismiss: noop }} />
+        <UpdatedCard
+          data={data}
+          span={notes}
+          strings={strings}
+          actions={{ openChangelog: noop, dismiss: noop }}
+          decoration={decoration}
+          animate={animate}
+        />
       ) : (
         <div
           style={{
+            // As wide as the popover: the host sizes the window to the page's width.
+            width: "fit-content",
             borderRadius: 8,
             background: "var(--page-elevated)",
             boxShadow: "0 0 0 1px var(--page-separator)",
@@ -216,7 +246,12 @@ function UpdateSurfacesGallery({
             ...(maxHeight ? { maxHeight, overflowY: "auto" as const, overscrollBehavior: "contain" as const } : {}),
           }}
         >
-          <UpdateReadyHighlights data={data} strings={strings} actions={{ openChangelog: noop }} />
+          <UpdateReadyHighlights
+            data={data}
+            strings={strings}
+            actions={{ openChangelog: noop }}
+            briefLayout={briefLayout}
+          />
         </div>
       )}
     </div>
@@ -278,6 +313,46 @@ export default componentEntry<Props>({
     card: {
       note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The theme\'s surface on a plain page.',
       props: { surface: "card", data: base },
+    },
+    "card-doodle": {
+      note: 'Leo 2026-11-05, on the Yab browser\'s after-update note: "They have that little line thing, which is kind of cutesy quirky." The doodle in the card\'s decoration slot (Debug Settings "Doodle on the Updated card", off by default): "you\'re on nightly 3845050!" with a check, a curved arrow from "have a look" to What\'s New with a loop around it, and "got it" (hides the card for this version, as its x does). Drawn, on a light theme.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => doodleFontLoaded(ctx.document));
+      },
+      props: { surface: "card", data: base, decoration: "doodle", theme: "light" },
+    },
+    "card-doodle-dark": {
+      note: "The doodle on a dark theme: the marker ink lightens, as a felt pen reads on a slate.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => doodleFontLoaded(ctx.document));
+      },
+      props: { surface: "card", data: base, decoration: "doodle", theme: "dark" },
+    },
+    "card-doodle-narrow": {
+      note: "The doodle in the narrowest sidebar (160 pt: the card is 136 wide): the arrow and its words wrap under the circled What's New, so nothing runs past the card.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => doodleFontLoaded(ctx.document));
+        const card = ctx.document.querySelector(".wn-card")!.getBoundingClientRect();
+        for (const part of ctx.document.querySelectorAll(".wn-doodle-circled, .wn-doodle-pointer, .wn-doodle-words")) {
+          const box = part.getBoundingClientRect();
+          if (box.right > card.right + 0.5)
+            throw new Error(`${part.className} runs past the card (${box.right} > ${card.right})`);
+        }
+      },
+      props: { surface: "card", data: base, decoration: "doodle", theme: "light", width: 160 },
+    },
+    "card-doodle-draw": {
+      note: "The doodle drawing on, as it does when the card first shows (about a second and a quarter; under Reduce Motion it is simply there).",
+      play: async (ctx) => {
+        // The still is the drawn end state: every stroke and word has finished drawing on.
+        await ctx.waitFor(() => ctx.document.querySelector('.wn-doodle[data-phase="drawing"]'));
+        await ctx.waitFor(() => ctx.document.getAnimations().length === 0, { capMs: 4000 });
+      },
+      props: { surface: "card", data: base, decoration: "doodle", theme: "light", animate: true },
+    },
+    "card-background": {
+      note: 'An automatic install that relaunched cmux behind another app (nobody clicked Restart to Update): "Updated to Nightly in the background", so the card does not seem to come without a restart (2026-11-03).',
+      props: { surface: "card", data: { ...base, delivery: "background" } },
     },
     "card-theme-light": {
       note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (its surface at the card veil's 42%, as the sidebar draws it natively), here a light theme over its sidebar.",
@@ -372,8 +447,24 @@ export default componentEntry<Props>({
       },
     },
     "popover-empty": {
-      note: "No highlights (source none): the full build and See all changes only.",
+      note: 'No highlights (source none), shipped (Leo 2026-11-03: "MAN this looks ugly... stretched out wasted space"): as wide as its lines, See release notes directly under the from line, no rule.',
       props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 } },
+    },
+    "popover-empty-inline": {
+      note: "Variant: See release notes at the end of the from line, two lines in all.",
+      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 }, briefLayout: "inline" },
+    },
+    "popover-empty-title-row": {
+      note: "Variant: See release notes at the end of the title line, the from line under both.",
+      props: {
+        surface: "popover",
+        data: { ...base, source: "none", items: [], moreCount: 0 },
+        briefLayout: "title-row",
+      },
+    },
+    "popover-empty-same-version": {
+      note: "No highlights and no from line: the title and the link under it.",
+      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0, fromVersion: "" } },
     },
   },
 });

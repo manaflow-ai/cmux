@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
+import { DepthLayer } from "./DepthLayer";
 import { motionMode } from "./motionMode";
 import { SlidingIndicator } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
@@ -16,6 +18,7 @@ const saved = new Map<string, unknown>();
 
 type Played = { element: Element; frames: Keyframe[]; timing: KeyframeAnimationOptions };
 let played: Played[] = [];
+let animations: Animation[] = [];
 
 function installDom(options: { reduced?: boolean; noLinear?: boolean } = {}): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
@@ -37,7 +40,9 @@ function installDom(options: { reduced?: boolean; noLinear?: boolean } = {}): HT
     timing: KeyframeAnimationOptions,
   ) {
     played.push({ element: this, frames, timing });
-    return { cancel() {}, playState: "running", onfinish: null } as unknown as Animation;
+    const animation = { cancel() {}, playState: "running", onfinish: null } as unknown as Animation;
+    animations.push(animation);
+    return animation;
   } as never;
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     if (!saved.has(key)) saved.set(key, scope[key]);
@@ -57,6 +62,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   played = [];
+  animations = [];
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -119,6 +125,40 @@ test("a selection change places it on the new tab at once and slides on transfor
   for (const frame of frames) expect(Object.keys(frame)).toEqual(["transform"]);
   expect(frames[0]!.transform).toBe("translate(4px, 4px) scale(0.5, 1)");
   expect(timing).toEqual({ duration: MOTION_MS.large, easing: MOTION_SPRING });
+});
+
+test("a size change during a slide re-places the highlight when the slide finishes", async () => {
+  const mount = installDom();
+  const observed: (() => void)[] = [];
+  const before = scope.ResizeObserver;
+  scope.ResizeObserver = class {
+    constructor(callback: () => void) {
+      observed.push(callback);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  try {
+    await act(async () => {
+      root = createRoot(mount);
+      root.render(<Tabs />);
+    });
+    await act(async () => select(1));
+    const mark = mount.querySelector<HTMLElement>(".ui-slide-indicator")!;
+    // A font load widens the new tab mid-slide; the slide keeps its course.
+    mount.querySelectorAll<HTMLElement>(".ui-slide-item")[1]!.dataset.box = "48,4,96,24";
+    for (const callback of observed) callback();
+    expect(mark.style.width).toBe("80px");
+    // It lands on the tab's new box, with no second slide.
+    const [slide] = animations as [Animation];
+    await act(async () => void slide.onfinish?.call(slide, new dom!.window.Event("finish") as AnimationPlaybackEvent));
+    expect(mark.style.width).toBe("96px");
+    expect(mark.style.transform).toBe("translate(48px, 4px)");
+    expect(played).toHaveLength(1);
+  } finally {
+    if (before === undefined) delete scope.ResizeObserver;
+    else scope.ResizeObserver = before;
+  }
 });
 
 test("an engine without linear() easing slides on the ease-out instead of throwing", async () => {
@@ -198,4 +238,162 @@ test("every swap look moves paint only and comes from the side it is told", () =
   const first = (direction: "forward" | "back") => (swapFrames("slide", direction).content![0] as Keyframe).transform;
   expect(first("forward")).toBe("translateX(8px)");
   expect(first("back")).toBe("translateX(-8px)");
+});
+
+test("the depth layer's drift takes the shared motion reading, at mount and when the page shows", async () => {
+  const mount = installDom();
+  const doc = mount.ownerDocument;
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift" />);
+  });
+  const layer = mount.querySelector<HTMLElement>(".ui-depth")!;
+  expect(layer.dataset.motion).toBe("full");
+  await act(async () => root!.unmount());
+  root = undefined;
+
+  // A zero motion token stills it, though no root attribute says so.
+  doc.documentElement.style.setProperty("--agent-motion-in", "0ms");
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift-parallax" />);
+  });
+  expect(mount.querySelector<HTMLElement>(".ui-depth")!.dataset.motion).toBe("none");
+  await act(async () => root!.unmount());
+  root = undefined;
+  doc.documentElement.style.removeProperty("--agent-motion-in");
+
+  // Mounted while hidden: paused with no reading; the reading arrives when the page shows.
+  let state: DocumentVisibilityState = "hidden";
+  Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => state });
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="drift" />);
+  });
+  const hidden = mount.querySelector<HTMLElement>(".ui-depth")!;
+  expect(hidden.dataset.motion).toBeUndefined();
+  expect(hidden.dataset.paused).toBe("");
+  state = "visible";
+  await act(async () => void doc.dispatchEvent(new dom!.window.Event("visibilitychange")));
+  expect(hidden.dataset.motion).toBe("full");
+  expect(hidden.dataset.paused).toBeUndefined();
+});
+
+/** Specificity (ids, classes, types) of one complex selector: :where() weighs nothing, :is() and :not()
+ *  weigh their heaviest argument. Enough for motion.css's selectors. */
+function specificity(selector: string): [number, number, number] {
+  const total: [number, number, number] = [0, 0, 0];
+  let rest = selector;
+  for (;;) {
+    const open = /:(where|is|not)\(/.exec(rest);
+    if (!open) break;
+    let depth = 1;
+    let end = open.index + open[0].length;
+    while (depth > 0) {
+      if (rest[end] === "(") depth++;
+      else if (rest[end] === ")") depth--;
+      end++;
+    }
+    const inner = rest.slice(open.index + open[0].length, end - 1);
+    if (open[1] !== "where") {
+      const heaviest = splitTop(inner)
+        .map(specificity)
+        .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])[0]!;
+      for (const i of [0, 1, 2] as const) total[i] += heaviest[i];
+    }
+    rest = rest.slice(0, open.index) + " " + rest.slice(end);
+  }
+  total[0] += (rest.match(/#[\w-]+/g) ?? []).length;
+  total[1] += (rest.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) ?? []).length;
+  total[2] += (rest.replace(/\[[^\]]*\]/g, "").match(/(^|[\s>+~])[a-z][\w-]*/gi) ?? []).length;
+  return total;
+}
+
+/** Splits a selector list on its top-level commas. */
+function splitTop(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "(") depth++;
+    else if (list[i] === ")") depth--;
+    else if (list[i] === "," && depth === 0) {
+      parts.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(list.slice(start));
+  return parts.map((part) => part.trim());
+}
+
+test("every motion-off and Reduce Motion rule outranks the depth layer's drift and lean", () => {
+  const sheet = readFileSync(new URL("./motion.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: splitTop(match[1]!.replace(/\s+/g, " ").trim()),
+    body: match[2]!,
+  }));
+  const weight = (s: [number, number, number]) => s[0] * 10000 + s[1] * 100 + s[2];
+  const moving = rules
+    .filter((rule) => /\b(animation|translate):/.test(rule.body) && !/:\s*none/.test(rule.body))
+    .flatMap((rule) => rule.selectors)
+    .filter((selector) => selector.includes(".ui-depth__wash"));
+  const stills = rules.filter((rule) => /animation: none/.test(rule.body)).flatMap((rule) => rule.selectors);
+  expect(moving.length).toBeGreaterThanOrEqual(4);
+  // Off, Reduce Motion by attribute (both hosts' spellings), and the media query.
+  expect(stills.length).toBe(2);
+  for (const flag of [
+    'data-agent-motion="off"',
+    'data-agent-motion="reduced"',
+    'data-cmux-motion="off"',
+    'data-cmux-motion="reduced"',
+  ])
+    expect(stills[0]).toContain(flag);
+  for (const still of stills)
+    for (const move of moving) expect(weight(specificity(still))).toBeGreaterThan(weight(specificity(move)));
+  // The drift itself waits for a full motion reading.
+  for (const move of moving.filter((selector) => selector.includes("drift")))
+    expect(move).toContain('[data-motion="full"]');
+});
+
+test("a control that is both revealed and hover-filled keeps both fades", () => {
+  const sheet = readFileSync(new URL("./motion.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const body = (selector: string) => {
+    const at = sheet.search(new RegExp(`(^|\\})\\s*${selector.replace(/[.[\]]/g, "\\$&")}\\s*\\{`));
+    expect(at).toBeGreaterThanOrEqual(0);
+    return sheet.slice(sheet.indexOf("{", at + 1) + 1, sheet.indexOf("}", sheet.indexOf("{", at + 1)));
+  };
+  // The fill names its fade; the reveal's in and out durations ride one property the shown state sets.
+  expect(body(".ui-hover-fill")).toContain("--ui-fill-transition:");
+  expect(body(".ui-reveal")).toMatch(/transition: opacity var\(--ui-reveal-ms\)/);
+  const both = body(".ui-reveal.ui-hover-fill");
+  expect(both).toMatch(/opacity var\(--ui-reveal-ms\)/);
+  expect(both).toContain("var(--ui-fill-transition)");
+  // No shown-state rule resets the whole transition list (which would drop the fill's fade).
+  const shown = sheet.slice(sheet.indexOf(".ui-reveal-host:hover .ui-reveal"));
+  const shownBody = shown.slice(shown.indexOf("{") + 1, shown.indexOf("}"));
+  expect(shownBody).not.toMatch(/transition(-duration)?:/);
+  expect(shownBody).toContain("--ui-reveal-ms:");
+});
+
+test("a parallax layer mounted while the page is hidden starts leaning when the page shows", async () => {
+  const mount = installDom();
+  const doc = mount.ownerDocument;
+  let state: DocumentVisibilityState = "hidden";
+  Object.defineProperty(doc, "visibilityState", { configurable: true, get: () => state });
+  mount.dataset.box = "0,0,200,100";
+  await act(async () => {
+    root = createRoot(mount);
+    root.render(<DepthLayer look="parallax" />);
+  });
+  const layer = mount.querySelector<HTMLElement>(".ui-depth")!;
+  const move = () =>
+    mount.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 200, clientY: 100, bubbles: true }));
+  move();
+  expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("");
+  state = "visible";
+  await act(async () => void doc.dispatchEvent(new dom!.window.Event("visibilitychange")));
+  expect(layer.dataset.motion).toBe("full");
+  move();
+  expect(layer.style.getPropertyValue("--ui-depth-x")).toBe("1.000");
+  expect(layer.style.getPropertyValue("--ui-depth-y")).toBe("1.000");
 });

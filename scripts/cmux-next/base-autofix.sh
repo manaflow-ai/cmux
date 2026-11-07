@@ -11,7 +11,10 @@
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
-#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk),
+#     and the seven SDKs' .cmux-resource-api.json descriptors from
+#     cmux-tui/spec/resource-operations-v2.json
+#     (cmux-tui/bindings/rust/scripts/sync-resource-api.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
 #     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -20,7 +23,9 @@
 #   - the app-host generated files: cmux-tui/crates/cmux-app-host/generated
 #     (the typed cmux global, scopes and ops) from the operation catalogs, the
 #     action catalog export and the first-party apps' fragments
-#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
+#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host),
+#     then the copies the app bundles from them
+#     (scripts/cmux-next/sync-app-runtime.sh; with --app-host);
 #   - the defaults snapshot: schemas/defaults/cmux-next.json from the action
 #     and settings exports (scripts/ci/defaults_guard.py snapshot), after
 #     --generated copied the regenerated exports in;
@@ -129,16 +134,28 @@ fi
 # 1c. (Page strings: build output since #21946, never committed. --strings is
 # still accepted, as a no-op, for callers that pass it.)
 
-# 1d. SDK wire layers. A frozen one is put back as it was and reported.
-if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
-  if ! python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --check >/dev/null 2>&1; then
-    python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --write >/dev/null
+# 1d. SDK wire layers, and the SDKs' resource API descriptors (their
+# catalog_sha256 goes stale on any resource-operations-v2.json change: #23191,
+# #34498). A frozen one is put back as it was and reported.
+if (( sdk )); then
+  codegen="$repo/cmux-tui/bindings/codegen/generate.py"
+  resource_sync="$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
+  sdk_stale=0
+  if [[ -f "$codegen" ]] && ! python3 -I "$codegen" --check >/dev/null 2>&1; then
+    python3 -I "$codegen" --write >/dev/null
+    sdk_stale=1
+  fi
+  if [[ -f "$resource_sync" ]] && ! python3 -I "$resource_sync" --check >/dev/null 2>&1; then
+    python3 -I "$resource_sync" >/dev/null
+    sdk_stale=1
+  fi
+  if (( sdk_stale )); then
     changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- cmux-tui/bindings)"
     while IFS= read -r rel; do
       [[ -n "$rel" ]] || continue
       if frozen "$rel"; then
         git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
-        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write)"
+        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write and python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py)"
       else
         echo "fixed: regenerated $rel"
       fi
@@ -211,6 +228,23 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
         echo "fixed: regenerated $rel"
       fi
     done <<<"$changed"
+  fi
+  # The copies the app bundles (sync-app-runtime.sh): app platform checks them against generated/,
+  # and a regeneration without them left it red on base (f2a158b55281, f7fd559f9).
+  app_runtime=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+  if [[ -f "$repo/scripts/cmux-next/sync-app-runtime.sh" ]]; then
+    (cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
+    changed="$(git -C "$repo" status --porcelain --untracked-files=all -- "$app_runtime" | cut -c4-)"
+    if [[ -n "$changed" ]]; then
+      while IFS= read -r rel; do
+        if frozen "$rel"; then
+          git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+          echo "skipped (frozen): $rel (stale; scripts/cmux-next/sync-app-runtime.sh)"
+        else
+          echo "fixed: synced $rel"
+        fi
+      done <<<"$changed"
+    fi
   fi
 fi
 

@@ -1494,6 +1494,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         cwd: Some("/tmp/project".into()),
         title: None,
         on_show: false,
+        last_command: None,
     }])
     .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
@@ -1520,6 +1521,37 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     let before = revision(&mux);
     mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
     assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
+}
+
+/// A parked tab's last command (`kept_tabs.last_command_json`) is read back
+/// whole for its restored marker line, and a later record replaces it.
+#[test]
+fn a_kept_tab_keeps_its_last_command() {
+    use crate::state::kept_tab_store::{KeptTab, LastCommand};
+    let mux = Mux::new_for_test("state-kept-last-command", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let kept = tab_id(&mux, tabs[0]);
+    let last = LastCommand {
+        command: "npm test -- --watch=false".into(),
+        exit_code: Some(1),
+        started_at_ms: 1_700_000_000_000,
+        ended_at_ms: 1_700_000_180_000,
+    };
+    let record = |last_command: Option<LastCommand>| KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+        on_show: true,
+        last_command,
+    };
+    mux.commit_kept_tabs(&[record(Some(last.clone()))]).unwrap();
+    let read = |mux: &Mux| {
+        mux.workspace_registry.lock().unwrap().kept_tabs_of(std::slice::from_ref(&kept)).unwrap()
+    };
+    assert_eq!(read(&mux), vec![record(Some(last))]);
+    mux.commit_kept_tabs(&[record(None)]).unwrap();
+    assert_eq!(read(&mux), vec![record(None)], "a newer record without one clears it");
     mux.shutdown();
 }
 

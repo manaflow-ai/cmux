@@ -2,23 +2,27 @@ import { useSyncExternalStore } from "react";
 
 /// How a message row between agents lays out its parts: a sent message ("Sent to <chip>"), another
 /// agent's received line (<chip> · host) and the head of a folded group of messages ("7 messages
-/// from 6 sessions"). Leo said yes (2026-11-02) to splitting "Sent to gcp-codex-swarm-10/spinner-chatgpt
-/// · and 5 more commands claude-sr2-coord: Leo's answer (v…", a count, a target and a message preview
-/// truncated on one line, and of the same rows "i also think this is quite weird looking".
-/// `stacked`, the default: the line holds the verb, the chip, the count and the chevron; the message's
-/// first line (a group's senders) sits on its own line under it, at the text column, cut there.
-/// The others are gallery versions kept beside it (MessageLineLook.gallery.ts): `single`, the one
-/// line from before (cmux#29800's rows); `quiet`, the line alone, with no preview until the row
-/// opens. The native host sends no value, so the default holds there.
-export type MessageLineLook = "stacked" | "single" | "quiet";
+/// from 6 sessions").
+/// `single`, the default: one line, the verb, the chip at its whole width, the count, the message's
+/// first line muted after them and cut with the line's one ellipsis, then the chevron right after the
+/// words. Leo, 2026-11-03, on the stacked rows: "i don't think these subtitles are as good as just
+/// doing it directly in the same line", and "idk why names are ellipses'd so early". This replaced
+/// `stacked` (cmux#33249), which put the first line on its own line under the row after Leo said yes
+/// (2026-11-02) to splitting "Sent to gcp-codex-swarm-10/spinner-chatgpt · and 5 more commands
+/// claude-sr2-coord: Leo's answer (v…": that line cut the chip, count and preview together, so the name
+/// now never shrinks while the preview has room to give.
+/// The others are gallery versions kept beside it (MessageLineLook.gallery.ts): `stacked`, the first
+/// line under the row; `quiet`, the line alone, with no preview until the row opens. The native host
+/// sends no value, so the default holds there.
+export type MessageLineLook = "single" | "stacked" | "quiet";
 
-const LOOKS: readonly MessageLineLook[] = ["stacked", "single", "quiet"];
-let current: MessageLineLook = "stacked";
+const LOOKS: readonly MessageLineLook[] = ["single", "stacked", "quiet"];
+let current: MessageLineLook = "single";
 const listeners = new Set<() => void>();
 
 /// The theme carried a look: the transcript follows at once. Anything else keeps the default.
 export function configureMessageLineLook(value: unknown): void {
-  const next = LOOKS.find((look) => look === value) ?? "stacked";
+  const next = LOOKS.find((look) => look === value) ?? "single";
   if (next === current) return;
   current = next;
   for (const listener of listeners) listener();

@@ -26,7 +26,7 @@ struct HomeAgentFoldSpacing: Equatable, Sendable {
     /// The row's height: the padding and the line.
     var height: CGFloat { above + line + below }
 
-    /// Draws a fold or notes row (`p`) with this spacing, or an opened note's line, in `rect`.
+    /// Draws an agents row (`p`) with this spacing, or an opened note's line, in `rect`.
     func draw(_ p: HomeAgentFoldRowProvider.Payload, in ctx: CGContext, rect: CGRect) {
         let muted = Fixture.secondaryText
         let mid = rect.minY + above + line / 2

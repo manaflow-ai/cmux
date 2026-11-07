@@ -57,10 +57,15 @@ body {
    schemas/design-scale/design-scale.json; webviews/scripts/pages/gen-design-scale.mjs writes this block,
    the Tailwind theme every Tailwind entry imports (ui/theme.generated.css: p-3, rounded-md, bg-hover)
    and the token sheet's list (ui/designTokens.generated.ts).
-   - Glass: plain is the pane's; popover (70%, 24px) is the level over dense text: popovers, cards and
-     the composer. menu is a select's menu over a dense settings row (Leo 2026-10-30: the Check Every
-     slider and its "3600" read through the Update Channel menu; design/settings.md, "Glass"), still
-     below the surface roles' near-opaque 0.9. fisheye is the Jump to latest lens (glass.css FISHEYE;
+   - Glass: four levels, and every web backdrop-filter names one (check-glass-levels.ts; Leo 2026-11-06:
+     "we have, like, a ton of varying glassiness on stuff"). Each fixes the tint, the blur radius and
+     saturation, and the one hairline edge (--ds-glass-edge). chrome (60%, 20px) is glass docked on the
+     window: panes, bars, rails, side tabs. popover (70%, 24px; 50% over art) floats over dense text:
+     popovers, hover cards, the composer, Session Info, the running tray, viewers. menu (78%, 32px) is
+     menus and pickers (Leo 2026-10-30: the Check Every slider and its "3600" read through the Update
+     Channel menu; design/settings.md, "Glass"), still below the surface roles' near-opaque 0.9. chip
+     (the host's tooltip tint, 24px) is small one-line glass: tooltips, the find pill, chips. lens and
+     fisheye are modes, not levels: the lens's tint and frost while it draws. fisheye is the Jump to latest lens (glass.css FISHEYE;
      Leo 2026-11-03: "this is a little too transparent"): the bend stays, a light frost runs after it,
      and the popover's 24px blur would flatten a 32px disc, so it keeps its own (design/glass.md).
    - Elevation: one scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
@@ -101,19 +106,27 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
-  /* glass plain: panes and plain glass, the default */
-  --ds-glass-plain-tint: 60%;
-  --ds-glass-plain-blur: blur(20px) saturate(1.4);
-  /* glass popover: popovers, cards and the composer: the level over dense text */
+  /* glass chrome (level): chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap */
+  --ds-glass-chrome-tint: 60%;
+  --ds-glass-chrome-blur: blur(20px) saturate(1.4);
+  --ds-glass-chrome-radius: 20px;
+  /* glass popover (level): floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window) */
   --ds-glass-popover-tint: 70%;
+  --ds-glass-popover-art-tint: 50%;
   --ds-glass-popover-blur: blur(24px) saturate(1.25);
-  /* glass menu: a select's menu over a dense settings row (design/settings.md, Glass) */
+  --ds-glass-popover-radius: 24px;
+  /* glass menu (level): menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass) */
   --ds-glass-menu-tint: 78%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
-  /* glass lens: while the lens draws the wallpaper behind the glass */
+  --ds-glass-menu-radius: 32px;
+  /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
+  --ds-glass-chip-tint: 60%;
+  --ds-glass-chip-blur: blur(24px) saturate(1.6);
+  --ds-glass-chip-radius: 24px;
+  /* glass lens (mode): a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost */
   --ds-glass-lens-tint: 40%;
   --ds-glass-lens-blur: blur(6px) saturate(1.3);
-  /* glass fisheye: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it */
+  /* glass fisheye (mode): a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it */
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
@@ -145,6 +158,20 @@ body {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
 }
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --ds-glass-chrome-blur: none;
+    --ds-glass-popover-blur: none;
+    --ds-glass-menu-blur: none;
+    --ds-glass-chip-blur: none;
+  }
+}
+:root[data-reduce-transparency] {
+  --ds-glass-chrome-blur: none;
+  --ds-glass-popover-blur: none;
+  --ds-glass-menu-blur: none;
+  --ds-glass-chip-blur: none;
+}
 /* design-scale:end */
 
 @media (min-resolution: 2dppx) {
@@ -157,15 +184,15 @@ body {
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
-   one-device-pixel separator rim and a small tight shadow, in the caption font. The first of a warm
+   one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
+   emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
    group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. A truncated row's title tooltip is as wide as the row (tooltipWidth sets
-   its min and max width). */
+   quicker than it came. Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
-  max-width: min(320px, calc(100vw - 12px));
-  padding: 4px 8px;
+  max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
+  padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
@@ -206,6 +233,7 @@ body {
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
    the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
+  padding: var(--grid-base) calc(var(--grid-base) * 2);
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
@@ -240,7 +268,13 @@ body {
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
 .ui-tooltip-detail {
   display: block;
+  margin-block-start: var(--tooltip-detail-gap);
+  font-weight: var(--weight-regular);
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
+.ui-tooltip-text {
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-tooltip-hint {
@@ -525,7 +559,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      (color-mix(in srgb, <fill> var(--surface-text-min), transparent)); menus and popovers are the
      liquid glass (ui/popupSurface.css). Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
-  --surface-blur: var(--ds-glass-plain-blur);
+  --surface-blur: var(--ds-glass-chrome-blur);
   /* The solid popup surface: a menu's, popover's and picker's fill under Reduce Transparency
      (they are the liquid glass otherwise, ui/popupSurface.css), and what the tooltip tint mixes from: the host's popup fill (WebTheme.swift, the same color as native overlays'
      Palette.popupSurface), else the page color lifted toward the text. */
@@ -539,13 +573,19 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
      averages), else the popup surface at 60%; a 24px blur; the separator rim one device pixel
      (--cmux-hairline); elevation 1. It fades in with the popup open and out with the popup close (the native
      fadeIn and fadeOut tokens), rising 2px. Reduce Transparency: the opaque popup surface. */
-  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) 60%, transparent));
-  --tooltip-blur: blur(24px) saturate(1.6);
+  --tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));
+  --tooltip-blur: var(--ds-glass-chip-blur);
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
+  --tooltip-max-width: calc(var(--grid-base) * 80);
+  /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
+  --tooltip-edge: var(--grid-base);
+  --tooltip-pad-block: calc(var(--grid-base) / 2);
+  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */

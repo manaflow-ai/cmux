@@ -40,6 +40,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -80,6 +81,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -175,6 +177,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -283,6 +286,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -336,6 +340,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -388,6 +393,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -429,6 +435,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -469,6 +476,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -510,6 +518,7 @@
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -551,6 +560,7 @@
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -591,6 +601,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -632,6 +643,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -672,6 +684,7 @@
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -713,6 +726,7 @@
     "foreign_source": true,
     "handoff_id": "h1",
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -753,7 +767,90 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": true,
     "free": false
+   }
+  }
+ },
+ {
+  "name": "a remote wire's session/new starts no session on this Mac",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "session/new",
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/new",
+    "page_id": "14",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a later frame never gets the token (on a remote wire too)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"_acpmux/harnesses\",\"params\":{}}",
+  "state": {
+   "first": false,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "_acpmux/harnesses",
+    "params": {}
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harnesses",
+    "page_id": "2",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
    }
   }
  },
@@ -794,6 +891,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -835,6 +933,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -876,6 +975,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -917,6 +1017,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -964,6 +1065,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1011,6 +1113,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1050,6 +1153,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1120,6 +1224,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1161,6 +1266,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": true,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1228,6 +1334,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1342,6 +1449,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1395,6 +1503,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1557,6 +1666,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1631,6 +1741,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1760,6 +1871,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1833,6 +1945,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1884,6 +1997,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1938,6 +2052,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -2045,6 +2160,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -2090,6 +2206,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }

@@ -33,7 +33,17 @@ struct MacScreenHomeSnapshot: Equatable {
     /// Your Devices: a note (signed out, loading, none shared) or the list.
     enum Devices: Equatable {
         case note(String)
+        /// Signed out of cmux: the note, then the shared Sign In button (``SignInButton``).
+        case signedOut(String)
         case list([Device])
+
+        /// The note text this state shows (signed out or a note), or nil for the list.
+        var note: String? {
+            switch self {
+            case let .note(text), let .signedOut(text): text
+            case .list: nil
+            }
+        }
     }
 
     /// Allow Mac Screen on This Mac.
@@ -87,7 +97,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                       session: hubHost.session, lastError: hubHost.lastError)
                 }
             } else {
-                devices = .note(Self.setupNote(configured: source.box.configured))
+                devices = Self.setupDevices(configured: source.box.configured)
             }
         }
         if let shortcuts = home.systemShortcuts {
@@ -98,11 +108,11 @@ struct MacScreenHomeSnapshot: Equatable {
     /// What the home page says while Mac Screen cannot work: it needs a
     /// signed-in cmux account, and a DEV build's Device Hub Address override
     /// (Settings › Development) must be valid when set.
-    static func setupNote(configured: Bool) -> String {
+    static func setupDevices(configured: Bool) -> Devices {
         guard configured else {
-            return L.t("macScreen.home.invalidHubAddress", "Mac Screen works through the device hub. The Device Hub Address in Settings › Development is not a valid web address; fix it, or clear it to use the built-in hub.")
+            return .note(L.t("macScreen.home.invalidHubAddress", "Mac Screen works through the device hub. The Device Hub Address in Settings › Development is not a valid web address; fix it, or clear it to use the built-in hub."))
         }
-        return L.t("macScreen.home.devicesSignIn", "Sign in to cmux to see your other Macs here.")
+        return .signedOut(L.t("macScreen.home.devicesSignIn", "Sign in to cmux to see your other Macs here."))
     }
 }
 
@@ -119,6 +129,10 @@ extension MacScreenHomeView {
         switch devices {
         case let .note(text):
             content = MacScreenHomeParts.note(text)
+        case let .signedOut(text):
+            let signIn = SignInButton { [weak self] in self?.actions.signIn() }
+            signIn.setAccessibilityIdentifier("macScreen.home.signIn")
+            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn])
         case let .list(list):
             let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
             for device in list {

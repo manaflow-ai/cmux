@@ -142,6 +142,11 @@ test("five ended reports collapse to one count and preserve all five independent
   expect(toggle.textContent).toBe("5 reviews ended · 4 SHIP, 1 BLOCK");
   expect(toggle.textContent).not.toContain("\n");
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  // One chevron, the trailing one: the icon column holds the reviews' glyph, never a second
+  // disclosure chevron (cmux#28749 drew two).
+  expect(toggle.querySelectorAll(".cv-tool__chevron")).toHaveLength(1);
+  expect(toggle.querySelector(".cv-tool__icon .cv-rotor, .cv-tool__icon [data-icon^='disclosure.']")).toBeNull();
+  expect(toggle.querySelector(".cv-tool__icon")?.innerHTML).not.toBe("");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");
   expect(host.querySelectorAll(".cv-received")).toHaveLength(5);
@@ -154,9 +159,9 @@ test("five ended reports collapse to one count and preserve all five independent
 test("a single report shows its verdict; its full P2 remains readable and metadata is under Details", async () => {
   const { opened } = await mount([report("single-block", "BLOCK")]);
   expect(host.querySelector(".cv-lane-batch")).toBeNull();
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("BLOCK");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("lane report: turn");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).not.toContain("\n");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("BLOCK");
+  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("lane report: turn");
+  expect(host.querySelector(".cv-received__preview")?.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received__text")).toBeNull();
   await click(".cv-received__from--open");
   expect(opened).toEqual(["session-single-block"]);

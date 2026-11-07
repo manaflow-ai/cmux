@@ -103,7 +103,10 @@ package actor NativeCloudLinkChild {
         defer { try? input.close() }
         let process = ChildProcess(executable: executable.binary,
             arguments: ["link", "serve", "--native-cloud-broker-fd", "0", "--state-dir", directory.path],
-            environment: ["HOME": home.path].merging(temporaryDirectory.map { ["TMPDIR": $0.path] } ?? [:]) { $1 })
+            environment: ["HOME": home.path].merging(temporaryDirectory.map { ["TMPDIR": $0.path] } ?? [:]) { $1 },
+            // Its stderr (each refused dial and why) in the state folder's link.log, where `cmux link ensure`
+            // keeps the classic link's output and where a capture and `cmux cloud diagnostics` read it.
+            stderrLog: directory.appendingPathComponent("link.log", isDirectory: false))
         child = process
         do {
             try process.start(inheritedInput: input)

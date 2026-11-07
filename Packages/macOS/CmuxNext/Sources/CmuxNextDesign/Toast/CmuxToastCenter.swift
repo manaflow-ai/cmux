@@ -101,6 +101,7 @@ public final class CmuxToastCenter {
             end(old, .replaced, relayout: false, animated: true)
         }
         startTimer(serial)
+        host.settled(in: window)
         // A toast that appears under a still pointer holds at once.
         if view.isHovered { setHovered(true, handle) }
         if !repeats {
@@ -211,6 +212,7 @@ public final class CmuxToastCenter {
         entry.view.layoutSubtreeIfNeeded()
         entry.view.setFrameSize(entry.view.fittingSize)
         relayout(ObjectIdentifier(window))
+        host.settled(in: window)
     }
 
     // MARK: Ending
@@ -222,7 +224,10 @@ public final class CmuxToastCenter {
         if let window = entry.window {
             let key = ObjectIdentifier(window)
             stacks[key]?.remove(serial)
-            if again { relayout(key) }
+            if again {
+                relayout(key)
+                host.settled(in: window)
+            }
         }
         entry.handle.finish(reason)
     }

@@ -10,6 +10,12 @@ public nonisolated struct HomeNeedsYouSetting {
     public static let key = configPath.joined(separator: ".")
     /// Off until the person turns it on.
     public static let fallback = false
+
+    /// Whether the pinned card is on in `settings` now (the default without them), read each call so
+    /// an observation that calls it follows a change live.
+    @MainActor public static func reader(_ settings: @escaping () -> SettingsController?) -> () -> Bool {
+        { settings()?.snapshot.homeNeedsYouInChief ?? fallback }
+    }
 }
 
 nonisolated extension CmuxConfigSnapshot {

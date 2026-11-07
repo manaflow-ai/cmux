@@ -121,3 +121,46 @@ fn a_late_root_seed_stops_counting_its_echo_as_background_work() {
     tree.set_root("root-native");
     assert_eq!(tree.background_running(), 0, "the native root is not background work");
 }
+
+/// A background Claude agent that fails (an API error ends it) and runs again (the model
+/// resumes it with SendMessage) says `running` without the background mark. It is background
+/// work again: uncounted, the chat read as idle with no subagent running while the agent worked,
+/// and only the commands it ran kept its harness from hibernating under it. A daemon that adopts
+/// the host reads the same updates back from the log (`work_below.rs`), so it counts it too.
+#[test]
+fn a_background_subagent_that_runs_again_after_failing_is_background_work() {
+    let mut tree = SubagentTree::default();
+    tree.set_own(Some("s1"));
+    let state = |state: &str| json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "bg", "state": state, "agentId": "a1"});
+    annotate(
+        &mut tree,
+        json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg", "name": "Toast fix", "background": true}),
+        true,
+    );
+    assert_eq!(tree.background_running(), 1);
+    annotate(&mut tree, state("failed"), true);
+    assert_eq!(tree.background_running(), 0, "a failed agent no longer runs");
+    annotate(&mut tree, state("running"), false);
+    assert_eq!(tree.background_running(), 0, "a replay starts nothing");
+    annotate(&mut tree, state("running"), true);
+    assert_eq!(tree.background_running(), 1, "the resumed agent is background work again");
+    assert_eq!(tree.running_now(false), vec![("bg", Some("Toast fix"))], "it runs past the turn");
+    annotate(&mut tree, state("completed"), true);
+    assert_eq!(tree.background_running(), 0);
+}
+
+/// Only a background subagent's mark carries across its end: a foreground one that runs again
+/// stays foreground.
+#[test]
+fn a_foreground_subagent_that_runs_again_is_not_background_work() {
+    let mut tree = SubagentTree::default();
+    tree.set_own(Some("s1"));
+    for state in ["running", "failed", "running"] {
+        annotate(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "fg", "state": state}),
+            true,
+        );
+    }
+    assert_eq!(tree.background_running(), 0);
+}

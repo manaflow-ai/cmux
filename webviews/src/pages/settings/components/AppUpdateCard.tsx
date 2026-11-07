@@ -3,6 +3,7 @@
 // (Leo 2026-11-03, after ChatGPT's one-step update), so its progress and Cancel live here, and so
 // does a failed check's or download's Try Again, background ones included. Every text is the host's.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { AppUpdateAction } from "../ops";
 import { ActionRow } from "./ActionRow";
@@ -25,7 +26,8 @@ export function AppUpdateCard() {
       <div className="rows">
         <ActionRow title={state.status} help={state.detail ?? ""}>
           {state.actions.map((action) => (
-            <button
+            <Button
+              variant={action.prominent ? "solid" : "subtle"}
               key={action.id}
               type="button"
               className={action.prominent ? "button app-update-prominent" : "button"}
@@ -34,7 +36,7 @@ export function AppUpdateCard() {
               onClick={() => void run(action.id)}
             >
               {action.title}
-            </button>
+            </Button>
           ))}
         </ActionRow>
         {progress !== undefined && (

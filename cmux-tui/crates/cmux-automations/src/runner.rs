@@ -83,7 +83,8 @@ fn busy(runs: &[Run], exec: &dyn Executor) -> bool {
 pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickReport, StoreError> {
     let mut report = TickReport::default();
     for a in store.list()? {
-        if !a.enabled {
+        // A fenced automation is moving to another store: it never fires here.
+        if !a.enabled || a.fenced() {
             continue;
         }
         let since = store.state(&a.id)?.handled_through;
@@ -133,6 +134,11 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
                 store.insert_run(&row(t, RunState::Queued, None))?;
             }
         }
+        if let Some(newest) =
+            plan.run.iter().copied().chain(plan.skipped.iter().map(|(t, _)| *t)).max()
+        {
+            store.note_slot(&a.id, newest)?;
+        }
         store.set_handled_through(&a.id, plan.handled_through)?;
         // Start the oldest queued run when none is running.
         let history = store.runs(&a.id)?;
@@ -163,6 +169,9 @@ pub fn start_manual(
     exec: &mut dyn Executor,
 ) -> Result<String, StoreError> {
     let a = store.get(automation)?;
+    if let Some(h) = &a.handoff {
+        return Err(crate::store::moving(&a, h));
+    }
     let run = Run {
         id: manual_run_id(&a.id, key),
         automation: a.id.clone(),

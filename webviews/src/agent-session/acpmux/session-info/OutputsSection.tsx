@@ -1,16 +1,17 @@
-// Session Info's Outputs: what the chat produced, as Claude Code desktop lists them, each row with a
+// Session Info's Outputs: what the chat itself made, as Claude Code desktop lists them, each row with a
 // kind tag on the right and each opening what it names. Its artifacts (the pages its render calls
 // showed and the HTML, SVG and Markdown documents its replies drew, each by its title, which open in
 // the side panel beside the chat, ArtifactPanel.tsx), its gallery (the images and renders, which
-// open GalleryDialog.tsx), its files (each opens its diff), and the web links its replies gave, each
-// once (a pull request's link is under Changes instead). Five rows show, then a whole-row Show more
+// open GalleryDialog.tsx), and the files it made for the person (chatOutputs.ts; each opens as the reply's path chip opens it). Never the web links its replies gave:
+// those are pages it read or cited, not things it made (Lucas, 2026-11-05: "outputs should be images,
+// files, ect generate directly through that chat"). Five rows show, then a whole-row Show more
 // (SessionInfoFold), as under Changes and Subagents.
 import { documentName, type Artifact } from "../conversation/artifactPreview";
-import { writtenArtifacts } from "../conversation/writtenArtifacts";
+import { latestWrittenArtifacts } from "../conversation/writtenArtifacts";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
-import type { TurnFile } from "../diff";
-import { Counts } from "../changes/Counts";
+import type { OutputFile } from "./chatOutputs";
+import { FileKindIcon } from "../chips/FileKindIcon";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -19,9 +20,11 @@ import { useState, type ReactNode } from "react";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { useScrollEdges } from "../summary/scrollEdges";
 import "./outputsEdge.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
-/// Rows shown before Show more, as Changes (`CHANGES_SHOWN`).
+/// Rows shown before Show more. A fold that would hold back one row shows it instead: "Show 1 more"
+/// costs the row it saves (Lucas, 2026-11-05, Session Info lab: "output should be fold at 5").
 export const OUTPUTS_SHOWN = 5;
 const LINK = /https?:\/\/[^\s"'<>)\]`]+/g;
 const PULL_REQUEST = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
@@ -64,9 +67,8 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
       artifact,
     });
   }
-  const writes = new Map<string, Artifact>();
-  for (const artifact of writtenArtifacts(rows)) writes.set(artifact.path!, artifact);
-  for (const [path, artifact] of writes)
+  // Each file once, as its last completed write (not the last row that wrote it).
+  for (const [path, { artifact }] of latestWrittenArtifacts(rows))
     found.push({
       key: `file:${path}`,
       title: documentName(artifact) || path.split("/").pop(),
@@ -101,16 +103,14 @@ export function outputLinks(rows: readonly AcpmuxRow[]): OutputLink[] {
 
 export function OutputsSection({
   files,
-  links,
   artifacts,
   documents = [],
   onOpenFile,
   onOpenArtifacts,
   onOpenDocument,
-  onOpenBeside,
 }: {
-  files: readonly TurnFile[];
-  links: readonly OutputLink[];
+  /// The files the chat made for the person (chatOutputs.ts), never its code edits.
+  files: readonly OutputFile[];
   /// How many images and renders the gallery holds.
   artifacts: number;
   /// The documents the chat produced (`outputArtifacts`).
@@ -119,9 +119,6 @@ export function OutputsSection({
   onOpenArtifacts?: () => void;
   /// Opens a document in the side panel beside the chat.
   onOpenDocument?: (artifact: Artifact) => void;
-  /// Opens a link in the pane beside the chat, as Sources and Changes open theirs (SourcesSection.tsx);
-  /// a modified click (⌘, ⌃, ⇧) keeps the link's own behaviour.
-  onOpenBeside?: (url: string) => void;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
@@ -162,14 +159,9 @@ export function OutputsSection({
       const folder = cut > 0 ? file.displayPath.slice(0, cut) : undefined;
       const content = (
         <>
-          <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+          <FileKindIcon path={file.path} size={ROW_ICON} className="acpmux-row-glyph" />
           <span className="acpmux-session-info-row__name">{name}</span>
           {folder && <span className="acpmux-session-info-row__detail">{folder}</span>}
-          {!file.binary && (
-            <span className="acpmux-session-info-row__end">
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </span>
-          )}
         </>
       );
       return (
@@ -188,39 +180,21 @@ export function OutputsSection({
         </li>
       );
     }),
-    ...links.map((link) => (
-      <li key={link.url}>
-        <a
-          className="acpmux-session-info-row acpmux-session-info-row--button"
-          href={link.url}
-          onClick={(event) => {
-            // The pane beside the chat opens only loopback pages (URL.isAgentPanePreview); any other
-            // link, and a modified click (⌘, ⌃, ⇧), keeps the link's own behaviour.
-            if (!onOpenBeside || !opensBeside(link.url) || event.metaKey || event.ctrlKey || event.shiftKey) return;
-            event.preventDefault();
-            onOpenBeside(link.url);
-          }}
-        >
-          <Icon name="link.web" size={ROW_ICON} row />
-          <span className="acpmux-session-info-row__name">{link.label}</span>
-          <span className="acpmux-session-info-row__end">{t("sessionInfo.outputs.link")}</span>
-        </a>
-      </li>
-    )),
   ];
-  const folds = rows.length > OUTPUTS_SHOWN;
+  const folds = rows.length - OUTPUTS_SHOWN >= 2;
   // Reuse the shared passive scroll/resize tracking; the ref removes it on unmount.
   const scrollEdges = useScrollEdges();
   return (
     <>
       <div className="acpmux-outputs-edges">
+        {/* Unfolded, the list scrolls past about eight rows, its edges faded (outputsEdge.css). */}
         <ul ref={scrollEdges} className="acpmux-session-info-list acpmux-session-info-scroll" data-section="outputs">
-          {folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows}
+          <WindowedRows items={folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows} render={(row) => row} />
         </ul>
       </div>
       {folds && (
         <SessionInfoFold open={all} onToggle={() => setAll(!all)}>
-          {t(all ? "sessionInfo.outputs.showLess" : "sessionInfo.outputs.showMore")}
+          {all ? t("sessionInfo.outputs.showLess") : t("sessionInfo.list.showMore", { n: rows.length - OUTPUTS_SHOWN })}
         </SessionInfoFold>
       )}
     </>

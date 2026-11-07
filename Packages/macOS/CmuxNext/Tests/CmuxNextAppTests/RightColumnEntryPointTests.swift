@@ -113,7 +113,7 @@ import Testing
         tabs.openInMainPane = { chat, _, _, _, _ in mainPane.append(chat); return false }
         var underWay: (@MainActor () -> Void)?
         turns.serially(beside: source) { done in underWay = done }
-        let answered = tabs.openOnRight(of: "chat-tab", open: { _, _ in throw CancellationError() })
+        let answered = tabs.openOnRight(of: "chat-tab", open: { _, _, _ in throw CancellationError() })
         #expect(answered, "a waiting open answers true")
         #expect(mainPane.isEmpty, "the agent open decided its place while another open was still moving in")
         underWay?()

@@ -132,6 +132,19 @@ function install() {
           runHandler("dragChange", h && (() => h(payload.state ?? null)))
           break
         }
+        case "change": {
+          // Toggle and Slider: the new value, typed as the node's kind expects.
+          const h = record.handlers.change as ((v: unknown) => unknown) | undefined
+          // A value of the wrong shape is dropped, never coerced (no "false" read as true, no NaN).
+          const raw = payload.value
+          const typed =
+            record.kind === "Toggle"
+              ? typeof raw === "boolean" ? raw : typeof raw === "number" ? raw !== 0 : undefined
+              : typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : undefined
+          if (typed === undefined || (typeof typed === "number" && !Number.isFinite(typed))) break
+          runHandler("change", h && (() => h(typed)))
+          break
+        }
         case "submit":
         case "edit": {
           const h = record.handlers[event] as ((t: string) => unknown) | undefined

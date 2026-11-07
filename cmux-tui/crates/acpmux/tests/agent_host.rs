@@ -10,6 +10,10 @@ mod carried_hold;
 mod daemon_env;
 #[path = "agent_host/orphan_exit.rs"]
 mod orphan_exit;
+// Debug builds only, as the watch it tests (`daemon/owner_exit.rs`).
+#[cfg(debug_assertions)]
+#[path = "agent_host/test_owner.rs"]
+mod test_owner;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process =
     daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);

@@ -135,6 +135,10 @@ impl Mux {
             |_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Respawning,
         );
         self.record_terminal_end(terminal_id);
+        // The tabs read dead now, and an app session's owner may have nothing
+        // left to keep it (server/owner_keepers.rs): tell them, as the other
+        // ends of a respawn do (`run_terminal_respawn`).
+        self.emit(MuxEvent::TreeChanged);
     }
 
     /// The terminal used every attempt in the window: rewrite its host-loss

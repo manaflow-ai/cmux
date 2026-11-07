@@ -12,8 +12,6 @@ extension WorkspaceRowView {
     func setUpSessionTree() {
         treeLine.wantsLayer = true
         treeLine.isHidden = true
-        treeFoldButton.isHidden = true
-        treeFoldButton.onPress = { [weak self] in self?.onToggleTree?() }
     }
 
     func configureSessionTree(_ shown: WorkspaceRowContent) {
@@ -22,8 +20,7 @@ extension WorkspaceRowView {
         pullRequests.configure(isShowingPlaceholder ? nil : shown.pullRequests)
         keycap.configure(isShowingPlaceholder ? nil : shown.keycap)
         treeFold = isShowingPlaceholder ? nil : shown.treeFold
-        treeFoldButton.icon = treeFold == .collapsed ? .disclosureCollapsed : .disclosureExpanded
-        treeFoldButton.label = treeFold == .collapsed ? Strings.expandSessions : Strings.collapseSessions
+        treeFoldSlot.made.map(applyTreeFold)
         rollUp.configure(isShowingPlaceholder ? nil : shown.rollUp)
     }
 
@@ -46,11 +43,11 @@ extension WorkspaceRowView {
     /// children are out of sight), on hover or selection on an open one, its slot kept either way.
     func layoutTreeFold(trailing: CGFloat, cy: CGFloat, control: CGFloat, fades: Bool) -> CGFloat {
         let shown = treeFold == .collapsed || (treeFold == .expanded && (revealsHoverControls || isSelected))
-        setHoverShown(treeFoldButton, shown && !isShowingPlaceholder, fades: fades)
+        setHoverShown(treeFoldSlot, shown && !isShowingPlaceholder, fades: fades)
         guard treeFold != nil else { return trailing }
         let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
-        treeFoldButton.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
-        return columns.trailingEdge(before: treeFoldButton.frame)
+        treeFoldSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
+        return columns.trailingEdge(before: treeFoldSlot.frame)
     }
 
     /// A folded parent's roll-up chips, right to left from `trailing`; the next trailing edge.

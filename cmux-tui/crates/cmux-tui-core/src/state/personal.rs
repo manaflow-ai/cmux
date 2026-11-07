@@ -201,6 +201,10 @@ impl Mux {
         selectors: &crate::ResourceSelectors,
         change: PersonalChange,
     ) -> anyhow::Result<StateCommit> {
+        // A sidebar click (collapse, rename, move a group, place a
+        // workspace): its registry locks go next after the current holder,
+        // not behind every busy agent's write.
+        let _interactive = interactive_scope();
         let fingerprint = serde_json::json!({
             "operation": operation,
             "selectors": change.targets_workspace().then_some(selectors),
@@ -282,12 +286,13 @@ fn apply_personal_change(
                 return Ok(StateChanges::new(value, Vec::new()));
             }
             // A group made with no place (`cmux workspace group create`, MCP,
-            // iOS, the Chief's subagent groups) forms where a new workspace
-            // goes: under `workspaces.newPlacement` `top` (the default) the
-            // first group, right below Home, above the loose rows; else last.
+            // iOS, the Chief's subagent groups) forms the first group, right
+            // below Home, above the loose rows; last only under
+            // `workspaces.newPlacement` `bottom`: under `afterCurrent` (the
+            // default) a new workspace never goes to the sidebar's end.
             let top = index.is_none()
                 && crate::user_settings::NewWorkspacePlacement::current()
-                    == crate::user_settings::NewWorkspacePlacement::Top;
+                    != crate::user_settings::NewWorkspacePlacement::Bottom;
             let group = personal::create_group(
                 tx,
                 room.as_deref(),

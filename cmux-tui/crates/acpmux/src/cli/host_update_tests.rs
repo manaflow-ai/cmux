@@ -91,6 +91,20 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
     assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    // An agent start under way (its spawn lease held) is busy: a restart would end it.
+    let starting = json!({"sessions": [
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
+    ]});
+    assert_eq!(busy_sessions(&starting.to_string(), None), Some(vec!["starting".into()]));
+    // An older acpmux sends no `starting`: a session it just made may be starting; a long-idle one
+    // is not.
+    let now = crate::store::now_ms();
+    let older = json!({"sessions": [
+        {"name": "just-made", "status": "idle", "turn": null, "createdAt": now, "updatedAt": now},
+        {"name": "long-idle", "status": "ready", "turn": null, "createdAt": 1, "updatedAt": 1},
+    ]});
+    assert_eq!(busy_sessions(&older.to_string(), None), Some(vec!["just-made".into()]));
     assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
     assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
@@ -1763,7 +1777,7 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
         (Outcome::Failed, Some("launchdRefused")),
         "{up:?}"
     );
-    assert!(up.error.as_deref().unwrap_or("").contains("acpmux host setup writes it again"));
+    assert!(up.error.as_deref().unwrap_or("").contains("acpmux machine setup writes it again"));
     assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
     assert!(peer.exists("loaded"));
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));

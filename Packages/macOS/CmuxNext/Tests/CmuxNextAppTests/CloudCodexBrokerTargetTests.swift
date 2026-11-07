@@ -10,38 +10,40 @@ struct CloudCodexBrokerTargetTests {
         #expect(!CloudCodexBrokerTarget.supportsExternalAccess("{\"capabilities\":[]}"))
     }
 
-    @Test(arguments: ["team", "missing", "null", "unknown", "uppercase", "padded"])
-    func rejectsAnythingExceptAuthoritativeOwner(kind: String) async throws {
-        let capability = try await target(kind: kind).capability()
+    /// A machine the caller does not own is refused before anything runs on it.
+    @Test func aMachineTheCallerDoesNotOwnIsRefusedBeforeGuestExecution() async throws {
+        let capability = try await target(kind: "team", owns: { false }).capability()
         #expect(capability == .init(ownerVM: false, protocolVersion: 0, codexExternalAccessToken: false))
     }
 
     @Test func authoritativeOwnerStillRequiresRunningBridgeCapability() async throws {
-        let ready = try await target(kind: "owner").capability()
+        let ready = try await target(kind: "owner", owns: { true }).capability()
         #expect(ready == .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true))
-        let unsupported = try await target(kind: "unsupported").capability()
+        let unsupported = try await target(kind: "unsupported", owns: { true }).capability()
         #expect(unsupported == .init(ownerVM: true, protocolVersion: 0, codexExternalAccessToken: false))
     }
 
-    @Test(arguments: ["malformed", "failed"])
-    func ownershipFailuresNeverFallBackToGuestFiles(kind: String) async {
+    /// An owner answer that fails fails the capability: it never falls back to guest files.
+    @Test func ownershipFailuresNeverFallBackToGuestFiles() async {
+        struct Refused: Error {}
         await #expect(throws: (any Error).self) {
-            _ = try await target(kind: kind).capability()
+            _ = try await target(kind: "failed", owns: { throw Refused() }).capability()
         }
     }
 
-    private func target(kind: String) -> CloudCodexBrokerTarget {
+    private func target(kind: String, owns: @escaping @Sendable () async throws -> Bool) -> CloudCodexBrokerTarget {
         let configuration = CloudConfiguration.resolve(bundleID: nil,
             bundled: ["CMUX_VM_API_BASE_URL": "https://\(kind).invalid"], process: [:], isDebugBuild: true)
         let transport = URLSessionConfiguration.ephemeral
-        transport.protocolClasses = [OwnershipAPI.self]
+        transport.protocolClasses = [ExecAPI.self]
         let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") },
             teamID: { "different-team" }, session: URLSession(configuration: transport))
-        return CloudCodexBrokerTarget(api: api, machineID: "vm-1", scope: .init(userID: "user-1", teamID: "pinned-team"))
+        return CloudCodexBrokerTarget(api: api, machineID: "vm-1", scope: .init(userID: "user-1", teamID: "pinned-team"),
+                                      callerOwnsVM: owns, isLive: { true })
     }
 
     /// Each request carries its fixture in its URL; parallel cases share no mutable state.
-    nonisolated final class OwnershipAPI: URLProtocol {
+    nonisolated final class ExecAPI: URLProtocol {
         override class func canInit(with _: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func stopLoading() {}
@@ -53,29 +55,10 @@ struct CloudCodexBrokerTargetTests {
             var status = 200
             let body: String
             switch url.path {
-            case "/api/vm/vm-1/attach-endpoint":
-                #expect(request.httpMethod == "POST")
-                let field: String
-                switch kind {
-                case "missing": field = ""
-                case "null": field = #", "vmKind": null"#
-                case "malformed": field = #", "vmKind": 7"#
-                case "uppercase": field = #", "vmKind": "OWNER""#
-                case "padded": field = #", "vmKind": " owner ""#
-                case "unsupported": field = #", "vmKind": "owner""#
-                default: field = ", \"vmKind\": \"\(kind)\""
-                }
-                body = #"{"transport":"cmux-remote","route":"route","session":"session","trustedCarrier":true"# + field + "}"
-                if kind == "failed" { status = 403 }
             case "/api/vm/vm-1/exec":
                 #expect(kind == "owner" || kind == "unsupported", "Non-owner must be rejected before guest execution")
                 body = kind == "unsupported" ? #"{"exitCode":0,"stdout":"{\"capabilities\":[]}"}"#
                     : #"{"exitCode":0,"stdout":"{\"capabilities\":[\"codex-external-access-v1\"]}"}"#
-            // Spoofed guest state must never establish ownership, even when it looks personal.
-            case "/api/vm/vm-1/fs/read": body = #"{"dataBase64":"b3duZXI="}"#
-            case "/api/vm/vm-1/fs/stat":
-                status = 404
-                body = #"{"error":"vm_file_not_found"}"#
             default:
                 Issue.record("Unexpected broker request: \(url.path)")
                 status = 500

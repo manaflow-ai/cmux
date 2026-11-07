@@ -216,7 +216,7 @@ extension AppOnboardingServices {
             defaultEngine: engine
         )
         // A replaying terminal names its own environment: this Mac's terminal one.
-        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider()() }
+        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() }
         try await builder.build(blueprint)
     }
 

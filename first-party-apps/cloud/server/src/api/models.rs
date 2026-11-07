@@ -117,6 +117,17 @@ pub struct Machine {
     /// the session-host operations rather than this record.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// Provider operations are a separate field from the guest/session
+    /// capability names above. This keeps `agent_session` and similar wire
+    /// capabilities from being interpreted as provider feature gates by the
+    /// app. Older backends omit this field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "providerCapabilities")]
+    pub provider_operations: Vec<String>,
+    /// The machine serves link service `desktop` (`CloudMachine.desktop`: its
+    /// daemon advertises `link-desktop-v1`), so the app offers its `rd`
+    /// viewer. Older backends omit it; relayed only when true.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub desktop: bool,
     pub revision: Revision,
 }
 
@@ -423,6 +434,25 @@ mod tests {
                 .get("hourly_rate_usd")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn machine_desktop_relays_to_the_app() {
+        let source = serde_json::json!({ "id": "vm-desk", "revision": "5", "desktop": true });
+        let machine: Machine = serde_json::from_value(source).expect("desktop machine decodes");
+        assert!(machine.desktop);
+        let encoded = serde_json::to_value(&machine).expect("desktop machine encodes");
+        assert_eq!(encoded["desktop"], serde_json::json!(true));
+
+        for older in [
+            serde_json::json!({ "id": "vm-old", "revision": "6" }),
+            serde_json::json!({ "id": "vm-off", "revision": "6", "desktop": false }),
+        ] {
+            let machine: Machine = serde_json::from_value(older).expect("machine decodes");
+            assert!(!machine.desktop);
+            let encoded = serde_json::to_value(&machine).expect("machine encodes");
+            assert!(encoded.get("desktop").is_none());
+        }
     }
 
     #[test]

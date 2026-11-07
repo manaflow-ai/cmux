@@ -12,7 +12,7 @@ struct AssigneeBadge: View {
     var body: some View {
         if let delegate {
             ZStack {
-                RoundedRectangle(cornerRadius: size * 0.3).fill(colors.ansi(5).opacity(0.22))
+                RoundedRectangle(cornerRadius: Metrics.corners.radius(fitting: CGSize(width: size, height: size), radius: Metrics.controlCornerRadius)).fill(colors.ansi(5).opacity(0.22))
                 AgentBrandMark(agent: delegate.harness, size: size * 0.62).foregroundStyle(colors.ansi(5))
             }
             .frame(width: size, height: size)

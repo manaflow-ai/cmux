@@ -241,3 +241,4 @@ webviews/test/inbox-sender-mark.test.tsx	sleep-then-assert	debt from #32892 (lan
 webviews/test/sent-video-tile.test.tsx	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
 webviews/test/session-info-no-flicker.test.tsx	sleep-then-assert	debt from #33203 (landed while this step was red on the base); use fake timers instead of a 50 ms wait
 webviews/test/thread-rail-bookmark-every-row.test.tsx	sleep-then-assert	debt from #32880 (landed while this step was red on the base); await the render, not a zero-delay timer
+webviews/test/agent-pane-idle-probe.test.ts	sleep-then-assert	the timeouts are the probe's input: the test counts setTimeout calls, it never sleeps to wait for state

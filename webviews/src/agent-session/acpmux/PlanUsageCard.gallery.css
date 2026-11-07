@@ -1,0 +1,12 @@
+/* The plan usage popover's gallery stage: the card where the composer draws it, the ring at the end
+   of a quiet row. */
+.plan-usage-gallery {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px;
+}
+.plan-usage-gallery--ring {
+  --plan-usage-gallery-stage: 220px;
+  align-items: flex-end;
+  min-height: var(--plan-usage-gallery-stage);
+}

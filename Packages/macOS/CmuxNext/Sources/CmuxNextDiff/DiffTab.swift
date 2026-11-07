@@ -10,6 +10,8 @@ public nonisolated struct DiffTabReady: Sendable {
     var turn: DiffTurn?
     /// The chat's own patch the tab shows instead of a repository (``DiffChatPatch``).
     var chatPatch: DiffChatPatch?
+    /// The session precomputed for it when an agent's turn ended (DiffPageRuntime+Warm.swift).
+    var warm: DiffWarmSession?
 }
 
 /// A chat turn's changes as the chat built them from its tool calls, for a folder in no repository

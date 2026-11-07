@@ -22,6 +22,7 @@ import {
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { useFindReveal } from "./chatFind";
+import { useStartedName } from "./startedNames";
 import { ToolGroup } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
@@ -359,11 +360,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
+  // Its name from the session list, else from the call that started it (a chat that left the list
+  // keeps the name its start gave it); the bare id only when neither names it. The row's tooltip
+  // and its link keep the id (SentMessageLine.tsx `targetSession`).
+  const started = useStartedName(call.sessionId);
   return (
     <SentMessageLine
       tool={tool}
       state={call.running ? "sending" : "sent"}
-      target={live?.name ?? shortId(call.sessionId)}
+      target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}
       detail={call.delivery && deliveryText(t, call.delivery)}
       disclosureKey={`send:${tool.id}`}

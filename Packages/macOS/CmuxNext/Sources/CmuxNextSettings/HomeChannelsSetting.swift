@@ -56,6 +56,8 @@ extension CmuxConfigSnapshot {
         take(Self.parseLabsToggle(root, path: HomeFeedRowsSetting.configPath, fallback: true), \.homeFeedInChief)
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
+        take(ChiefDockSetting.parseEdge(root), \.chiefDockEdge)
+        take(Self.parseLabsToggle(root, path: ChiefDockSetting.openBesidePath, fallback: ChiefDockSetting.defaultOpenBeside), \.chiefDockOpenBeside)
         take(HomeServerSetting.parse(root), \.homeServer)
         take(ChiefReactionSettings.parse(root), \.chiefReactions)
         take(HomeBubbleColorsSetting.parse(root), \.homeBubbleColors)

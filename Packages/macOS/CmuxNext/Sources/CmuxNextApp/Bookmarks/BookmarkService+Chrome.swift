@@ -19,13 +19,13 @@ extension BookmarkService {
         let bar = BookmarksBarView()
         bar.source = adapter
         chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
-        entry.chrome.addressBar.onPageURLChange = { [weak self, weak entry] url in
+        entry.state.onPageURLChange = { [weak self, weak entry] url in
             guard let self, let entry else { return }
             updateStar(entry, url: url)
         }
-        entry.chrome.addressBar.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
+        entry.state.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
         updateStar(entry, url: entry.tab.state.url)
-        entry.chrome.setAccessoryView(showsBar ? bar : nil, height: BookmarksBarView.height)
+        entry.state.accessory = showsBar ? (bar, BookmarksBarView.height) : nil
         chromes = chromes.filter { $0.value.entry != nil }
     }
 
@@ -48,7 +48,7 @@ extension BookmarkService {
         for chrome in chromes.values {
             guard let entry = chrome.entry else { continue }
             if shown { chrome.bar.reload() }
-            entry.chrome.setAccessoryView(shown ? chrome.bar : nil, height: BookmarksBarView.height)
+            entry.state.accessory = shown ? (chrome.bar, BookmarksBarView.height) : nil
         }
     }
 
@@ -58,9 +58,9 @@ extension BookmarkService {
     func bar(ofTab key: String) -> BookmarksBarView? { chromes[key]?.bar }
 
     private func updateStar(_ entry: BrowserEntry, url: URL?) {
-        guard Self.canBookmark(url) else { return entry.chrome.addressBar.setBookmarkStar(.hidden) }
+        guard Self.canBookmark(url) else { return entry.state.bookmarkStar = .hidden }
         let bookmarked = tree(profile(of: entry.tab.profileID)).isBookmarked(url)
-        entry.chrome.addressBar.setBookmarkStar(bookmarked ? .on : .off)
+        entry.state.bookmarkStar = bookmarked ? .on : .off
     }
 
     /// Pages that can be bookmarked: anything with a scheme except blank,
@@ -91,7 +91,7 @@ extension BookmarkService {
             isNew = true
         }
         guard let node else { return }
-        let anchor = anchor ?? entry.chrome.addressBar.bookmarkStarAnchor ?? entry.chrome.addressBar
+        guard let anchor = anchor ?? entry.chrome.map({ $0.addressBar.bookmarkStarAnchor ?? $0.addressBar }) else { return }
         showBubble(for: node, profile: profile, isNew: isNew, anchor: anchor, tab: key)
     }
 

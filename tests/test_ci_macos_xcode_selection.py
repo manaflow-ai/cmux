@@ -69,16 +69,11 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("stable-next.yml", "swift-suites"):
-        "only submits the suites to the build fleet (cmux-ci run); the fleet step selects "
-        "CMUX_CI_XCODE_APP itself",
     ("stable-next.yml", "perf-budgets"):
         "only submits the perf budgets to the build fleet (cmux-ci run, exclusive measure step); "
         "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
-    ("nightly.yml", "launch-smoke-nightly"):
-        "launches the app in the release-pool DMG beside signer-dmg; builds nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
         "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",

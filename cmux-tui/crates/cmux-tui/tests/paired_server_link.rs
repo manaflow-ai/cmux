@@ -47,6 +47,7 @@ impl Transport for Api {
             team: "team_00000000000000000001".into(),
             user: "user_00000000000000000001".into(),
             install: INSTALL.into(),
+            machine_join: None,
         }))
     }
 }

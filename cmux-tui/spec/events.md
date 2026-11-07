@@ -1010,7 +1010,7 @@ object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pan
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1532,6 +1532,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | `colors` field | protocol 6 additive extension |
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
+| `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
 
 Payload:
 
@@ -1565,7 +1566,8 @@ object{
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
   },
-  pending?:Base64
+  pending?:Base64,
+  history_rows_omitted?:uint64
 }
 ```
 
@@ -1598,6 +1600,12 @@ same bytes appended to `data`, which suits clients that write nothing between
 the replay and the live stream. The one exception is a control string longer
 than 1 MiB that is not a direct Kitty upload: a replay taken inside it omits the
 string, and a resize there drops byte attachments so they reattach.
+
+`history_rows_omitted` is present only when the attach carried
+`replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
+`data` then holds the active area and at most that many of the newest history
+rows, and the field counts the older history rows it left out (0 when the
+whole history fit).
 
 Example:
 
