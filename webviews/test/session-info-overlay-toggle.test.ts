@@ -190,8 +190,9 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           expect(await positions()).toEqual(closed);
           // Native tabs cover everything left of this reserved strip. A real click at the old
           // position must still reach the toggle after opening, including after a pane resize.
-          // 1130px: Push always still keeps the column's width there (SessionInfo.tsx pushKeepsColumn).
-          await page.setViewportSize({ width: 1130, height: 640 });
+          // 1230px: Push always still keeps the 800px column's width there (SessionInfo.tsx
+          // pushKeepsColumn; from 1160px), and the header's tools move right by the 30px it grew.
+          await page.setViewportSize({ width: 1230, height: 640 });
           await page.waitForFunction(
             (x) => Math.abs(document.querySelector(".acpmux-session-info-toggle")!.getBoundingClientRect().x - x) < 0.5,
             closed[0]!.x + 30,
