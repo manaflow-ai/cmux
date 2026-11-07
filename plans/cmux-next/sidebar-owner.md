@@ -7,6 +7,16 @@
   every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
   improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
   `updated-card-hover-preview.test.tsx`.
+- 2026-11-07: the Updated card drags between the bottom card slot and the top of the list. Leo, verbatim: "what if
+  you could, like, drag around the updated to nightly, and you can drag that up to the top if you wanted to?" The card's
+  page runs the drag with the toasts' anchors and drag (webviews `ui/anchors.ts`, `pages/changelog/updatedCardDrag.ts`):
+  up or down past the slop it follows the pointer (across, the words still select, u4466); let go, it settles at the
+  nearer place; a flick or a drop past the sidebar's edge sends the x's dismiss. `SidebarUpdatedCardHost+Drag` stands
+  the view where the page holds it and springs it to its place on drop, while `SidebarView.layout` moves the list's
+  room from the bottom slot to the top (`topCardMotion`) on the same spring; the place is kept in the page's
+  localStorage and in `cmux.sidebar.updatedCard.anchor` for the first frame. Gallery: `pages.changelog.updated-card-drag`
+  `drag-spring` (chosen), `drag-rubber`, `drag-ghosts`. Regression: `UpdatedCardDragTests`, webviews
+  `updated-card-drag.test.tsx`.
 - 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
   under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
   keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of

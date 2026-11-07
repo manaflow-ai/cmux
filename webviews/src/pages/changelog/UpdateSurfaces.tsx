@@ -47,6 +47,7 @@ import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlightMedia, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview } from "./UpdatedCardPreview";
 import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
@@ -169,6 +170,9 @@ export function UpdatedCard({
   previewOpen,
   hostPointer,
   onPreviewSize,
+  anchor = "bottom",
+  drag,
+  dragFeel = SHIPPED_DRAG_FEEL,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -195,6 +199,12 @@ export function UpdatedCard({
   /** The height, CSS px, the card needs above its slot's bottom while the preview is open, 0 once
       it has closed: the host grows its view upward by it, over the list, without moving the list. */
   onPreviewSize?: (height: number) => void;
+  /** Where the card rests: on the bottom slot (its preview opens upward) or at the top of the list
+      (its preview opens downward). */
+  anchor?: CardRow;
+  /** Moves the card while the person drags it (updatedCardDrag.ts); absent: the card does not drag. */
+  drag?: CardDragHost;
+  dragFeel?: CardDragFeel;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
@@ -210,6 +220,8 @@ export function UpdatedCard({
     preview.close();
     actions.openChangelog();
   };
+  const rest = useRef<HTMLDivElement | null>(null);
+  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.close);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
       {strings.t("changelog.page.title")}
@@ -273,6 +285,8 @@ export function UpdatedCard({
       className="wn-card wn-updated"
       aria-labelledby={titleId}
       data-placement={placement}
+      data-anchor={anchor}
+      data-drags={drag ? "" : undefined}
       data-preview={preview.shown ? "open" : "closed"}
       data-glass={glass ? "" : undefined}
       data-composer-material=""
@@ -288,7 +302,7 @@ export function UpdatedCard({
           onOpen={openChangelog}
         />
       )}
-      <div className="wn-card-rest">
+      <div className="wn-card-rest" ref={rest}>
         <div className="wn-card-head">
           {title}
           {placement !== "button" && (
@@ -311,6 +325,29 @@ export function UpdatedCard({
       </div>
     </section>
   );
+}
+
+/** Presses on the card start its drag (the section listens itself: it is not a control). */
+function useCardDrag(
+  card: { current: HTMLElement | null },
+  rest: { current: HTMLElement | null },
+  drag: CardDragHost | undefined,
+  feel: CardDragFeel,
+  onStart: () => void,
+) {
+  const latest = useRef({ drag, feel, onStart });
+  latest.current = { drag, feel, onStart };
+  const drags = drag !== undefined;
+  useEffect(() => {
+    const element = card.current;
+    if (!element || !drags) return;
+    const press = (event: PointerEvent) => {
+      const { drag, feel, onStart } = latest.current;
+      if (drag && rest.current) pressCard(rest.current, event, drag, feel, onStart);
+    };
+    element.addEventListener("pointerdown", press);
+    return () => element.removeEventListener("pointerdown", press);
+  }, [card, rest, drags]);
 }
 
 /** The hover preview's state: its rows, whether they are mounted (from the first time the pointer
