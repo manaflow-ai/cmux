@@ -2076,7 +2076,7 @@ impl Hub {
 
     /// [`Hub::append_record_locked`]'s write, once nothing holds the record back.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn write_record_locked(
+    fn write_record_locked(
         &self,
         session: &Session,
         dir: &str,
