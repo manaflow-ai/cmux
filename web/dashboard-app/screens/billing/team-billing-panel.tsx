@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 import type { ReadyTeamBillingViewJson, TeamBillingViewJson } from "@/services/billing/dashboardBilling";
-import { teamPortalHref } from "./checkout-links";
+import { paymentMethodHref } from "./checkout-links";
 import { teamPlanCards } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
 
@@ -39,7 +39,7 @@ export function TeamBillingPanel({
       {view.paymentPastDue && view.canManageBilling ? (
         <Notice>
           <span>{t("banners.pastDue")}</span>{" "}
-          <a href={teamPortalHref(view.team.id)} className="underline">{t("actions.manageBilling")}</a>
+          <a href={paymentMethodHref(view.team.id)} className="underline">{t("picker.paymentMethod")}</a>
         </Notice>
       ) : null}
       {view.subscription ? <TeamSeats view={view} /> : null}

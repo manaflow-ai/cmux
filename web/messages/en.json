@@ -751,6 +751,8 @@
         "nosub": "No active web subscription was found for this account.",
         "error": "Billing could not be updated. Try again shortly.",
         "pastDue": "Your latest payment failed. Update your payment method to keep your plan active.",
+        "payment_updated": "Your payment method was updated and your outstanding payment went through.",
+        "payment_failed": "Your new payment method was saved, but the outstanding payment was declined. Try another card.",
         "team_admin_required": "Only team admins can manage this team's billing.",
         "team_not_found": "That team is not available. You may have left it, or it was deleted.",
         "authorization_unavailable": "Team permissions could not be checked. Try again shortly.",
