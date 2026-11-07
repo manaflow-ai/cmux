@@ -100,7 +100,7 @@ export function useFoldMotion<E extends HTMLElement>(
         setHeld(false);
       }
     };
-  }, [open]);
+  }, [open, ref]);
 
   // A close ended and its rows are gone: the box's own height is the end height now, so the held one
   // goes in the same commit, before the frame draws.
@@ -109,8 +109,9 @@ export function useFoldMotion<E extends HTMLElement>(
     const fold = run.current;
     run.current = undefined;
     fold?.cancel();
-    if (ref.current) delete ref.current.dataset.folding;
-  }, [held, open]);
+    const box = ref.current;
+    if (box) delete box.dataset.folding;
+  }, [held, open, ref]);
 
   useEffect(
     () => () => {
