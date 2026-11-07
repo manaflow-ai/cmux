@@ -17,7 +17,7 @@
 use super::Conn;
 use crate::hub::{Control, Hub};
 use crate::rpc::RpcError;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -59,7 +59,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     };
     let ask = Ask::from(params)?;
     tokio::task::spawn_blocking(move || {
-        list(&ask, roots.as_deref(), SCAN_CAP, Instant::now() + DEADLINE)
+        let now = Instant::now();
+        list(&ask, roots.as_deref(), SCAN_CAP, now.checked_add(DEADLINE).unwrap_or(now))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -92,7 +93,9 @@ struct Ask {
 
 impl Ask {
     fn from(params: &Value) -> Result<Self, RpcError> {
-        let count = |key: &str| params.get(key).and_then(Value::as_u64).map(|n| n as usize);
+        let count = |key: &str| {
+            params.get(key).and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok())
+        };
         // No `path` (or null) is the top level; anything else must be a folder's name. An empty
         // string or an array is refused, never read as "none" (that would list the home folder).
         let path = match params.get("path") {
@@ -178,13 +181,15 @@ fn list(
             cut = Some("deadline");
             break;
         }
-        scanned += 1;
+        scanned = scanned.saturating_add(1);
         let name = entry.name.to_string_lossy().into_owned();
         if !ask.hidden && name.starts_with('.') {
             continue;
         }
         let path = dir.join(&name);
-        let mut row = json!({"name": name, "path": path});
+        let mut row = Map::new();
+        row.insert("name".into(), json!(name));
+        row.insert("path".into(), json!(path));
         let opens = match entry.kind {
             opened::Kind::Symlink => {
                 // Reported as a link; only what it names is read, and only to say its kind.
@@ -193,28 +198,28 @@ fn list(
                     Ok(_) => "file",
                     Err(_) => "missing",
                 };
-                row["kind"] = json!("symlink");
-                row["target"] = json!(target);
+                row.insert("kind".into(), json!("symlink"));
+                row.insert("target".into(), json!(target));
                 if target != "missing"
                     && roots.is_some()
                     && !std::fs::canonicalize(&path).is_ok_and(|p| inside(&p))
                 {
-                    row["outside"] = json!(true);
+                    row.insert("outside".into(), json!(true));
                 }
                 target == "dir"
             }
             opened::Kind::Dir => {
-                row["kind"] = json!("dir");
+                row.insert("kind".into(), json!("dir"));
                 true
             }
             kind => {
                 let file = kind == opened::Kind::File;
-                row["kind"] = json!(if file { "file" } else { "other" });
+                row.insert("kind".into(), json!(if file { "file" } else { "other" }));
                 if file
                     && !ask.dirs_only
                     && let Some(size) = opened.size_of(&entry.name)
                 {
-                    row["size"] = json!(size);
+                    row.insert("size".into(), json!(size));
                 }
                 false
             }
@@ -230,20 +235,20 @@ fn list(
     }
     // Folders first, then by name as a person reads it.
     entries.sort_by_cached_key(|(opens, row)| {
-        (!*opens, row["name"].as_str().unwrap_or("").to_lowercase())
+        (!*opens, row.get("name").and_then(Value::as_str).unwrap_or("").to_lowercase())
     });
     let parent = dir.parent().filter(|p| inside(p)).map(Path::to_path_buf);
-    let mut reply = page(ask, entries.into_iter().map(|(_, row)| row).collect());
-    reply["path"] = json!(dir);
-    reply["parent"] = json!(parent);
-    reply["home"] = json!(home);
+    let mut reply = page(ask, entries.into_iter().map(|(_, row)| Value::Object(row)).collect());
+    reply.insert("path".into(), json!(dir));
+    reply.insert("parent".into(), json!(parent));
+    reply.insert("home".into(), json!(home));
     if let Some(roots) = roots {
-        reply["roots"] = json!(roots);
+        reply.insert("roots".into(), json!(roots));
     }
     if let Some(reason) = cut {
-        reply["truncated"] = json!({"reason": reason, "scanned": scanned});
+        reply.insert("truncated".into(), json!({"reason": reason, "scanned": scanned}));
     }
-    Ok(reply)
+    Ok(Value::Object(reply))
 }
 
 /// A folder opened once (no link followed at its last name), its entries read from that open
@@ -487,20 +492,25 @@ fn roots_page(ask: &Ask, roots: &[PathBuf], home: &Path) -> Value {
         })
         .collect();
     let mut reply = page(ask, rows);
-    reply["path"] = Value::Null;
-    reply["parent"] = Value::Null;
-    reply["home"] = json!(home);
-    reply["roots"] = json!(roots);
-    reply
+    reply.insert("path".into(), Value::Null);
+    reply.insert("parent".into(), Value::Null);
+    reply.insert("home".into(), json!(home));
+    reply.insert("roots".into(), json!(roots));
+    Value::Object(reply)
 }
 
-fn page(ask: &Ask, rows: Vec<Value>) -> Value {
+fn page(ask: &Ask, rows: Vec<Value>) -> Map<String, Value> {
     let total = rows.len();
     let offset = ask.offset.min(total);
-    let end = (offset + ask.limit).min(total);
-    let mut reply = json!({"entries": rows[offset..end], "total": total, "offset": offset});
+    let end = offset.saturating_add(ask.limit).min(total);
+    let shown: Vec<Value> =
+        rows.into_iter().skip(offset).take(end.saturating_sub(offset)).collect();
+    let mut reply = Map::new();
+    reply.insert("entries".into(), Value::Array(shown));
+    reply.insert("total".into(), json!(total));
+    reply.insert("offset".into(), json!(offset));
     if end < total {
-        reply["nextOffset"] = json!(end);
+        reply.insert("nextOffset".into(), json!(end));
     }
     reply
 }
@@ -634,9 +644,16 @@ mod tests {
         assert!(row("to-real").get("outside").is_none());
         assert_eq!(row("dangling")["target"], "missing");
         assert_eq!(row("to-away-file")["target"], "file");
-        assert_eq!(row("to-away-file")["outside"], true, "a link to a file out of the roots says so");
+        assert_eq!(
+            row("to-away-file")["outside"],
+            true,
+            "a link to a file out of the roots says so"
+        );
         assert!(row("to-here-file").get("outside").is_none());
-        assert!(!reply.to_string().contains("held-behind-the-link"), "what a link names is not listed");
+        assert!(
+            !reply.to_string().contains("held-behind-the-link"),
+            "what a link names is not listed"
+        );
         // Opening the link resolves it, and the roots still hold.
         let e = list(&ask(&root.join("to-away")), Some(&roots), SCAN_CAP, later()).unwrap_err();
         assert_eq!(reason(e), "browse.outside_roots");
