@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42426630395",
+  "recorded_at": "2026-11-07T23:53:20Z",
+  "reason": "cmux-tui d11e957f5a88 changes the image's cmux-tui (pinned e5f913795193)",
+  "dry_run": false,
+  "cmux_tui": "d11e957f5a8803557566ebd44b0cb687f9522fba",
+  "fixes": [
+    {
+      "sha": "d11e957f5a8803557566ebd44b0cb687f9522fba",
+      "mergedAt": "2026-11-07T23:30:31Z",
+      "subject": "fix(terminal): a key resize shows the program's newest frame (ghostty-next 468b2559c, T render hop) (#38041)"
+    },
+    {
+      "sha": "b7dac59a8e920573e1e7ee2ba9112ff79c9e6b1d",
+      "mergedAt": "2026-11-07T23:27:24Z",
+      "subject": "acpmux: a harness shell's send names its harness, machine and session (#38055)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T23:53:20Z",
+    "snapshot_id": "sh-542e6b20ae724060b5b0ea8417f12b64",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42426630395): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "50e7d924eca8ed06db0cbadfe158b82329a30acb",
+    "image": "cloud-native-auto-d11e957f-42426630395-1",
+    "revision": "ci-42426630395-1",
+    "at": "2026-11-07T23:53:20Z"
+  },
+  "rolled_back": false
+}
