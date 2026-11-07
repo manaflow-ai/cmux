@@ -2241,3 +2241,152 @@ fn an_answer_past_the_deadline_is_out_of_time() {
         assert_eq!(fake.ran.len(), 2, "{answer:?}: {:?}", fake.ran);
     }
 }
+
+/// Review of #37248 at bcbe5d7f: the Cloud API's `vm_state_conflict` (a retryable 409 while a machine
+/// starts, pauses or isn't running) may pass later. The first one resumes the machine like
+/// `vm_not_running` does; one right after a resume is the machine coming up, and is asked again.
+#[test]
+fn a_state_conflict_is_asked_again_and_resumes_once() {
+    let resume = strings(&["cloud", "resume-machine", "--target", "machine:vm-1", "--json"]);
+    for first in [
+        refused("vm_state_conflict", "the machine is pausing"),
+        refused("vm_not_running", "paused"),
+    ] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            first.clone(),
+            ok(json!({})),
+            refused("vm_state_conflict", "the machine is starting"),
+            exec_out("busy\n"),
+            exec_out("ready\n"),
+            relay_ok(),
+        ]);
+        let Outcome::Done(answer) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
+            panic!("{first:?}: {:?}", fake.ran)
+        };
+        assert_eq!(answer["reply"], "ok");
+        assert_eq!(fake.ran[2], resume, "{first:?}: {:?}", fake.ran);
+        assert_eq!(fake.ran.iter().filter(|args| **args == resume).count(), 1, "{first:?}");
+        assert!(is_relay(&fake.ran[6]), "{first:?}");
+        assert_eq!(fake.ran.len(), 7, "{first:?}");
+    }
+    // Conflicts until the deadline: out of time, nothing started.
+    let mut fake = Fake::new(vec![signed_in()]);
+    fake.answers.extend((0..20).map(|_| refused("vm_state_conflict", "starting")));
+    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start("/home/cmux/work/r", "30"))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.start_pending");
+    assert!(no_start(&fake.ran), "{:?}", fake.ran);
+}
+
+/// `list-machines` with a create of `box` still on its way, or with `box` made as `vm-1` (just now).
+fn creating_box() -> Ran {
+    ok(json!({"account": {"signed_in": true}, "machines": [],
+              "creating": [{"name": "box", "status": "creating"}]}))
+}
+
+fn made_box() -> Ran {
+    ok(json!({"account": {"signed_in": true}, "creating": [],
+              "machines": [{"machine_id": "vm-1", "title": "box",
+                            "created_at": iso(std::time::SystemTime::now())}]}))
+}
+
+/// Review of #37248 at bcbe5d7f: a `--name` whose create is still on its way (`list-machines`'
+/// `creating`) is waited on until the machine is listed, then its folder like any young machine's; the
+/// chat never starts before the folder is ready.
+#[test]
+fn a_named_machine_still_being_made_is_waited_on_before_its_folder_check() {
+    let asked = request(&[
+        "--prompt",
+        "ok?",
+        "--name",
+        "box",
+        "--cwd",
+        "/home/cmux/work/r",
+        "--wait",
+        "--timeout",
+        "900",
+    ]);
+    let mut fake = Fake::new(vec![
+        creating_box(),
+        creating_box(),
+        made_box(),
+        exec_out("busy\n"),
+        exec_out("ready\n"),
+        relay_ok(),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    let list = strings(&["cloud", "list-machines", "--json"]);
+    assert_eq!(fake.ran[..3], [list.clone(), list.clone(), list], "{:?}", fake.ran);
+    assert!(
+        is_folder_check(&fake.ran[3], "/home/cmux/work/r")
+            && is_folder_check(&fake.ran[4], "/home/cmux/work/r")
+    );
+    assert!(is_relay(&fake.ran[5]), "{:?}", fake.ran);
+    assert_eq!(fake.ran.len(), 6);
+
+    // Still being made at the deadline: out of time, nothing started.
+    let asked = request(&[
+        "--prompt",
+        "ok?",
+        "--name",
+        "box",
+        "--cwd",
+        "/home/cmux/work/r",
+        "--wait",
+        "--timeout",
+        "30",
+    ]);
+    let mut fake = Fake::new((0..20).map(|_| creating_box()).collect::<Vec<_>>());
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.start_pending");
+    assert!(no_start(&fake.ran), "{:?}", fake.ran);
+}
+
+/// Review of #37248 at bcbe5d7f: with no deadline (no `--wait`), the 10 minute cap is checked when each
+/// call returns too: a `ready` (or a `vm_not_running`) that comes back at the cap is late, never a start
+/// or a resume.
+#[test]
+fn an_answer_at_the_ten_minute_cap_is_late() {
+    for last in [exec_out("ready\n"), refused("vm_not_running", "paused")] {
+        let mut fake = Fake::new(vec![signed_in()]);
+        // The list ends at 5 s; the 119th check starts at 595 s and comes back at 600 s.
+        fake.answers.extend((0..118).map(|_| exec_out("busy\n")));
+        fake.answers.push_back(last.clone());
+        let asked =
+            request(&["--prompt", "ok?", "--target", "machine:vm-1", "--cwd", "/home/cmux/work/r"]);
+        let Outcome::Failed { error, exit } = run(&mut fake, &asked) else {
+            panic!("{last:?}: {:?}", &fake.ran[fake.ran.len().saturating_sub(3)..])
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.folder_pending"), 75), "{last:?}");
+        assert!(no_start(&fake.ran), "{last:?}");
+        assert!(fake.ran.iter().all(|args| args[1] != "resume-machine"), "{last:?}");
+        assert_eq!(fake.ran.len(), 120, "{last:?}");
+    }
+}
+
+/// Review of #37248 at bcbe5d7f: `--environment` makes a new machine, so `--environment --name EXISTING`
+/// is a usage error before any folder check.
+#[test]
+fn environment_with_an_existing_name_is_refused_before_any_folder_check() {
+    let listing = ok(json!({"account": {"signed_in": true}, "creating": [],
+                            "machines": [{"machine_id": "vm-1", "title": "box", "created_at": OLD}]}));
+    let asked = request(&[
+        "--prompt",
+        "ok?",
+        "--environment",
+        "env_1",
+        "--name",
+        "box",
+        "--cwd",
+        "/home/cmux/work/r",
+        "--wait",
+    ]);
+    let mut fake = Fake::new(vec![listing]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("usage.invalid"), 2), "{error}");
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+}
