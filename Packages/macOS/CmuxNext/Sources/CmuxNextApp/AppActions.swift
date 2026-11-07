@@ -78,6 +78,7 @@ enum AppActions {
         GroupIconHandlers.bind(into: registry, context: context)
         MachineIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
+        DividerActions(host: services).bind(into: registry)
         ColumnHandlers.bind(into: registry, context: context)
         CanvasHandlers.bind(into: registry, context: context)
         ColumnDocking.bind(into: registry, context: context)

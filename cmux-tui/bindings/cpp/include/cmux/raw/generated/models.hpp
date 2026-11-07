@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
+inline constexpr std::string_view kProtocolIrSha256 = "eac3825cf596ed94785df12d8ceb43b49ceedb2ce08e3e1e77d6b39a7c2f136d";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -530,6 +530,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
+struct SetDividerVisibleRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
 struct SetLayoutSizesRequest;
@@ -2538,6 +2539,7 @@ struct ConversationSnapshotResult {
 };
 
 struct ConversationTabSplit {
+    Field<Id> around{};
     std::string direction{};
     Field<std::string> pane_id{};
     Field<std::string> split_id{};
@@ -5226,6 +5228,13 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
+struct SetDividerVisibleRequest {
+    Id split{};
+    Field<std::uint64_t> transaction{};
+    bool visible{};
+    friend bool operator==(const SetDividerVisibleRequest&, const SetDividerVisibleRequest&) = default;
+};
+
 struct SetFrontendBrowserHistoryRequest {
     std::optional<JsonValue> history{};
     Id surface{};
@@ -5493,6 +5502,7 @@ struct SnapshotRequestResult {
 };
 
 struct SplitRequest {
+    Field<Id> around{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     SplitDirection dir{};
@@ -9344,6 +9354,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetDividerVisibleRequest> {
+    static Result<Json> encode(const SetDividerVisibleRequest& value);
+    static Result<SetDividerVisibleRequest> decode(const Json& value);
 };
 
 template <>

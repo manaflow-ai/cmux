@@ -63,6 +63,18 @@ pub(crate) fn screen_layout_json(
             value.insert("viewport_base_width", json!(width));
         }
     }
+    // `split-divider-visibility-v1`: the splits whose divider is hidden, in
+    // the screen tree, every column tree and every row tree. Only when any.
+    let mut hidden = Vec::new();
+    screen.root.hidden_dividers(&mut hidden);
+    for column in &screen.layout_columns {
+        column.root.hidden_dividers(&mut hidden);
+    }
+    hidden.sort_unstable();
+    hidden.dedup();
+    if !hidden.is_empty() {
+        value.insert("hidden_dividers", json!(hidden));
+    }
     if screen.layout_columns_active() {
         value.insert(
             "columns",

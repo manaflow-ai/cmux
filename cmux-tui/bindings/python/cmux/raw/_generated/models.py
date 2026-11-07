@@ -724,6 +724,7 @@ class ConversationTabRecord:
 class ConversationTabSplit:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabSplit'
     direction: str
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     split_id: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4690,6 +4691,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetDividerVisibleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-divider-visible/request'
+    split: Id
+    visible: bool
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetFrontendBrowserHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
     surface: Id
@@ -4895,6 +4904,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    around: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
@@ -6732,6 +6742,7 @@ __all__ = [
     'SetClientSizingRequest',
     'SetColumnDockRequest',
     'SetDefaultColorsRequest',
+    'SetDividerVisibleRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetHostSizePolicyRequest',
     'SetLayoutSizesRequest',

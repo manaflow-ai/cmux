@@ -70,7 +70,7 @@ extension ActionMenuContext {
     public static let editorOrder: [ActionMenuContext] = [
         .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
         .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine,
-        .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar,
+        .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .divider, .screen, .screenGroup, .screenBar,
         .terminalSelection,
         .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager,
         .agentChat, .fileExplorerRow, .notification,
@@ -80,7 +80,7 @@ extension ActionMenuContext {
         switch self {
         case .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
              .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine: .workspace
-        case .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar: .tabs
+        case .tab, .tabGroup, .tabStrip, .pane, .newTab, .windowBackground, .divider, .screen, .screenGroup, .screenBar: .tabs
         case .terminalSelection: .terminal
         case .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager: .browser
         case .agentChat, .fileExplorerRow, .notification: .other
@@ -124,6 +124,7 @@ extension ActionMenuContext {
         case .fileExplorerRow: String(localized: "menu.name.fileExplorerRow", defaultValue: "File", bundle: .module)
         case .priorityRow: String(localized: "menu.name.priorityRow", defaultValue: "Priority Chat", bundle: .module)
         case .joinedMachine: String(localized: "menu.name.joinedMachine", defaultValue: "Joined Machine", bundle: .module)
+        case .divider: String(localized: "menu.name.divider", defaultValue: "Divider", bundle: .module)
         }
     }
 }

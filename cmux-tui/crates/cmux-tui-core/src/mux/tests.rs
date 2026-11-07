@@ -18,6 +18,7 @@ mod column_update;
 mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
+mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
 mod history_agent_fold;
@@ -226,6 +227,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
     let boundary_split = restore_split_id(2);
     let base_column = restore_split_id(3);
     let first_column_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal_split,
         direction: "down".into(),
         ratio: 0.6,
@@ -236,6 +238,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         second: Box::new(RegistryLayoutNode::Leaf { pane: panes[2].clone() }),
     };
     let first_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: boundary_split.clone(),
         direction: "right".into(),
         ratio: 0.8 / (0.8 + 0.4),

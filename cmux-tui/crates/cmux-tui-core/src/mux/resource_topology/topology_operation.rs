@@ -476,6 +476,22 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            // `set-divider-visible`: the internal field replaces the ratio.
+            ResourceOperation::PaneSplitRatioSet if fields.contains_key(DIVIDER_HIDDEN_FIELD) => {
+                self.resource_set_split_divider_hidden(
+                    selectors,
+                    required_str(&fields, "split_id")?,
+                    fields[DIVIDER_HIDDEN_FIELD]
+                        .as_bool()
+                        .context("field \"divider_hidden\" must be a boolean")?,
+                    LayoutMutationContext {
+                        coalesce: None,
+                        expected_revision,
+                        mutation,
+                        fingerprint: &fingerprint,
+                    },
+                )?
+            }
             ResourceOperation::PaneSplitRatioSet => self.resource_set_split_ratio(
                 selectors,
                 required_str(&fields, "split_id")?,
