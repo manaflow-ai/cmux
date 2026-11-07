@@ -58,6 +58,7 @@ export async function POST(
         cpu: cpu as number | undefined,
         memoryMb: memoryMb as number | undefined,
         maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.override,
         modelPlane: vmModelPlaneRevoker(),
       }), { request, deadline: { operation: "resize" } });
       if (!run.ok) return run.response;
@@ -73,9 +74,9 @@ export async function POST(
         memoryUsedMb: stats.memoryUsedMb,
         diskTotalMb: stats.diskTotalMb,
         diskUsedMb: stats.diskUsedMb,
-        maxDiskMb: maxDiskMbForPlan(account.entitlements.planId),
-        maxMemoryMb: maxMemoryMbForPlan(account.entitlements.planId),
-        maxVcpus: maxVcpusForPlan(account.entitlements.planId),
+        maxDiskMb: maxDiskMbForPlan(account.entitlements.planId, process.env, account.entitlements.override),
+        maxMemoryMb: maxMemoryMbForPlan(account.entitlements.planId, process.env, account.entitlements.override),
+        maxVcpus: maxVcpusForPlan(account.entitlements.planId, process.env, account.entitlements.override),
       });
     },
   );
