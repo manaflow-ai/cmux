@@ -10666,36 +10666,61 @@ export class AcpmuxDirectClient {
         ...(this.messageRows.get(messageId) ?? []).filter((rowId) => rowId !== pageId),
       ]);
     }
+    // Index retained tools once. Paging must reconcile O(page tools) rows, never scan all retained
+    // rows for every item (a 20k-row chat otherwise makes one page quadratic).
+    const heldTools = new Map<string, { rowId: string; tool: NonNullable<AcpmuxActivity["tool"]>; scope?: string }[]>();
+    for (const row of held.values())
+      for (const entry of row.items ?? [])
+        if (entry.tool) {
+          const key = `${entry.tool.id}\u0000${this.toolRowScopes.get(row.id) ?? ""}`;
+          const list = heldTools.get(key) ?? [];
+          list.push({ rowId: row.id, tool: entry.tool, scope: this.toolRowScopes.get(row.id) });
+          heldTools.set(key, list);
+        }
     for (const { callId, rowId, item, scope } of pageToolRows) {
       const liveRowId = live.toolRows.get(callId);
-      const liveScope = liveRowId === undefined ? undefined : live.toolRowScopes.get(liveRowId);
-      // Call ids are prompt-scoped. Prefer a held row from the same scope, but when an opener is
-      // the first record of its page its scope is learned only now: match its title or command to
-      // the held terminal row. A different completed call that reused the id does not match.
       const pageTool = item.tool;
-      const terminal = (tool: typeof pageTool | undefined) => tool?.status === "completed" || tool?.status === "failed";
       const compatible = (left: typeof pageTool | undefined, right: typeof pageTool | undefined) =>
         left?.title === right?.title ||
         left?.title === callId ||
         right?.title === callId ||
         (left?.command !== undefined && left.command === right?.command);
+      const scopeMatches = (candidateScope: string | undefined) =>
+        scope === undefined || candidateScope === undefined || scope === candidateScope;
       const candidates = [
-        liveRowId,
-        ...[...held.keys()].filter((candidate) => candidate !== rowId && candidate !== liveRowId),
-      ].filter((candidate, index, all): candidate is string => candidate !== undefined && all.indexOf(candidate) === index);
+        ...(liveRowId
+          ? [
+              {
+                rowId: liveRowId,
+                row: this.rows.get(liveRowId),
+                tool: this.rows.get(liveRowId)?.items?.find((entry) => entry.tool?.id === callId)?.tool,
+                scope: live.toolRowScopes.get(liveRowId),
+              },
+            ]
+          : []),
+        ...(heldTools.get(`${callId}\u0000${scope ?? ""}`) ?? []),
+        ...(scope === undefined
+          ? [...heldTools.entries()]
+              .filter(([key]) => key.startsWith(`${callId}\u0000`))
+              .flatMap(([, entries]) => entries)
+          : []),
+      ];
+      const seenCandidates = new Set<string>();
       const match = candidates
-        .map((candidate) => ({ rowId: candidate, row: this.rows.get(candidate) }))
-        .map(({ rowId: candidate, row }) => ({
-          rowId: candidate,
-          row,
-          tool: row?.items?.find((entry) => entry.tool?.id === callId)?.tool,
-        }))
+        .map((candidate) => ({ ...candidate, key: `${candidate.rowId}\u0000${candidate.tool.id}` }))
+        .filter((candidate) => {
+          if (seenCandidates.has(candidate.key)) return false;
+          seenCandidates.add(candidate.key);
+          return true;
+        })
         .find(
-          ({ row: candidateRow, tool }) =>
+          ({ rowId: candidateId, row: candidateRow, tool, scope: candidateScope }) =>
+            candidateId !== rowId &&
             candidateRow !== undefined &&
             tool !== undefined &&
-            terminal(pageTool) !== terminal(tool) &&
-            (scope === liveScope || compatible(pageTool, tool)),
+            candidateRow.at >= (this.rows.get(rowId)?.at ?? 0) &&
+            scopeMatches(candidateScope) &&
+            compatible(pageTool, tool),
         );
       if (match) {
         const pageRow = this.rows.get(rowId);
@@ -10709,6 +10734,26 @@ export class AcpmuxDirectClient {
               items: remaining,
               toolCount: remaining.filter((entry) => entry.kind === "tool").length,
             });
+        }
+        const retainedRow = this.rows.get(match.rowId);
+        if (retainedRow?.items) {
+          const retainedItems = retainedRow.items.map((entry) => {
+            if (entry.tool?.id !== callId) return entry;
+            return {
+              ...entry,
+              tool: {
+                ...entry.tool,
+                title: entry.tool.title === callId ? pageTool.title : entry.tool.title,
+                kind: entry.tool.kind ?? pageTool.kind,
+                inputSummary: entry.tool.inputSummary ?? pageTool.inputSummary,
+                command: entry.tool.command ?? pageTool.command,
+                description: entry.tool.description ?? pageTool.description,
+                locations: entry.tool.locations ?? pageTool.locations,
+                startedAt: entry.tool.startedAt ?? pageTool.startedAt,
+              },
+            };
+          });
+          this.rows.set(match.rowId, { ...retainedRow, version: retainedRow.version + 1, items: retainedItems });
         }
         this.toolRows.set(callId, match.rowId);
         continue;

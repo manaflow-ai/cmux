@@ -302,6 +302,10 @@ test("a titleless completed tool update survives a page boundary until its opene
       .flatMap((row) => row.items ?? [])
       .find((item) => item.kind === "tool") as { tool?: { id?: string; status?: string; output?: string } } | undefined;
     expect(tool?.tool?.id).toBe("boundary-call");
+    expect(tool?.tool?.title).toBe("run old");
+    expect(tool?.tool?.kind).toBe("execute");
+    expect(tool?.tool?.command).toBe("old");
+    expect(tool?.tool?.inputSummary).toContain("old");
     expect(tool?.tool?.status).toBe("completed");
     expect(tool?.tool?.output).toContain("result");
   } finally {
@@ -311,7 +315,7 @@ test("a titleless completed tool update survives a page boundary until its opene
 
 test("reused tool ids in different turns remain separate while paging", async () => {
   const id = chatId(4);
-  const step = (text: string, promptId: string, output: string): [string, string, Record<string, unknown>][] => [
+  const step = (text: string, promptId: string, output: string, finish = true): [string, string, Record<string, unknown>][] => [
     ["mux", "user_message", { text, promptId }],
     ["mux", "turn_started", {}],
     [
@@ -326,21 +330,25 @@ test("reused tool ids in different turns remain separate while paging", async ()
         rawInput: { command: text },
       }),
     ],
-    [
-      "in",
-      "tool_call_update",
-      update(id, {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "reused",
-        title: text,
-        kind: "execute",
-        status: "completed",
-        content: [{ type: "content", content: { type: "text", text: output } }],
-      }),
-    ],
+    ...(finish
+      ? [
+          [
+            "in",
+            "tool_call_update",
+            update(id, {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "reused",
+              title: text,
+              kind: "execute",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: output } }],
+            }),
+          ] as [string, string, Record<string, unknown>],
+        ]
+      : []),
     ["mux", "turn_result", { stopReason: "end_turn" }],
   ];
-  const steps = [...step("Old", "p-old", "old output"), ...step("Current", "p-current", "current output\n".repeat(80_000))];
+  const steps = [...step("Old", "p-old", "old output"), ...step("Old", "p-current", "current output", false)];
   const history: Rec[] = steps.map(([dir, kind, msg], index) => ({
     sessionId: id,
     seq: index + 1,
@@ -355,7 +363,7 @@ test("reused tool ids in different turns remain separate while paging", async ()
     const tools = state.snapshot?.rows.flatMap((row) => row.items ?? []).filter((item) => item.kind === "tool") ?? [];
     expect(tools).toHaveLength(2);
     expect((tools[0] as any).tool?.output).toBe("old output");
-    expect((tools[1] as any).tool?.output).toContain("current output");
+    expect((tools[1] as any).tool?.status).toBe("in_progress");
   } finally {
     client.close();
   }
