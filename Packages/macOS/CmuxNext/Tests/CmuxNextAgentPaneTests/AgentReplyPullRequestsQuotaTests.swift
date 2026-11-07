@@ -217,8 +217,8 @@ struct AgentReplyPullRequestsQuotaTests {
         let open = try #require(AgentChatPullRequestReader.Target(url: "https://github.com/o/r/pull/1"))
         let merged = try #require(AgentChatPullRequestReader.Target(url: "https://github.com/o/r/pull/2"))
         let query = AgentChatPullRequestReader.probeQuery([(open, true), (merged, false)])
-        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { updatedAt state isDraft commits(last: 1)"))
-        #expect(query.contains("p1: repository(owner: \"o\", name: \"r\") { pullRequest(number: 2) { updatedAt state isDraft } }"))
+        #expect(query.contains("p0: repository(owner: \"o\", name: \"r\") { pullRequest(number: 1) { updatedAt state isDraft mergeable commits(last: 1)"))
+        #expect(query.contains("p1: repository(owner: \"o\", name: \"r\") { pullRequest(number: 2) { updatedAt state isDraft mergeable } }"))
         #expect(query.contains(AgentChatPullRequestReader.rateLimitField))
         // The rollup's sum and its counts by state, never the checks themselves.
         #expect(query.contains("__typename") == false, "the probe reads the rollup's sum and counts, never its checks")
