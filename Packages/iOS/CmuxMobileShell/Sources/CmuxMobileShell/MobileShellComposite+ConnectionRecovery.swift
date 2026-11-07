@@ -53,7 +53,16 @@ extension MobileShellComposite {
     /// Foreground, network, presence, liveness, and stream-failure recovery all
     /// enter the same owner. Foreground starts with a positive-liveness probe;
     /// a failed probe promotes that exact attempt to one stored-Mac redial.
-    func recoverForegroundConnectionIfNeeded(resyncAfterHealthy: Bool) {
+    ///
+    /// After a long background the session may be half-open: the Mac idled
+    /// it out while the phone was suspended, but the phone's native
+    /// connection has not observed the close yet. That probe shows
+    /// Reconnecting after a short grace, and two unanswered probes redial
+    /// instead of retaining a session that only looks open.
+    func recoverForegroundConnectionIfNeeded(
+        resyncAfterHealthy: Bool,
+        afterLongBackground: Bool = false
+    ) {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
@@ -61,11 +70,13 @@ extension MobileShellComposite {
             pendingInactiveRecoveryTrigger = .foreground
             return
         }
-        beginConnectionRecovery(
+        startConnectionRecovery(
             trigger: .foreground,
             expectedClient: client,
             probeCurrentConnection: true,
-            resyncAfterHealthy: resyncAfterHealthy
+            resyncAfterHealthy: resyncAfterHealthy,
+            preclaimedAttempt: nil,
+            unansweredProbeIsDead: afterLongBackground
         )
     }
 
@@ -313,7 +324,8 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient?,
         probeCurrentConnection: Bool,
         resyncAfterHealthy: Bool,
-        preclaimedAttempt: MobileConnectionRecoveryOwner.Attempt?
+        preclaimedAttempt: MobileConnectionRecoveryOwner.Attempt?,
+        unansweredProbeIsDead: Bool = false
     ) {
         guard pairedMacStore != nil else {
             guard connectionState == .connected else { return }
@@ -365,6 +377,9 @@ extension MobileShellComposite {
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
         applyConnectionRecoveryOwnerState()
+        if probeCurrentConnection, unansweredProbeIsDead {
+            scheduleForegroundProbeIndicator(for: attempt)
+        }
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
 
         let task = Task { @MainActor [weak self] in
@@ -375,14 +390,43 @@ extension MobileShellComposite {
 
                 if probeCurrentConnection, let expectedClient {
                     let epochAtProbeStart = self.foregroundResumeEpoch
-                    let healthy = await self.reloadWorkspaceListFromMac(
+                    var healthy = await self.reloadWorkspaceListFromMac(
                         timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
                     )
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt),
                           self.remoteClient === expectedClient,
                           self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                        self.releaseStaleProbe(attempt)
                         return
+                    }
+                    if !healthy, unansweredProbeIsDead,
+                       self.lastBackgroundedAt == nil,
+                       self.foregroundResumeEpoch == epochAtProbeStart,
+                       await expectedClient.isTransportClosed() == false {
+                        // One failed probe is ambiguous right after resume:
+                        // relay paths may still be re-establishing, the
+                        // state-sync fetch may share a stalled runner, and an
+                        // error reply proves the Mac is alive. Confirm with a
+                        // fresh, direct request before replacing a session
+                        // whose native connection still reads open.
+                        guard !Task.isCancelled,
+                              self.connectionRecoveryOwner.isCurrent(attempt),
+                              self.remoteClient === expectedClient else {
+                            self.releaseStaleProbe(attempt)
+                            return
+                        }
+                        healthy = await self.macAnswersLivenessRequest(
+                            client: expectedClient,
+                            timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
+                        )
+                        guard !Task.isCancelled,
+                              self.connectionRecoveryOwner.isCurrent(attempt),
+                              self.remoteClient === expectedClient,
+                              self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                            self.releaseStaleProbe(attempt)
+                            return
+                        }
                     }
                     if healthy {
                         guard self.completeConnectionRecovery(attempt) else { return }
@@ -405,8 +449,13 @@ extension MobileShellComposite {
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt),
                           self.remoteClient === expectedClient,
-                          self.connectionGeneration == attempt.sourceConnectionGeneration else { return }
-                    if transportClosed == false {
+                          self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                        self.releaseStaleProbe(attempt)
+                        return
+                    }
+                    let spannedBackground = self.lastBackgroundedAt != nil
+                        || self.foregroundResumeEpoch != epochAtProbeStart
+                    if transportClosed == false, !unansweredProbeIsDead {
                         // A slow application response after a path change or
                         // resume does not invalidate the native connection.
                         _ = self.completeConnectionRecovery(attempt)
@@ -427,8 +476,7 @@ extension MobileShellComposite {
                         self.applyConnectionRecoveryOwnerState()
                         return
                     }
-                    if self.lastBackgroundedAt != nil
-                        || self.foregroundResumeEpoch != epochAtProbeStart {
+                    if spannedBackground {
                         // The probe spanned a background window: its wall-clock
                         // deadline burned while the process was suspended, so
                         // the timeout is not evidence of a dead connection.
@@ -441,10 +489,23 @@ extension MobileShellComposite {
                         self.applyConnectionRecoveryOwnerState()
                         if self.lastBackgroundedAt == nil {
                             self.recoverForegroundConnectionIfNeeded(
-                                resyncAfterHealthy: resyncAfterHealthy
+                                resyncAfterHealthy: resyncAfterHealthy,
+                                afterLongBackground: unansweredProbeIsDead
                             )
                         }
                         return
+                    }
+                    if transportClosed == false {
+                        // Long-background return: the native connection
+                        // still reads open, but the Mac answered neither
+                        // probe. The Mac likely idled the session out while
+                        // the phone was suspended; retaining it would show
+                        // Connected over a dead session until native idle
+                        // detection fires, so replace it now.
+                        MobileDebugLog.anchormux(
+                            "connection.recovery unanswered probe after long background; "
+                                + "redialing attempt=\(attempt.id.uuidString)"
+                        )
                     }
                 }
 
@@ -719,6 +780,13 @@ extension MobileShellComposite {
             connectionRecoveryAttemptDeadlineTask?.cancel()
             connectionRecoveryAttemptDeadlineTask = nil
         }
+        if let indicatorAttemptID = foregroundProbeIndicatorAttemptID,
+           connectionRecoveryOwner.probingAttemptID != indicatorAttemptID {
+            foregroundProbeIndicatorTask?.cancel()
+            foregroundProbeIndicatorTask = nil
+            foregroundProbeIndicatorAttemptID = nil
+            foregroundProbeIndicatorIsVisible = false
+        }
         switch connectionRecoveryOwner.phase {
         case .idle:
             isRecoveringConnection = false
@@ -727,8 +795,11 @@ extension MobileShellComposite {
             // A probe is a background health check on a connection still
             // believed healthy: the terminal stays interactive and the visible
             // status untouched. Only an actual redial may surface reconnecting
-            // UI (the picker status line and terminal status pill).
-            isRecoveringConnection = false
+            // UI (the picker status line and terminal status pill), except a
+            // long-background probe that outlived its grace: the session may
+            // be half-open, so the user sees Reconnecting while it settles.
+            isRecoveringConnection = foregroundProbeIndicatorIsVisible
+                && connectionState == .connected
             connectionRecoveryFailed = false
         case .redialing, .validatingReplacement:
             isRecoveringConnection = true
@@ -742,6 +813,71 @@ extension MobileShellComposite {
             isRecoveringConnection = false
             connectionRecoveryFailed = true
             if connectionState != .connected { macConnectionStatus = .unavailable }
+        }
+    }
+
+    /// Shows Reconnecting for a long-background foreground probe that has
+    /// not settled within the grace. Input stays enabled throughout; only the
+    /// status line and title spinner change.
+    private func scheduleForegroundProbeIndicator(
+        for attempt: MobileConnectionRecoveryOwner.Attempt
+    ) {
+        foregroundProbeIndicatorTask?.cancel()
+        foregroundProbeIndicatorAttemptID = attempt.id
+        foregroundProbeIndicatorIsVisible = false
+        let clock = foregroundProbeIndicatorClock
+        foregroundProbeIndicatorTask = Task { @MainActor [weak self] in
+            do {
+                try await clock.sleep(for: Self.foregroundProbeIndicatorGrace)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled,
+                  self.foregroundProbeIndicatorAttemptID == attempt.id,
+                  self.connectionRecoveryOwner.probingAttemptID == attempt.id,
+                  self.connectionState == .connected else { return }
+            self.foregroundProbeIndicatorTask = nil
+            self.foregroundProbeIndicatorIsVisible = true
+            self.applyConnectionRecoveryOwnerState()
+        }
+    }
+
+    /// Settles a probe whose session was torn down or replaced under it,
+    /// for example by an authorization failure during the probe request.
+    /// Nothing else leaves the probing phase, so without this the owner
+    /// would swallow every later recovery trigger.
+    private func releaseStaleProbe(_ attempt: MobileConnectionRecoveryOwner.Attempt) {
+        guard connectionRecoveryOwner.probingAttemptID == attempt.id else { return }
+        connectionRecoveryOwner.cancelProbing()
+        applyConnectionRecoveryOwnerState()
+    }
+
+    /// Confirms whether the Mac still serves this session with one direct
+    /// request that bypasses the coalesced workspace-list and state-sync
+    /// fetches. Any reply, including an RPC error, proves the session is
+    /// alive; only a timeout or closed transport counts as unanswered.
+    private func macAnswersLivenessRequest(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64?
+    ) async -> Bool {
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
+            )
+            return true
+        } catch let error as MobileShellConnectionError {
+            switch error {
+            case .requestTimedOut, .transportWriteTimedOut, .connectionClosed:
+                return false
+            default:
+                if remoteClient === client {
+                    _ = disconnectForAuthorizationFailureIfNeeded(error)
+                }
+                return true
+            }
+        } catch {
+            return false
         }
     }
 
