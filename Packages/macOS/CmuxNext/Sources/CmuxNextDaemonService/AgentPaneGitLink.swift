@@ -94,10 +94,11 @@ public final class AgentPaneGitLink {
         }
     }
 
-    /// Session host mutation `operation` with `params` as sent, under `idempotencyKey`, on the
-    /// write connection (the diff page's `diff.comments.save` and `.delete`). Throws like
-    /// ``write(_:in:)``.
-    public func mutate(_ operation: String, params: [String: JSONValue], idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+    /// Session host mutation `operation` with `params` (a JSON object, as sent), under
+    /// `idempotencyKey`, on the write connection (the diff page's `diff.comments.save` and
+    /// `.delete`). Throws like ``write(_:in:)``; params that are no JSON object are `native.failed`.
+    public func mutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
         let connection: DaemonConnection
         do {
             let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")

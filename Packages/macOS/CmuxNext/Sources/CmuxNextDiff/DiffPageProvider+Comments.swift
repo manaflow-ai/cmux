@@ -110,13 +110,15 @@ extension DiffAgentGit: DiffCommentsStoring {
     }
 
     public func saveComment(root: String, comment: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        try Self.mutationValue(try await link.mutate("diff.comments.save", params: ["root": .string(root), "comment": comment],
-                                                     idempotencyKey: key))
+        try await mutate("diff.comments.save", ["root": .string(root), "comment": comment], key: key)
     }
 
     public func deleteComments(root: String, ids: [String], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        try Self.mutationValue(try await link.mutate("diff.comments.delete", params: ["root": .string(root), "ids": .array(ids.map(JSONValue.string))],
-                                                     idempotencyKey: key))
+        try await mutate("diff.comments.delete", ["root": .string(root), "ids": .array(ids.map(JSONValue.string))], key: key)
+    }
+
+    private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+        try Self.mutationValue(try await link.mutate(operation, params: Data(params.compactText.utf8), idempotencyKey: key))
     }
 
     private static func parseComments(_ data: Data) throws(AgentPaneGitFailure) -> JSONValue {
