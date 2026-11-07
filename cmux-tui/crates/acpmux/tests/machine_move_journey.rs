@@ -492,7 +492,16 @@ async fn move_to_a_fresh_machine(fault: Fault) {
             {
                 sent.push(json!([d["promptId"], d["status"], d["error"], d["attempts"]]));
             }
-            let kinds: Vec<_> = events.iter().map(|e| json!([e["seq"], e["kind"]])).collect();
+            let kinds: Vec<_> = events
+                .iter()
+                .map(|e| json!([e["seq"], e["kind"], e["at"], e["msg"]["promptId"]]))
+                .collect();
+            let saw: Vec<_> = seen
+                .iter()
+                .filter(|e| e["msg"]["promptId"].is_string())
+                .map(|e| json!([e["seq"], e["kind"], e["at"], e["msg"]["promptId"]]))
+                .collect();
+            eprintln!("A saw of the prompts: {saw:?}");
             panic!(
                 "p2 never ran on the fresh machine.\npeers: {:?}\ncopy lastSeq {} hostLastSeq {}\nsent: {sent:?}\nB2: {kinds:?}",
                 a.peers(),
