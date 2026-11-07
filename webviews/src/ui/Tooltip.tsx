@@ -176,6 +176,10 @@ export function AnchoredCard({
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
+            // what it covers itself.
+            data-host-glass="popover"
+            data-host-glass-cover={under ? undefined : ""}
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
