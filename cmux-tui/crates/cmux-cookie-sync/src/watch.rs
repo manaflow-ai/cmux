@@ -167,13 +167,15 @@ mod kqueue {
             };
             let mut wakes = Vec::new();
             for event in events.iter().take(count) {
-                if event.filter == libc::EVFILT_USER {
+                // By value: `kevent` is packed on x86_64, so no reference to a field.
+                let (ident, filter, fflags) = (event.ident, event.filter, event.fflags);
+                if filter == libc::EVFILT_USER {
                     return vec![Wake::Stop];
                 }
-                if let Some(path) = self.paths.get(&event.ident) {
+                if let Some(path) = self.paths.get(&ident) {
                     wakes.push(Wake::Changed {
                         paths: vec![path.clone()],
-                        moved: event.fflags & MOVED != 0,
+                        moved: fflags & MOVED != 0,
                     });
                 }
             }
