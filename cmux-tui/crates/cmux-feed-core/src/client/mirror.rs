@@ -210,7 +210,7 @@ impl Mirror {
             return None;
         }
         self.connection = connection;
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         Some(Commit { revision: self.revision, changed: Vec::new() })
     }
 
@@ -305,7 +305,7 @@ impl Mirror {
         let commit = match self.commit(touched, &forced, now, false) {
             Some(commit) => commit,
             None => {
-                self.revision += 1;
+                self.revision = self.revision.saturating_add(1);
                 Commit { revision: self.revision, changed: Vec::new() }
             }
         };
@@ -372,7 +372,7 @@ impl Mirror {
         }
         let outcome = match self.splits.get_mut(key) {
             Some((remaining, first)) if *remaining > 1 => {
-                *remaining -= 1;
+                *remaining = remaining.saturating_sub(1);
                 if first.is_none() {
                     *first = reject;
                 }
@@ -433,7 +433,7 @@ impl Mirror {
         if changed.is_empty() && !always {
             return None;
         }
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         Some(Commit { revision: self.revision, changed })
     }
 }

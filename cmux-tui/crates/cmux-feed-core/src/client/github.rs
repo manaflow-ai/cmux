@@ -426,7 +426,7 @@ fn base_item(
     if let Some(url) = url {
         item.context = Map::from_iter([("url".to_owned(), json!(url))]);
     }
-    item.expires_at = Some(now + WEEK_MS);
+    item.expires_at = Some(now.saturating_add(WEEK_MS));
     item.updated_at = now;
     item
 }

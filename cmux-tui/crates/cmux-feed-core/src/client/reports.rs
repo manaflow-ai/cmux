@@ -54,7 +54,8 @@ impl MailPage {
 fn message(row: &Value) -> Option<(u64, Report)> {
     let text = |key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
     let created = row.get("createdAt")?;
-    let created_at = created.as_i64().or_else(|| created.as_f64().map(|n| n as i64))?;
+    let created_at =
+        created.as_i64().or_else(|| created.as_f64().and_then(super::item::whole_ms))?;
     Some((
         row.get("seq")?.as_u64()?,
         Report { id: text("id")?, sender: text("sender")?, body: text("body")?, created_at },
@@ -84,7 +85,7 @@ impl Reports {
         self.rows = kept.iter().map(|report| (report.id.clone(), report.clone())).collect();
         let changed = kept != before;
         if changed {
-            self.revision += 1;
+            self.revision = self.revision.saturating_add(1);
         }
         changed
     }
@@ -95,7 +96,7 @@ impl Reports {
             return false;
         }
         self.rows.clear();
-        self.revision += 1;
+        self.revision = self.revision.saturating_add(1);
         true
     }
 

@@ -90,8 +90,8 @@ impl ViewContext<'_> {
             }
             Layout::NeedsYou => groups.push(("needs_you", requests().collect())),
             Layout::Inbox => {
-                let offset = i64::from(request.tz_offset_min.unwrap_or(0)) * 60_000;
-                let day = |ms: i64| (ms + offset).div_euclid(DAY_MS);
+                let offset = i64::from(request.tz_offset_min.unwrap_or(0)).saturating_mul(60_000);
+                let day = |ms: i64| ms.saturating_add(offset).div_euclid(DAY_MS);
                 let today = day(self.now);
                 let (mut recent, mut older) = (Vec::new(), Vec::new());
                 for item in kept().filter(|item| !item.is_open_request()) {
@@ -108,7 +108,7 @@ impl ViewContext<'_> {
             .into_iter()
             .map(|(id, entries)| {
                 let shown = entries.len().min(left);
-                left -= shown;
+                left = left.saturating_sub(shown);
                 let entries: Vec<Value> =
                     entries.iter().take(shown).map(|entry| entry.to_value(self)).collect();
                 json!({"id": id, "entries": entries})
