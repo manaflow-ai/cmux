@@ -16,7 +16,7 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
-import { chatPlace } from "./chatMachine";
+import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -4386,10 +4386,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The Inspector (Debug Settings `agent.sessionInfo`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const sessionInfoSummary = sessionInfoSnapshot.summary;
-  const sessionInfoLocal =
-    sessionInfoSummary !== undefined &&
-    !sessionInfoSummary.peer &&
-    !(sessionInfoSummary.host && sessionInfoSummary.hostKind !== "local");
+  // On this Mac by the Session Info row's own source (chatMachine.ts): never a chat over a remote route.
+  const sessionInfoLocal = chatOnThisMac(
+    sessionInfoSummary,
+    sessionInfoSnapshot.peerKinds,
+    chatPlace(sessionInfoSnapshot),
+  );
   // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
   // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
   // one (a chat on this Mac; another machine's folders are not here). The folder is found on the
