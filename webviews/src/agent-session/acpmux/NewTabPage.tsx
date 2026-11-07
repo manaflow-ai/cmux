@@ -24,12 +24,8 @@ import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";

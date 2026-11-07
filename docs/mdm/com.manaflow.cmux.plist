@@ -3119,6 +3119,7 @@
 				<string>panes</string>
 				<string>two-tone</string>
 				<string>floating</string>
+				<string>blocks</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Window Style</string>
