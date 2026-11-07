@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 
@@ -78,7 +79,8 @@ pub(crate) async fn classic(http: &Http, args: &Map<String, Value>) -> Result<Va
         "exec" => {
             let ms = optional_int(args, "timeout_ms").unwrap_or(30_000);
             let body = json!({ "command": text(args, "command")?, "timeoutMs": ms });
-            let timeout = Duration::from_millis(u64::try_from(ms.max(0)).unwrap_or(0)) + secs(5);
+            let timeout = Duration::from_millis(u64::try_from(ms.max(0)).unwrap_or(0))
+                .saturating_add(secs(5));
             http.classic(Method::POST, &["api", "vm", id, "exec"], &[], Some(body), None, timeout)
                 .await
         }
@@ -142,7 +144,7 @@ pub(crate) async fn classic(http: &Http, args: &Map<String, Value>) -> Result<Va
             let mut body =
                 json!({ "path": text(args, "path")?, "dataBase64": text(args, "data_base64")? });
             if let Some(mode) = optional_int(args, "mode") {
-                body["mode"] = json!(mode);
+                body.set("mode", json!(mode));
             }
             http.classic(
                 Method::POST,

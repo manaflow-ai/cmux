@@ -414,7 +414,7 @@ async fn read(client: &reqwest::Client, grant: &Grant, path: &str) -> Result<Ans
                 return Err(Direct::Fallback);
             }
             file.write_all(&chunk).map_err(storage_error)?;
-            received += chunk.len() as u64;
+            received = received.saturating_add(chunk.len() as u64);
             if empty || received >= total {
                 if received != total {
                     continue 'tries;
@@ -452,7 +452,7 @@ async fn write(
             let _ = fs(client, grant, "abort", &stage, &[], None).await;
             return Err(direct);
         }
-        sent += chunk.len();
+        sent = sent.saturating_add(chunk.len());
     }
     let digest: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
     let args: Vec<String> = [stage.clone(), digest].into_iter().chain(mode).collect();

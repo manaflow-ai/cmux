@@ -16,7 +16,8 @@ use super::*;
 
 const VM: &str = "vm_abcdefghij0123456789";
 
-/// One request the fake saw: its request line, its lowercased header lines and its body.
+/// One request the fake saw: its request line, its header lines (names lowercased, values as
+/// sent) and its body.
 #[derive(Debug, Clone)]
 struct Seen {
     line: String,
@@ -48,7 +49,7 @@ fn fake(
                 let n = stream.read(&mut chunk).unwrap_or(0);
                 buffer.extend_from_slice(&chunk[..n]);
                 if let Some(end) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
-                    let head = String::from_utf8_lossy(&buffer[..end]).to_ascii_lowercase();
+                    let head = lowercase_names(&String::from_utf8_lossy(&buffer[..end]));
                     let length = head
                         .lines()
                         .find_map(|l| l.strip_prefix("content-length: "))
@@ -81,9 +82,22 @@ fn fake(
     (origin, seen)
 }
 
+/// `head` with each header name lowercased and every value kept as sent.
+fn lowercase_names(head: &str) -> String {
+    head.lines()
+        .map(|line| match line.split_once(':') {
+            Some((name, value)) => format!("{}:{value}", name.to_ascii_lowercase()),
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A test daemon serving its own socket; the socket is removed on drop.
 struct Daemon {
     socket: PathBuf,
+    /// The daemon's durable state (registry, journal, request records).
+    state: PathBuf,
 }
 
 impl Daemon {
@@ -94,9 +108,10 @@ impl Daemon {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         );
-        let mux = Mux::new_for_test(session, crate::SurfaceOptions::default());
+        let state = std::env::temp_dir().join(format!("{session}-state"));
+        let mux = Mux::open_persistent(&session, crate::SurfaceOptions::default(), &state).unwrap();
         let socket = crate::server::serve(mux, None).unwrap();
-        Self { socket }
+        Self { socket, state }
     }
 
     fn client(&self) -> cmux::raw::Client {
@@ -137,6 +152,7 @@ impl Daemon {
 impl Drop for Daemon {
     fn drop(&mut self) {
         crate::server::cleanup(&self.socket);
+        let _ = std::fs::remove_dir_all(&self.state);
     }
 }
 
@@ -175,7 +191,7 @@ fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
     assert_eq!(result, Ok(json!([{"id": "d1"}])));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /api/vm/domains "));
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("bearer secret-access"));
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
 }
@@ -325,4 +341,49 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
         daemon.send("cloud.vm.resize", params(&origin, "stack", json!({})), None).unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
+}
+
+/// Every file under `root`, read whole.
+fn files(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                found.push((path, bytes));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn no_record_or_log_of_the_daemon_holds_a_credential() {
+    let (origin, seen) = fake(|seen| {
+        if seen.line.starts_with("GET") {
+            (200, r#"{"domains":[]}"#.into())
+        } else {
+            (409, r#"{"error":"vm_busy","message":"echo secret-access"}"#.into())
+        }
+    });
+    let daemon = Daemon::start("records");
+    assert!(daemon.send("cloud.vm.domains", params(&origin, "stack", json!({})), None).is_ok());
+    let resize = params(&origin, "stack", json!({"id": VM, "cpu": 4}));
+    assert!(daemon.send("cloud.vm.resize", resize, Some("records-1")).is_err());
+    let mut keyed = params(&origin, "owner", json!({"machine": VM, "key_length": 10}));
+    keyed["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(b"secret-key"));
+    let _ = daemon.send("cloud.owner.acpmux_keyed_start", keyed, Some("records-2"));
+    assert_eq!(seen.lock().unwrap().len(), 3, "every call reached the API");
+    let written = files(&daemon.state);
+    assert!(!written.is_empty(), "the daemon keeps durable state");
+    for (path, bytes) in written {
+        let text = String::from_utf8_lossy(&bytes);
+        for secret in ["secret-access", "secret-refresh", "secret-key", "c2VjcmV0LWtleQ"] {
+            assert!(!text.contains(secret), "{} holds {secret}", path.display());
+        }
+    }
 }

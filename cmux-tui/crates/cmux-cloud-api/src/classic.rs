@@ -4,6 +4,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 
@@ -120,7 +121,7 @@ pub(crate) async fn run(
             let mut body =
                 pick(args, &["deviceFingerprint", "networkId", "clientPublicKey", "tunnelPurpose"]);
             if body.get("tunnelPurpose").is_none() {
-                body["tunnelPurpose"] = json!("browser");
+                body.set("tunnelPurpose", json!("browser"));
             }
             http.classic(
                 Method::POST,
@@ -193,7 +194,7 @@ pub(crate) async fn run(
         "vm.provision_api" => {
             let mut body = pick(args, &["vmId", "port", "accessMode"]);
             if let Some(name) = optional_text(args, "keyName") {
-                body["name"] = json!(name);
+                body.set("name", json!(name));
             }
             http.classic(Method::POST, &["api", "vm", "apis"], &[], Some(body), None, secs(120))
                 .await

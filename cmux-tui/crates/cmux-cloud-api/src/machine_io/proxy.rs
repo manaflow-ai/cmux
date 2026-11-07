@@ -49,7 +49,7 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
             client
                 .post(format!("{base}/exec"))
                 .json(&json!({ "command": request.command.clone().unwrap_or_default(), "timeoutMs": timeout }))
-                .timeout(Duration::from_millis(timeout) + Duration::from_secs(5))
+                .timeout(Duration::from_millis(timeout).saturating_add(Duration::from_secs(5)))
         }
     };
     let mut builder = builder

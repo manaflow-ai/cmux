@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 use tokio::time::Instant;
@@ -28,11 +29,11 @@ pub(crate) async fn create(http: &Http, args: &Map<String, Value>) -> Result<Val
     let mut body = json!({ "environment": "sandboxed", "task": text(args, "task")? });
     for name in ["agent", "image"] {
         if let Some(value) = optional_text(args, name).filter(|v| !v.is_empty()) {
-            body[name] = json!(value);
+            body.set(name, json!(value));
         }
     }
     if let Some(ms) = optional_int(args, "timeoutMs") {
-        body["timeoutMs"] = json!(ms);
+        body.set("timeoutMs", json!(ms));
     }
     let key = text(args, "idempotencyKey")?;
     http.classic(
@@ -79,7 +80,7 @@ async fn wait_once(http: &Http, id: &str, ms: i64) -> Result<Value, Failure> {
         &query,
         None,
         None,
-        millis(held + 10_000),
+        millis(held.saturating_add(10_000)),
     )
     .await
 }
@@ -110,8 +111,10 @@ pub(crate) async fn sandbox(http: &Http, args: &Map<String, Value>) -> Result<Va
     let margin = millis(optional_int(args, "callsMarginMs").unwrap_or(DEFAULT_CALLS_MARGIN_MS));
     let mut args = args.clone();
     args.insert("timeoutMs".into(), json!(timeout_ms));
-    let deadline = Instant::now() + millis(timeout_ms) + teardown;
-    let bound = millis(timeout_ms) + teardown + margin;
+    let bound = millis(timeout_ms).saturating_add(teardown);
+    let now = Instant::now();
+    let deadline = now.checked_add(bound).unwrap_or(now);
+    let bound = bound.saturating_add(margin);
     tokio::time::timeout(bound, follow(http, &args, deadline))
         .await
         .unwrap_or_else(|_| Err(Failure::TimedOut("/api/runs".into())))

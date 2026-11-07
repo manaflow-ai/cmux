@@ -15,7 +15,7 @@ use super::*;
 
 const VM: &str = "vm_abcdefghij0123456789";
 
-/// One request the fake saw: its request line, its lowercased head and its body.
+/// One request the fake saw: its request line, its head (names lowercased) and its body.
 #[derive(Debug, Clone)]
 struct Seen {
     line: String,
@@ -53,7 +53,15 @@ fn fake(reply: impl Fn(&Seen) -> (u16, String) + Send + Sync + 'static) -> (Stri
                     continue;
                 };
                 let raw = String::from_utf8_lossy(&buffer[..end]).to_string();
-                let head = raw.to_ascii_lowercase();
+                // Names lowercased, values as sent.
+                let head = raw
+                    .lines()
+                    .map(|line| match line.split_once(':') {
+                        Some((name, value)) => format!("{}:{value}", name.to_ascii_lowercase()),
+                        None => line.to_owned(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 let length = head
                     .lines()
                     .find_map(|l| l.strip_prefix("content-length: "))
@@ -116,7 +124,7 @@ fn a_classic_vm_call_reaches_the_api_through_the_daemon() {
     assert_eq!(answer.unwrap(), json!([{"id": "s1"}]));
     let seen = seen.lock().unwrap();
     assert!(seen[0].line.starts_with("GET /api/vm/vm-1/snapshots "));
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("bearer secret-access"));
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
 }
@@ -205,7 +213,7 @@ fn the_params_carry_the_route_the_fields_and_the_key_as_base64() {
     assert_eq!(params["refresh_token"], "secret-refresh");
     assert_eq!(params["auth"], "owner");
     assert_eq!(params["args"], json!({}));
-    assert_eq!(params["key_base64"], "aw==");
+    assert_eq!(params["key_base64"], "awo=");
     let plain = super::params(&call, &[], None);
     assert!(plain.get("key_base64").is_none());
     assert_eq!(plain["session"], "current");

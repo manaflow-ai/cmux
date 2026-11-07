@@ -1099,6 +1099,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-cloud-client",
+ "cmux-json",
  "reqwest",
  "rustls",
  "serde",

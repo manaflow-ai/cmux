@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -84,8 +85,8 @@ pub(crate) async fn run(
                 .clamp(0, HANDOFF_WAIT_LIMIT_MS);
             let after = optional_int(args, "after").unwrap_or(0).max(0);
             let query = [("after", after.to_string()), ("timeoutMs", held.to_string())];
-            let timeout =
-                Duration::from_millis(u64::try_from(held).unwrap_or(0)) + Duration::from_secs(15);
+            let timeout = Duration::from_millis(u64::try_from(held).unwrap_or(0))
+                .saturating_add(Duration::from_secs(15));
             get(http, &["v1", "handoffs", id, "wait"], &query, timeout).await
         }
         "owner.handoffs" => handoffs(http, optional_int(args, "pages").unwrap_or(20)).await,
@@ -286,7 +287,7 @@ async fn handoff_post(http: &Http, segments: &[&str], body: Value) -> Result<Val
     let turn = object.as_ref().and_then(|o| o.get("handoff")).and_then(handoff_turn);
     match turn {
         Some(mut turn) if reply.ok() || refused => {
-            turn["refusal"] = if reply.ok() { Value::Null } else { json!(code) };
+            turn.set("refusal", if reply.ok() { Value::Null } else { json!(code) });
             Ok(turn)
         }
         _ => Err(worker_error(reply.status, object.as_ref())),
