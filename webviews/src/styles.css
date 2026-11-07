@@ -95,8 +95,10 @@ html {
   background: var(--cmux-diff-viewer-bg);
 }
 /* A chat that shares the native tab row leaves that row's background visible behind its tools.
-   The page still owns the background below the row; only the offered strip is transparent. */
-html:has(.acpmux-shell[data-tab-row]) {
+   The page still owns the background below the row; only the offered strip is transparent. The root mark is
+   set by the shell (header/tabRow.ts useTabRowRoot), never read through `html:has()`, which a streamed chunk
+   re-checks for every node it inserts. */
+:root[data-acpmux-tab-row] {
   background: transparent !important;
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
@@ -1526,11 +1528,29 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-menu {
   min-width: 180px;
-  padding: var(--ds-space-1);
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: var(--ds-radius-menu);
-  background: var(--cmux-diff-solid-bg);
   box-shadow: var(--elevation-2);
+}
+.file-tree-context-menu .ui-menu-icon > svg {
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+}
+.file-tree-context-anchor {
+  position: fixed;
+  z-index: var(--layer-backdrop);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.file-tree-context-anchor > .ui-button {
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
 }
 .file-review-controls {
   display: inline-flex;

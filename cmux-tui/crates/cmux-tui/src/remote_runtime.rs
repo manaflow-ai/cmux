@@ -260,6 +260,10 @@ pub struct DaemonRuntimeOptions {
     pub trusted_carrier_websocket: bool,
     pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
+    /// The carrier grant config (`--carrier-grant-config`,
+    /// `cmux_remote::grant::GrantConfig`); without it the daemon refuses
+    /// every grant.
+    pub carrier_grant_config: Option<PathBuf>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
     pub resume_lease: Duration,
@@ -2165,6 +2169,9 @@ async fn run_daemon(
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
+        if let Some(path) = &options.carrier_grant_config {
+            install_grant_verifier(&auth, path);
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
@@ -2517,6 +2524,58 @@ async fn recover_inactive_predecessor_state(
         .context("could not remove stale remote daemon lifecycle evidence")?;
     Ok(())
 }
+
+/// Installs the carrier grant verifier from `path`. A config that cannot be
+/// read leaves grants refused (the daemon's default) and says why; the
+/// daemon still serves every other route.
+fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
+    let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
+        let verifier = verifier.with_unknown_kid_hook(Box::new(report_unknown_kid));
+        let machine = verifier.config().machine.clone();
+        auth.set_grant_verifier(Arc::new(verifier))
+            .map(|()| machine)
+            .map_err(|error| error.to_string())
+    });
+    match installed {
+        Ok(machine) => {
+            crate::client_log::stderr_log!(
+                "remote",
+                "{BIN}: carrier grants admitted for {machine}"
+            );
+        }
+        Err(error) => {
+            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
+        }
+    }
+}
+
+/// Tells the Cloud agent a carrier grant named a kid this daemon's keyset
+/// lacks, so it fetches the keyset and rewrites the grant config
+/// (cmux-host `cloud/carrier_keyset.rs`). One line on the agent socket, on
+/// its own thread so a handshake never waits; every step is bounded by
+/// [`UNKNOWN_KID_REPORT_TIMEOUT`], and the verifier reports at most once a
+/// minute.
+fn report_unknown_kid(kid: &str) {
+    let key = cmux_host::cloud::carrier_keyset::REQUEST_KEY;
+    let line = format!("{}\n", serde_json::json!({ key: { "kid": kid } }));
+    let spawned = thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
+        use std::io::{Read as _, Write as _};
+        let socket = cmux_host::cloud::wire::AGENT_SOCKET;
+        let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
+        let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        if stream.write_all(line.as_bytes()).is_ok() {
+            let mut reply = [0_u8; 256];
+            let _ = stream.read(&mut reply);
+        }
+    });
+    if let Err(error) = spawned {
+        crate::client_log::stderr_log!("remote", "{BIN}: carrier keyset report: {error}");
+    }
+}
+
+/// Each step of an unknown-kid report (connect is local and immediate).
+const UNKNOWN_KID_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn load_daemon_auth_during_handoff(
     state_dir: &Path,
@@ -3680,6 +3739,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3741,6 +3801,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3780,6 +3841,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3833,6 +3895,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -3886,6 +3949,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3930,6 +3994,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -3984,6 +4049,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4033,6 +4099,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4081,6 +4148,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4128,6 +4196,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4193,6 +4262,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4256,6 +4326,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4301,6 +4372,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4386,6 +4458,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4432,6 +4505,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4471,6 +4545,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4518,6 +4593,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4545,6 +4621,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4595,6 +4672,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4630,6 +4708,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -4743,6 +4822,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4800,6 +4880,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -4885,6 +4966,7 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
@@ -5090,6 +5172,7 @@ mod tests {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: vec![relay_options],
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
             resume_lease: Duration::from_secs(1),
@@ -5377,6 +5460,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -6318,6 +6402,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
@@ -6352,6 +6437,7 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),

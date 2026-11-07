@@ -77,6 +77,7 @@ pub mod harness_config;
 pub mod harness_fixture;
 pub mod harness_health;
 pub mod harness_icon_set;
+pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
 pub mod host_load;

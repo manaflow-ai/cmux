@@ -1,23 +1,15 @@
 import Foundation
 
-/// `POST /api/vm/{id}/exec`.
-public struct CloudExecResult: Sendable, Hashable, Decodable {
+/// A machine command's result, as cmux-cloud-machine `models::read("exec_result")` answers it
+/// (a missing exit code is -1, missing output empty).
+public struct CloudExecResult: Sendable, Hashable, Codable {
     public var exitCode: Int
     public var stdout: String
     public var stderr: String
-
-    enum CodingKeys: String, CodingKey { case exitCode, stdout, stderr }
 
     public init(exitCode: Int, stdout: String, stderr: String) {
         self.exitCode = exitCode
         self.stdout = stdout
         self.stderr = stderr
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        exitCode = try c.decodeIfPresent(Int.self, forKey: .exitCode) ?? -1
-        stdout = try c.decodeIfPresent(String.self, forKey: .stdout) ?? ""
-        stderr = try c.decodeIfPresent(String.self, forKey: .stderr) ?? ""
     }
 }

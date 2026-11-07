@@ -1251,6 +1251,24 @@ impl AuthDatabase {
         persistence.wait().await
     }
 
+    /// The daemon registered the new session a grant's link group formed
+    /// (`session`, `generation`, `connection_attempt`): seal that group, so
+    /// the grant opens nothing more. No-op for any other device.
+    pub fn seal_grant_link_group(
+        &self,
+        device_id: &str,
+        session: cmux_remote_protocol::SessionId,
+        generation: u64,
+        connection_attempt: ConnectionAttemptId,
+    ) {
+        if !crate::grant::is_grant_device_id(device_id) {
+            return;
+        }
+        if let Some(verifier) = self.grant_verifier.get() {
+            verifier.seal(crate::grant::link_group(session, generation, connection_attempt));
+        }
+    }
+
     pub async fn record_connection_attempt(
         &self,
         device_id: &str,

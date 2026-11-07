@@ -310,3 +310,47 @@ test("native Progress marks each step's state and meters the plan", async () => 
   const ended = model()!.sections.find((section) => section.id === "progress")!;
   expect(ended.rows[1]).toMatchObject({ symbol: "circle", tone: "waiting", working: false });
 });
+
+// A wakeup in a chat on this Mac with no background command (Leo, 2026-11-06: the "fallback heartbeat
+// ... doesn't get highlighted in the same way that the other ones do"): the panel reads the loaded
+// calls for it all the same, so its row takes an action (the App lights it) that shows the call.
+test("a local chat's lone wakeup takes the action that shows its call", async () => {
+  const shown: string[] = [];
+  const input: NativeSessionInfoProps = {
+    ...props(),
+    rows: [
+      {
+        id: "tools-1",
+        version: 1,
+        at: 1,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "ScheduleWakeup",
+            tool: { id: "toolu_heartbeat", title: "ScheduleWakeup", kind: "other", status: "completed" },
+          },
+        ],
+      },
+    ],
+    made: {
+      outputs: [],
+      pullRequests: [],
+      scheduled: [{ id: "toolu_heartbeat", kind: "wakeup", text: "Fallback heartbeat", startedAt: 1 }],
+    },
+    onShowCall: (id) => {
+      shown.push(id);
+      return true;
+    },
+  };
+  await render(input);
+  await flushFrame();
+  const row = model()!
+    .sections.find((section) => section.id === "tasks")!
+    .rows.find((entry) => entry.id === "scheduled:toolu_heartbeat")!;
+  expect(row.action).toBeDefined();
+  await act(async () => {
+    runNativeSessionInfoAction(row.action!);
+  });
+  expect(shown).toEqual(["toolu_heartbeat"]);
+});

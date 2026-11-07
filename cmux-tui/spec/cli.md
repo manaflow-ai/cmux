@@ -52,7 +52,7 @@ classic verb that asks the running app (`system.capabilities`).
 
 `carrier dial` bridges standard I/O to a Cloud machine's session daemon over its
 carrier (`design/cloud-carrier.md`): a cmux-remote session through the machine's
-relay slot (`relay+do`), admitted by a carrier grant for this device's Noise key,
+relay (`relay+do`), admitted by a carrier grant for this device's Noise key,
 with the daemon key from the machine record pinned. Its ticket and grant come from
 cmux-platform (`POST /v1/cloud/machines/{id}/carrier`) with the caller's credential
 (`--cloud-api` or `CMUX_CLOUD_API_URL`, `--cloud-token-file` or

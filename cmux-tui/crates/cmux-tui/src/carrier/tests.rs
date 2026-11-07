@@ -7,7 +7,7 @@ use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
 use super::answer::{TicketCache, key_text, parse_answer, read_reply};
-use super::client::classify;
+use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
     Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, Step, connected_line, failure_line,
     parse_deadline, route_line,
@@ -178,6 +178,10 @@ fn failures_name_the_step_they_did_not_get_past() {
         ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout: Duration::from_secs(1) });
     let handshake = classify(&slow, Step::Handshake);
     assert_eq!((handshake.step, handshake.retryable), (Step::Handshake, true));
+    // A resume names the relay for a relay failure, not the handshake.
+    assert_eq!(resume_outcome(&dropped), Step::Relay);
+    assert_eq!(resume_outcome(&allocation), Step::Parked);
+    assert_eq!(resume_outcome(&slow), Step::Handshake);
     assert_eq!(Failure::deadline(Step::Parked).step.error_code(), "parked_timeout");
     assert!(!Failure::deadline(Step::Ticket).retryable);
 }
@@ -206,6 +210,16 @@ fn the_carrier_answer_is_checked_before_use() {
     no_extras["daemon_key"] = Value::Null;
     let answer = parse_answer(&no_extras).unwrap();
     assert!(answer.grant.is_none() && answer.daemon_key.is_none());
+    // The dial pins the key: none, or a malformed one, fails at the ticket.
+    let none = pinned_daemon(&answer).unwrap_err();
+    assert_eq!(none, Failure::fatal(Step::Ticket, "the machine has no daemon key"));
+    for malformed in [json!("short"), json!(key_text(&[1; 32]) + "A"), json!(7)] {
+        let mut bad = answer_value();
+        bad["daemon_key"] = malformed.clone();
+        let answer = parse_answer(&bad).unwrap();
+        assert_eq!(pinned_daemon(&answer).unwrap_err().step, Step::Ticket, "{malformed}");
+    }
+    assert_eq!(pinned_daemon(&parse_answer(&answer_value()).unwrap()), Ok([7; 32]));
 
     // A loopback relay+ws is a local relay; anything else is refused.
     let mut local = answer_value();
@@ -222,8 +236,6 @@ fn the_carrier_answer_is_checked_before_use() {
         ("ticket", json!("")),
         ("expires_at", json!("soon")),
         ("grant", json!(7)),
-        ("daemon_key", json!("short")),
-        ("daemon_key", json!(key_text(&[1; 32]) + "A")),
     ] {
         let mut bad = answer_value();
         bad[key] = value.clone();

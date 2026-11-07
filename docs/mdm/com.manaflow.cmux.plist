@@ -231,7 +231,7 @@
 			<key>pfm_default</key>
 			<string>afterCurrent</string>
 			<key>pfm_description</key>
-			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
+			<string>Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabPosition</string>
 			<key>pfm_range_list</key>
@@ -241,7 +241,25 @@
 				<string>start</string>
 			</array>
 			<key>pfm_title</key>
-			<string>New Tab Position</string>
+			<string>New Tab Position (Cmd-T)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>end</string>
+			<key>pfm_description</key>
+			<string>Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabButtonPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>afterCurrent</string>
+				<string>end</string>
+				<string>start</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Position (+ Button)</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -258,7 +276,7 @@
 				<string>always</string>
 			</array>
 			<key>pfm_title</key>
-			<string>New Tab Button</string>
+			<string>+ Button Visibility</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -1666,7 +1684,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>top</string>
+			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.</string>
 			<key>pfm_name</key>
@@ -8087,7 +8105,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.</string>
 			<key>pfm_name</key>
@@ -8160,6 +8178,24 @@
 			<string>chief.reactionClassifier.prompt</string>
 			<key>pfm_title</key>
 			<string>Reaction Classifier Instructions</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bypassPermissions</string>
+			<key>pfm_description</key>
+			<string>How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.</string>
+			<key>pfm_name</key>
+			<string>chief.permissionMode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bypassPermissions</string>
+				<string>auto</string>
+				<string>default</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chief Permission Mode</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

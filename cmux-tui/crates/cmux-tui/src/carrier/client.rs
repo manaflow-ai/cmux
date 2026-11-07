@@ -87,6 +87,11 @@ pub(super) fn classify(error: &ConnectionError, step: Step) -> Failure {
     }
 }
 
+/// The daemon key a dial pins: required, never learned from the handshake.
+pub(super) fn pinned_daemon(answer: &CarrierAnswer) -> Result<[u8; 32], Failure> {
+    answer.daemon_key.ok_or_else(|| Failure::fatal(Step::Ticket, "the machine has no daemon key"))
+}
+
 fn source_failure(error: SourceError) -> Failure {
     Failure { step: Step::Ticket, detail: error.detail, retryable: error.retryable }
 }
@@ -195,6 +200,7 @@ async fn attempt(
     step.set(Step::Ticket);
     let key = plan.identity.public_key();
     let answer = plan.source.fetch(&plan.machine, Some(&key)).await.map_err(source_failure)?;
+    let daemon = pinned_daemon(&answer)?;
     let grant = answer
         .grant
         .clone()
@@ -226,7 +232,7 @@ async fn attempt(
     let remaining = plan.deadline.saturating_duration_since(Instant::now());
     let config = ClientConnectionConfig {
         identity: plan.identity.clone(),
-        expected_daemon: answer.daemon_key,
+        expected_daemon: Some(daemon),
         auth: ClientAuthMode::Grant { token: Zeroizing::new(grant.to_string()) },
         device_name: "cmux-carrier".into(),
         session,
@@ -262,6 +268,12 @@ async fn attempt(
     Ok(Dialed { connection, multiplexer, mux })
 }
 
+/// The step a failed resume names: a provider error is the relay's (or the
+/// park's), anything else the handshake's.
+pub(super) fn resume_outcome(error: &ConnectionError) -> Step {
+    classify(error, Step::Relay).step
+}
+
 /// Route lines for an established session's resumes.
 pub(super) struct Resume {
     machine: String,
@@ -270,7 +282,7 @@ pub(super) struct Resume {
 
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
-        let outcome = result.err().map(|error| classify(error, Step::Handshake).step);
+        let outcome = result.err().map(resume_outcome);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
     }
 }

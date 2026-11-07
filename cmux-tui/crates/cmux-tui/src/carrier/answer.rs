@@ -1,6 +1,7 @@
 //! The carrier answer from cmux-platform (`POST /v1/cloud/machines/{id}/carrier`,
 //! cmux-platform#924 and #926): `{ok, value: {relay, slot, ticket,
-//! expires_at, grant?, daemon_key?}}`, and where it comes from.
+//! expires_at, grant?, daemon_key?}}`, and where it comes from. A dial needs
+//! `daemon_key`; a ticket-only refresh does not read it.
 //!
 //! A body with `noise_key` (base64url of the device's 32-byte Noise key)
 //! asks for a grant naming that key as well as the Connect ticket; an empty
@@ -37,7 +38,8 @@ pub(super) struct CarrierAnswer {
     /// Unix seconds.
     pub expires_at: u64,
     pub grant: Option<Zeroizing<String>>,
-    /// The machine daemon's Noise static key, pinned when present.
+    /// The machine daemon's Noise static key: 32 canonical base64url bytes,
+    /// else None (missing or malformed). A dial refuses to handshake without it.
     pub daemon_key: Option<[u8; 32]>,
 }
 
@@ -125,12 +127,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         None | Some(Value::Null) => None,
         Some(_) => Some(secret(value, "grant")?),
     };
-    let daemon_key = match value.get("daemon_key") {
-        None | Some(Value::Null) => None,
-        Some(key) => Some(
-            key.as_str().and_then(key_bytes).ok_or("daemon_key is not base64url of 32 bytes")?,
-        ),
-    };
+    let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     Ok(CarrierAnswer { relay, slot: slot.to_owned(), ticket, expires_at, grant, daemon_key })
 }
 

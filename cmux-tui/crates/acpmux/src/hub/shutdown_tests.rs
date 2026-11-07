@@ -327,6 +327,39 @@ async fn an_answer_that_lands_while_the_shutdown_drains_ends_the_turn_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Shutdown fences starts before waiting for the peer notice loop's final cache write. A start
+/// admitted during that bounded drain would miss the shutdown session snapshot and leave its
+/// agent behind in the old daemon.
+#[tokio::test]
+async fn a_start_during_notice_drain_is_refused_before_the_agent_can_outlive_shutdown() {
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-start-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let peer =
+        crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(500, std::sync::atomic::Ordering::SeqCst);
+
+    let shutting = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.shutdown_all().await })
+    };
+    until("the final peer cache write started", || {
+        hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire)
+    })
+    .await;
+
+    let request = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    assert!(
+        hub.new_session(request).await.is_err(),
+        "a session started while shutdown drained the notice loop"
+    );
+    tokio::time::timeout(WAIT, shutting).await.unwrap().unwrap();
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A shutdown that meets a detach ending its agent waits for that end (router review of #28503):
 /// the agent's kill takes up to its grace (`KILL_GRACE`), longer than the shutdown waits for the
 /// child lock, and a shutdown that gave up counted the agent kept while the detach ended it.

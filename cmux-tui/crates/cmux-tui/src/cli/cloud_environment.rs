@@ -362,7 +362,7 @@ mod tests {
             let help = crate::cli::cloud_help::overview(japanese);
             let lines = help
                 .lines()
-                .filter_map(|line| line.trim().strip_prefix("cmux cloud env "))
+                .filter_map(|line| line.trim().strip_prefix("cmux vm env "))
                 .collect::<Vec<_>>();
             assert_eq!(lines.len(), 2, "{lines:?}");
             for line in lines {

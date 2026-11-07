@@ -26,6 +26,9 @@ export type KeptTail = {
   queue: QueuedPrompt[];
   configSeq: number;
   usageFromSeq: number;
+  /// A fork's tail drawn from the chat it forked (forkTail.ts): the seq it branched at, through
+  /// which its attach checks these rows against acpmux's own page of the fork.
+  forkedThrough?: number;
 };
 
 /// Chats whose tail is kept, and the events kept of each: the newest ones, as many as an attach
@@ -265,6 +268,7 @@ function tailFromHost(value: unknown): KeptTail | undefined {
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,
+    ...(typeof tail.forkedThrough === "number" ? { forkedThrough: tail.forkedThrough } : {}),
   };
 }
 
