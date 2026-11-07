@@ -736,6 +736,14 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     /// The grip's own box is lit (the pointer is on it, or it drags).
     var gripLit: Bool { gripFill.backgroundColor != nil }
 
+    /// What the line shows in its trailing column, past its title: the count, the marks and a header's
+    /// meter (a row's meter runs under its title, so it stays).
+    var trailingMeta: [NSView] {
+        var views: [NSView] = [trailing, marksView].compactMap { $0 }
+        if line.kind == .header { views += [meter, segmentedMeter].compactMap { $0 } }
+        return views
+    }
+
     /// The grip sits over the trailing column: the line has no control at its right end.
     private var gripCoversTrailing: Bool { buttons.isEmpty && toggle == nil && menuButton == nil }
 
@@ -998,8 +1006,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
         grip?.isHidden = !showsGrip
         grip?.lit = isDragging
-        // The grip takes the trailing value's place while it shows; nothing in the line moves.
-        if grip != nil, gripCoversTrailing { trailing?.isHidden = showsGrip }
+        // The grip takes the trailing column's place while it shows, as the web head's whole meta fades
+        // under its handle: the count, a header's meter (Context, Progress) and its marks yield the slot,
+        // so the grip never draws across them. Nothing in the line moves.
+        if grip != nil, gripCoversTrailing {
+            for view in trailingMeta { view.isHidden = showsGrip }
+        }
         // Only the grip's own box lights under the pointer (the web handle's :hover), never the head.
         gripFill.backgroundColor = showsGrip && (gripHovered || isDragging) ? ink.colors.hover.cgColor : nil
         chevron?.isHidden = !showsChevron

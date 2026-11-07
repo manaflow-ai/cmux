@@ -647,16 +647,16 @@ struct AgentPaneNativeSessionInfoTests {
             view.subviews.compactMap { $0 as? SessionInfoGripView }.first
         }
         func images(_ view: SessionInfoLineView) -> [NSImageView] { view.subviews.compactMap { $0 as? NSImageView } }
-        /// Whether the line's trailing value (a head's count) is hidden; true for a line with none.
-        func countHidden(_ view: SessionInfoLineView) -> Bool {
-            view.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == view.line.trailing }.allSatisfy { $0.isHidden }
-        }
-        func countShown(_ view: SessionInfoLineView) -> Bool {
-            view.subviews.compactMap { $0 as? ChromeLabel }.filter { $0.stringValue == view.line.trailing }.allSatisfy { !$0.isHidden }
-        }
+        /// Whether the line's trailing meta (a head's count and meter) is hidden; true for a line with none.
+        func countHidden(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { $0.isHidden } }
+        func countShown(_ view: SessionInfoLineView) -> Bool { view.trailingMeta.allSatisfy { !$0.isHidden } }
 
-        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "42%",
-                                           unfolded: true, reorderable: true, action: "fold:context:0"))
+        let context = view(SessionInfoLine(id: "context", kind: .header, symbol: "gauge", title: "Context", trailing: "94K / 200K",
+                                           unfolded: true, meter: 0.47, reorderable: true, action: "fold:context:0"))
+        // Progress's head carries the segmented meter.
+        let progress = view(SessionInfoLine(id: "progress", kind: .header, title: "Progress", trailing: "2/5", unfolded: true,
+                                            segments: [.init(share: 0.4, color: "success"), .init(share: 0.6, color: "muted")],
+                                            reorderable: true, action: "fold:progress:2"))
         let changes = view(SessionInfoLine(id: "changes", kind: .header, title: "Changes", trailing: "3", unfolded: false,
                                            reorderable: true, action: "fold:changes:1"))
         let plain = view(SessionInfoLine(id: "plain", kind: .header, title: "Usage", reorderable: true))
@@ -676,7 +676,7 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(try title(machine).minX == title(row).minX)
 
         // At rest: no grip, no chevron, and nothing but the line's own icon as an image.
-        for line in [context, changes, plain, machine] {
+        for line in [context, changes, plain, machine, progress] {
             #expect(!line.showsGrip)
             #expect(grip(line)?.isHidden == true)
             #expect(!line.showsChevron)
@@ -691,7 +691,9 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        for line in [context, changes, plain, machine] {
+        // At rest the meters draw in the trailing column.
+        #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
+        for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
             line.layoutSubtreeIfNeeded()
