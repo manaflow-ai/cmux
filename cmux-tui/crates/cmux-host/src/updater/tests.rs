@@ -380,3 +380,18 @@ fn a_hold_that_starts_during_staging_holds_the_flip() {
         other => panic!("the flip is not held: {other:?}"),
     }
 }
+
+/// Review F1 of #37280: a bind or resume during a flip's last look waits for
+/// that flip, so the look and the hold never interleave (the flip holds
+/// COMMIT from its last look through its restarts).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hold_waits_for_a_flip_in_progress() {
+    let flip = role::COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    let hold = std::thread::spawn(role::hold_connects);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!hold.is_finished(), "the hold did not wait for the flip");
+    drop(flip);
+    hold.join().unwrap();
+    assert!(role::held_for(std::time::Instant::now()).is_some());
+}
