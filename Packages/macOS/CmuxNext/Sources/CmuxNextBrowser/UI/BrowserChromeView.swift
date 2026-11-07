@@ -352,6 +352,8 @@ public final class BrowserChromeView: NSView {
         let state = tab.state
         let loading = state.showsLoad
         addressBar.navigation = ToolbarNavigation(canGoBack: state.canGoBack, canGoForward: state.canGoForward, loading: loading)
+        // The title rides in the state (the chip's drag names the page); a title-only change pushes.
+        addressBar.pageTitleChanged(state.title)
         updateAddress(for: state)
         updateMachineBadge()
         progressLine.set(progress: state.progress, visible: loading)
