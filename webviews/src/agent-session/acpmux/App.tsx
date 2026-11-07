@@ -628,6 +628,7 @@ import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { PermissionAsk } from "./rows/PermissionAsk";
 
 import { defaultRegistry } from "./rows/registry";
+import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { NO_ROWS, type ScrollAnchor, VirtualTranscript, rowKind } from "./VirtualTranscript";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
@@ -3715,6 +3716,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (turn) openDiff(turn.rowId, path);
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
+  /// no × (ReadOnlyRecapRow).
+  const noDismissRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
@@ -7300,7 +7304,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               taken.flatMap((failed) => failed.attachments),
             );
           },
-          "chat.recap.dismiss": async ({ rowId }) => client.dismissRecap(String(rowId)),
+          "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },
@@ -9281,7 +9285,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       : null,
                                                                   )
                                                             }
-                                                            registry={registry}
+                                                            registry={readOnlySubagent ? noDismissRegistry : registry}
                                                             githubRepository={githubRepository}
                                                             fallbackRepository={
                                                               pullRequestRef(headerPullRequest?.url ?? "")?.repo
@@ -10784,7 +10788,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
                   showMinimap={minimapVisible}
-                  registry={registry}
+                  registry={noDismissRegistry}
                   onToggleActivity={toggleActivity}
                 />
               )}
