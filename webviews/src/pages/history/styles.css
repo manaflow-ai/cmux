@@ -221,7 +221,6 @@
   padding: 16px;
   border-radius: 12px;
   background: var(--glass-tint);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow), var(--elevation-2);
 }
 
