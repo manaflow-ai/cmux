@@ -123,6 +123,22 @@ import Testing
         #expect(box.presented.isEmpty)
     }
 
+    /// New Workspace runs only on a machine the section shows and that is connected; any other id (a fleet
+    /// daemon the rows leave out, a link that is down) is refused even with the person's click.
+    @Test func newWorkspaceRunsOnlyOnAConnectedRowOfTheSection() async throws {
+        let box = Box()
+        box.rows.append(MachineSectionRow(id: "down", name: "down", isConnected: false, isLocal: false))
+        let provider = Self.provider(box)
+        for id in ["fleet-lane-7", "down", ""] {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.newWorkspaceOp, params: ["machine": .string(id)], context: Self.context)
+            }
+        }
+        #expect(box.ran.isEmpty)
+        _ = try await provider.call(MachineSectionPageProvider.newWorkspaceOp, params: ["machine": "local"], context: Self.context)
+        #expect(box.ran == ["new:local"])
+    }
+
     /// The row's native menu: New Workspace on This Machine from the registry, off while the link is down.
     @Test func aRowsMenuIsTheRegistrysNewWorkspaceRow() {
         let registry = ActionRegistry.standard()

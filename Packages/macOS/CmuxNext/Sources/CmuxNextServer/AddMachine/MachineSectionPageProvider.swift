@@ -84,7 +84,11 @@ public final class MachineSectionPageProvider: PageProvider {
             return snapshot()
         case Self.newWorkspaceOp:
             try Self.requireGesture(context)
-            guard let machine = params["machine"]?.stringValue, !machine.isEmpty else { throw PageError.invalidParams("machine is required") }
+            // Only a machine the section shows and that is connected: the page names a row, never any daemon.
+            guard let machine = params["machine"]?.stringValue,
+                  dependencies.rows().contains(where: { $0.id == machine && $0.isConnected }) else {
+                throw PageError.invalidParams("machine is not a connected machine of the section")
+            }
             return ["ran": .bool(dependencies.newWorkspace(machine))]
         case Self.addMachineOp:
             try Self.requireGesture(context)
