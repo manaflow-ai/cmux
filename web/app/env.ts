@@ -334,6 +334,8 @@ export const env = createEnv({
     // intentionally opt-in for controlled demos/rollbacks; the legacy require
     // flag remains accepted by the entitlement layer for migration parity.
     CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
+    CMUX_VM_PLAN_LAPSE_PAUSE: z.string().optional(),
+    CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN: z.string().optional(),
     CMUX_VM_REQUIRE_PRO: z.string().optional(),
     CMUX_VM_DEFAULT_PLAN: z.string().optional(),
     // Freestyle authenticates every protected-domain subrequest with this
@@ -566,6 +568,8 @@ export const env = createEnv({
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
     CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
+    CMUX_VM_PLAN_LAPSE_PAUSE: trimEnv(process.env.CMUX_VM_PLAN_LAPSE_PAUSE),
+    CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN: trimEnv(process.env.CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN),
     CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
     CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
     CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: trimEnv(
