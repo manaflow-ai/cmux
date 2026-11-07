@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "build": "4241194209501",
+  "notes": "notes/4241194209501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37964,
+      "title": "Key-resize tests name the exact first grid; a terminal shown mid-hold sends no pre-layout grid (RESIZE P0 8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37781,
+      "title": "Agent chat: real-app scroll tick bench (tick_watch, native trackpad and wheel ticks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37596,
+      "title": "Agent chat: a chat on another machine resyncs without redrawing its transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37919,
+      "title": "cmux NEXT: Blocks window style, solid tonal blocks with no lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38004,
+      "title": "ci(cmux-tui): the tree verification fails a bad digest on bash 3.2",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37296,
+      "title": "cmux NEXT dialogs: drawn by React on the overlay page, the Swift dialog view deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37892,
+      "title": "Agent chat: a tool output update re-renders its row, not the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37973,
+      "title": "Agent pane: hover read-ahead with no chat on screen, scroll place sent with the takeover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37739,
+      "title": "cmux-tui: a new worktree runs the project's setup recipe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37903,
+      "title": "Agent chat: other agents' messages fold into a finished turn's Worked for, counted as calls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37790,
+      "title": "Sidebar: a press on the Updated card ends wherever it is let go",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36712,
+      "title": "perf(launch): no Cloud config request before the first window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37995,
+      "title": "cloud journey: match Server-Timing in any case; report calls without it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37686,
+      "title": "cmux NEXT composer: the dictation mic can dictate with ChatGPT, Claude, Wispr Flow or macOS Dictation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37954,
+      "title": "perf(next): a divider press keeps the page's key and focus (RESIZE P0 8 M1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37895,
+      "title": "Hidden agent chats: lossless discard behind agents.hiddenChats.discard (off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37835,
+      "title": "cmux-next: a sidebar drag retarget splices its layout from the drag base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37988,
+      "title": "Session Info stream-scroll test: wait for the running tray, not a sample window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37610,
+      "title": "Agent chat: the whole bottom row toggles Show more / Show less, and an edit's diff is one card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37607,
+      "title": "cmux NEXT composer rim gallery: honest rest and focused states for each level",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37909,
+      "title": "Agent chat page: preload the chunks pane.js imports, so the first chat paint is 30 ms sooner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37987,
+      "title": "cloud journey: split the gateway route's time by hop from Server-Timing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37896,
+      "title": "agent pane: started and chips modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37942,
+      "title": "agent pane: newtab modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37978,
+      "title": "ci(base-red): end a stalled artifact download at its deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37961,
+      "title": "Messages: a row's drag start moves no row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37980,
+      "title": "agent pane: session info sections and the native panel export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37937,
+      "title": "acpmux: createdBy from connection proof only, and across a peer dispatch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37924,
+      "title": "scripts(cmux-next): ci_apply gives any base but feat-cmux-next the full build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37820,
+      "title": "ci(base-red): set a covered FFI pin red aside and compare the job's other reds with base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37513,
+      "title": "Sidebar tree: a workspace's creator link, detach, attach, collapse and tree rows (Rust)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37564,
+      "title": "[Thunderdome top-right D] three controls: chat menu, panel toggle, New (agentChat.headerControls)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36077,
+      "title": "iPhone screen stream: report the display's refresh rate to the Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37943,
+      "title": "debug.chief_pet: render and drive the Chief pet for Show in Mini captures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37636,
+      "title": "Composer: the context ring eases down after a compaction, and up as a turn adds context",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37979,
+      "title": "cmux-action-catalog: cloud new-machine --environment and cloud relay-chat --login, as the app's catalog has them since #37159",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34797,
+      "title": "Neko theme plumbing and licensed gallery comparisons",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
