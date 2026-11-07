@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import CmuxTheme
 import Testing
 
