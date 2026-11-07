@@ -131,6 +131,14 @@ private final class SessionCursor {
         root.addSublayer(typing)
     }
 
+    /// The pixel density every layer draws at (vector paths and text stay sharp).
+    func setScale(_ scale: CGFloat) {
+        for layer in [root, arrow, name, typing] {
+            layer.contentsScale = scale
+            layer.rasterizationScale = scale
+        }
+    }
+
     /// A pointer arrow, tip at the top left (y up).
     static func arrowPath() -> CGPath {
         let path = CGMutablePath()
@@ -156,6 +164,10 @@ private final class SessionCursor {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             root.frame = CGRect(origin: .zero, size: screen.size)
+            // Hand-made layers in a layer-hosting view are not scaled by AppKit: draw the
+            // arrow and the labels at the screen's pixel density (2 on Retina), not 1.
+            let scale = NSScreen.screens.first { $0.frame == screen }?.backingScaleFactor ?? 2
+            setScale(scale)
             CATransaction.commit()
         }
         let local = CGPoint(x: point.x - screen.minX, y: point.y - screen.minY)
