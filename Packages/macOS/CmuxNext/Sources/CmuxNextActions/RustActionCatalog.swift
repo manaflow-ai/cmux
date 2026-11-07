@@ -27,7 +27,10 @@ nonisolated struct RustActionCatalog: Sendable {
     let categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)]
     let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
 
-    static let shared: RustActionCatalog = load(language: Locale.preferredLanguages.first ?? "en")
+    /// In the language the app's own strings resolve to: the bundle negotiates the person's whole
+    /// preference list against the localizations it ships (Swedish, Japanese, English gives
+    /// Japanese), as `String(localized:bundle:)` does.
+    static let shared: RustActionCatalog = load(language: Bundle.module.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
 
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "action-catalog")
 
