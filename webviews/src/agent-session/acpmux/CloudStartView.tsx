@@ -323,15 +323,28 @@ export function CloudStartView({
   // Thinking line, with no Cloud machine, clone or setup rows (Leo, 2026-11-04: "You actually see
   // nothing. Like the ideal is, of course, you literally have parity with local, and you don't even
   // realize that you entered the cloud"). Only a failure shows the steps, with what to do.
+  // A start that waits on the person's browser sign-in says that instead: nothing runs until they finish.
+  const waitingForSignIn = !failed && start.signingIn === true;
+  const signInStatus = (
+    <output className="acpmux-cloud-start__status" data-signing-in="true" aria-busy="true">
+      <Spinner size={14} loading />
+      <span>{t("cloudStart.waitingForSignIn")}</span>
+    </output>
+  );
   if (!failed && !showSteps) {
     return (
-      <section className="acpmux-cloud-start" data-state={start.state} data-quiet="true">
+      <section
+        className="acpmux-cloud-start"
+        data-state={start.state}
+        data-quiet="true"
+        data-signing-in={waitingForSignIn ? "true" : undefined}
+      >
         {bubble && (
           <div className="cv-user">
             <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
           </div>
         )}
-        <Thinking />
+        {waitingForSignIn ? signInStatus : <Thinking />}
       </section>
     );
   }
@@ -347,7 +360,8 @@ export function CloudStartView({
           <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
         </div>
       )}
-      {!failed && !start.initialized && (
+      {waitingForSignIn && signInStatus}
+      {!failed && !waitingForSignIn && !start.initialized && (
         <output className="acpmux-cloud-start__status">
           <Spinner size={14} loading />
           <span>{t("cloudStart.preparing")}</span>

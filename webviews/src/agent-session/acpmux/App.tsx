@@ -451,7 +451,13 @@ import {
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
-import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
+import {
+  cloudStartBegun,
+  cloudStartEnded,
+  cloudStartPushed,
+  cloudStartSignedIn,
+  type CloudStartProgress,
+} from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
@@ -3980,7 +3986,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!sent) return undefined;
     // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
-    const again = () => startCloud({ ...request, signedIn: true }, key);
+    const again = () => {
+      // The browser is done: the card leaves its waiting for sign-in state for the normal start.
+      setCloudStart((current) => cloudStartSignedIn(current, key));
+      return startCloud({ ...request, signedIn: true }, key);
+    };
     const started = signingIn
       ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
       : sent;
@@ -4017,8 +4027,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudPageDraft.current = { text, attachments: request.attachments ?? [] };
       setCloudLeftPage(newTabGeneration);
     }
+    // A `cloud.signIn` waits on the browser first: the card says so, not "starting".
     setCloudStart(
-      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+      cloudStartBegun(
+        key,
+        text,
+        start.cwd,
+        start.harness ? harnessLabel(start.harness) : undefined,
+        start.home,
+        signingIn,
+      ),
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);

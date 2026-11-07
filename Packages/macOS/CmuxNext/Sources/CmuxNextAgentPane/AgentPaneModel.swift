@@ -110,11 +110,21 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
-    /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value sends nothing.
+    /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
+    /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
+    @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
+    /// Bumped by `cloud.signInCancel` (and a wait's expiry): a `cloud.signIn` that began under an older value sends nothing.
     @ObservationIgnored var cloudSignInGeneration = 0
     /// The `cloud.signIn` waiting on the browser (``AgentPaneModel/waitForCloudSignIn(_:)``), so
     /// `cloud.signInCancel` ends that wait, and the send's hold, at once.
-    @ObservationIgnored var cloudSignInWait: (generation: Int, done: CheckedContinuation<Bool?, Never>)?
+    @ObservationIgnored var cloudSignInWait: CloudSignInWait?
+    /// This pane's one browser sign-in, while it runs: a click after a cancel waits on it again
+    /// instead of opening a second one (``AgentPaneModel/waitForCloudSignIn(_:)``).
+    @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
+    /// How long a `cloud.signIn` waits on the browser before it ends as expired (the card's sign in
+    /// again): the auth runtime's deadline for an interactive sign-in, `AuthTimeouts.default.interactiveFlow`
+    /// (this target does not link CmuxAuthRuntime). Tests shorten it.
+    @ObservationIgnored var cloudSignInWaitLimit: Duration = .seconds(300)
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
     @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
@@ -589,9 +599,7 @@ public final class AgentPaneModel {
         case .cloudSignIn(let start): return await AgentPaneHandOff(model: self).cloud(start, signingIn: true)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's send.
         case .cloudSignInCancel:
-            cloudSignInGeneration += 1
-            cloudSignInGrant = nil
-            endCloudSignInWait(nil)
+            withdrawCloudSignIn(.withdrawn)
             return AgentPaneReply.success()
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
