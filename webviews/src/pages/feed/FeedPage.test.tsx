@@ -226,7 +226,6 @@ test("the Inbox filter: no match says so; GitHub items show their card and actio
     "Check out",
     "Start agent",
     "Approve",
-    "Request Changes",
     "Comment",
   ]);
   await click(button("Check out"));

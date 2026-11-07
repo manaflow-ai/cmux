@@ -534,10 +534,9 @@ fn pull_item(pull: &Pull, kind: PullKind, now: i64) -> (FeedItem, Detail) {
 
 /// Which GitHub actions an item offers (Swift `FeedGitHubActions.install`):
 /// open and comment for a GitHub item with a detail URL, approve for a
-/// review with a number (and request changes, which the host's action
-/// handler runs as `gh pr review --request-changes`), checkout when its
-/// branch is known too, and start an agent (the host refuses it when no
-/// pane is focused).
+/// review with a number, checkout when its branch is known too, and start an
+/// agent. Request Changes is not offered: `gh pr review --request-changes`
+/// needs a body the page does not ask for, and the Swift Feed never offered it.
 pub fn actions(item: &FeedItem, detail: Option<&Detail>) -> Option<Vec<&'static str>> {
     let detail = detail?;
     if !item.dedupe_key.as_deref().is_some_and(|key| key.starts_with("github:"))
@@ -553,7 +552,6 @@ pub fn actions(item: &FeedItem, detail: Option<&Detail>) -> Option<Vec<&'static 
     actions.push("start_agent");
     if review {
         actions.push("approve");
-        actions.push("request_changes");
     }
     actions.push("comment");
     Some(actions)

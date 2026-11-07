@@ -712,7 +712,7 @@ export function sampleFeed(now: number): MockItem[] {
       poster: { kind: "integration", label: "GitHub" },
       created_at: ago(1_900),
       github: PR_DETAIL,
-      github_actions: ["open", "checkout", "start_agent", "approve", "request_changes", "comment"],
+      github_actions: ["open", "checkout", "start_agent", "approve", "comment"],
     },
     {
       ...base,

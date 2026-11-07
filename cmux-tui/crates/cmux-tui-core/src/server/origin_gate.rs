@@ -288,12 +288,6 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
 /// connection, as `origin.confirmation.issue` pairs them). The Feed's reads carry the person's
 /// whole feed, Reports basket and GitHub results, so an agent or a script on the same socket
 /// reads none of them (feed.md: a non-user principal sees only its own items).
-/// The connection's derived origin (agent when unregistered), for a refusal's `derived`.
-pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
-    let state = mux.control_clients.state.lock().recover_poison();
-    state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
-}
-
 pub(super) fn app_process(mux: &Mux, client: u64) -> bool {
     if mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER {
         return false;
