@@ -40,7 +40,7 @@ final class NewTabButtonView: NSView {
         fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
-        glyphLayer.lineWidth = Metrics.space1 * 0.7
+        glyphLayer.lineWidth = Metrics.addGlyphLineWidth
         glyphLayer.lineCap = .round
         glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
         layer?.addSublayer(fillLayer)
@@ -77,15 +77,13 @@ final class NewTabButtonView: NSView {
         // The tabs' shape (`Metrics.tabCornerRadius`), so the + reads as one of the strip's pills.
         fillLayer.cornerRadius = Metrics.tabCornerRadius
         glyphLayer.frame = bounds
-        let arm = Metrics.space2 + Metrics.space1 / 2
+        // The add buttons' one + (`Metrics.addGlyphExtent`), the sidebar's New Workspace size.
+        let arm = Metrics.addGlyphExtent / 2
         let scale = window?.backingScaleFactor ?? 2
         glyphLayer.contentsScale = scale
         let center = CGPoint(x: ((square.midX - (showsChevron ? Metrics.space2 : 0)) * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: center.x - arm, y: center.y))
-        path.addLine(to: CGPoint(x: center.x + arm, y: center.y))
-        path.move(to: CGPoint(x: center.x, y: center.y - arm))
-        path.addLine(to: CGPoint(x: center.x, y: center.y + arm))
+        path.addPath(CGPath.addGlyph(center: center, scale: scale))
         if showsChevron {
             let x = center.x + arm + Metrics.space3
             path.move(to: CGPoint(x: x - Metrics.space1, y: center.y - Metrics.space1 / 2))
@@ -124,7 +122,7 @@ final class NewTabButtonView: NSView {
                 glyphLayer.strokeColor = (pressed ? Palette.litGlyph : (hovering ? Palette.textPrimary : Palette.textSecondary)).cgColor
                 // Neutral themes can use the same ink for hover and selection. A heavier
                 // stroke keeps a held press visible there too, without a background.
-                glyphLayer.lineWidth = Metrics.space1 * (pressed ? 1 : 0.7)
+                glyphLayer.lineWidth = pressed ? Metrics.addGlyphPressedLineWidth : Metrics.addGlyphLineWidth
             }
         }
     }
