@@ -21,7 +21,7 @@ import { CARD, ROW, type Block } from "../src/agent-session/acpmux/conversation/
 
 await requireBrowserLane("expand-row.test.ts", async () => {
   const ENTRY = "agent-pane.expand-row";
-  const BLOCKS: Block[] = ["edited", "diff", "shell", "read", "output", "prompt"];
+  const BLOCKS: Block[] = ["edited", "diff", "shell", "read", "search", "output", "prompt"];
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -144,6 +144,32 @@ await requireBrowserLane("expand-row.test.ts", async () => {
             }, ROW[block]);
             expect(hover).toEqual({ hovered: true, cursor: "pointer" });
             expect(await boxes()).toEqual(before);
+          } finally {
+            await page.close();
+          }
+        }
+      });
+    }
+
+    for (const block of BLOCKS) {
+      test(`${theme} ${block}: no fade lies over the row`, async () => {
+        for (const variant of [block, `${block}-expanded`]) {
+          const page = await open(variant, theme);
+          try {
+            // Every box from the row out to the stage: none masks it (a cut block's fade is on its
+            // lines, beside the row, never on a box that holds the row).
+            const masked = await page.evaluate((row) => {
+              const found: string[] = [];
+              const stage = document.querySelector("[data-gallery-block]");
+              for (let node = document.querySelector(row); node && node !== stage; node = node.parentElement) {
+                const style = getComputedStyle(node);
+                const mask = style.maskImage || style.getPropertyValue("-webkit-mask-image");
+                if (mask && mask !== "none") found.push(`${node.className}: ${mask}`);
+                if (parseFloat(style.opacity) < 1) found.push(`${node.className}: opacity ${style.opacity}`);
+              }
+              return found;
+            }, ROW[block]);
+            expect({ variant, masked }).toEqual({ variant, masked: [] });
           } finally {
             await page.close();
           }
