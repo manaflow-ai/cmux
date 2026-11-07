@@ -1567,3 +1567,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   of workspace id to its place in the sidebar (top first), landed in 624581a6e3a3 (range 1a7a182ace6f..624e560418ba).
   Cmd-P ranks workspaces by it (bias 16·2^(-rank/6)). Sidebar-Look: no visual change. Keep it in step with how rows
   order; `CmdPSearchMemoryTests` covers it.
+- 2026-11-07 (lane/borderless-chrome, for a590): the Blocks window style (`appearance.chromeStyle` blocks) turns
+  `appearance.borders` to none. A glass group header's edge (`GroupHeaderRowView.paintBackground`) drew
+  `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
+  the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
+  header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".

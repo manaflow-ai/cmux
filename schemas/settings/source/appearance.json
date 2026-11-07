@@ -1577,7 +1577,8 @@
             "minimal",
             "bare",
             "floating",
-            "gaps"
+            "gaps",
+            "blocks"
           ]
         }
       ]
