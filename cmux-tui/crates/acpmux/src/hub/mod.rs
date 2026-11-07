@@ -46,6 +46,7 @@ mod catalog_reload;
 mod complete;
 pub mod composers;
 mod cursor_ext;
+mod gemini_plan;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
