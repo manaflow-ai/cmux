@@ -21,8 +21,7 @@ import WebKit
 /// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
 /// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `tick_watch` (frames while real wheel input
-/// scrolls the transcript, tickWatch.ts: starts a watch; `stop` ends it and returns it; `nominal_ms`), `load_seed` (`turns`, default 5000:
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `tick_watch` (tickWatch.ts), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
