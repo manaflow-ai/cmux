@@ -25,18 +25,8 @@ public nonisolated enum SettingsSchema {
             + BrowserAppSettingsSchema.descriptors
     }()
 
-    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). Rows
-    /// moved to schemas/settings/source say so themselves (`consumers`).
-    static let sharedWithBrowser: Set<String> = [
-        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-    ]
-
-    /// Keys Reset All Settings leaves alone: the look picked at onboarding
-    /// (the app theme and the terminal font), which each row still resets.
-    public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting.configPath, ChromeThemeSetting.configPath, TerminalFontSetting().familyPath,
-        TerminalFontSetting().sizePath,
-    ]
+    // `sharedWithBrowser`, `keptOnResetAll`: schemas/settings/source/row-facts.json
+    // (SettingsSchema+RowFacts.generated.swift).
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
     /// page-hidden keys stay out).

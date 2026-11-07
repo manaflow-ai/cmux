@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::args::PortNames;
 use crate::fields::{self, Machine};
 use crate::{Fields, Said};
 
@@ -187,6 +188,10 @@ pub struct Failure {
 /// creation's id, or the failure. A refusal a paid plan lifts names the plan, so a CLI or agent
 /// can start that plan's checkout (`cmux billing checkout --plan`).
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
+    // A machine the server returned is made, whatever phase raced it (as `creation` decides).
+    if let Some(machine) = &settled.machine {
+        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
+    }
     match settled.state {
         Some(Creation::Failed) => {
             let reason = settled.reason.as_deref().unwrap_or("");
@@ -206,16 +211,13 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
         Some(Creation::Gone) => {
             Err(Failure { reason: Said::key("createDeclined"), code: None, refusal: true })
         }
-        _ => Ok(match &settled.machine {
-            Some(machine) => fields::created_machine(machine, settled.workspace_id.as_deref()),
-            None => {
-                match json!({"pending": true, "status": "creating", "creation_id": settled.creation_id})
-                {
-                    Value::Object(map) => map,
-                    _ => Fields::new(),
-                }
-            }
-        }),
+        _ => Ok(
+            match json!({"pending": true, "status": "creating", "creation_id": settled.creation_id})
+            {
+                Value::Object(map) => map,
+                _ => Fields::new(),
+            },
+        ),
     }
 }
 
@@ -323,20 +325,34 @@ pub fn team(
     Ok((Some(team.id.as_str()) != active).then(|| team.id.clone()))
 }
 
+/// Why Set Up GitHub will not use the App, as the GitHub App check answered (`ready` is none).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GitHubApp {
+    Ready,
+    NotConnected,
+    NotConfigured,
+    Unknown,
+}
+
 /// What Set Up GitHub's question says: the App's helper, else the machine's own sign-in with the
-/// fallback's reason first. The parts are the app's strings, said in order.
-pub fn github_confirm(named: bool, app_ready: bool, fallback_reason: Option<&str>) -> Vec<Said> {
-    if app_ready {
-        return vec![Said::key(if named {
-            "gitHubAppConfirmBody"
-        } else {
-            "gitHubAppConfirmNoIdentity"
-        })];
-    }
-    let mut parts: Vec<Said> =
-        fallback_reason.map(|why| Said::with("gitHubFallback", [why])).into_iter().collect();
-    parts.push(Said::key(if named { "gitHubConfirmBody" } else { "gitHubConfirmNoIdentity" }));
-    parts
+/// fallback's reason first. The parts are the app's strings, said in order; the bodies name the
+/// machine's git identity (`—` for a missing name or email).
+pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -> Vec<Said> {
+    let named = name.is_some() || email.is_some();
+    let identity = [name.unwrap_or("—"), email.unwrap_or("—")];
+    let body = |key: &'static str, bare: &'static str| {
+        if named { Said::with(key, identity) } else { Said::key(bare) }
+    };
+    let reason = match app {
+        GitHubApp::Ready => {
+            return vec![body("gitHubAppConfirmBody", "gitHubAppConfirmNoIdentity")];
+        }
+        GitHubApp::NotConnected => "gitHubFallbackNotConnected",
+        GitHubApp::NotConfigured => "gitHubFallbackNotConfigured",
+        GitHubApp::Unknown => "gitHubFallbackUnknown",
+    };
+    vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
 }
 
 /// The question a destructive Cloud action asks before it runs (its title, body and button are
@@ -356,11 +372,12 @@ pub fn detail(text: &str) -> String {
     text.trim().trim_end_matches('.').to_owned()
 }
 
-/// The refusal of a failed port op: the plan's forward limit, else what failed.
-pub fn port_failure(code: Option<&str>, text: &str) -> Said {
+/// The refusal of a failed port op, with the machine and port named: the plan's forward limit
+/// (`portLimit`), else what failed (`portFailed`, its detail last).
+pub fn port_failure(code: Option<&str>, text: &str, names: &PortNames) -> Said {
     match code {
-        Some("cmux.cloud.port_limit") => Said::key("portLimit"),
-        _ => Said::with("portFailed", [detail(text)]),
+        Some("cmux.cloud.port_limit") => names.said("portLimit", &[]),
+        _ => names.said("portFailed", &[&detail(text)]),
     }
 }
 
