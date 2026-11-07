@@ -192,3 +192,16 @@ test("a tab that joined by the link still accepts on the invite page; an invite 
   before.removeItem(`cmux.guest.${SHARE}.role`);
   expect(joinedAs(SHARE, before, true)).toBeUndefined();
 });
+
+test("joining as another guest forgets the old guest's messages; joining again as the same keeps them", async () => {
+  const { GuestPrompts, guestScope } = await import("../src/agent-session/guest/guestPrompts");
+  const kept = storage();
+  rememberJoined(SHARE, "link-guest", kept, "Ana");
+  new GuestPrompts(guestScope(SHARE, "link-guest"), kept).add("Waiting as the link guest");
+  kept.setItem(`cmux.guest.${SHARE}.prompts`, "[]");
+  rememberJoined(SHARE, "link-guest", kept, "Ana");
+  expect(new GuestPrompts(guestScope(SHARE, "link-guest"), kept).list().length).toBe(1);
+  rememberJoined(SHARE, "invitee", kept, undefined, "talk", "invite");
+  expect(kept.getItem(`cmux.guest.${guestScope(SHARE, "link-guest")}.prompts`)).toBeNull();
+  expect(kept.getItem(`cmux.guest.${SHARE}.prompts`)).toBeNull();
+});
