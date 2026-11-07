@@ -48,6 +48,9 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
                 dropHold()
                 layoutContent()
             }
+            // A split's or close's spring this key resize caught left its motion to this landing (``endPaneSpring()``):
+            // after the landing's layout, the page window comes back once, at the final size. Nothing when no spring ran.
+            if pageSyncReasons.isEmpty { paneMotion(active: false) }
             return
         }
         endRestHold()
