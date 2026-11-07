@@ -361,7 +361,8 @@ impl FeedClient {
             now,
             github: Some(&state.github),
             github_enabled: state.github_config.enabled,
-            reports_available: state.account.is_some() && self.inner.deps.mailbox.available(),
+            reports_available: reports::person(&self.inner, state.account.as_deref()).is_some()
+                && self.inner.deps.mailbox.available(),
             place: &place,
         };
         read(&context)
@@ -665,7 +666,8 @@ impl FeedClient {
         let state = self.inner.lock();
         json!({
             "revision": state.reports.revision(),
-            "available": state.account.is_some() && self.inner.deps.mailbox.available(),
+            "available": reports::person(&self.inner, state.account.as_deref()).is_some()
+                && self.inner.deps.mailbox.available(),
             "reports": state.reports.list(),
         })
     }

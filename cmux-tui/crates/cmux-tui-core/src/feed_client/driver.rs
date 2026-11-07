@@ -143,6 +143,12 @@ pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
         }
         state.lease_identity = identity;
         let mut events = change_account(&mut state, None, now);
+        // The Reports basket follows the lease's person even before any
+        // welcome: the reader starts over on the new person's mailbox.
+        if state.reports.clear() {
+            events.push(FeedEvent::Reports { revision: state.reports.revision() });
+        }
+        state.reports_generation = state.reports_generation.wrapping_add(1);
         events.extend(state.mirror.set_connection(Connection::Connecting).map(view_event));
         events
     };

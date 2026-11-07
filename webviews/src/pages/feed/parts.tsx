@@ -215,9 +215,9 @@ export function FeedLines({
   const active = lines.findIndex((line) => line.type === "row" && line.selected);
   if (lines.length > VIRTUALIZE_AFTER) {
     return (
-      // The virtual list is the listbox; this wrapper takes its keys.
-      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
-      <div className="feed-lines" onKeyDown={onKeyDown}>
+      // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
+      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex
+      <div className="feed-lines" tabIndex={0} onKeyDown={onKeyDown}>
         <VirtualList
           className="feed-lines-virtual"
           count={lines.length}

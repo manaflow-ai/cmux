@@ -490,9 +490,19 @@ fn the_reports_mailbox_is_the_lease_s_stack_user() {
         )
         .unwrap();
     let h = harness(Some(cloud));
-    assert_eq!(super::reports::person(&h.feed.inner, "user_0123abcd"), "stack_user_1");
+    // Signed in, before (or without) any FeedDO welcome: the lease names the mailbox.
+    assert_eq!(super::reports::person(&h.feed.inner, None).as_deref(), Some("stack_user_1"));
+    assert_eq!(
+        super::reports::person(&h.feed.inner, Some("user_0123abcd")).as_deref(),
+        Some("stack_user_1")
+    );
+    assert_eq!(view(&h.feed)["reports"]["available"], true, "Reports show with FeedDO unreachable");
     // With no lease person (no cloud link, a self-hosted lease) the account itself.
-    assert_eq!(super::reports::person(&harness(None).feed.inner, "u1"), "u1");
+    assert_eq!(
+        super::reports::person(&harness(None).feed.inner, Some("u1")).as_deref(),
+        Some("u1")
+    );
+    assert_eq!(super::reports::person(&harness(None).feed.inner, None), None);
 }
 
 #[test]

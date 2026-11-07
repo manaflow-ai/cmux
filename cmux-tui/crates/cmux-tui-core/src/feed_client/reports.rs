@@ -66,15 +66,17 @@ fn wait_change(inner: &Inner, generation: u64, timeout: Duration) {
     }
 }
 
-/// The mailbox owner of a signed-in account: the lease's Stack user id,
-/// else the account itself.
-pub(super) fn person(inner: &Inner, account: &str) -> String {
+/// The mailbox owner: the signed-in lease's Stack user id (known without
+/// the cloud feed: an unreachable FeedDO never hides local reports), else
+/// the feed owner's account (a self-hosted lease); `None` signed out.
+pub(crate) fn person(inner: &Inner, account: Option<&str>) -> Option<String> {
     inner
         .deps
         .cloud
         .as_ref()
         .and_then(|cloud| cloud.lease_person())
-        .map_or_else(|| account.to_owned(), |(stack_user, _)| stack_user)
+        .map(|(stack_user, _)| stack_user)
+        .or_else(|| account.map(str::to_owned))
 }
 
 fn backoff(failures: u32) -> Duration {
@@ -90,7 +92,7 @@ fn run(inner: &Inner) {
             let state = inner.lock();
             (state.account.clone(), state.reports_generation)
         };
-        let user = account.as_deref().map(|account| person(inner, account));
+        let user = person(inner, account.as_deref());
         if user != reading {
             // Another account reads its own mailbox from the start.
             cursor = 0;
@@ -111,7 +113,10 @@ fn run(inner: &Inner) {
                 let page = MailPage::from_value(&result);
                 let event = {
                     let mut state = inner.lock();
-                    if state.account != account {
+                    // Another person since the wait began: the page is not theirs.
+                    if state.reports_generation != generation
+                        && person(inner, state.account.as_deref()).as_deref() != Some(user.as_str())
+                    {
                         continue;
                     }
                     cursor = page.cursor_after(cursor);
