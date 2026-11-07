@@ -483,7 +483,11 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
         "running" => Read::Unreadable,
         "starting" => {
             let at = integer(status.get("at")).unwrap_or(now);
-            if now.saturating_sub(at) >= 60 { Read::Ended(Run::RunnerNeverCame) } else { Read::Wait }
+            if now.saturating_sub(at) >= 60 {
+                Read::Ended(Run::RunnerNeverCame)
+            } else {
+                Read::Wait
+            }
         }
         _ => Read::Unreadable,
     }
