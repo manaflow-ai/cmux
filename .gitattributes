@@ -6,6 +6,10 @@
 Resources/markdown-viewer/** linguist-vendored
 Resources/markdown-viewer/webviews-app/** linguist-generated
 
+# scripts/ci/_vendor/yaml is PyYAML 6.0.3's pure-Python lib/yaml, unmodified (base_red_excuse.py's
+# fallback YAML reader on hosts without PyYAML).
+scripts/ci/_vendor/** linguist-vendored
+
 # Xcode string catalogs are one large JSON object keyed by string id. Two
 # branches that each add a different key collide positionally, producing dozens
 # of conflict hunks with no semantic disagreement. scripts/merge-xcstrings.py
