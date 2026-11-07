@@ -1485,15 +1485,14 @@ export default agentPaneEntry({
       play: pasteTwoScreenshots,
     },
     // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
-    // what we have right now". The room each side of a chip in the text (markdownField.css
-    // .acpmux-md-inline), the caret after the last of two: 1px, a thin spacer; 2px, half the chosen
-    // room (the chips stand 4px apart, as before); 4px, the default (the old space between two
-    // chips, now between the caret and a chip).
+    // what we have right now". The room after each chip in the text (markdownField.css
+    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
+    // default, the same as from one chip to the next.
     ...Object.fromEntries(
-      ([1, 2, 4] as const).map((room) => [
+      ([2, 4, 8] as const).map((room) => [
         `attachment-inline-caret-room-${room}`,
         {
-          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room beside each chip in the text${room === 4 ? " (the default)" : ""}; the caret after the second screenshot keeps it, and the two stand ${room * 2}px apart. The prompt's text gains no space.`,
+          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
           snapshot: chat(finished),
           ready: { draft: "Which layout reads better?" },
           play: async (ctx: PlayContext) => {
