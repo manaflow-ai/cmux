@@ -654,9 +654,9 @@ pub struct Hub {
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
-    /// The chat report each live list was last probed again for (`recheck_live_models`), by
-    /// profile name: one probe per distinct report.
-    pub(super) live_rechecks: StdMutex<HashMap<String, Vec<String>>>,
+    /// The model ids Codex chats reported that each live list lacked, by profile name, each
+    /// already probed again for once (`recheck_live_models`).
+    pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,

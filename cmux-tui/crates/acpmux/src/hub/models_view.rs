@@ -175,9 +175,8 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
 /// those under Legacy (`topModels` leaves them out), so current and legacy follow the CLI's
 /// own catalog rather than its order (#38044).
 fn current(reported: &[(String, String)], live: Option<&[LiveModel]>) -> Vec<(String, String)> {
-    let upgraded = |id: &str| {
-        live.is_some_and(|live| live.iter().any(|m| m.id == id && m.upgrade.is_some()))
-    };
+    let upgraded =
+        |id: &str| live.is_some_and(|live| live.iter().any(|m| m.id == id && m.upgrade.is_some()));
     reported.iter().filter(|(id, _)| !upgraded(id)).cloned().collect()
 }
 

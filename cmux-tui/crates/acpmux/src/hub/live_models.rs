@@ -91,31 +91,44 @@ impl Hub {
         self.live_models.lock().unwrap_or_else(PoisonError::into_inner).get(harness).cloned()
     }
 
-    /// A chat of `harness` reported its model choices (`listed`, from the CLI that runs it).
-    /// When they name a model its live list lacks, the CLI changed under an unchanged program:
-    /// a Codex update behind a launcher or wrapper script (`codex.js`, whose size and npm
-    /// mtime stay the same, or a `cmux-codex` that execs it), which keeps the cache key, or a
-    /// new server catalog. The list is probed again in the background, once per distinct report,
-    /// so a stale list (GPT-6.1 Sol under Legacy beside GPT-5.6 as current, #38044) lasts
-    /// until the next Codex chat starts, not until the daemon restarts.
+    /// A Codex chat of `harness` reported its model choices (`listed`, from the Codex that runs
+    /// it). When they name a model its live list lacks, Codex changed under an unchanged
+    /// program: an update behind a launcher or wrapper script (npm's `codex.js`, whose size and
+    /// mtime stay the same, or a `cmux-codex` that execs the real binary), which keeps the cache
+    /// key, or a new server catalog. The list is probed again in the background, so a stale
+    /// list (GPT-6.1 Sol under Legacy beside GPT-5.6 as current, #38044) lasts until the next
+    /// Codex chat starts, not until the daemon restarts. Each missing id causes one probe at
+    /// most: the bridge also lists a session's own model when `model/list` hides it, which no
+    /// probe will ever add. Claude Code's chats report a fixed list, so only Codex rechecks.
     pub(super) fn recheck_live_models(&self, harness: &str, listed: &[(String, String)]) {
         let Some(live) = self.live_models_for(harness) else { return };
-        let mut report: Vec<String> = listed
+        let missing: Vec<String> = listed
             .iter()
-            .map(|(id, _)| id.clone())
-            .filter(|id| id != "default")
+            .map(|(id, _)| id)
+            .filter(|id| !id.is_empty() && *id != "default" && !live.iter().any(|m| &m.id == *id))
+            .cloned()
             .collect();
-        if !report.iter().any(|id| !live.iter().any(|m| &m.id == id)) {
+        if missing.is_empty() {
             return;
         }
-        report.sort();
-        report.dedup();
+        // Only a Codex-family ACP profile has a Codex live list (`targets`). A config being
+        // written now is skipped; the next report rechecks.
+        let codex = self.config.try_read().is_ok_and(|cfg| {
+            cfg.harnesses.get(harness).is_some_and(|profile| {
+                profile.kind == HarnessKind::Acp
+                    && crate::config::derive_family(harness, profile) == "codex"
+            })
+        });
+        if !codex {
+            return;
+        }
         {
             let mut seen = self.live_rechecks.lock().unwrap_or_else(PoisonError::into_inner);
-            if seen.get(harness) == Some(&report) {
+            let probed = seen.entry(harness.to_owned()).or_default();
+            if missing.iter().all(|id| probed.contains(id)) {
                 return;
             }
-            seen.insert(harness.to_owned(), report);
+            probed.extend(missing);
         }
         let (Some(hub), Ok(runtime)) = (
             self.hub_ref.get().and_then(std::sync::Weak::upgrade),
@@ -123,9 +136,19 @@ impl Hub {
         ) else {
             return;
         };
-        tracing::info!(agent = %harness, "a chat lists models the live list lacks; probing again");
-        let only = std::collections::BTreeSet::from([harness.to_owned()]);
-        runtime.spawn(async move { hub.probe_live_models(false, Some(only)).await });
+        tracing::info!(agent = %harness, "a Codex chat lists models the live list lacks; probing again");
+        let name = harness.to_owned();
+        runtime.spawn(async move {
+            let before = hub.live_models_for(&name);
+            let only = std::collections::BTreeSet::from([name.clone()]);
+            hub.probe_live_models(true, Some(only)).await;
+            let after = hub.live_models_for(&name);
+            // Codex changed: pooled sessions still run the Codex that was there before (a
+            // spare outlives an update), so none of them is served (as on a config reload).
+            if after.is_some() && after != before {
+                hub.drain_pool();
+            }
+        });
     }
 
     /// Serves the cached lists whose programs are unchanged. Daemon start,
