@@ -11,6 +11,25 @@ extension RemoteCLIRelayServer.Session {
                 NSLocalizedDescriptionKey: "failed to create local relay socket",
             ])
         }
+        // `close()` cancels a round trip by shutting this socket down, and the
+        // local server can hang up first. Either fails an in-flight write with
+        // EPIPE, which without SO_NOSIGPIPE also raises SIGPIPE and ends any
+        // host process that has not ignored it (the app ignores it only through
+        // Ghostty's startup). Darwin refuses the option once the peer is gone,
+        // so it is set before connecting.
+        var noSIGPIPE: Int32 = 1
+        guard setsockopt(
+            fd,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            &noSIGPIPE,
+            socklen_t(MemoryLayout<Int32>.size)
+        ) == 0 else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "failed to create local relay socket",
+            ])
+        }
         return fd
     }
 
