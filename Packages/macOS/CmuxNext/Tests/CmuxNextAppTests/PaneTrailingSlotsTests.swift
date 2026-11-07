@@ -18,4 +18,13 @@ import Testing
         slots.record(.init(intrinsic: 40), for: TabID("b"), live: [tabs[1]])
         #expect(slots.reserve(in: 900, besides: TabID("b")) == 0)
     }
+
+    /// A tab replaced by another keeps the pane's tab count; the replaced tab's need still goes.
+    @Test func aReplacedTabTakesNoRoom() {
+        var slots = PaneTrailingSlots()
+        let a = TabItem(id: TabID("a"), title: "A"), b = TabItem(id: TabID("b"), title: "B"), c = TabItem(id: TabID("c"), title: "C")
+        slots.record(.init(intrinsic: 40, shared: 8, tools: 150), for: a.id, live: [a, b])
+        slots.record(.init(intrinsic: 40), for: b.id, live: [b, c])
+        #expect(slots.reserve(in: 900, besides: b.id) == 0)
+    }
 }

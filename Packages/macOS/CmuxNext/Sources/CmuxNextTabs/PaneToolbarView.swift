@@ -379,15 +379,11 @@ public final class PaneToolbarView: NSView {
     /// offer none kept 0, so the chat's tools ran to the pane's edge there (Leo 2026-11-07: "there's sometimes this,
     /// like, ghost area where it thinks there's, like, a fifth icon"). With nothing shown the chat's last tool sits on
     /// the pane's trailing control column, where "…" sits, in every pane.
-    public var tabRowWidth: CGFloat { tabRowWidth(more: hasMore) }
-
-    /// ``tabRowWidth`` with or without "…" (`more`): a pane decides whether a parked chat's tools fit its row from the
-    /// toolbar as it is beside the chat, which shows no "…", not as it is beside the terminal selected now (#37548).
-    public func tabRowWidth(more: Bool) -> CGFloat {
+    public var tabRowWidth: CGFloat {
         let allButtons = buttons + nativeButtons
-        let count = allButtons.count + (more ? 1 : 0)
+        let count = shownCount
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let moreWidth = more ? TitlebarBandButton.side : 0
+        let moreWidth = hasMore ? TitlebarBandButton.side : 0
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
         return buttonWidth + moreWidth + gaps + Self.trailingGap
     }
@@ -399,8 +395,9 @@ public final class PaneToolbarView: NSView {
     }
 
     /// The bar's width beside a parked chat in a pane `width` wide (#37548): its width the last time a chat of the pane
-    /// was selected, else the bar now without "…" (a chat shows none), not the bar beside the terminal selected now.
-    public func paneWidthBesideChat(in width: CGFloat) -> CGFloat { min(trailingSlots.parkedChatToolbar ?? tabRowWidth(more: false), width / 2) }
+    /// was selected, else the trailing gap alone (beside a chat the bar shows no "…" and no pin), never the bar as it is
+    /// beside the terminal selected now.
+    public func paneWidthBesideChat(in width: CGFloat) -> CGFloat { min(trailingSlots.parkedChatToolbar ?? Self.trailingGap, width / 2) }
 
     /// Points the strip of a pane `width` wide gives up at the row's trailing end (``PaneTrailingSlots``): what the
     /// selected tab of `model` takes now (`tools`: this bar and its page's tools in the row), or more where another of its

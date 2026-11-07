@@ -37,12 +37,13 @@ public struct PaneTrailingSlots {
 
     private(set) var needs: [TabID: Need] = [:]
 
-    /// The selected tab's need now; tabs the pane no longer holds are dropped (`live`: its tabs).
+    /// The selected tab's need now; tabs the pane no longer holds (`live`: its tabs) are dropped.
     public mutating func record(_ need: Need, for id: TabID, live: [TabItem]) {
         if needs[id] != need { needs[id] = need }
-        guard needs.count > live.count else { return }
+        // O(tabs of this pane), as the strip's own layout of them: a tab replaced by another keeps the count.
+        guard needs.count > 1 else { return }
         let ids = Set(live.map(\.id))
-        needs = needs.filter { ids.contains($0.key) }
+        if needs.keys.contains(where: { !ids.contains($0) }) { needs = needs.filter { ids.contains($0.key) } }
     }
 
     /// The most any other tab of the pane takes in a row `width` wide; 0 with none (the selected tab's own is laid

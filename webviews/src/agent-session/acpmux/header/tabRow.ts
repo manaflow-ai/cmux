@@ -107,24 +107,26 @@ export function useTabRowTools(
   const stop = useRef<(() => void) | undefined>(undefined);
   /// The width last reported, across rows: 0 goes out only when the tools leave the row.
   const reported = useRef(0);
+  const reportedRow = useRef<TabRow | undefined>(undefined);
   const follow = useCallback(() => {
     stop.current?.();
     stop.current = undefined;
     const element = tools.current;
     if (!row || !element || typeof ResizeObserver === "undefined") {
+      reportedRow.current = undefined;
       if (reported.current > 0) {
         reported.current = 0;
         report(0);
       }
       return;
     }
-    // Each offered row is a new one: the first measure reports even an unchanged width (the App may have forgotten it).
-    let fresh = true;
+    // Each offered row is a new one: its first measure reports even an unchanged width (the App may have forgotten it),
+    // once per row however often the element is followed.
     const measure = () => {
       const box = Math.round(element.getBoundingClientRect().width);
       const width = box > 0 ? box + TAB_ROW_GAP : 0;
-      if (width === reported.current && !fresh) return;
-      fresh = false;
+      if (width === reported.current && reportedRow.current === row) return;
+      reportedRow.current = row;
       reported.current = width;
       report(width);
     };
@@ -148,12 +150,13 @@ export function useTabRowTools(
     },
     [report],
   );
-  return useCallback(
-    (element: HTMLElement | null) => {
-      if (tools.current === element) return;
-      tools.current = element;
-      follow();
-    },
-    [follow],
-  );
+  // One ref callback for the hook's life: a new one per row had React detach the old with null first, and that
+  // reported 0 before the new one reported the width again.
+  const latest = useRef(follow);
+  latest.current = follow;
+  return useCallback((element: HTMLElement | null) => {
+    if (tools.current === element) return;
+    tools.current = element;
+    latest.current();
+  }, []);
 }
