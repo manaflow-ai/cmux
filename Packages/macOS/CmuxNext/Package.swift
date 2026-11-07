@@ -105,7 +105,8 @@ import PackageDescription
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
-//   CmuxNextServer -> Design, Icons (server menubar panel, pairing, approver sheet and health prototypes
+//   CmuxNextServer -> Design, Icons, Pages (server menubar panel, pairing, approver sheet and health prototypes,
+//     the Machines section page
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
@@ -699,7 +700,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // reader. Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -1215,7 +1216,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextServer",
             // CmuxNextWakeups: the joined rows' one-shot heartbeat deadline (JoinedMachineStore aging).
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemote", "CmuxNextWakeups"],
+            // CmuxNextPages, CmuxNextSettings: the Machines section's React page host and its provider.
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextRemote",
+                           "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],

@@ -224,6 +224,9 @@ fn a_snoozed_suggestion_waits_for_the_snooze_and_only_in_the_background() {
     let mut empty = request(&[], Style::Suggest, 3.0, json!({}), Trigger::Background);
     empty.snoozed_until = Some(NOW + 600.0);
     assert_eq!(plan(&empty).next_check, Some(NOW + 600.0));
+    // A snooze ending within the minute still waits the minute.
+    empty.snoozed_until = Some(NOW + 1.0);
+    assert_eq!(plan(&empty).next_check, Some(NOW + MINIMUM_RECHECK));
 }
 
 #[test]

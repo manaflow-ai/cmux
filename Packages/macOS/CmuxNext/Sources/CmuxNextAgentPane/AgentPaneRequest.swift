@@ -167,6 +167,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
+    /// `cloud.signIn {task, ...}`: signs in, keeping the click for this exact Cloud start; the page
+    /// sends it again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
+    case cloudSignIn(AgentPaneCloudStart)
+    /// `cloud.signInCancel`: the page left Cloud (another mode, chat or tab) while a `cloud.signIn`
+    /// waited on the browser; that sign-in still finishes, but its preserved prompt is not sent.
+    case cloudSignInCancel
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).

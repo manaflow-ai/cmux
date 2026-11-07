@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView, startupChecklist } from "./CloudStartView";
+import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
 
 let dom: JSDOM | undefined;
@@ -140,6 +141,14 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).toContain("No machine free");
   expect(html).not.toContain("cv-spinner");
   expect(html).not.toContain("fix the build");
+});
+
+test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
+  const variant = cloudStartGallery.variants["signed-out"]!;
+  const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
+  expect(html).toContain(variant.props.start.task);
+  expect(html).toContain('class="acpmux-cloud-start__sign-in"');
+  expect(html).toContain("Sign in to use Cloud.");
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
