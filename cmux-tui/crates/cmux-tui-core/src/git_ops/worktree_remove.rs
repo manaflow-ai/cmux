@@ -11,6 +11,11 @@
 //! commits stays. The main checkout and other worktrees are never touched.
 //! The journal keeps the attempt, so a retry after a timeout finishes what
 //! the first run started.
+//!
+//! Before the folder goes, a setup still running there is stopped and the
+//! project's teardown runs in it (`worktree_setup`), once; its exit and
+//! output are in the reply, and a failed teardown does not keep the
+//! worktree. Its ports go back once it is gone.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,7 +28,9 @@ use super::journal::Journal;
 use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
 use super::worktree::BRANCH_PREFIX;
-use super::{MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository};
+use super::{
+    MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository, worktree_recipe, worktree_setup,
+};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
@@ -56,16 +63,23 @@ pub(super) fn dispatch(
             return Ok(replayed);
         }
         let journal = Journal::open(mux, &target.identity(), &key, OPERATION)?;
+        let mut teardown = None;
         let attempt = match journal.attempt::<Attempt>(&fingerprint) {
             Some(attempt) => attempt,
             None => {
                 let discard = request.fields.get("discard").and_then(Value::as_bool) == Some(true);
                 let attempt = plan(&target.repository, discard)?;
                 journal.start(&fingerprint, &attempt)?;
+                teardown = run_teardown(mux, &attempt, target.git_dir());
                 attempt
             }
         };
+        // Resolved while the folder is still there: the ports are kept by it.
+        let resolved_root = worktree_setup::resolved(&attempt.root);
         let result = remove(&target.repository, &attempt);
+        if result.is_ok() {
+            worktree_setup::removed(target.git_dir(), &resolved_root);
+        }
         if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
             journal.finish();
         }
@@ -78,8 +92,23 @@ pub(super) fn dispatch(
         if let Some(branch) = &attempt.branch {
             value.set("branch", json!(branch));
         }
+        if let Some(teardown) = teardown {
+            value.set("teardown", teardown);
+        }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })
+}
+
+/// Stops the worktree's setup and runs the project's teardown in it; what
+/// the reply says of the teardown. It runs once, before the first try.
+fn run_teardown(mux: &Mux, attempt: &Attempt, git_dir: &Path) -> Option<Value> {
+    let resolved = worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root);
+    let place = worktree_setup::Place {
+        root: worktree_setup::resolved(&attempt.root),
+        main_root: Some(attempt.main_root.clone()),
+        git_dir: git_dir.to_path_buf(),
+    };
+    worktree_setup::teardown(&place, resolved.recipe.teardown.as_deref())
 }
 
 /// The worktree to remove, refused while it holds work found nowhere else

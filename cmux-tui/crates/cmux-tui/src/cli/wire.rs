@@ -486,6 +486,20 @@ pub(super) fn response_read_timeout(
             .map(Duration::from_millis)
             .and_then(|timeout| timeout.checked_add(Duration::from_secs(2)));
     }
+    // The user's git actions run under a 120 s deadline, and a worktree
+    // removal runs its project's teardown (at most a minute) first.
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::GitCommit
+                | cmux_tui_core::resource::ResourceOperation::GitPush
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+        )
+    ) {
+        return Some(Duration::from_secs(200));
+    }
     Some(Duration::from_secs(10))
 }
 
