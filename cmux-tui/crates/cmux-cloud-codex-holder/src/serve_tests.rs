@@ -1,6 +1,8 @@
 //! The app's pipe to the holder process, end to end: a run asks the app its questions and shows
 //! the device code, the machine gets access, and the end of input leaves it there.
 
+use std::time::Duration;
+
 use super::*;
 use crate::target::{ACCESS_PATH, ExecResult, MODE_PATH, VmError};
 use crate::test_support::holder_script;
@@ -350,5 +352,45 @@ async fn a_restarted_holder_erases_a_machine_delivered_after_the_last_list() {
     pipe.send(json!({"op": "sign_out", "id": 2, "current": scope()})).await;
     assert_eq!(pipe.reply(2).await["ok"], true);
     assert!(!world.delivered(), "the record named it");
+    pipe.quit().await;
+}
+
+/// cmux#37306 review: the off switch started a new holder with Cloud already off, so the restore
+/// took nothing back and the off switch retired nothing; the access stayed and could renew once
+/// Cloud was on again. Now the restore under the fence marks it for erasure, and the next list
+/// after Cloud is on erases it instead of renewing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_holder_restarted_while_cloud_is_off_erases_once_it_is_on() {
+    let world = World::new();
+    world.delivered_by_a_holder_that_ended().await;
+    let mut pipe = Pipe::start(&world.files);
+    pipe.send(world.config()).await;
+    pipe.send(
+        json!({"op": "available", "enabled": false, "current": scope(), "acpmux": world.acpmux}),
+    )
+    .await;
+    pipe.send(json!({"op": "restore", "scopes": [scope()], "live": ["vm_1"], "current": scope()}))
+        .await;
+    // A request after the restore answers only once the restore is done.
+    pipe.send(json!({"op": "pending_cleanup", "id": 2})).await;
+    assert_eq!(pipe.reply(2).await["ok"], true);
+    let record = crate::record::Record::new(&crate::adapter::home(
+        &world.root.path().join("cloud"),
+        &Scope::new("user-1", Some("team-1")),
+    ));
+    assert_eq!(record.entries(), HashMap::from([("vm_1".to_owned(), true)]), "marked for erasure");
+    assert!(world.delivered(), "nothing reaches a machine while Cloud is off");
+
+    pipe.send(json!({"op": "available", "enabled": true, "current": scope()})).await;
+    pipe.send(json!({"op": "listed", "live": ["vm_1"], "current": scope()})).await;
+    let erased = async {
+        while world.delivered() {
+            // Answers the pass's own questions (owner, live) while it erases.
+            pipe.send(json!({"op": "pending_cleanup", "id": 3})).await;
+            pipe.reply(3).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), erased).await.expect("erased, not renewed");
     pipe.quit().await;
 }

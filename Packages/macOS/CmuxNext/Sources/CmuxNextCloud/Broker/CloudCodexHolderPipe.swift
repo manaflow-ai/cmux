@@ -65,10 +65,11 @@ actor CloudCodexHolderPipe {
             // An answer for a child that ended: the new child never asked it.
             guard owner == generation, process != nil else { return true }
         }
+        // Noted first: a holder started for this line opens under the scope it names.
+        if line.answerFor == nil { remember(line.data) }
         if process == nil, !start(acpmux: acpmux) { return false }
         guard write(line.data) else { return false }
         if let id = line.id { sent.insert(id) }
-        if line.answerFor == nil { remember(line.data) }
         return true
     }
 
@@ -150,7 +151,9 @@ actor CloudCodexHolderPipe {
             await self?.ended(child)
         }
         var opening = [config]
-        var hello: [String: Any] = ["op": "available", "enabled": available]
+        // The current scope comes with the fence, so an off switch that starts the holder ends
+        // that scope (its record marked for erasure), not nothing.
+        var hello: [String: Any] = ["op": "available", "enabled": available, "current": known.current ?? NSNull()]
         if let acpmux { hello["acpmux"] = acpmux.path }
         if let data = try? JSONSerialization.data(withJSONObject: hello) { opening.append(data) }
         // Config, availability, then what the last holder knew, before any line the app sends now.

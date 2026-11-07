@@ -33,8 +33,9 @@ impl Gate {
         Arc::new(Self { entered: watch::channel(false).0, opened: watch::channel(false).0 })
     }
 
+    // `send_replace`, not `send`: a value sent before anyone subscribed is kept.
     pub(crate) async fn pause(&self) {
-        let _ = self.entered.send(true);
+        self.entered.send_replace(true);
         let mut opened = self.opened.subscribe();
         let _ = opened.wait_for(|o| *o).await;
     }
@@ -46,11 +47,11 @@ impl Gate {
     }
 
     pub(crate) fn passed(&self) {
-        let _ = self.entered.send(true);
+        self.entered.send_replace(true);
     }
 
     pub(crate) fn open(&self) {
-        let _ = self.opened.send(true);
+        self.opened.send_replace(true);
     }
 }
 

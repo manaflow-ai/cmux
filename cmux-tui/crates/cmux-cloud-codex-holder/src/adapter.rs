@@ -258,16 +258,38 @@ impl Adapter {
     /// a candidate too, so one delivered after that list is not missed; each is asked whether it
     /// runs (never woken) and taken back first (renewal goes on, and the next sign-out, switch or
     /// off switch erases it). Every other scope is registered so its end erases what its record
-    /// holds. Bounded by
-    /// `CLEANUP_BOUND`; a pass still running then is cancelled and its machines stay recorded.
+    /// holds. While Cloud is off, every one of them ends instead (its record marked for erasure).
+    /// Bounded by `CLEANUP_BOUND`; a pass still running then is cancelled and its machines stay
+    /// recorded.
     pub async fn restore(self: &Arc<Self>, scopes: Vec<Scope>, mut live: HashSet<String>) {
         let current = (self.current_scope)();
-        {
+        let fenced: Vec<Scope> = {
             let mut state = self.st();
             if state.observed.is_none() {
                 state.observed = current.clone();
             }
             state.scopes.extend(scopes.into_iter().filter(|s| Some(s) != current.as_ref()));
+            if state.unavailable {
+                // Cloud is off: nothing is taken back or renewed. Every scope ends as the off
+                // switch ends it, so what each record holds is marked for erasure, and the next
+                // pass after Cloud is on again erases it.
+                state.scopes.extend(current.clone());
+                state.scopes.drain().collect()
+            } else {
+                Vec::new()
+            }
+        };
+        if !fenced.is_empty() {
+            for scope in &fenced {
+                self.begin_retirement(scope);
+            }
+            for scope in &fenced {
+                let teardown = self.st().teardowns.get(scope).cloned();
+                if let Some(teardown) = teardown {
+                    teardown.await;
+                }
+            }
+            return;
         }
         let Some(scope) = current else { return };
         live.extend(Record::new(&self.home(&scope)).entries().into_keys());
