@@ -1325,9 +1325,13 @@ function shapeTurn(
               ...(replies.has(row.id) && { foldedReply: true }),
               // A folded run draws otherwise, so its version moves (memos compare versions).
               ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-              // A steered turn's run lines open with its Worked for (`runsOpen`).
+              // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
+              // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
               ...(runsOpen &&
-                row.kind === "activity" && { runOpen: true as const, version: row.version * RUN_STATES + 5 }),
+                row.kind === "activity" && {
+                  runOpen: true as const,
+                  version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
+                }),
             })),
         );
     }
@@ -2182,9 +2186,11 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The drawn states of one Codex-style run, each its own version offset so a memoized row redraws
 /// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
-/// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds, 5 a
-/// steered turn's open fold, whose run lines start open (`runOpen`).
-const RUN_STATES = 6;
+/// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
+const RUN_STATES = 5;
+/// A steered turn's open fold, whose run lines start open (`runOpen`), differs from the same fold
+/// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
+const OPEN_RUN_STATES = 2;
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
 /// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
