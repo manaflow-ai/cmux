@@ -16,7 +16,7 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
-import { chatPlace } from "./chatMachine";
+import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -470,8 +470,6 @@ import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { useCodexToolRuns } from "./codexToolRuns";
-import { useLiveLineBelow } from "./liveLineBelow";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
@@ -2375,10 +2373,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
-  // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
-  const codexRuns = useCodexToolRuns();
-  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
-  const lineBelow = useLiveLineBelow();
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
@@ -2509,9 +2503,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           {
             working: snapshot.isWorking,
             clockOffset: snapshot.clockOffsetMs,
-            liveRuns: codexRuns,
             sessionStatus,
-            lineBelow,
             // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -2578,9 +2570,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
-    codexRuns,
     sessionStatus,
-    lineBelow,
     snapshot.summary?.family,
     snapshot.waitingSteers,
     messageBreaks,
@@ -4396,10 +4386,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The Inspector (Debug Settings `agent.sessionInfo`): its toggle the first of the header's
   // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
   const sessionInfoSummary = sessionInfoSnapshot.summary;
-  const sessionInfoLocal =
-    sessionInfoSummary !== undefined &&
-    !sessionInfoSummary.peer &&
-    !(sessionInfoSummary.host && sessionInfoSummary.hostKind !== "local");
+  // On this Mac by the Session Info row's own source (chatMachine.ts): never a chat over a remote route.
+  const sessionInfoLocal = chatOnThisMac(
+    sessionInfoSummary,
+    sessionInfoSnapshot.peerKinds,
+    chatPlace(sessionInfoSnapshot),
+  );
   // A subagent's edited files are in its own rows, which the chat's diff (openOutput) never reads:
   // they open the Changes viewer beside the chat on the subagent's folder, its worktree when it has
   // one (a chat on this Mac; another machine's folders are not here). The folder is found on the

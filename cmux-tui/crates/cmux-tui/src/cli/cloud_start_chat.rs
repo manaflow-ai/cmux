@@ -429,6 +429,7 @@ fn signed_out(error: &Value) -> bool {
         || code == "auth.required"
         || message.contains("sign in to use cloud")
         || message.contains("cmux cloud sign-in")
+        || message.contains("cmux login")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -632,8 +633,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
-            "cmux is signed out: run `cmux cloud sign-in`, then this command again",
-            json!({"sign_in": "cmux cloud sign-in"}),
+            "cmux is signed out: run `cmux login`, then this command again",
+            json!({"sign_in": "cmux login"}),
             1,
         );
     }
@@ -981,9 +982,7 @@ fn await_created(
         let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
         match new.as_slice() {
             [id] => return Ok(id.clone()),
-            [] if creation.is_some() => {
-                return Err(pending("its create left the app's list with no new machine".into()));
-            }
+            // The create row can leave the list a moment before its machine is listed: read again.
             [] => {}
             _ => return Err(pending("several new machines appeared".into())),
         }
@@ -1334,8 +1333,8 @@ fn app_failure(error: Value) -> Outcome {
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
-            format!("{message} (run `cmux cloud sign-in`, then this command again)"),
-            json!({"sign_in": "cmux cloud sign-in", "app": error}),
+            format!("{message} (run `cmux login`, then this command again)"),
+            json!({"sign_in": "cmux login", "app": error}),
             1,
         );
     }

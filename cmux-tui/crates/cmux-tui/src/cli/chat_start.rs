@@ -412,7 +412,7 @@ fn device_id(selector: &str, catalog: &Value) -> Result<String, Value> {
 /// The SDK's refusal, with what to run next.
 fn refused(refusal: &ChatTargetRefusal) -> Value {
     let next = match refusal {
-        ChatTargetRefusal::SignedOut => "run `cmux vm sign-in`, then this command again",
+        ChatTargetRefusal::SignedOut => "run `cmux login`, then this command again",
         _ => LIST_DEVICES,
     };
     self::refusal(refusal.code(), refusal.to_string(), next, json!({}))
