@@ -78,6 +78,10 @@ import Testing
             ("make", { _ = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: list.options(includeGap: false)) }),
             ("displayLayout", { _ = list.displayLayout() }),
             ("groupLines", { _ = list.groupLines(list.displayed) }),
+            ("frames", { for row in list.displayed.rows { _ = list.frame(for: row) } }),
+            ("linesNoFrame", { _ = SidebarGroupLine.lines(list.displayed.rows, colors: list.lineColors) { CGRect(x: 0, y: $0.y, width: 200, height: $0.height) } }),
+            ("lineColors", { _ = list.lineColors }),
+            ("lineViews", { _ = list.groupLineViews.update(list.groupLineViews.lines, from: [], in: list, above: list.decorations, animated: false) }),
             ("showDragLayout", { list.showDragLayout() }),
         ]
         for (name, part) in parts {
