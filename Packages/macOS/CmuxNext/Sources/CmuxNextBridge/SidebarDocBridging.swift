@@ -88,7 +88,7 @@ public final class SidebarDocSections {
     /// none), or last (`bottom`). A live workspace the document does not place yet lists at that slot, so its
     /// item's arrival moves nothing, and none made by the CLI or an agent shows at the sidebar's end first and
     /// then jumps (Leo 2026-11-06; plans/cmux-next/sidebar-ordering-DESIGN.md).
-    public enum NewRowsPlace: Equatable, Sendable {
+    public enum NewRowsPlace: Hashable, Sendable {
         case first, below(String), last
     }
 
@@ -99,12 +99,13 @@ public final class SidebarDocSections {
 
     /// The current workspaces seen per session, latest last (at most `currentsKept`): the anchor of a chain of creates.
     private var currents: [String: [String]] = [:]
-    /// Where each workspace last listed per session: its group (nil: a loose run) and the row above it there (nil:
+    /// Where each workspace last listed per session and room: its group (nil: a loose run) and the row above it there (nil:
     /// first). A listed workspace the document stops placing for a moment (its item or ref in flight) keeps that slot,
     /// so no row leaves its group or moves (Leo 2026-11-07, a collapsed group's running rows jumping out of it).
     private var slots: [String: [String: Slot]] = [:]
-    private struct Slot: Equatable { var group: String?; var after: String? }
-    /// The place each new row took when it first listed, per session: a selection change does not move it.
+    /// `run`: which loose run (counting the loose runs only) a row with no group listed in.
+    private struct Slot: Equatable { var group: String?; var after: String?; var run = 0 }
+    /// The place each new row took when it first listed, per session and room: a selection change does not move it.
     private var anchors: [String: [String: NewRowsPlace]] = [:]
     private static let currentsKept = 64
 
@@ -153,6 +154,8 @@ public final class SidebarDocSections {
     public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel], room: String? = nil,
                          spaces: Set<String>? = nil,
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
+        // A window shows one room: each room keeps its own slots and anchors, so rows another room hides keep theirs.
+        let key = session + "\u{0}" + (room ?? "")
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
         var loose: [WorkspaceModel] = []
@@ -214,14 +217,15 @@ public final class SidebarDocSections {
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         var unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
         // One that listed before keeps its slot (its group, under the same row) until the document places it again.
-        let waiting = holdSlots(unplaced, session: session, in: &sections, machineSections: machineSections)
+        let waiting = holdSlots(unplaced, key: key, in: &sections, machineSections: machineSections)
         let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
         unplaced = waiting
         let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
         // A new row stays where it first listed: the place it took then, not the current workspace now.
-        var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplaced.contains { $0.id == id } }
+        let unplacedIDs = Set(unplaced.map(\.id))
+        var firstPlaces = anchors[key, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
         for w in unplaced where firstPlaces[w.id] == nil { firstPlaces[w.id] = place }
-        anchors[session] = firstPlaces
+        anchors[key] = firstPlaces
         let tail = unplaced.filter { firstPlaces[$0.id] == .last }
         if !tail.isEmpty { loose += unplacedOrder(tail) }
         let rest = unplaced.filter { firstPlaces[$0.id] != .last }
@@ -230,14 +234,15 @@ public final class SidebarDocSections {
             // its item, so the unplaced ones have none to order them by yet.
             let ordered = unplacedOrder(newestFirst ? Array(rest.reversed()) : rest)
             var runs: [(NewRowsPlace, [WorkspaceModel])] = []
+            var runOf: [NewRowsPlace: Int] = [:]
             for w in ordered {
                 let at = firstPlaces[w.id] ?? place
-                if let i = runs.firstIndex(where: { $0.0 == at }) { runs[i].1.append(w) } else { runs.append((at, [w])) }
+                if let i = runOf[at] { runs[i].1.append(w) } else { runOf[at] = runs.count; runs.append((at, [w])) }
             }
             for (at, rows) in runs { Self.insertNew(rows, at, into: &sections, machineSections: machineSections) }
         }
         flush()
-        noteSlots(sections, session: session, placed: listed, held: held)
+        noteSlots(sections, key: key, placed: listed, held: held)
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
     }
@@ -245,52 +250,71 @@ public final class SidebarDocSections {
     /// Puts each of `unplaced` that listed before back in its slot among the machine's rows (the first `machineSections`
     /// of `sections`): under the row it was under, in the same group (or loose run). Returns the ones with no slot to
     /// go back to. Rows go back in a chain (one under another held one), so a run of them keeps its order.
-    private func holdSlots(_ unplaced: [WorkspaceModel], session: String, in sections: inout [CmuxNextDaemon.SidebarSection],
+    private func holdSlots(_ unplaced: [WorkspaceModel], key: String, in sections: inout [CmuxNextDaemon.SidebarSection],
                            machineSections: Int) -> [WorkspaceModel] {
-        let known = slots[session] ?? [:]
-        var waiting = unplaced.filter { known[$0.id] != nil }
-        guard !waiting.isEmpty else { return unplaced }
-        var progress = true
-        while progress && !waiting.isEmpty {
-            progress = false
-            for w in waiting {
-                guard let slot = known[w.id] else { continue }
-                guard let index = sections.indices.prefix(machineSections).first(where: { i in
-                    sections[i].group?.id.rawValue == slot.group
-                        && (slot.after.map { after in sections[i].workspaces.contains { $0.id == after } } ?? true)
-                }) else { continue }
-                var rows = sections[index].workspaces
-                let at = slot.after.flatMap { after in rows.firstIndex { $0.id == after } }.map { $0 + 1 } ?? 0
-                rows.insert(w, at: at)
-                sections[index] = CmuxNextDaemon.SidebarSection(group: sections[index].group, workspaces: rows)
-                waiting.removeAll { $0.id == w.id }
-                progress = true
-            }
+        let known = slots[key] ?? [:]
+        guard unplaced.contains(where: { known[$0.id] != nil }) else { return unplaced }
+        // One pass over the rows: the section each lists in, the first section of each group and each loose run.
+        var sectionOf: [String: Int] = [:]
+        var groupSection: [String: Int] = [:]
+        var looseRuns: [Int] = []
+        for i in sections.indices.prefix(machineSections) {
+            if let group = sections[i].group?.id.rawValue { if groupSection[group] == nil { groupSection[group] = i } } else { looseRuns.append(i) }
+            for w in sections[i].workspaces { sectionOf[w.id] = i }
         }
-        let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
+        // Each held row waits on the row it goes under (nil: first in its section), in `unplaced` order.
+        var under: [String?: [(WorkspaceModel, Slot)]] = [:]
+        for w in unplaced { if let slot = known[w.id] { under[slot.after, default: []].append((w, slot)) } }
+        var held = Set<String>()
+        func place(_ w: WorkspaceModel, _ slot: Slot) -> Bool {
+            let index: Int?
+            if let after = slot.after {
+                index = sectionOf[after].flatMap { sections[$0].group?.id.rawValue == slot.group ? $0 : nil }
+            } else if let group = slot.group {
+                index = groupSection[group]
+            } else {
+                index = looseRuns.indices.contains(slot.run) ? looseRuns[slot.run] : looseRuns.first
+            }
+            guard let index else { return false }
+            var rows = sections[index].workspaces
+            let at = slot.after.flatMap { after in rows.firstIndex { $0.id == after } }.map { $0 + 1 } ?? 0
+            rows.insert(w, at: at)
+            sections[index] = CmuxNextDaemon.SidebarSection(group: sections[index].group, workspaces: rows)
+            sectionOf[w.id] = index
+            held.insert(w.id)
+            return true
+        }
+        // First the rows under a listed row (or first in a section), then each placed row's own followers: a chain keeps its order.
+        var ready: [String?] = [nil] + under.keys.compactMap { $0 }.filter { sectionOf[$0] != nil }
+        while let anchor = ready.popLast() {
+            for (w, slot) in under.removeValue(forKey: anchor) ?? [] where place(w, slot) { ready.append(w.id) }
+        }
         return unplaced.filter { !held.contains($0.id) }
     }
 
     /// Records where each row the document places lists now, for ``holdSlots``; a `held` row keeps the slot it had. A
     /// new row (no item yet) gets none: it keeps the place it first took (`anchors`), and is no row's `after`.
-    private func noteSlots(_ sections: [CmuxNextDaemon.SidebarSection], session: String, placed: Set<String>, held: Set<String>) {
-        let old = slots[session] ?? [:]
+    private func noteSlots(_ sections: [CmuxNextDaemon.SidebarSection], key: String, placed: Set<String>, held: Set<String>) {
+        let old = slots[key] ?? [:]
         var next: [String: Slot] = [:]
         next.reserveCapacity(placed.count + held.count)
+        var run = 0
         for section in sections {
             var above: String?
+            let looseRun = section.group == nil ? run : 0
+            if section.group == nil { run += 1 }
             for w in section.workspaces {
                 if held.contains(w.id) {
                     next[w.id] = old[w.id]
                 } else if placed.contains(w.id) {
-                    next[w.id] = Slot(group: section.group?.id.rawValue, after: above)
+                    next[w.id] = Slot(group: section.group?.id.rawValue, after: above, run: looseRun)
                 } else {
                     continue
                 }
                 above = w.id
             }
         }
-        slots[session] = next
+        slots[key] = next
     }
 
     /// Puts `rows` where `place` lists new rows among the machine's rows (the first `machineSections` of

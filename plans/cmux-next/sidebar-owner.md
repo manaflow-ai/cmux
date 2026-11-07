@@ -1521,6 +1521,9 @@ An empty group now keeps only its header at rest. The header's existing + appear
   on every row it keeps (no stuck highlight). The peek rule is unchanged: a collapsed group draws its active member
   and the members selected while it was collapsed (`shown(inCollapsed:)`), so a click elsewhere moves no row.
 - Tests: `SidebarDocHeldSlotTests`, red commit first.
+- Slots and anchors are kept per session and room: a window of another room lists fewer rows and must not drop this
+  room's slots. A loose row's slot names its loose run, so a row under a group goes back under it. Putting held rows
+  back is one pass over the rows plus a wait list keyed by the row each goes under (no scan per row).
 
 ## Reviewed behavior-only commits
 
