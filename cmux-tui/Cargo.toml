@@ -55,6 +55,7 @@ members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
     "crates/cmux-unix-socket",
@@ -101,6 +102,7 @@ members = [
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
+    "crates/cmux-daemon-launch-core",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -148,6 +150,7 @@ default-members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
     "crates/cmux-pty",
@@ -187,6 +190,7 @@ default-members = [
     "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-daemon-launch-core",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -250,6 +254,7 @@ cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }

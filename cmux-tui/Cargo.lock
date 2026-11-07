@@ -1146,6 +1146,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -1286,6 +1294,15 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-daemon-launch-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-local-auth",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

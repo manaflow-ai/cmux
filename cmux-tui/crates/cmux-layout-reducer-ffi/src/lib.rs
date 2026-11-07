@@ -1,7 +1,8 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`), the store's
+//! the group hover card's summary (`group_hover_summary`), the app sidebar
+//! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
 //! workspace lands),
@@ -20,6 +21,8 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
+//! checks, decisions, result fields and answer text),
 //! `cmux-cloud-tasks`' follower of the app's cloud tasks (`cloud_task_*`: one
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
@@ -56,6 +59,7 @@ pub mod close_focus;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
+mod cloud_handler;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_task;
@@ -199,6 +203,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_edits::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 sidebar_edits::respond(&request).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_bridge" => {
+                let request: cmux_layout_reducer::sidebar_bridge::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                cmux_layout_reducer::sidebar_bridge::respond(&request).map_err(|_| ERR_INVALID)?
             }
             b"group_hover_summary" => {
                 let request: cmux_layout_reducer::group_hover_summary::Request =
@@ -407,6 +416,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
+            }
+            operation if cloud_handler::handles(operation) => {
+                cloud_handler::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
