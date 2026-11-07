@@ -426,6 +426,43 @@ describe("the card", () => {
       delete page.dataset.cmuxMotion;
     }
   });
+
+  // Review F2 of #37790 at efe59289: a drag closed the open preview but handed its room back only
+  // after the close (240 ms), so the native host shrank and moved the held card's view mid-drag.
+  test("a drag that starts with the preview open hands its room back at once", async () => {
+    const sizes: number[] = [];
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    let host: HTMLElement;
+    ({ host } = await render({ hostPointer: false, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    ({ host } = await render({ hostPointer: true, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
+    await until(() => state() === "open");
+    expect(sizes).toEqual([168]);
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 20, host.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", -20, dom.window));
+    expect(moves.length).toBeGreaterThan(0);
+    expect(sizes).toEqual([168, 0]);
+    await act(async () => pointer("pointerup", -20, dom.window));
+  });
 });
 
 /** Mounts the sidebar's Updated surface in a DOM of its own and runs `body` with it. */

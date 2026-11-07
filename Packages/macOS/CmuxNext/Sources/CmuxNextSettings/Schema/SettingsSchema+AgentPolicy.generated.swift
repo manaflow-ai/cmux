@@ -255,8 +255,8 @@ extension SettingsSchema {
         // Display-only agent surface zoom.
         "agentPane.zoom",
         // The composer's context ring and mic (looks only).
-        "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
-        "agentPane.attachmentView", "agentPane.showMachineLoadWarnings",
+        "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource",
+        "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.showMachineLoadWarnings",
         // The Chief chat's bubble style and whether it shows the Feed (looks only).
         "home.chiefBubbleStyle", "home.feedInChief", "home.bubbleColors.sent", "home.bubbleColors.sentText",
         "home.bubbleColors.received", "home.bubbleColors.receivedText",
@@ -270,6 +270,8 @@ extension SettingsSchema {
         "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
         "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
+        // Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.
+        "agents.hiddenChats.discard", "agents.hiddenChats.discardAfterMinutes",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
     ]

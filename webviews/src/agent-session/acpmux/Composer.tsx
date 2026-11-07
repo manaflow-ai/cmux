@@ -118,7 +118,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
-} from "./composer/attachmentIntake";
+} from "./composer/attachmentIntakeModel";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -147,6 +147,7 @@ import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { noteSendOrigins } from "./conversation/sendMorph";
+import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -245,6 +246,8 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
+  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
+  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -926,11 +929,16 @@ function ComposerFrame({
           field.current?.focus();
         }
       },
-      wakeState: () => ({
-        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
-        shell: shellRef.current.shell,
-        shellText: shellRef.current.shellText,
-      }),
+      wakeState: () => {
+        const attachments = attachmentsRef.current.filter((chip) => !chip.shellRun);
+        return {
+          attachments,
+          shell: shellRef.current.shell,
+          shellText: shellRef.current.shellText,
+          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
+          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
+        };
+      },
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         let typed = field.current?.value() ?? textRef.current;

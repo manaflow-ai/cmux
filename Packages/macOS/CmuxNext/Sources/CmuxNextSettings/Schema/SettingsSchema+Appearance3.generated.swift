@@ -197,7 +197,7 @@ extension AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
-                keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps"]
+                keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
             ),
         ]
     }
