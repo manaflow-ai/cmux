@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42369744489",
+  "recorded_at": "2026-11-07T12:00:40Z",
+  "reason": "cmux-tui 733d10cb74de changes the image's cmux-tui (pinned 7a2437eeeeb3)",
+  "dry_run": false,
+  "cmux_tui": "733d10cb74dee7513dd46c14fda309b43c3e41ce",
+  "fixes": [
+    {
+      "sha": "733d10cb74dee7513dd46c14fda309b43c3e41ce",
+      "mergedAt": "2026-11-07T03:35:39-08:00",
+      "subject": "acpmux: read ~/.claude.json again when a rewrite tore it, so trust.pending never comes from a torn file (#37740)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T12:00:40Z",
+    "snapshot_id": "sh-ff133fdee27f4f958db9d18e20d136db",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42369744489): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "67facb13509e4488d36a9ef63948ea69ee0aa95c",
+    "image": "cloud-native-auto-733d10cb-42369744489-1",
+    "revision": "ci-42369744489-1",
+    "at": "2026-11-07T12:00:40Z"
+  },
+  "rolled_back": false
+}
