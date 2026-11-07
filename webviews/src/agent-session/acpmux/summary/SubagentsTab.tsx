@@ -13,7 +13,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { SubagentListRow, SubagentPaneContext } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import { SUBAGENT_ROW } from "../subagents/subagentRows";
-import { subagentStatus } from "./SubagentStatusList";
+import { subagentStatus } from "./subagentStatusListModel";
 
 /// Subagent rows as SubagentListRow draws them; each carries its place in its list (`status`).
 function listRows(agents: readonly Subagent[]): AcpmuxRow[] {
