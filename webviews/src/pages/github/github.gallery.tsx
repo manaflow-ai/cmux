@@ -6,23 +6,25 @@ import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { GitHubPage, type GitHubLayout } from "./GitHubPage";
-import { MockGitHubProvider, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
+import { GitHubPage, type ChecksPlacement, type GitHubLayout } from "./GitHubPage";
+import { MockGitHubProvider, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { GitHubStore } from "./store";
-import type { PullRequestDetails, PullRequestReply } from "./types";
+import type { DashboardChecks, PullRequestDetails, PullRequestReply } from "./types";
 
 type Props = {
   answer?: PullRequestReply;
   details?: PullRequestDetails | null;
   layout?: GitHubLayout;
+  checks?: DashboardChecks | null;
+  checksPlacement?: ChecksPlacement;
   /** Files opened inline once the page has its answer. */
   expand?: string[];
   /** The Merge button's first click, so its confirm shows. */
   confirmMerge?: boolean;
 };
 
-function GitHubGallery({ answer, details, layout, expand = [], confirmMerge = false }: Props) {
-  const [store] = useState(() => new GitHubStore(new MockGitHubProvider(answer, details), () => false));
+function GitHubGallery({ answer, details, checks, checksPlacement, layout, expand = [], confirmMerge = false }: Props) {
+  const [store] = useState(() => new GitHubStore(new MockGitHubProvider(answer, details, checks), () => false));
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
     void store.route(`#/pull?url=${encodeURIComponent(MOCK_URL)}`).then(async () => {
@@ -36,7 +38,15 @@ function GitHubGallery({ answer, details, layout, expand = [], confirmMerge = fa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a fixture's props are fixed
   }, [store]);
   // A fixed clock, so every capture says the same age.
-  return <GitHubPage store={store} strings={strings} layout={layout} now={() => Date.parse("2026-11-05T03:00:00Z")} />;
+  return (
+    <GitHubPage
+      store={store}
+      strings={strings}
+      layout={layout}
+      checksPlacement={checksPlacement}
+      now={() => Date.parse("2026-11-05T03:00:00Z")}
+    />
+  );
 }
 
 const merged: PullRequestReply = {
@@ -67,6 +77,22 @@ export default componentEntry<Props>({
     open: {
       note: "Shipped layout (split): description, files and conversation in the main column; checks (reds first, greens folded), reviewers and linked issues in the rail. One column when narrow.",
       props: {},
+    },
+    "ci-failed-running": {
+      note: "Shipped CI dashboard (top): tally, share done and ETA; failures with their step and log end; a matrix's shards as one row of pips; running with elapsed time; passed folded.",
+      props: {},
+    },
+    "ci-rail": {
+      note: "Candidate: the same dashboard in the rail. Long names and the log excerpt wrap in 320px.",
+      props: { checksPlacement: "rail" },
+    },
+    "ci-passed": {
+      note: "Every job done and green: one line, the rest folded.",
+      props: { checks: mockChecksPassed },
+    },
+    "ci-before-read": {
+      note: "Before the dashboard's first read: the cache's rollup, in the dashboard's place.",
+      props: { checks: null },
     },
     "layout-rail": {
       note: "Candidate: the files in the rail beside the checks, as the first brief drew it. An opened diff has the rail's width only.",

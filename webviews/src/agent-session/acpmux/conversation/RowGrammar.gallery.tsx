@@ -82,7 +82,7 @@ function RowGrammarGallery({ recipient, open = false }: Props) {
   useLayoutEffect(() => {
     if (!open) return;
     for (const toggle of document.querySelectorAll<HTMLElement>(
-      ".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent",
+      ".row-grammar-gallery .cv-agentmsg__toggle, .row-grammar-gallery .cv-sent-msg .cv-agentmsg__toggle",
     ))
       toggle.click();
     setOpened(true);

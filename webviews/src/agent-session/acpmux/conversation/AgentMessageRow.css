@@ -430,4 +430,61 @@ button.cv-agentmsg__name:focus-visible {
 }
 .cv-agentmsg.cv-received[data-open] button.cv-agent-tag.is-open {
   height: var(--cv-tool-row-height);
+/* A sent message (SentMessageLine.tsx) draws as a received one (ask-64e107ccf0; Leo, 2026-11-07:
+   "it's just not good, compared to the normal ones"): the received row above (`.cv-received` on the
+   one message row), the envelope in the icon column, then "Sent to" before the recipient's chip and
+   its machine in the sender span. The chip follows those words at the sender span's gap, so it keeps
+   no pull into the icon gap that a first-word sender takes, and its cap is the span's own width. */
+.cv-sent-msg .cv-received__sender > .cv-agent-tag,
+.cv-sent-msg .cv-received__sender > .cv-agent-tag.is-open {
+  margin-inline-start: 0;
+}
+.cv-sent-msg .cv-agentmsg__sentence > .cv-received__sender > .cv-agent-tag.is-open {
+  max-width: 100%;
+}
+.cv-sent__words {
+  flex: none;
+  white-space: nowrap;
+}
+/* The line never runs past its pane (cmux#37879 review: "Read at its next step" for a long
+   recipient drew past the transcript at a narrow pane). Its status keeps its room (the trailing
+   column, `.cv-tool__trail`), and so does the chevron (`.cv-tool__chevron`, flex: none; in the
+   transcript the sentence's parts join the line, conversation.css); the first line gives way
+   first (the toggle, shrink 1000), then the recipient's machine and name behind their ellipses
+   (`.cv-received__host`, `.cv-received__from`), as a received line's sender does. The received
+   sender's shrink of 0.0001 lets its name keep its room beside a first line, but a factor sum under
+   1 also absorbs only that share of what is left once the first line is gone (CSS Flexbox 9.7);
+   here the sender shrinks at 1, the same order with the whole overflow taken. */
+.cv-sent-msg > .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-received__sender {
+  flex-shrink: 1;
+}
+.cv-sent-msg > .cv-agentmsg__line > .cv-tool__trail {
+  flex: none;
+}
+.cv-sent-msg .cv-agentmsg__icon > .cv-received__mark.cv-tool__failed {
+  color: var(--agent-status-failure);
+}
+/* Raw's call: the plain command row at the card's text column, no inset of its own. */
+.cv-sent__raw-body > .cv-tools,
+.cv-sent__call > .cv-tools {
+  margin: 0;
+}
+/* Gallery arms (sentMessageLook.experiment.ts). Plain: the words under the line with no card. */
+.cv-sent-msg.look-plain .cv-agentmsg__card {
+  background: none;
+  box-shadow: none;
+  padding-block: 0;
+}
+/* Raw on hover: the link shows while the pointer or focus is in the opened message (its card and
+   Raw under it), or while Raw is open. */
+.cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more[aria-expanded="false"] {
+  opacity: 0;
+  transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+.cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
+  opacity: 1;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+}
 }
