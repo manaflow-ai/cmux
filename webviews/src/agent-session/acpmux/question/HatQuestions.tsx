@@ -12,7 +12,7 @@
 // question, the last one leaves), and the question it shows crossfades with a short slide the way
 // the step went. Leaving, the band keeps its last question until its height reaches zero, so nothing
 // pops out; with motion off the change is one frame. Arms in hatQuestions.experiment.ts.
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -72,7 +72,7 @@ export function HatQuestions({
   useLayoutEffect(() => {
     order.current = drawn.map((question) => question.id);
     if (shown && shown.id !== shownId) setShownId(shown.id);
-  });
+  }, [drawn, shown, shownId]);
   const [direction, setDirection] = useState<"next" | "previous">("next");
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState<string>();
@@ -88,20 +88,25 @@ export function HatQuestions({
   const inner = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   const [arrived, setArrived] = useState(false);
+  const present = drawn.length > 0;
   useLayoutEffect(() => {
     const element = inner.current;
-    if (!element) return;
+    if (!present || !element) return;
     const measure = () => setHeight(element.offsetHeight);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
-  // The first frame draws at zero height, the next eases to the content's: it arrives, never pops.
+  }, [present]);
+  // Its first frame draws at zero height, the next eases to the content's: it arrives, never pops.
   useEffect(() => {
+    if (!present) {
+      setArrived(false);
+      return;
+    }
     const frame = requestAnimationFrame(() => setArrived(true));
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [present]);
   // Leaving: the last question stays until the height reaches zero, then goes in the same frame.
   useLayoutEffect(() => {
     if (leaving && !moving(outer.current)) setKept([]);
@@ -129,10 +134,17 @@ export function HatQuestions({
   };
   const folded = look === "chip" && !open;
   const many = drawn.length > 1;
+  // Left and right step through the questions from any of the band's buttons.
+  const stepKeys = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!many || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    event.preventDefault();
+    step(event.key === "ArrowRight" ? 1 : -1);
+  };
   const pager = many && (
     <span className="acpmux-hat-questions__pager">
       <button
         type="button"
+        onKeyDown={stepKeys}
         className="acpmux-hat-questions__step"
         data-step="previous"
         aria-label={t("hat.questions.previous")}
@@ -146,6 +158,7 @@ export function HatQuestions({
       </span>
       <button
         type="button"
+        onKeyDown={stepKeys}
         className="acpmux-hat-questions__step"
         aria-label={t("hat.questions.next")}
         title={t("hat.questions.next")}
@@ -161,6 +174,7 @@ export function HatQuestions({
         <button
           key={answer.id}
           type="button"
+          onKeyDown={stepKeys}
           className="acpmux-hat-questions__answer"
           data-sending={sending === answer.id || undefined}
           disabled={sending !== undefined}
@@ -170,16 +184,31 @@ export function HatQuestions({
         </button>
       ))}
       {shown.source === "child" ? (
-        <button type="button" className="acpmux-hat-questions__quiet" onClick={() => actions.open(shown)}>
+        <button
+          type="button"
+          onKeyDown={stepKeys}
+          className="acpmux-hat-questions__quiet"
+          onClick={() => actions.open(shown)}
+        >
           {t("hat.questions.open")}
         </button>
       ) : shown.answers.length === 0 ? (
-        <button type="button" className="acpmux-hat-questions__quiet" onClick={() => actions.showCard(shown)}>
+        <button
+          type="button"
+          onKeyDown={stepKeys}
+          className="acpmux-hat-questions__quiet"
+          onClick={() => actions.showCard(shown)}
+        >
           {t("hat.questions.answerBelow")}
         </button>
       ) : (
         shown.typed && (
-          <button type="button" className="acpmux-hat-questions__quiet" onClick={() => actions.type(shown)}>
+          <button
+            type="button"
+            onKeyDown={stepKeys}
+            className="acpmux-hat-questions__quiet"
+            onClick={() => actions.type(shown)}
+          >
             {t("hat.questions.type")}
           </button>
         )
@@ -202,19 +231,7 @@ export function HatQuestions({
       }}
     >
       <div ref={inner} className="acpmux-hat-questions__room">
-        <div
-          className="acpmux-hat-questions__body"
-          role="group"
-          aria-label={t("hat.questions")}
-          onKeyDown={(event) => {
-            // Left and right step through the questions while the band has the focus, never in a field.
-            if (!many || event.target instanceof HTMLInputElement) return;
-            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-              event.preventDefault();
-              step(event.key === "ArrowRight" ? 1 : -1);
-            }
-          }}
-        >
+        <fieldset className="acpmux-hat-questions__body" aria-label={t("hat.questions")}>
           {folded ? (
             <button type="button" className="acpmux-hat-questions__chip" onClick={() => setOpen(true)}>
               <span className="acpmux-hat-questions__mark" aria-hidden="true" />
@@ -244,7 +261,7 @@ export function HatQuestions({
               )}
             </div>
           )}
-        </div>
+        </fieldset>
       </div>
     </div>
   );

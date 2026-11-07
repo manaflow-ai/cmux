@@ -35,6 +35,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   const LAG = "0190a000-0000-7000-8000-0000000000d5";
   const IN_CHAT = "0190a000-0000-7000-8000-0000000000d6";
   const TYPED = "0190a000-0000-7000-8000-0000000000d7";
+  const TWO = "0190a000-0000-7000-8000-0000000000d8";
   const START = Date.now() - 90_000;
   const PROMPT = "Which auth method should the API use?";
   const update = (update: Record<string, unknown>) => ({
@@ -59,6 +60,17 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     status: "pending",
     rawInput,
     _meta: { claude: { tool: "AskUserQuestion", interactive: true } },
+  };
+  const SECOND = "Ship it behind the setting?";
+  const secondCall = {
+    ...toolCall,
+    toolCallId: "toolu_ask_2",
+    title: `Question: ${SECOND}`,
+    rawInput: {
+      questions: [
+        { question: SECOND, header: "Check-in", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] },
+      ],
+    },
   };
   const asked: Step[] = [
     ["mux", "user_message", { text: "Add auth to the API" }],
@@ -118,6 +130,19 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     ]),
     [LIVE]: log(LIVE, asked),
     [TYPED]: log(TYPED, asked),
+    // Two asks at once (subagents side by side): the card shows the first, the hat steps to both.
+    [TWO]: log(TWO, [
+      ...asked,
+      ["in", "tool_call", update({ sessionUpdate: "tool_call", ...secondCall })],
+      [
+        "mux",
+        "permission_request",
+        {
+          permissionId: "perm-two",
+          request: { sessionId: "agent-1", toolCall: secondCall, options: (asked[3]![2] as any).request.options },
+        },
+      ],
+    ]),
     // The person typed a reply instead of picking: the composer declined the question, then sent it.
     [IN_CHAT]: log(IN_CHAT, [
       ...asked,
@@ -140,7 +165,7 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     title: "Auth",
     harness: "claude",
     family: "claude",
-    status: sessionId === LIVE || sessionId === LAG || sessionId === TYPED ? "waiting" : "idle",
+    status: [LIVE, LAG, TYPED, TWO].includes(sessionId) ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
@@ -281,14 +306,13 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.close();
   });
 
-  // The composer hat (question/HatQuestions.tsx): a click answers the question as its card would; a
-  // reply typed instead declines it first, so the agent reads the reply rather than waiting on it.
-  test("the hat answers with a click, and a typed reply declines the question before it goes", async () => {
+  // The composer hat (question/HatQuestions.tsx) relevance fade: a reply typed while the question
+  // waits declines it first, so the agent reads the reply rather than waiting on it.
+  test("a typed reply declines the waiting question before it goes", async () => {
     const page = await open(TYPED, "Add auth to the API");
-    const hat = page.locator(".acpmux-hat-questions");
-    await hat.getByText(PROMPT).waitFor({ timeout: 5_000 });
-    // The card under the hat does not ask it a second time.
-    expect(await page.locator(".acpmux-asks-stack .acpmux-question").count()).toBe(0);
+    await page.getByRole("radio", { name: /OAuth 2\.0/ }).waitFor({ timeout: 5_000 });
+    // One question, on its card: no band over the composer asks it a second time.
+    expect(await page.locator(".acpmux-hat-questions__body").count()).toBe(0);
     calls.length = 0;
     await page.locator(".acpmux-composer .ProseMirror").first().click();
     await page.keyboard.type("Passkeys, and keep API keys for the CLI");
@@ -297,25 +321,38 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     expect(calls.map((call) => call.method)).toEqual(["_acpmux/permission_respond", "session/prompt"]);
     expect(calls[0]!.params).toMatchObject({ permissionId: "perm-ask", optionId: "reject_once" });
     expect(calls[0]!.params.answers).toBeUndefined();
+    await page.close();
+  });
+
+  // Leo, 2026-11-07: "click left and right through things and be able to answer things as they come".
+  test("with two asks waiting, the hat steps to the second and a click answers it", async () => {
+    const page = await open(TWO, "Add auth to the API");
+    const hat = page.locator(".acpmux-hat-questions");
+    await hat.locator(".acpmux-hat-questions__position").waitFor({ timeout: 5_000 });
+    expect((await hat.locator(".acpmux-hat-questions__position").innerText()).trim()).toBe("1 of 2");
+    // The first is the card's: the hat points to it.
+    expect(await hat.locator(".acpmux-hat-questions__prompt").innerText()).toBe(PROMPT);
+    await hat.getByRole("button", { name: "Answer Below" }).waitFor({ timeout: 5_000 });
+    await hat.getByRole("button", { name: "Next Question" }).click();
+    await hat.getByText(SECOND).waitFor({ timeout: 5_000 });
     calls.length = 0;
-    await hat.locator(".acpmux-hat-questions__answer", { hasText: "Passkeys" }).click();
+    await hat.locator(".acpmux-hat-questions__answer", { hasText: "Yes" }).click();
     await called("_acpmux/permission_respond");
-    expect(calls[0]).toMatchObject({
-      method: "_acpmux/permission_respond",
-      params: { permissionId: "perm-ask", optionId: "allow_once", answers: { [PROMPT]: "Passkeys" } },
+    expect(calls[0]!.params).toMatchObject({
+      permissionId: "perm-two",
+      optionId: "allow_once",
+      answers: { [SECOND]: "Yes" },
     });
     await page.close();
   });
 
-  test("answered live, the hat's answers go and the record takes their place", async () => {
+  test("answered live, the card goes and the record takes its place", async () => {
     const page = await open(LIVE, "Add auth to the API");
-    // A single choice of three is answered in the composer hat, with one click (question/HatQuestions.tsx).
-    const hatAnswer = page.locator(".acpmux-hat-questions__answer", { hasText: "OAuth 2.0" });
-    await hatAnswer.waitFor({ timeout: 5_000 });
+    await page.getByRole("radio", { name: /OAuth 2\.0/ }).waitFor({ timeout: 5_000 });
     expect(await records(page)).toEqual([]);
     push(answer);
     await page.locator(".acpmux-question-answered").first().waitFor({ timeout: 5_000 });
-    await page.locator(".acpmux-hat-questions").waitFor({ state: "detached", timeout: 5_000 });
+    expect(await page.getByRole("radio", { name: /OAuth 2\.0/ }).count()).toBe(0);
     expect(await records(page)).toEqual([`Answered ${PROMPT} OAuth 2.0`]);
     // The work after the answer draws below its record, never in the row above it.
     push([

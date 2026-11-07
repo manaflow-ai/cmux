@@ -5461,6 +5461,16 @@ export class AcpmuxDirectClient {
   }
 
   /// Takes the oldest ask waiting behind the card, for the card once its ask is answered.
+  /// The asks behind the shown one, in order, as one list kept while they are the same asks, so the
+  /// snapshot's composer hat (question/hatModel.ts) redraws only when one comes or goes.
+  private queuedPermissionsKept: readonly AcpmuxPermission[] = [];
+  private queuedPermissions(): readonly AcpmuxPermission[] {
+    const now = [...this.waitingPermissions.values()];
+    const kept = this.queuedPermissionsKept;
+    if (now.length !== kept.length || now.some((each, at) => each !== kept[at])) this.queuedPermissionsKept = now;
+    return this.queuedPermissionsKept;
+  }
+
   private nextWaitingPermission(): AcpmuxPermission | undefined {
     const [next] = this.waitingPermissions.values();
     if (next) this.waitingPermissions.delete(next.permissionId);
@@ -7821,7 +7831,7 @@ export class AcpmuxDirectClient {
       ...(this.waitingSteers.length > 1 && this.newestOwnSteer() ? { newestOwnSteer: this.newestOwnSteer() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
-        ? { permissionsWaiting: this.waitingPermissions.size }
+        ? { permissionsWaiting: this.waitingPermissions.size, permissionsQueued: this.queuedPermissions() }
         : {}),
       secret: this.pendingSecret,
       asks: this.asks.list(),

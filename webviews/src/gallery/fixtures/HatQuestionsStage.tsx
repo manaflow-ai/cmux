@@ -115,6 +115,7 @@ export function HatQuestionsStage({ count = 3, look }: { count?: number; look?: 
             >
               <input
                 data-stage-composer=""
+                aria-label="Message"
                 value={draft}
                 placeholder="Message"
                 onChange={(event) => setDraft(event.target.value)}

@@ -6,7 +6,7 @@ import { NEXT_STEP } from "../conversation/turns";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
-import { hatQuestions, hatTag, keepShown, liveNextStep, oneClickAnswers, sameHatQuestions } from "./hatModel";
+import { hatQuestions, hatShows, hatTag, keepShown, liveNextStep, oneClickAnswers, sameHatQuestions } from "./hatModel";
 import { questionFromPermission, type AgentQuestion } from "./model";
 
 const FIXTURES = fileURLToPath(
@@ -46,7 +46,7 @@ describe("the questions the composer hat holds", () => {
     expect(oneClickAnswers(fixture("pending-with-preview"))).toEqual([]);
   });
 
-  test("the chat's own question comes first, answered here, its header chip read as a tag", () => {
+  test("the chat's own question comes first; the card answers the one it shows, the hat points to it", () => {
     const asked = fixture("pending-single");
     const [own, ...rest] = hatQuestions({
       sessionId: "chat",
@@ -56,8 +56,9 @@ describe("the questions the composer hat holds", () => {
       asks: [],
     });
     expect(rest).toEqual([]);
-    expect(own).toMatchObject({ source: "own", prompt: asked.items[0]!.prompt });
-    expect(own!.answers.map((answer) => answer.label)).toEqual(asked.items[0]!.options.map((option) => option.label));
+    expect(own).toMatchObject({ source: "own", prompt: asked.items[0]!.prompt, onCard: true, answers: [] });
+    // That one alone: the card asks it, so the band stays away rather than ask it twice.
+    expect(hatShows([own!])).toBe(false);
     expect(hatTag("Physical")).toBe("physical");
     expect(hatTag("[check in]")).toBe("check-in");
     expect(hatTag("Auth method")).toBeUndefined();
@@ -91,6 +92,22 @@ describe("the questions the composer hat holds", () => {
       asks: [ask("perm-1"), ask("perm-2"), ask("perm-3"), ask("perm-x", "other")],
     });
     expect(list.map((question) => question.id)).toEqual(["perm-2", "perm-1", "perm-3"]);
+    // The others answer in one click; with them to step to, the band shows.
+    expect(list.map((question) => question.answers.length > 0)).toEqual([false, true, true]);
+    expect(hatShows(list)).toBe(true);
+  });
+
+  test("the asks queued behind the card come next, each once, before any the watch reports", () => {
+    const asked = fixture("pending-single");
+    const list = hatQuestions({
+      sessionId: "chat",
+      permission: permission(asked, "perm-1"),
+      queued: [permission(asked, "perm-2"), permission(asked, "perm-3")],
+      rows: [],
+      sessions: [],
+      asks: [{ sessionId: "chat", permission: permission(asked, "perm-3"), at: 1 }],
+    });
+    expect(list.map((question) => question.id)).toEqual(["perm-1", "perm-2", "perm-3"]);
   });
 
   test("while the chat's own question waits, no tagged ask shows: a turn is running", () => {

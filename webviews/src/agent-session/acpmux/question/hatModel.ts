@@ -5,9 +5,10 @@
 // read from what the pane already has, so it leaves the hat the moment that source says it is over.
 //
 // Three sources, in this order:
-// - the chat's own question (AskUserQuestion, a Codex user-input request, an MCP elicitation): the
-//   permission acpmux holds open (model.ts `AcpmuxPermission.question`). It blocks the agent's turn,
-//   so it comes first.
+// - the chat's own questions (AskUserQuestion, a Codex user-input request, an MCP elicitation): the
+//   permissions acpmux holds open for it (model.ts `AcpmuxPermission.question`). They block the
+//   agent's turn, so they come first. The one the card under the hat shows stays the card's to
+//   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
 //   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
 // - the questions of the chats this one started (needsYou/JumpPill.tsx `pillAsks`): the pane can only
@@ -63,6 +64,9 @@ export type HatQuestion = {
   answers: HatAnswer[];
   /// The person may type their own answer (Other, or any reply to a tagged ask).
   typed: boolean;
+  /// The question the card under the hat shows (PermissionAsk): the card answers it, with its whole
+  /// keyboard (arrows, number keys, Other, Skip), so the hat only points to it.
+  onCard?: boolean;
   question?: AgentQuestion;
   permission?: AcpmuxPermission;
   ask?: NextStepAsk;
@@ -78,7 +82,7 @@ export function oneClickAnswers(question: AgentQuestion): HatAnswer[] {
   return item.options.map((option) => ({ id: option.id, label: option.label }));
 }
 
-function ownQuestion(permission: AcpmuxPermission | undefined): HatQuestion | undefined {
+function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): HatQuestion | undefined {
   const question = permission?.question;
   if (!permission || !question || !isPending(question)) return undefined;
   const first = question.items[0];
@@ -91,8 +95,9 @@ function ownQuestion(permission: AcpmuxPermission | undefined): HatQuestion | un
     ...(hatTag(first.header) ? { tag: hatTag(first.header) } : {}),
     prompt: first.prompt,
     ...(more > 0 ? { detail: question.items[1]!.prompt } : {}),
-    answers: oneClickAnswers(question),
+    answers: onCard ? [] : oneClickAnswers(question),
     typed: question.items.length === 1 && first.allowsOther,
+    ...(onCard ? { onCard } : {}),
     question,
     permission,
   };
@@ -170,10 +175,16 @@ function childQuestions(
   return out.reverse();
 }
 
+/// Whether the hat has anything to show: a question only the card's own is answered on the card,
+/// with nothing to step to, so the band stays away rather than ask it twice.
+export const hatShows = (questions: readonly HatQuestion[]): boolean => questions.some((question) => !question.onCard);
+
 export type HatQuestionInput = {
   sessionId?: string;
   /// The question card the chat shows now (App.tsx `individualPermission`).
   permission?: AcpmuxPermission;
+  /// The chat's other asks, behind that card (snapshot `permissionsQueued`).
+  queued?: readonly AcpmuxPermission[];
   /// The shaped rows (App.tsx `turnRowsShown`), where a tagged ask's card is.
   rows: readonly AcpmuxRow[];
   sessions: readonly AcpmuxSessionEntry[];
@@ -184,13 +195,20 @@ export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
   const out: HatQuestion[] = [];
   // The chat's own questions: the one its card shows, then every other one acpmux holds open for it
   // (subagents asking side by side), oldest first, so each can be stepped to and answered.
-  const own = ownQuestion(input.permission);
+  const own = ownQuestion(input.permission, true);
   if (own) out.push(own);
+  const seen = new Set(own ? [own.id] : []);
+  for (const queued of input.queued ?? []) {
+    const more = seen.has(queued.permissionId) ? undefined : ownQuestion(queued);
+    if (more) out.push(more);
+    seen.add(queued.permissionId);
+  }
   if (input.sessionId)
     for (const watched of input.asks) {
-      if (watched.sessionId !== input.sessionId || watched.permission.permissionId === own?.id) continue;
+      if (watched.sessionId !== input.sessionId || seen.has(watched.permission.permissionId)) continue;
       const more = ownQuestion(watched.permission);
       if (more) out.push(more);
+      seen.add(watched.permission.permissionId);
     }
   // A tagged ask is the end of a finished turn: while the chat's own question waits, a turn runs.
   const next = out.length > 0 ? undefined : nextStepQuestion(liveNextStep(input.rows));
@@ -233,6 +251,7 @@ export function sameHatQuestions(a: readonly HatQuestion[], b: readonly HatQuest
         question.tag === other.tag &&
         question.who === other.who &&
         question.typed === other.typed &&
+        question.onCard === other.onCard &&
         question.permission === other.permission &&
         question.answers.length === other.answers.length &&
         question.answers.every(
