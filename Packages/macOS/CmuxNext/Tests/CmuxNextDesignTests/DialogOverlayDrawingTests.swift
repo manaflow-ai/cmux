@@ -161,6 +161,36 @@ import Testing
         #expect(!overlay.acceptsMouse(at: NSPoint(x: placed.minX + 15, y: placed.midY)))
     }
 
+    /// Review 32 of #37296 (F1): the panel took clicks only on each dialog's tab and card, but the newer
+    /// dialog's view, grown over its neighbor, still covered the older dialog's card, so its transparent
+    /// part took that card's clicks. A dialog's view takes only the clicks on its card.
+    @Test func aNeighborsGrownDialogLeavesAnOlderCardItsClicks() {
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: LateDrawing(), activate: {}, isAppActive: { true }))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let left = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 480))
+        let right = NSView(frame: NSRect(x: 200, y: 0, width: 200, height: 480))
+        window.contentView?.addSubview(left)
+        window.contentView?.addSubview(right)
+        let older = center.present(CmuxDialogSpec(title: "Close?", buttons: [.cancel(), .ok()]), in: .tab(left)) { _ in }
+        defer { center.dismiss(older) }
+        let newer = center.present(CmuxDialogSpec(title: "Quit?", buttons: [.cancel(), .ok()]), in: .tab(right)) { _ in }
+        defer { center.dismiss(newer) }
+        // Both regions grow to hold 380 pt cards: the older card is tall, the newer one short.
+        center.dialog(older)?.cardRect = CGRect(x: 16, y: 20, width: 380, height: 440)
+        center.dialog(newer)?.cardRect = CGRect(x: 16, y: 150, width: 380, height: 180)
+        let olderView = center.dialog(older)?.view
+        let newerView = center.dialog(newer)?.view
+        let container = WindowOverlayHost.host(for: window).panel.modalContainer
+        // Over the older card, under the newer view's transparent part (above its card, left of its tab).
+        let point = NSPoint(x: 150, y: 440)
+        #expect(newerView?.frame.contains(point) == true)
+        #expect(container.hitTest(point) === olderView)
+        #expect(container.hitTest(NSPoint(x: 300, y: 240)) === newerView)
+    }
+
     /// Review 15 of #37296 (F2): a tab dialog's view was its tab's size, so in a narrow split the card was
     /// clipped. The region grows about the tab to hold the card, inside the window; a card that fits keeps
     /// the tab.
