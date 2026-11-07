@@ -57,6 +57,9 @@ import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRun
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
 import { canonicalCall } from "../toolNames";
+import { currentLanguage, translatorFor } from "../i18n";
+import { writeCall } from "./WriteLabel";
+import { oneRowPerCall } from "./oneRowPerCall.experiment";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1178,7 +1181,8 @@ function shapeTurn(
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
-    edits.push(...work.filter(isEdit));
+    // A file change that never got its input changed nothing (toolGroups.ts `isDraftCall`).
+    edits.push(...work.flatMap(withoutDrafts).filter(isEdit));
     // A turn of nothing but the agent's replies and the person's own steers did no work to fold:
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
@@ -1802,6 +1806,8 @@ function codexLiveTurn(
     if (call.kind === "execute" && !line.doingDraft && call.background === undefined) line.doingCommand = true;
     Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
+    // The call the line names: its own words change in place from pending to done (Thinking.tsx).
+    line.doingCall = call.id;
   } else if (last.kind === "assistant") {
     line.quietKey = `${last.id}:${last.version}`;
     // When that reply was written, so a chat opened long after it paused reads "Thinking" at once
@@ -1839,6 +1845,7 @@ function codexLiveTurn(
       line.doing = lifted.doing;
       line.doingShell = lifted.shell;
       line.doingDone = true;
+      line.doingCall = lifted.call;
       // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m").
       if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
     }
@@ -1874,7 +1881,7 @@ function codexLiveTurn(
 function liftedStep(
   rows: AcpmuxRow[],
   last: AcpmuxRow,
-): { rows: AcpmuxRow[]; doing: string; shell: boolean; ms?: number } | undefined {
+): { rows: AcpmuxRow[]; doing: string; shell: boolean; call: string; ms?: number } | undefined {
   if (last.kind !== "activity") return undefined;
   // A run that a short note joined to an earlier one keeps the earlier one's id (mergeShortNotes).
   const at = rows.findIndex((row) => row.id === last.id || row.joined?.includes(last.id));
@@ -1891,7 +1898,9 @@ function liftedStep(
     isRunning(call) ||
     call.background !== undefined ||
     callFailed(call) ||
-    isEditTool(call) ||
+    // A file change finishes on the line it ran on ("Wrote gen.py"), so pending, running and done
+    // are one row (Leo, 2026-11-07, `oneRowPerCall`); the `row` arm keeps it in its run instead.
+    (isEditTool(call) && (keepsOwnRow(call) || !plainEdit(call))) ||
     renderCall(call) ||
     subsessionCall(call) ||
     agentCall(call) ||
@@ -1912,7 +1921,7 @@ function liftedStep(
   if (kept.length) next[at] = { ...run, items: kept, version: run.version * LIFTED_STATES + 1 };
   else next.splice(at, 1);
   const span = call.startedAt !== undefined && call.endedAt !== undefined ? call.endedAt - call.startedAt : undefined;
-  return { rows: next, doing, shell, ms: span !== undefined && span > 0 ? span : undefined };
+  return { rows: next, doing, shell, call: call.id, ms: span !== undefined && span > 0 ? span : undefined };
 }
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
@@ -1951,6 +1960,12 @@ function foregroundAgents(rows: readonly AcpmuxRow[]): number {
 /// `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
 const LIFTED_STATES = 2;
 
+/// A finished file change the line can hold: one plain call, not a batch of files.
+const plainEdit = (call: NonNullable<AcpmuxActivity["tool"]>) => editedPaths(call).length <= 1;
+
+/// The `row` arm of `oneRowPerCall`: a file change keeps its own row in its run from pending to done.
+const keepsOwnRow = (call: AcpmuxActivity["tool"]) => isEditTool(call) && experimentArm(oneRowPerCall) === "row";
+
 /// The newest call still running in a live turn's latest row.
 function runningCall(
   row: AcpmuxRow,
@@ -1972,7 +1987,9 @@ type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number;
 /// the newest command still running anywhere in the turn, so a command never runs under "Thinking"
 /// (Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually").
 function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | undefined {
-  const latest = runningCall(last);
+  // A call whose own row stays in its run (one waiting on its permission, or the `row` arm's file
+  // changes) is drawn there, never on the line as well.
+  const latest = runningCall(last, (call) => !awaitsPermission(call) && !keepsOwnRow(call));
   if (latest) return { tool: latest, at: last.at };
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
@@ -2047,9 +2064,21 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
 /// file call by the file's name ("Edit ProductGrid.module.css").
 function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): string {
+  // A file write reads as its row does (WriteLabel.tsx): "Writing a file" before its input,
+  // "Writing gen.py", then "Wrote gen.py", never the bare tool name "Write".
+  const write = writeCall(tool);
+  if (write) {
+    const t = translatorFor(currentLanguage());
+    const done = tool.status === "completed";
+    const file = write.path && (write.path.split("/").pop() || write.path);
+    if (!file) return t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed");
+    return t(done ? "tools.wrote.file" : "tools.writing.file", { file });
+  }
   const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
+  if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
+    return translatorFor(currentLanguage())("tools.edited.file", { file: path.split("/").pop() || path });
   // A search names its pattern, not the folder it searches in (toolNames.ts).
   const canonical = canonicalCall(tool)?.tool;
   if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
@@ -2080,7 +2109,9 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // collapsing i mean"); the turn's edited-files card lists them when it ends. One with a file
     // change still waiting for its permission stays as it is, so the change it asks about stays in
     // sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx `staysInSight`).
-    if ((row.items ?? []).some((item) => awaitsPermission(item.tool)))
+    if (
+      (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
+    )
       return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
