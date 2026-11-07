@@ -5617,6 +5617,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     attach: (attachment) => composerHandle.current?.attach(attachment),
     notice: (text) => notices.transient(text),
     chatIsLocal: () => chatIsLocal.current,
+    chat: () => sessionIdRef.current,
   });
   // The bridge (installed once below) reaches the newest toggle.
   const captureBarToggle = useRef(captureBar.toggle);
@@ -6438,8 +6439,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       dictation(update) {
         deliverDictation(update);
       },
-      captureBar() {
-        captureBarToggle.current();
+      captureBar(value) {
+        captureBarToggle.current(value);
       },
       designSelection(selection) {
         const removals = designSelectionRemovals(selection);

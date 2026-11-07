@@ -29,6 +29,12 @@ the window):
 - event `captureBar`, value `{toggle: true}`; script
   `window.cmuxAcpmuxBridge?.captureBar?.({toggle:true})`. A second press while recording stops
   the recording; otherwise it toggles the bar.
+- event `captureBar`, value `{ended: true}`: a recording ended by itself (5 minutes, its window
+  closed, a failure). The page collects the movie with `capture.record.stop`, as Stop does.
+
+A recording lands in the chat it was started from. When another chat is shown by then, or the chat
+runs on another computer, or a Save is cancelled, the movie goes to the clipboard instead: a
+recording is never dropped.
 
 Page to native (`callNative`):
 

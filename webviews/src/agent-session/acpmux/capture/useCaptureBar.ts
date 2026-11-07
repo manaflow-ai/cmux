@@ -3,12 +3,13 @@
 // where the person chose: the chat's composer as a chip, the clipboard, or a file
 // (`capture.copy`, `capture.save`). The host's Capture action (⌃⇧⌘5, View > Capture…) reaches it
 // as `cmuxAcpmuxBridge.captureBar({toggle: true})`.
-import { useCallback, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { attachmentSource, linkAttachment, readAttachment, withSource, type ComposerAttachment } from "../attachments";
 import { translate, type StringKey, type StringValues } from "../i18n";
 import {
   captureReducer,
   INITIAL_CAPTURE,
+  MAX_RECORDING_SECONDS,
   parseRecording,
   reopen,
   toggleMeaning,
@@ -27,6 +28,8 @@ export type CaptureBarHost = {
   notice(text: string): void;
   /// Whether the shown chat's agent runs on this Mac, so it can open a recording's file.
   chatIsLocal(): boolean;
+  /// The shown chat's session id: a recording lands only in the chat it was started from.
+  chat(): string | undefined;
 };
 
 type Shot = {
@@ -50,6 +53,7 @@ export function useCaptureBar(host: CaptureBarHost) {
   const latest = useRef(state);
   latest.current = state;
   const hostRef = useRef(host);
+  const recordedFor = useRef<string | undefined>(undefined);
   hostRef.current = host;
 
   const finish = useCallback(() => dispatch({ type: "done" }), []);
@@ -91,6 +95,7 @@ export function useCaptureBar(host: CaptureBarHost) {
   const record = useCallback(() => {
     const { callNative } = hostRef.current;
     const { cursor, clicks } = latest.current;
+    recordedFor.current = hostRef.current.chat();
     dispatch({ type: "begin", what: "record" });
     void callNative("capture.record.start", { cursor, clicks }).then(
       () => dispatch({ type: "recording", at: Date.now() }),
@@ -99,7 +104,7 @@ export function useCaptureBar(host: CaptureBarHost) {
   }, [failed]);
 
   const stop = useCallback(() => {
-    const { callNative, attach, notice, chatIsLocal } = hostRef.current;
+    const { callNative, attach, notice, chatIsLocal, chat } = hostRef.current;
     const destination = latest.current.destination;
     if (latest.current.phase.kind !== "recording") return;
     dispatch({ type: "stop" });
@@ -107,12 +112,21 @@ export function useCaptureBar(host: CaptureBarHost) {
       .then(async (value) => {
         const recording = parseRecording(value);
         if (!recording) return finish();
-        if (destination === "save") {
-          await callNative("capture.save", { path: recording.path, name: recording.name });
-        } else if (destination === "copy" || !chatIsLocal()) {
-          // A chat on another computer cannot open a file on this Mac: the recording is copied.
+        // The chat shown now is the one it was started from, on this Mac: only then can it take
+        // the file. Otherwise the recording is copied, never dropped and never sent to another chat.
+        const here = chatIsLocal() && chat() === recordedFor.current;
+        const saved =
+          destination === "save"
+            ? await callNative<{ saved?: string } | null>("capture.save", {
+                path: recording.path,
+                name: recording.name,
+              }).catch(() => null)
+            : undefined;
+        if (saved?.saved) {
+          // Saved where the person chose.
+        } else if (destination === "copy" || !here) {
           await callNative("capture.copy", { path: recording.path });
-          notice(say(destination === "copy" ? "capture.copied" : "capture.recordingElsewhere"));
+          notice(say(destination === "copy" || saved !== undefined ? "capture.copied" : "capture.recordingElsewhere"));
         } else {
           // The composer reads its poster, length and frames (composer/videoAttachments.ts).
           attach({ ...linkAttachment(recording.path, false), name: recording.name });
@@ -125,11 +139,25 @@ export function useCaptureBar(host: CaptureBarHost) {
       });
   }, [finish]);
 
-  /// The host's Capture action: open, close, or stop the recording.
-  const toggle = useCallback(() => {
-    if (toggleMeaning(latest.current.phase) === "stop") stop();
-    else dispatch({ type: "toggle" });
-  }, [stop]);
+  /// The host's Capture action (`{toggle: true}`): open, close, or stop the recording; and the
+  /// host's word that a recording ended by itself (`{ended: true}`: its window closed, the time ran
+  /// out, or it failed), which collects the movie as Stop does.
+  const toggle = useCallback(
+    (value?: unknown) => {
+      const ended = typeof value === "object" && value !== null && (value as { ended?: unknown }).ended === true;
+      if (ended || toggleMeaning(latest.current.phase) === "stop") stop();
+      else dispatch({ type: "toggle" });
+    },
+    [stop],
+  );
+  // The page's own stop at the longest recording, in case the host's word does not come; the
+  // timer lives only while a recording runs.
+  const startedAt = state.phase.kind === "recording" ? state.phase.startedAt : undefined;
+  useEffect(() => {
+    if (startedAt === undefined) return;
+    const timer = setTimeout(stop, Math.max(0, startedAt + MAX_RECORDING_SECONDS * 1000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [startedAt, stop]);
 
   const actions = useMemo<CaptureBarActions>(
     () => ({

@@ -32,7 +32,7 @@ enum AgentPaneCapture {
         guard let mode, modes.contains(mode) else { return AgentPaneModel.unsupported("composer.capture") }
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        if mode == "app" || mode == "pane" { return await own(pane: mode == "pane") }
+        if mode == "app" || mode == "pane" { return await own(pane: mode == "pane", in: model) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         if case .failed(let reason) = await capture(window: mode == "window", to: file) {
             logger.error("composer.capture: screencapture failed: \(reason, privacy: .public)")
@@ -68,20 +68,25 @@ enum AgentPaneCapture {
         return formatter.string(from: date)
     }
 
-    /// The cmux window that hosts the pane: the key window when the person's click or key reached
-    /// the pane (the gesture just spent), its parent when that is a Chromium page's child window.
-    @MainActor static func hostWindow() -> NSWindow? { NSApp.keyWindow.map { $0.parent ?? $0 } }
+    /// The cmux window that hosts `model`'s chat: the window of the chat the bar opened on, else
+    /// the key window when the person's click or key reached the pane (the gesture just spent),
+    /// its parent when that is a Chromium page's child window.
+    @MainActor static func hostWindow(for model: AgentPaneModel) -> NSWindow? {
+        AgentPaneRecorder.shared.view(for: model)?.window ?? NSApp.keyWindow.map { $0.parent ?? $0 }
+    }
 
     /// `app` (the host window, as `cmux window screenshot` takes it: no Screen Recording grant) or
-    /// `pane` (``AgentPaneRecorder/paneImage``), answered as a pick is.
-    @MainActor private static func own(pane: Bool) async -> [String: Any] {
+    /// `pane` (``AgentPaneRecorder/paneImage(for:)``, `{cancelled}` when the bar's last press was
+    /// on another chat), answered as a pick is.
+    @MainActor private static func own(pane: Bool, in model: AgentPaneModel) async -> [String: Any] {
         let taken = Date()
         let image: CGImage?
         if pane {
-            image = await AgentPaneRecorder.shared.paneImage?()
+            guard let shot = AgentPaneRecorder.shared.paneImage(for: model) else { return AgentPaneReply.success(["cancelled": true]) }
+            image = await shot()
         } else {
             // perf-gate-ok: the person's own capture of the cmux window, once per click (composer.capture {mode: app}).
-            image = try? await hostWindow()?.screenshotImage()
+            image = try? await hostWindow(for: model)?.screenshotImage()
         }
         guard let image else {
             logger.error("composer.capture: no \(pane ? "pane" : "window", privacy: .public) image")

@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CmuxNextCompat
+import CmuxNextSettings
 import CmuxNextWakeups
 import CoreMedia
 import os
@@ -36,14 +37,37 @@ final class AgentPaneRecorder {
     private(set) var written: Set<String> = []
     /// Whether the capture bar's save panel is up: one at a time.
     var saving = false
-    /// What `composer.capture {mode: "pane"}` captures: the pane that was focused when the bar last
-    /// opened, as on screen (a person's own capture, unmasked), nil when that pane is gone or no
-    /// longer shown. Set by ``AgentPaneCaptureBar/toggle(on:)``; the closure holds the pane weakly.
-    var paneImage: (@MainActor () async -> CGImage?)?
+    /// The bar's last press (``AgentPaneCaptureBar/toggle(on:)``): the chat it opened on, held
+    /// weakly, and its Pane shot, the pane focused at the press as on screen (a person's own
+    /// capture, unmasked; the closure holds the pane weakly). Only that chat's page may take it.
+    private struct Press {
+        weak var view: AgentPaneView?
+        let paneImage: (@MainActor () async -> CGImage?)?
+    }
+
+    private var press: Press?
+    /// The chat whose page started the running recording: it hears when the recording ends by itself.
+    private weak var recordingView: AgentPaneView?
+
+    func pressed(_ view: AgentPaneView, paneImage: (@MainActor () async -> CGImage?)?) {
+        press = Press(view: view, paneImage: paneImage)
+    }
+
+    /// The Pane shot of the bar's last press, when `model`'s chat is the one it opened on; nil
+    /// for another chat (chat A's press must never give chat B's page A's pane).
+    func paneImage(for model: AgentPaneModel) -> (@MainActor () async -> CGImage?)? {
+        guard let press, let view = press.view, view.model === model else { return nil }
+        return press.paneImage
+    }
+
+    /// The chat view of `model` when the bar's last press opened on it.
+    func view(for model: AgentPaneModel) -> AgentPaneView? {
+        press?.view.flatMap { $0.model === model ? $0 : nil }
+    }
 
     /// Starts filming `window`: `{started: true}`, `capture.busy` while one runs, `capture.failed`
     /// when ScreenCaptureKit could not start (no window, macOS before 14.4).
-    func start(in window: NSWindow, cursor: Bool, clicks: Bool) async -> [String: Any] {
+    func start(in window: NSWindow, for model: AgentPaneModel, cursor: Bool, clicks: Bool) async -> [String: Any] {
         guard !starting, current?.isEnding != false else {
             return AgentPaneReply.failure(code: "capture.busy", message: AgentPaneModel.captureFailedMessage)
         }
@@ -57,10 +81,15 @@ final class AgentPaneRecorder {
         guard window.windowNumber > 0, window.isVisible, !window.isMiniaturized else {
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
-        let folder = Self.folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let id = UUID().uuidString
+        let kept = Set(written.map { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent }).union([id])
+        Task.detached(priority: .utility) { Self.sweep(Self.folder, keeping: kept, now: Date()) }
+        let folder = Self.folder.appendingPathComponent(id, isDirectory: true)
         let recording = AgentPaneRecording(AgentPaneRecording.Options(
             window: CGWindowID(window.windowNumber), scale: Double(window.backingScaleFactor), cursor: cursor, clicks: clicks,
-            url: folder.appendingPathComponent(Self.name(Date()))))
+            url: folder.appendingPathComponent(Self.name(Date())))) { [weak self] over in
+            MainDelivery().run { self?.ended(over) }
+        }
         starting = true
         defer { starting = false }
         do {
@@ -71,6 +100,7 @@ final class AgentPaneRecorder {
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
         current = recording
+        recordingView = view(for: model)
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in recording.end() },
@@ -92,36 +122,24 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["path": made.path, "name": made.name, "seconds": made.seconds])
     }
 
+    /// A recording ended (any path, on the main actor after it): its observers go. One that ended by
+    /// itself (the limit, its window's close, a stream failure) is still `current`, so the page's
+    /// `capture.record.stop` collects its movie; its chat's page hears `captureBar {ended: true}`.
+    private func ended(_ recording: AgentPaneRecording) {
+        guard current === recording else { return }
+        removeObservers()
+        guard let view = recordingView else { return }
+        let value: JSONValue = ["ended": .bool(true)]
+        view.deliver([AgentPageEvent(kind: "captureBar", value: value)],
+                     scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])
+    }
+
     /// The file at `path` when this bridge wrote it; nil otherwise.
     func owned(_ path: String) -> URL? { Self.owned(path, in: Self.folder, written: written) }
-
-    /// Pure: `path` as a file URL when it is absolute, has no empty, `.` or `..` part, lies under
-    /// `folder` (as spelled, or under `/private` as realpath spells `/var` and `/tmp`) and is
-    /// exactly one of `written`.
-    nonisolated static func owned(_ path: String, in folder: URL, written: Set<String>) -> URL? {
-        guard path.hasPrefix("/"), !path.utf8.contains(0), written.contains(path) else { return nil }
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
-        guard !parts.contains(where: { $0 == ".." || $0 == "." || $0.isEmpty }) else { return nil }
-        let root = folder.path.hasSuffix("/") ? folder.path : folder.path + "/"
-        guard path.hasPrefix(root) || path.hasPrefix("/private" + root) else { return nil }
-        return URL(fileURLWithPath: path)
-    }
 
     private func removeObservers() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
-    }
-
-    /// The movie's name, as macOS names its own: "Recording 2026-11-07 14.32.05.mp4".
-    nonisolated static func name(_ date: Date) -> String { "Recording \(AgentPaneCapture.stamp(date)).mp4" }
-
-    /// The movie's pixel size for `points` at `scale`: the backing size, scaled down to
-    /// ``maxSide`` on its longest side, each side even (H.264) and at least 2.
-    nonisolated static func size(points: CGSize, scale: Double) -> (width: Int, height: Int) {
-        let width = Double(points.width) * scale, height = Double(points.height) * scale
-        let fit = min(1, Double(maxSide) / max(width, height, 1))
-        func even(_ side: Double) -> Int { max(2, Int((side * fit).rounded(.down)) / 2 * 2) }
-        return (even(width), even(height))
     }
 }
 
@@ -173,8 +191,12 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
     private let outcome = Mutex<Task<Made?, Never>?>(nil)
     private let limit = DemandTimer(owner: "agent-pane.capture.record.limit")
 
-    init(_ options: Options) {
+    /// Told once, on the queue that ends it, when the recording ends by any path.
+    private let onEnd: @Sendable (AgentPaneRecording) -> Void
+
+    init(_ options: Options, onEnd: @escaping @Sendable (AgentPaneRecording) -> Void = { _ in }) {
         self.options = options
+        self.onEnd = onEnd
         super.init()
     }
 
@@ -244,13 +266,15 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
     }
 
     private func ending() -> Task<Made?, Never> {
-        outcome.withLock { slot in
-            if let task = slot { return task }
+        let (task, first) = outcome.withLock { slot -> (Task<Made?, Never>, Bool) in
+            if let task = slot { return (task, false) }
             state.withLock { $0.ending = true }
             let task = Task.detached(priority: .userInitiated) { [self] in await close() }
             slot = task
-            return task
+            return (task, true)
         }
+        if first { onEnd(self) }
+        return task
     }
 
     /// Stops the stream, then closes the movie on `queue`; a recording with no movie leaves no folder.
@@ -280,8 +304,9 @@ nonisolated final class AgentPaneRecording: NSObject, SCStreamOutput, SCStreamDe
         writer.endSession(atSourceTime: end)
         let url = options.url
         let seconds = (CMTimeSubtract(end, first).seconds * 10).rounded() / 10
-        writer.finishWriting { [self] in
-            guard self.writer?.status == .completed else { return done(nil) }
+        let held = Handed(writer)
+        writer.finishWriting {
+            guard held.value.status == .completed else { return done(nil) }
             let path = AcpmuxPathPolicy.canonical(url.path) ?? url.path
             done(Made(path: path, name: url.lastPathComponent, seconds: seconds))
         }

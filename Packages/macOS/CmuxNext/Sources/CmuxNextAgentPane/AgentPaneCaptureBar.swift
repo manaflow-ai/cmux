@@ -16,7 +16,7 @@ import CmuxNextSettings
 
     /// Remembers this press's pane and toggles `view`'s bar (event `captureBar`, `{toggle: true}`).
     public func toggle(on view: AgentPaneView) {
-        AgentPaneRecorder.shared.paneImage = pane
+        AgentPaneRecorder.shared.pressed(view, paneImage: pane)
         let value: JSONValue = ["toggle": .bool(true)]
         view.deliver([AgentPageEvent(kind: "captureBar", value: value)],
                      scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])

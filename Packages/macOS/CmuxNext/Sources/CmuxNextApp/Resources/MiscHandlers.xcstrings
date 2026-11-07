@@ -19673,6 +19673,137 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.captureNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture works in agent chats. Open one first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャプチャはエージェントチャットで使えます。先にチャットを開いてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل الالتقاط في محادثات الوكيل. افتح واحدة أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimanje radi u razgovorima s agentom. Prvo otvorite jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optagelse virker i agentchats. Åbn en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aufnehmen funktioniert in Agent-Chats. Öffne zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La captura funciona en los chats con agentes. Abre uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La capture fonctionne dans les chats avec l’agent. Ouvrez-en un d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cattura funziona nelle chat con agenti. Aprine prima una."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការថតដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមបើកមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캡처는 에이전트 채팅에서 작동합니다. 먼저 채팅을 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opptak fungerer i agentsamtaler. Åpne en først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przechwytywanie działa w czatach z agentem. Najpierw otwórz jeden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A captura funciona em chats com agentes. Abra um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Захват работает в чатах с агентом. Сначала откройте чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การจับภาพใช้ได้ในแชทเอเจนต์ เปิดแชทก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yakalama ajan sohbetlerinde çalışır. Önce birini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Захоплення працює в чатах з агентом. Спершу відкрийте чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chụp hoạt động trong cuộc trò chuyện agent. Hãy mở một cuộc trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捕获适用于代理聊天。请先打开一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擷取適用於代理程式聊天。請先開啟一個聊天。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

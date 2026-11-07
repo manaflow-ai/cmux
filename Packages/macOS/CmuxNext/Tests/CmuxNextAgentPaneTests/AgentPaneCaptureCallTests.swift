@@ -88,4 +88,20 @@ struct AgentPaneCaptureCallTests {
         #expect(AgentPaneRecorder.owned(dotted, in: folder, written: written.union([dotted])) == nil)
         #expect(AgentPaneRecorder.owned("cmux-capture/ID/a.mp4", in: folder, written: ["cmux-capture/ID/a.mp4"]) == nil)
     }
+
+    /// Movies nobody attached go after a day: kept ones, the one starting and recent ones stay.
+    @Test func theSweepRemovesOnlyOldFoldersNotKept() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-sweep-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = Date(timeIntervalSinceNow: -2 * 24 * 60 * 60)
+        for name in ["kept", "stale", "fresh"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        for name in ["kept", "stale"] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: root.appendingPathComponent(name).path)
+        }
+        AgentPaneRecorder.sweep(root, keeping: ["kept"], now: Date())
+        let left = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        #expect(left == ["fresh", "kept"])
+    }
 }

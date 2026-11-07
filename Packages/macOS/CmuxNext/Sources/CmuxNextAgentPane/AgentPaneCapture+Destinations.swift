@@ -14,17 +14,17 @@ extension AgentPaneCapture {
         case .shot(let mode): return await reply(to: mode, in: model)
         case .recordStart(let cursor, let clicks):
             guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-            guard let window = hostWindow() else {
+            guard let window = hostWindow(for: model) else {
                 return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
             }
-            return await AgentPaneRecorder.shared.start(in: window, cursor: cursor, clicks: clicks)
+            return await AgentPaneRecorder.shared.start(in: window, for: model, cursor: cursor, clicks: clicks)
         case .recordStop:
             let reply = await AgentPaneRecorder.shared.stop()
             // The page attaches the movie as a local file link: this chat's video tile and open may read it.
             if let path = (reply["value"] as? [String: Any])?["path"] as? String { model.droppedPaths.retain([path]) }
             return reply
         case .copy(let payload): return await copy(payload)
-        case .save(let payload, let name): return await save(payload, name: name)
+        case .save(let payload, let name): return await save(payload, name: name, in: hostWindow(for: model))
         }
     }
 
@@ -55,7 +55,7 @@ extension AgentPaneCapture {
     /// `capture.save`: the save panel as a sheet on the host window (never an app-modal loop),
     /// then the image's bytes or the recording's copy at the chosen place. `{saved: path}`, or
     /// `{cancelled: true}` for a cancelled panel or one already up.
-    @MainActor static func save(_ payload: AgentPaneCapturePayload?, name: String?) async -> [String: Any] {
+    @MainActor static func save(_ payload: AgentPaneCapturePayload?, name: String?, in window: NSWindow?) async -> [String: Any] {
         let source: URL?, bytes: Data?
         let suggested: String
         switch payload {
@@ -79,7 +79,6 @@ extension AgentPaneCapture {
         panel.nameFieldStringValue = suggested
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        let window = hostWindow()
         let chosen = await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
             panel.beginForCmux(in: window) { done.resume(returning: $0) }
         }

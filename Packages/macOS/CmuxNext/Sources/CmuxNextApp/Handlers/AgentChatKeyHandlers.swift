@@ -47,7 +47,7 @@ enum AgentChatKeyHandlers {
             let pane = context.scope(invocation).pane
             guard let view = pane?.currentTabKey.flatMap({ context.services.agentTabs.existingView($0) })
                 ?? AgentPaneCaptureBar.visibleChat(in: pane?.view.window ?? context.activeWindow?.window) else {
-                return .refused(MiscHandlerStrings.noAgentChat)
+                return .refused(MiscHandlerStrings.captureNeedsAgentChat)
             }
             AgentPaneCaptureBar(pane: { [weak paneView = pane?.view, weak services = context.services] in
                 guard let paneView, let window = paneView.window, let services else { return nil }
