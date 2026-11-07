@@ -428,6 +428,41 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
+  for (const terminal of [true, false])
+    test(`a click on a subagent's command title expands it; Open chat is the way to the subagent (terminal ${terminal})`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(
+        (value) => (window as unknown as { __showOwnedCommand: (t: boolean) => void }).__showOwnedCommand(value),
+        terminal,
+      );
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.mouse.move(0, 0);
+      try {
+        const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
+        const line = page.locator(".acpmux-running-tray .acpmux-agent-line__button", {
+          has: page.locator(".is-code"),
+        });
+        // The title, which names the subagent, is part of the line's toggle: no link of its own.
+        await line.locator(".acpmux-summary-agent__name").click();
+        await settle(page);
+        expect(await opened()).toEqual([]);
+        expect(await line.getAttribute("aria-expanded")).toBe("true");
+        const foot = page.locator(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail-foot");
+        await foot.waitFor();
+        const labels = await foot.locator("button").evaluateAll((buttons) => buttons.map((b) => b.textContent));
+        expect(labels.some((text) => text?.includes("Open chat"))).toBe(true);
+        expect(labels.some((text) => text?.includes("Open in terminal"))).toBe(terminal);
+        await foot.locator("button", { hasText: "Open chat" }).click();
+        expect(await opened()).toEqual(["agent:owner"]);
+      } finally {
+        await page.close();
+      }
+    });
+
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);
     try {

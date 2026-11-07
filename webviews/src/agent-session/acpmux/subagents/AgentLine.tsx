@@ -76,7 +76,6 @@ export function AgentLine({
   latestAt = "below",
   latestCode = false,
   via,
-  nameLink,
   lean = false,
   doneLook = "words",
 }: {
@@ -143,8 +142,6 @@ export function AgentLine({
   latestCode?: boolean;
   /// The parent title for nested work.
   via?: string;
-  /// A separate link for the visible name when the row itself opens a command.
-  nameLink?: { href: string; open: () => void };
   /// Session Info's Subagents: its glyph, its name and its time, nothing else. The state is a word on
   /// the line only where it asks for a look (waiting, failed, stopped) or no time shows; screen readers
   /// always hear it (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle").
@@ -204,32 +201,7 @@ export function AgentLine({
         ) : (
           kind && <span className="acpmux-agent-line__kind">{kind}</span>
         )}
-        {nameLink ? (
-          <span
-            // It sits inside the row's toggle button, where an anchor or a nested button would be
-            // invalid; the deeplink opens through the pane navigation callback.
-            className="acpmux-summary-agent__name acpmux-agent-line__name-link"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- nested inside the row toggle
-            role="link"
-            tabIndex={0}
-            data-deeplink={nameLink.href}
-            onClick={(event) => {
-              event.stopPropagation();
-              nameLink.open();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                nameLink.open();
-              }
-            }}
-          >
-            {name}
-          </span>
-        ) : (
-          <span className="acpmux-summary-agent__name">{name}</span>
-        )}
+        <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {/* What it does now hands over as a status line does: the old step slides up and out as the
             new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
