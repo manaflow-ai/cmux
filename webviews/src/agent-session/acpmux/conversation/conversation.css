@@ -4567,7 +4567,7 @@ a.cv-sha:focus-visible {
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
 }
 .cv-expand-row:hover {

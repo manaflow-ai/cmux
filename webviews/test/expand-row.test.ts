@@ -142,7 +142,7 @@ await requireBrowserLane("expand-row.test.ts", async () => {
               const element = document.querySelector<HTMLElement>(selector)!;
               return { hovered: element.matches(":hover"), cursor: getComputedStyle(element).cursor };
             }, ROW[block]);
-            expect(hover).toEqual({ hovered: true, cursor: "pointer" });
+            expect(hover).toEqual({ hovered: true, cursor: "default" });
             expect(await boxes()).toEqual(before);
           } finally {
             await page.close();
