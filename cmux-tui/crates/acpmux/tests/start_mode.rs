@@ -1119,3 +1119,36 @@ async fn the_persons_bypass_pick_on_a_deny_all_chat_is_still_refused() {
     assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// cmux#37392 (exact-head review of the Chief permission mode): a Chief whose mode is Auto
+/// sets it on its Claude turn before each prompt, from a connection that is not the person. Under
+/// an `ask` start level acpmux refused that set even on a chat already in Auto, so every Chief
+/// turn was refused. A set to the mode a chat already runs changes nothing and needs no person;
+/// any other move under `ask` still does, and a full-access mode is never taken this way.
+#[tokio::test]
+async fn a_set_to_the_mode_a_chat_already_runs_needs_no_person() {
+    let dir = home("unchanged-mode", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (chat, mode) = app.chat(&dir, "claude").await;
+    assert_eq!(mode, "default");
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut script = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = script.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
+    assert!(r.get("error").is_none(), "the chat already runs Auto: {r}");
+    assert_eq!(script.mode(&chat).await, "auto");
+    let r =
+        script.call("session/set_mode", json!({"sessionId": chat, "modeId": "acceptEdits"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    // A chat the person put in bypass: the same set from the script stays the person's.
+    let r = app
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = script
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "bypassPermissions"}))
+        .await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
