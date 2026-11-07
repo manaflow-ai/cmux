@@ -49,6 +49,7 @@
     "key.canvasZoomIn": ["opt+cmd+="],
     "key.canvasZoomOut": ["opt+cmd+-"],
     "key.canvasZoomReset": ["cmd+0"],
+    "key.capture.open": ["ctrl+shift+cmd+5"],
     "key.clearScreenKeepScrollback": ["shift+cmd+k"],
     "key.closeOtherTabsInPane": ["opt+cmd+t"],
     "key.closeTab": ["cmd+w"],
