@@ -184,11 +184,15 @@ pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
 }
 
 /// What a remote viewer (a WebSocket or peer link) gets: harness-reported counts, never cmux-owned
-/// prompt text or the saved override contents.
+/// prompt text, the saved override contents or this machine's paths (a memory file keeps only its file name).
 pub fn redact_for_remote(inventory: &mut ContextInventory) {
     inventory.can_edit_overrides = false;
     for part in &mut inventory.parts {
         part.text = None;
+        if part.source == "memory" {
+            let name = Path::new(&part.label).file_name().and_then(|n| n.to_str());
+            part.label = name.unwrap_or("Memory file").to_owned();
+        }
     }
     inventory.overrides.project_key.clear();
     inventory.overrides.cwd.clear();
@@ -466,6 +470,7 @@ mod tests {
         redact_for_remote(&mut got);
         let memory = got.parts.iter().find(|p| p.source == "memory").expect("memory part");
         assert_eq!(memory.tokens, 30);
+        assert_eq!(memory.label, "CLAUDE.md");
         let wire = serde_json::to_string(&got).unwrap();
         assert!(!wire.contains("/Users/me"), "a local path reached a remote viewer: {wire}");
         assert!(!wire.contains("read concurrently"), "cmux text reached a remote viewer: {wire}");
