@@ -70,14 +70,15 @@ const style =
   };
 
 const shown = (ctx: Parameters<Play>[0]) =>
-  [...ctx.document.querySelectorAll(".acpmux-header-tools > .acpmux-header-tool-group-actions [data-quick-action]")].map(
-    (button) => button.getAttribute("data-quick-action"),
-  );
+  [
+    ...ctx.document.querySelectorAll(".acpmux-header-tools > .acpmux-header-tool-group-actions [data-quick-action]"),
+  ].map((button) => button.getAttribute("data-quick-action"));
 const expectShown =
   (...ids: string[]): Play =>
   async (ctx) => {
     const got = shown(ctx);
-    if (JSON.stringify(got) !== JSON.stringify(ids)) throw new Error(`expected ${ids.join(",")}, drew ${got.join(",")}`);
+    if (JSON.stringify(got) !== JSON.stringify(ids))
+      throw new Error(`expected ${ids.join(",")}, drew ${got.join(",")}`);
   };
 
 // Peek at rest: the dormant icons hold their room, invisible; hovered: they fade in, nothing else moves.
@@ -87,7 +88,8 @@ const peekHover: Play = async (ctx) => {
   await ctx.hover({ role: "button", name: "Chat summary" });
   const dormant = ctx.find({ selector: "[data-header-dormant]" });
   await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(dormant).opacity === "1");
-  if (panel.getBoundingClientRect().left !== before) throw new Error("a resting icon moved when the dormant ones showed");
+  if (panel.getBoundingClientRect().left !== before)
+    throw new Error("a resting icon moved when the dormant ones showed");
 };
 
 export default componentEntry<Props>({
@@ -101,7 +103,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/header/headerRelevance.ts#headerRelevance",
   ],
-  load: () => import("./ChatHeaderTools").then((module) => (props: Props) => createElement(module.ChatHeaderTools, props)),
+  load: () =>
+    import("./ChatHeaderTools").then((module) => (props: Props) => createElement(module.ChatHeaderTools, props)),
   styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   variants: {
     "standard-new-chat": {
