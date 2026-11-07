@@ -64,16 +64,20 @@ async fn reconnect_prompt(
     })
 }
 
+/// A daemon going away: its connection closed, or it answered that it is shutting down
+/// ([`daemon_restarting_error`]). Every prompt path (queue, stream, wait, send) reconnects to
+/// the next daemon on it, or tells the caller to send again with the same prompt id.
 pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<crate::cli::errors::AppError>()
         .is_some_and(|app| app.detail == "daemon_closed")
         || error.is::<crate::client::TransportClosed>()
+        || daemon_restarting_error(error)
 }
 
 /// The daemon's refusal as it shuts down (`hub::SHUTTING_DOWN`, typed `daemon.restarting`): a
 /// prompt it answered with it is the next daemon's, never the agent's failure.
-pub(crate) fn daemon_restarting_error(error: &anyhow::Error) -> bool {
+fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
         d.0.message == crate::hub::SHUTTING_DOWN
             || d.0.data.as_ref().and_then(|v| v["errorKind"].as_str())
@@ -1022,7 +1026,7 @@ async fn collect_once(
         Ok(v) => v,
         // A daemon that answered it is restarting handed the turn to the next one, as one that
         // closed mid-turn did (chaos fault `daemon-restart-session-new`).
-        Err(e) if daemon_closed_error(&e) || daemon_restarting_error(&e) => {
+        Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
         Err(e) => {
