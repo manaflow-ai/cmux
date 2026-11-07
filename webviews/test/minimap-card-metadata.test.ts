@@ -27,6 +27,30 @@ test("a received message's card retains its sender without changing prompt ticks
   expect(turns.ticks[0]?.id).toBe("received");
 });
 
+test("an app or persona sender keeps its own name: its card carries no session sender", () => {
+  const rows = [
+    row({
+      id: "relayed",
+      kind: "user",
+      at: 1,
+      text: "Yes, on it.",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "Muse",
+          app: "Muse",
+          sessionId: "child-3",
+          text: "Yes, on it.",
+          raw: "[from Muse] Yes, on it.",
+        },
+      },
+    }),
+  ];
+  const turns = minimapTurns(rows, "current");
+  expect(turns.turns[0]?.from).toBe("Muse");
+  expect(turns.turns[0]?.metadata?.sender).toBeUndefined();
+});
+
 test("a minimap card keeps the turn metadata needed for a compact hover summary", () => {
   const rows: AcpmuxRow[] = [
     row({
