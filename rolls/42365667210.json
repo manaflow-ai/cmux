@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42365667210",
+  "recorded_at": "2026-11-07T10:58:04Z",
+  "reason": "cmux-tui 7a2fed0d6e76 changes the image's cmux-tui (pinned 4a8025b57da1)",
+  "dry_run": false,
+  "cmux_tui": "7a2fed0d6e764638aba4ebab496dcd04b16673f3",
+  "fixes": [
+    {
+      "sha": "7a2fed0d6e764638aba4ebab496dcd04b16673f3",
+      "mergedAt": "2026-11-07T02:36:13-08:00",
+      "subject": "acpmux: a dispatch refusal is decided and written under the shutdown's lock (#37696)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T10:58:04Z",
+    "snapshot_id": "sh-819ebc7c656845f586878c043f90b3f7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42365667210): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "741dd0f6851f7353587bb08d798576ce835854b6",
+    "image": "cloud-native-auto-7a2fed0d-42365667210-1",
+    "revision": "ci-42365667210-1",
+    "at": "2026-11-07T10:58:04Z"
+  },
+  "rolled_back": false
+}
