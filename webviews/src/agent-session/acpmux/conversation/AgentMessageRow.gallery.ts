@@ -389,8 +389,12 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(head)?.getAttribute("aria-expanded") === "false")
           await ctx.click({ selector: head });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
-        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
-          toggle.click();
+        // Each line opens with its own measured click, as a reader opens them, so the stage knows
+        // which line opened and the rows its fold pushes down are that fold's, not a shift. Clicked
+        // all at once outside a step, the four folds played in the wait below, which has no target.
+        const closed = ".cv-received .cv-disclosure__toggle[aria-expanded='false']";
+        for (let line = 0; line < 4 && ctx.document.querySelector(closed); line++)
+          await ctx.click({ selector: closed });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },
