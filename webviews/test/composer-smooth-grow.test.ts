@@ -259,8 +259,10 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
     }
     const last = frames.at(-1)!;
     expect(last.caretBottom).toBeLessThanOrEqual(last.fieldBottom + 0.5);
-    // Typing renders the transcript only for the lines it adds, never per key.
-    expect(report.transcriptRenders).toBeLessThan(WRAP.length / 2);
+    // Typing renders the transcript once per line it adds, as at once did: never per key, and never
+    // per frame of the motion (the rows move on the compositor).
+    expect(report.transcriptRenders, "transcript renders over the typed wrap").toBeLessThanOrEqual(lines);
+    expect(report.rowRenders, "row renders over the typed wrap").toBe(0);
   });
 
   test("a 40-line paste grows the composer once, to its cap, with the caret in view", async () => {

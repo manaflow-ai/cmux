@@ -26,6 +26,7 @@ import {
 } from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
+import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
@@ -535,6 +536,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
+  /// Set while a value from outside (setDocument) replaces the document: its height changes at once (fieldGrowth.ts).
+  const applyingValue = useRef(false);
   const remark = useRef<RemarkParser | undefined>(undefined);
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
@@ -1210,6 +1213,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(keepCaret)
         // A rewrap with no edit (the actions' width, a resize) keeps the caret in view too.
         .use($prose(() => caretInView(FADE_BAND_PX)))
+        // The field's height moves to its text's on one motion; a value from outside lands at once.
+        .use($prose(() => fieldGrowth(() => applyingValue.current)))
         .use(blockKeys)
         .use(commonmark)
         .use(gfm)
@@ -1259,6 +1264,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
   /// so typing goes on below the block, not inside it.
   const setDocument = (markdown: string, undoable = true) => {
+    applyingValue.current = true;
+    try {
+      replaceDocument(markdown, undoable);
+    } finally {
+      applyingValue.current = false;
+    }
+  };
+  const replaceDocument = (markdown: string, undoable: boolean) => {
     // A field with placed attachments reads the value's tokens as their nodes in the same edit
     // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
     // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to

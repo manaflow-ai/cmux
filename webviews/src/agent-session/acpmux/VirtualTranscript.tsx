@@ -64,6 +64,7 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { followTrace } from "./followTrace";
+import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { noteTranscriptMount } from "./flickerLog";
@@ -1422,12 +1423,32 @@ export function VirtualTranscript({
       );
     };
     dock.addEventListener("click", toggled, { capture: true });
-    const observer = new ResizeObserver(() => {
+    // The prompt field's growth motion (composer/fieldGrowth.ts), while it runs: the field and the
+    // height it lands on, and the rows' own move on its curve. The stack is measured as it will be
+    // once the field lands (its drawn height plus what the field has yet to grow), so the motion's
+    // frames render nothing here: the room takes the end height once, as the motion starts, and the
+    // rows go home on the compositor with the field.
+    let growth: { field: HTMLElement; to: number } | undefined;
+    let rowsMove: Animation | undefined;
+    /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
+    const toGrow = () => {
+      if (!growth) return 0;
+      if (growth.field.isConnected && growth.field.getAnimations().length > 0)
+        return growth.to - growth.field.getBoundingClientRect().height;
+      growth = undefined;
+      // A motion cut short (Reduce Motion turned on, the chat left) lands the rows with the field.
+      rowsMove?.cancel();
+      rowsMove = undefined;
+      return 0;
+    };
+    const take = () => {
       noteQueue();
-      const next = over();
-      const nextHeight = height();
-      const nextCard = card(next);
-      const nextTray = tray(next);
+      const rest = toGrow();
+      const drawn = over();
+      const next = drawn > 0 ? drawn + rest : 0;
+      const nextHeight = height() + rest;
+      const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
+      const nextTray = tray(drawn);
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
@@ -1441,7 +1462,37 @@ export function VirtualTranscript({
           setDockCard(nextCard);
           setDockTray(nextTray);
         });
-    });
+    };
+    const observer = new ResizeObserver(take);
+    // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
+    const grew = (event: Event) => {
+      const { detail, target } = event as FieldGrowthEvent;
+      if (!(target instanceof HTMLElement)) return;
+      growth = { field: target, to: detail.to };
+      // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
+      queueMicrotask(() => {
+        const rows = thread.current;
+        if (!rows || growth?.field !== target) return;
+        const before = rows.getBoundingClientRect().top;
+        rowsMove?.cancel();
+        rowsMove = undefined;
+        take();
+        // Where the rows now lie against where they were drawn: they start there and go home.
+        const delta = before - rows.getBoundingClientRect().top;
+        if (Math.abs(delta) < 0.5) return;
+        const move = rows.animate(growthTranslate(detail, delta), {
+          duration: detail.duration,
+          easing: detail.progress ? "linear" : detail.easing,
+          composite: "add",
+        });
+        if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
+        rowsMove = move;
+        move.addEventListener("finish", () => {
+          if (rowsMove === move) rowsMove = undefined;
+        });
+      });
+    };
+    dock.addEventListener(FIELD_GROWTH_EVENT, grew);
     observer.observe(dock);
     noteQueue();
     const space = over();
@@ -1453,6 +1504,8 @@ export function VirtualTranscript({
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
+      dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      rowsMove?.cancel();
     };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
