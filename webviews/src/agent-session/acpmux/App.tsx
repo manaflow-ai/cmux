@@ -65,6 +65,7 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { ContextScreen, type ContextOverride } from "./context/ContextScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import {
   injectedNewTabContext,
@@ -486,6 +487,7 @@ import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { DeleteChatDialog } from "./header/DeleteChatDialog";
 import { avatarRows } from "./header/avatarRow";
+import { chatMini, miniRow, readChatMini, showInMini, useChatMini } from "./header/miniRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
@@ -2517,6 +2519,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           {
             working: snapshot.isWorking,
             clockOffset: snapshot.clockOffsetMs,
+            turnStartedAtMs: snapshot.turnStartedAtMs,
             sessionStatus,
             // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
@@ -2584,6 +2587,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
+    snapshot.turnStartedAtMs,
     sessionStatus,
     snapshot.summary?.family,
     snapshot.waitingSteers,
@@ -3184,11 +3188,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   const setupContinuation = useRef<((harness: string) => void) | undefined>(undefined);
   const setupStart = useRef<{ harness: string; resume: (harness: string) => void } | undefined>(undefined);
+  // Session Info's View Prompt: the Context screen (context/ContextScreen.tsx), in place of the chat.
+  const [contextOpen, setContextOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => {
     setupContinuation.current = undefined;
     setupStart.current = undefined;
     setHarnessesOpen(false);
+    setContextOpen(false);
   }, [snapshot.sessionId]);
   useEffect(() => {
     if (harnessesOpen) return;
@@ -4461,6 +4468,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setArtifact(undefined);
       setImageView(undefined);
       setHarnessesOpen(false);
+      setContextOpen(false);
       setReplaying(undefined);
       setNewTab(undefined);
       // The side tab is a full-height overlay on the right: Background tasks gives it the side.
@@ -4513,6 +4521,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
   // the ring; #20454 dropped its wiring).
+  // View Prompt opens the Context screen in place of the chat; the inspector steps aside, as it does
+  // for a side tab.
+  const openContext = useCallback(() => {
+    closeInspector();
+    setContextOpen(true);
+  }, [closeInspector]);
+  const contextSessionId = snapshot.sessionId;
+  const loadContext = useCallback(() => {
+    const client = directClient.current;
+    return client && contextSessionId
+      ? client.contextInventory(contextSessionId)
+      : Promise.reject(new Error(translate("error.notOpen")));
+  }, [contextSessionId]);
   const compactOffered = offersCompact(snapshot.commands);
   const compactChat = useMemo(
     () =>
@@ -4566,6 +4587,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,
     onCompact: compactChat,
+    // acpmux hands cmux's prompt text and its editing only to this Mac's app (server/requests/context.rs).
+    onViewPrompt: quick || snapshot.origin !== "local" || !snapshot.sessionId ? undefined : openContext,
     onShowUsage: refreshUsage,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
@@ -8144,16 +8167,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
-  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  // The session's own avatar (its cards and sender chip draw it): Set Chat Avatar… draws it, and the
+  // menu offers Remove Chat Avatar with one.
   const avatarSrc = useAgentAvatar(snapshot.sessionId);
   const avatar = avatarRows(
-    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    { sessionId: snapshot.sessionId, avatar: avatarSrc },
     {
       set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
       remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
     },
     t,
   );
+  // What the host's mini shows (the Chief or one chat): the menu's Show in Mini row reads it.
+  useChatMini(quick ? undefined : snapshot.sessionId);
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8577,6 +8603,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       tools,
       [
         ...avatar,
+        ...(quick
+          ? []
+          : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         ...remove,
@@ -10358,6 +10387,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const contextPage = (
+    <ContextScreen
+      load={loadContext}
+      {...(snapshot.origin === "local" && directClient.current && contextSessionId
+        ? {
+            save: (change: ContextOverride) =>
+              directClient.current?.setContextOverride(change, contextSessionId) ??
+              Promise.reject(new Error(translate("error.notOpen"))),
+          }
+        : {})}
+      onClose={() => setContextOpen(false)}
+    />
+  );
   const harnessesPage = (
     <HarnessesScreen
       catalog={pickerCatalog}
@@ -10621,6 +10663,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             </>
           ) : harnessesOpen ? (
             harnessesPage
+          ) : contextOpen && !showNewTab ? (
+            contextPage
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
@@ -10827,7 +10871,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={readTabState}
+                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />
@@ -11041,7 +11085,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionInfo.panel}
+        {!harnessesOpen &&
+          !contextOpen &&
+          !showNewTab &&
+          !(replaying && replaying === snapshot.sessionId) &&
+          sessionInfo.panel}
         {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}

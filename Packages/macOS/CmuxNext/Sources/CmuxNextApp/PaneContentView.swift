@@ -176,8 +176,10 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0, tools = toolbarWidth(shown: shown, sharing: rowTools > 0)
         // The strip shows at every tab count (#34327); a chat alone in its pane hides its tab only with tabs.hideLoneChatTab on.
         stripView.isHidden = shown <= 0 || rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hidesLoneTab
+        let slot = shown <= 0 ? 0 : toolbar?.view.stripSlot(tools + rowTools, in: bounds.width, of: stripView.model, recording: !held && hostsContent && paintHold.kept == nil,
+                                                             sharer: onTop && !isBandActive ? content as? PaneTabRowSharing : nil) ?? tools + rowTools
         if !isBandActive {
-            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
+            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - slot, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
