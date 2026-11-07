@@ -218,7 +218,10 @@ impl AgentSessions {
         {
             let mut authors = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
             // A client that never bound (all but a proxy's links) changes nothing, so it publishes nothing.
-            if authors.contains_key(&client) {
+            if let Some(author) = authors.get(&client) {
+                // A link guest's end is noted first, so a prune never sees it neither bound nor
+                // just gone (`LinkShares::present`).
+                self.link_shares.left(author);
                 authors.remove(&client);
             }
         }

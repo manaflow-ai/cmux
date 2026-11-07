@@ -369,6 +369,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "machine.share.self": self = .shareMachineWithMe
+        case "share.op":
+            // As `action.run`: a `session` that is there must be a usable id, never dropped.
+            let session = params?["session"].map { $0 as? String }
+            if let op = AgentPaneShareOp(params: params), session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .shareOp(op, session: session ?? nil)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
@@ -470,6 +478,9 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.glass":
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
             else { self = .unsupported(method) }
@@ -558,6 +569,14 @@ extension AgentPaneRequest {
             if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
                let url = URL(string: text), url.isAgentPanePreview {
                 self = .openPreview(url)
+            } else {
+                self = .unsupported(method)
+            }
+        case "cloud.preview.open":
+            if let params, Set(params.keys) == ["port"],
+               let port = params["port"] as? NSNumber, CFGetTypeID(port) != CFBooleanGetTypeID(),
+               Double(port.intValue) == port.doubleValue, (1...65535).contains(port.intValue) {
+                self = .openCloudPreview(port: port.intValue)
             } else {
                 self = .unsupported(method)
             }

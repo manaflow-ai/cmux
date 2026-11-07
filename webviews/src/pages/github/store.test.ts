@@ -3,7 +3,7 @@
 // pull request the page has left is dropped; Open on GitHub and View diff go to the host's ops.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { mockPullRequest, MOCK_URL } from "./mockProvider";
+import { mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
 import { GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
 import { GitHubOps, routedPullRequest, type PullRequestReply } from "./types";
 
@@ -26,6 +26,9 @@ class Host implements PageClient {
     return () => {};
   }
 }
+
+/** The calls a test is about: the page's details read rides along with every first answer. */
+const asked = (host: Host) => host.calls.filter((call) => call.op !== GitHubOps.details);
 
 const timers: { ms: number; run: () => void }[] = [];
 const realSetTimeout = globalThis.setTimeout;
@@ -55,7 +58,7 @@ test("the cached pull request draws from the first answer, then the page asks ag
   const store = new GitHubStore(host, () => true);
   await store.route(route(MOCK_URL));
   expect(store.getSnapshot().pullRequest?.title).toBe(mockPullRequest.title);
-  expect(host.calls).toEqual([{ op: GitHubOps.inspect, params: { url: MOCK_URL } }]);
+  expect(asked(host)).toEqual([{ op: GitHubOps.inspect, params: { url: MOCK_URL } }]);
   expect(timers.at(-1)?.ms).toBe(REFRESH_MS);
 });
 
@@ -78,7 +81,7 @@ test("a hidden page asks nothing when its timer fires", async () => {
   const store = new GitHubStore(host, () => false);
   await store.route(route(MOCK_URL));
   timers.at(-1)!.run();
-  expect(host.calls.length).toBe(1);
+  expect(asked(host).length).toBe(1);
 });
 
 test("an answer for the pull request the page has left is dropped", async () => {
@@ -110,7 +113,7 @@ test("Open on GitHub and View diff go to the host; a diff failure says the host'
   await store.route(route(MOCK_URL));
   store.openOnGitHub();
   await store.openDiff("docs/sidebar.md");
-  expect(host.calls.slice(1)).toEqual([
+  expect(asked(host).slice(1)).toEqual([
     { op: GitHubOps.openIn, params: { url: MOCK_URL, browserId: "cmux" } },
     { op: GitHubOps.openDiff, params: { url: MOCK_URL, file: "docs/sidebar.md" } },
   ]);
@@ -134,4 +137,105 @@ test("a diff failure for the pull request the page has left is dropped", async (
   reject(pageError("cmux.github.diff_unavailable", "The diff could not be read."));
   await opening;
   expect(store.getSnapshot().failure).toBeUndefined();
+});
+
+/** A host that answers the page's other reads too, and logs every call. */
+class RichHost extends Host {
+  detailsReplies: unknown[] = [];
+  override async call<R>(op: string, params: unknown): Promise<R> {
+    if (op === GitHubOps.details) {
+      this.calls.push({ op, params });
+      return (this.detailsReplies.shift() ?? { details: mockDetails }) as R;
+    }
+    if (op === GitHubOps.diffFile) {
+      this.calls.push({ op, params });
+      return { patch: `patch of ${(params as { file: string }).file}` } as R;
+    }
+    if (op === GitHubOps.merge) {
+      this.calls.push({ op, params });
+      return { merged: true, queued: true } as R;
+    }
+    return super.call<R>(op, params);
+  }
+}
+
+const settle = async () => {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+};
+
+test("the details are asked once per updatedAt, and again when it moves", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(store.getSnapshot().details?.body).toBe(mockDetails.body);
+  await store.ask();
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBe(1);
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBe(2);
+});
+
+test("a file opens inline with its own patch, folds again, and reloads after a push", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  store.toggleFile("docs/sidebar.md");
+  expect(store.getSnapshot().patches["docs/sidebar.md"]).toEqual({ state: "loading" });
+  await settle();
+  expect(store.getSnapshot().patches["docs/sidebar.md"]).toEqual({ state: "ready", patch: "patch of docs/sidebar.md" });
+  expect(host.calls.at(-1)).toEqual({ op: GitHubOps.diffFile, params: { url: MOCK_URL, file: "docs/sidebar.md" } });
+  // A new updatedAt reads the open file again, from the new head.
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.diffFile).length).toBe(2);
+  store.toggleFile("docs/sidebar.md");
+  expect(store.getSnapshot().patches["docs/sidebar.md"]).toBeUndefined();
+});
+
+test("merge asks to confirm first, then merges pinned to the head the page shows", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  await store.merge();
+  expect(store.getSnapshot().merge).toEqual({ phase: "confirm" });
+  expect(host.calls.some((call) => call.op === GitHubOps.merge)).toBe(false);
+  store.cancelMerge();
+  expect(store.getSnapshot().merge).toEqual({ phase: "idle" });
+  await store.merge();
+  await store.merge();
+  expect(host.calls.at(-1)).toEqual({ op: GitHubOps.merge, params: { url: MOCK_URL, head: mockDetails.headCommit } });
+  expect(store.getSnapshot().merge).toEqual({ phase: "merged", queued: true });
+});
+
+test("a merge GitHub refuses says why; a click the host did not count asks for another", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  const call = host.call.bind(host);
+  let error = pageError("cmux.github.gesture_required", "Click to merge");
+  host.call = <R>(op: string, params: unknown): Promise<R> =>
+    op === GitHubOps.merge ? Promise.reject(error) : call<R>(op, params);
+  await store.merge();
+  await store.merge();
+  expect(store.getSnapshot().merge).toEqual({ phase: "confirm" });
+  error = pageError("cmux.github.merge_refused", "Pull request is not mergeable");
+  await store.merge();
+  expect(store.getSnapshot().merge).toEqual({ phase: "failed", message: "Pull request is not mergeable" });
+});
+
+test("no merge without the details' head commit", async () => {
+  const host = new RichHost();
+  host.detailsReplies.push({ details: null });
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  await store.merge();
+  expect(store.getSnapshot().merge).toEqual({ phase: "idle" });
 });

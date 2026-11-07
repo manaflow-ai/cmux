@@ -446,7 +446,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "layout.toggleStripScrollbar",
         group: GROUP,
-        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Toggle Column Scroll Bar"),
+        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Column Scroll Bar"),
         keywords: &["scrollbar", "column", "strip", "visible range", "overview"],
         category: "settings",
         symbol: "scroll",
