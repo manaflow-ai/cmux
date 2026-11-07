@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import CmuxTheme
 @testable import CmuxNextSidebar
@@ -25,5 +26,30 @@ import Testing
         #expect(CmuxNextSidebar.SidebarGroup.newTint(in: Self.sections([]), palette: palette) == .palette(.purple))
         let existing: [GroupTint] = [.palette(.purple), .none, .custom(ThemeRGB(hex: 0x336699))]
         #expect(CmuxNextSidebar.SidebarGroup.newTint(in: Self.sections(existing), palette: palette) == .palette(.orange))
+    }
+
+    /// Router review F3: every path that makes a group takes the palette's color, not only New Group. Dropping a row
+    /// onto another groups them in the palette's next color, and under glass in none.
+    @Test(arguments: [GroupPalette.vibrant, .glass])
+    func droppingARowOntoAnotherGroupsThemInThePalettesNextColor(_ palette: GroupPalette) throws {
+        let saved = DesignSettings.shared.sidebarSections.groupPalette
+        DesignSettings.shared.sidebarSections.groupPalette = palette
+        defer { DesignSettings.shared.sidebarSections.groupPalette = saved }
+        _ = NSApplication.shared
+        let a = WorkspaceID("ws-a"), b = WorkspaceID("ws-b")
+        var purple = CmuxNextSidebar.SidebarGroup(id: GroupID("grp_purple"), name: "Purple", workspaces: [])
+        purple.tint = .palette(.purple)
+        let model = SidebarModel(sections: [
+            CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [.group(purple), .workspace(SidebarWorkspace(id: a, title: "a")),
+                                                                  .workspace(SidebarWorkspace(id: b, title: "b"))]),
+        ], activeWorkspaceID: a)
+        var sent: [SidebarIntent] = []
+        model.onIntent = { sent.append($0) }
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        SidebarGroupDrop.group(sidebar.list, [b], onto: a, origin: nil)
+        let color = try #require(sent.lazy.compactMap { intent -> GroupTint? in
+            if case let .createGroup(_, _, color, _, _, _, _) = intent { color } else { nil }
+        }.first)
+        #expect(color == (palette == .glass ? GroupTint.none : .palette(.orange)), "the drop made a group in \(color)")
     }
 }

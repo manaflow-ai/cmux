@@ -229,6 +229,12 @@
   `sidebar.groupColors` (fixed/theme). Gallery: lane group-colors' SVG sheets (palettes on dark and light glass, the
   orange-header-over-blue-dots clash, three picker layouts; the two-row layout won). Regression: `GroupPaletteTests`,
   `GroupAutomaticColorTests`, `SidebarGroupPaletteSettingTests`.
+  Every path that makes a group takes the palette's color: New Group, New Empty Group, a drop that groups two rows,
+  the space menu's New Group and New Subgroup (router review F3). The Wallpaper palette samples the desktop picture
+  on its own, with `appearance.wallpaperTint` off too, and the groups repaint when the picture changes
+  (`DesignSettings.groupWallpaperTint`, router review F2). Regression: `GroupAutomaticColorTests`
+  (`droppingARowOntoAnotherGroupsThemInThePalettesNextColor`), `WallpaperTintTests`
+  (`theWallpaperGroupPaletteSamplesWithTheWindowTintOff`).
 - 2026-11-05: a group with no color reads as a group: one faint neutral block behind its header and members, no hue
   and no indent (`sidebar.noColorGroup`, default `glass`: the `group` role untinted, its veil and rim). Leo, verbatim: "if you're gonna allow the no color option,
   which is, like, I find kind of weird, you might as well have it be at least slightly distinguishing from, like,
