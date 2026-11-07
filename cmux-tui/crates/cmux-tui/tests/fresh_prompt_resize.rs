@@ -43,19 +43,21 @@ fn bin() -> &'static str {
 struct Daemon {
     child: Option<Child>,
     dir: PathBuf,
+    home: PathBuf,
     socket: PathBuf,
     state: PathBuf,
 }
 
 impl Daemon {
-    /// A headless daemon whose default shell is zsh, with a home whose `.zshrc` sets the prompt to [`PROMPT`].
-    fn start(name: &str) -> Self {
+    /// A headless daemon whose default shell is zsh, with a home whose `.zshrc` sets the prompt to [`PROMPT`],
+    /// then runs `rc`.
+    fn start(name: &str, rc: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = PathBuf::from("/tmp")
             .join(format!("cmux-fresh-prompt-{name}-{}-{stamp}", std::process::id()));
         let home = dir.join("home");
         fs::create_dir_all(&home).unwrap();
-        fs::write(home.join(".zshrc"), format!("PS1='{PROMPT}'\n")).unwrap();
+        fs::write(home.join(".zshrc"), format!("PS1='{PROMPT}'\n{rc}")).unwrap();
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         let mut command = Command::new(bin());
@@ -74,7 +76,7 @@ impl Daemon {
             .stderr(Stdio::null());
         private_state::use_private_state(&mut command, &dir);
         let child = command.spawn().unwrap();
-        let daemon = Self { child: Some(child), dir, socket, state };
+        let daemon = Self { child: Some(child), dir, socket, state, home };
         wait_for_socket(&daemon.socket);
         daemon
     }
@@ -290,7 +292,28 @@ fn a_prompt_survives_a_size_bounce_its_shell_never_sees() {
         eprintln!("FRESH-PROMPT-SKIP: no {ZSH} on this host");
         return;
     }
-    let daemon = Daemon::start("bounce");
+    let daemon = Daemon::start("bounce", "");
+    bounce_keeps_the_prompt(&daemon);
+}
+
+/// The integration's SIGWINCH redraw keeps a `TRAPWINCH` that the user's `.zshrc` defines: it still runs.
+#[test]
+fn a_users_trapwinch_still_runs_with_the_bounce_redraw() {
+    if !Path::new(ZSH).exists() {
+        eprintln!("FRESH-PROMPT-SKIP: no {ZSH} on this host");
+        return;
+    }
+    let daemon = Daemon::start("user-trap", "TRAPWINCH() { print -n x >> $HOME/winch-ran }\n");
+    bounce_keeps_the_prompt(&daemon);
+    let ran = daemon.home.join("winch-ran");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !ran.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(ran.exists(), "the user's TRAPWINCH from .zshrc did not run on the SIGWINCH");
+}
+
+fn bounce_keeps_the_prompt(daemon: &Daemon) {
     request(
         &daemon.socket,
         serde_json::json!({"cmd": "new-workspace", "name": "fresh", "cols": 34, "rows": ROWS}),
