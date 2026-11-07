@@ -82,8 +82,9 @@ impl Hub {
             return Err(RpcError::invalid_params("fixed session ids cannot adopt another chat"));
         }
         let caller_selected_id = fixed_id.is_some();
-        // Harness discovery and launcher checks finish in the background.
-        self.wait_startup().await;
+        // Harness discovery and launcher checks finish in the background. Bounded: a startup that
+        // never ends (a wedged agent host's adoption) answers with its phase, not silence.
+        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT).await?;
         // Mutations wait for the complete index. A later durable check also refuses
         // malformed or partially written chats that the startup loader could not install.
         if caller_selected_id {
