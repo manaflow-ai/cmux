@@ -157,6 +157,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
+| `appearance.iconTheme` | string | `"default"` | `default`, `neko` | Icon Theme. The icon drawings used by cmux. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast. |
 | `appearance.themeEdits` | dictionary | `{}` |  | Theme Edits. Your color changes to a theme, such as "Rose Pine/background": "#1f1d2e". The theme itself never changes; remove an entry to reset that color. |

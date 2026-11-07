@@ -1161,6 +1161,16 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.iconTheme" : {
+      "default" : "default",
+      "description" : "The icon drawings used by cmux.",
+      "enum" : [
+        "default",
+        "neko"
+      ],
+      "title" : "Icon Theme",
+      "type" : "string"
+    },
     "appearance.inactiveWindowDim" : {
       "default" : 0,
       "description" : "How much more theme color covers a window while another one is in front. 0 keeps the same look.",
