@@ -192,3 +192,31 @@ test("on the app's glass a toast paints no glass of its own", () => {
   expect(shown.classList.contains("ui-glass")).toBe(false);
   expect(shown.getAttribute("data-native-glass")).toBe("true");
 });
+
+// Review 4 of #37289: the motion read each toast's place after React had laid it out anew, so a toast a
+// newer one pushed up snapped there instead of sliding, while its native glass slid.
+test("a toast pushed up by a newer one slides from where it was", () => {
+  const tops = new Map<string, number>([["1", 100]]);
+  const slides: { serial: string | undefined; first: unknown }[] = [];
+  const view = (toasts: ToastState[]) => stack(toasts);
+  const doc = render(view([toast(1)]));
+  const proto = dom!.window.HTMLElement.prototype as unknown as {
+    animate: unknown;
+    getBoundingClientRect: () => DOMRect;
+  };
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const top = tops.get(this.dataset.toastSerial ?? "") ?? 0;
+    return { x: 0, y: top, top, left: 0, right: 300, bottom: top + 40, width: 300, height: 40, toJSON() {} } as DOMRect;
+  };
+  proto.animate = function (this: HTMLElement, frames: Keyframe[]) {
+    slides.push({ serial: this.dataset.toastSerial, first: frames[0]?.transform });
+    return { onfinish: null, oncancel: null, cancel() {} };
+  };
+  // Lay toast 1 out at 100 (its place), then a newer toast takes 100 and pushes it up to 52.
+  act(() => root!.render(view([toast(1, { message: "again" })])));
+  tops.set("1", 52);
+  tops.set("2", 100);
+  act(() => root!.render(view([toast(1, { message: "again" }), toast(2)])));
+  expect(doc.querySelectorAll(".cmux-toast").length).toBe(2);
+  expect(slides).toContainEqual({ serial: "1", first: "translate(0.00px, 48.00px)" });
+});
