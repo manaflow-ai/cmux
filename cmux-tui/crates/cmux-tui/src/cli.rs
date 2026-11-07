@@ -430,6 +430,8 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "device",
     "workflow",
     "remote-host",
+    "chat",
+    "vm",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
