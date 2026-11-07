@@ -118,6 +118,7 @@ extension KeyboardShortcutSettings.Action {
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,
              .renameWorkspace, .editWorkspaceDescription,
+             .togglePinnedWorkspace,
              .markWorkspaceDone, .cycleWorkspaceStatus,
              .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
