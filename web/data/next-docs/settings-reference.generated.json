@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 597,
+  "count": 596,
   "sections": [
     {
       "id": "general",
@@ -5703,14 +5703,6 @@
             "top",
             "bottom"
           ]
-        },
-        {
-          "key": "home.chiefDock.openBeside",
-          "title": "Keep Chief Docked When Opening Workspaces",
-          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Chief Dock"
         },
         {
           "key": "home.chiefEngine",
