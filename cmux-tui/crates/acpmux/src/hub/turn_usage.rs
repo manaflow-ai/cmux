@@ -3,11 +3,21 @@
 //! running `totals`, so spend can be added up per session, branch and pull
 //! request.
 //!
-//! Claude Code reports its running spend under `_meta.claude`. ACP harnesses
-//! such as Gemini and Muse report a standard root `usage` object instead; the
-//! adapter's per-turn counters are copied into the same durable turn fields.
-//! Missing counters stay absent, so a provider that does not report usage still
-//! carries only its model.
+//! Claude Code reports spend as `_meta.claude` on the prompt result
+//! (`claude_stdio/inbound.rs`). Its `usage` covers that turn's main loop
+//! (not its subagents). Its `cost_usd` is Claude Code's running total for
+//! the conversation, subagents included, which it restores on `--resume`
+//! and a fork; so a turn's cost is the rise since the last turn
+//! (`SessionMeta::harness_cost_usd`). When that rise cannot be told from
+//! history (a total that went down, a session with earlier turns and no
+//! baseline), the turn records no cost and the next one is measured from it.
+//! A failed turn records none either; its spend lands on the next answered
+//! turn.
+//!
+//! ACP harnesses such as Gemini and Muse report a standard root `usage`
+//! object instead; its per-turn counters are copied into the same durable
+//! turn fields. Missing counters stay absent, so a harness that reports no
+//! usage carries only its model.
 
 use super::{Session, current_model};
 use crate::store::TurnUsage;
@@ -34,9 +44,14 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
         let running = claude.get("cost_usd").and_then(Value::as_f64);
         if let Some(running) = running.filter(|c| c.is_finite() && *c >= 0.0) {
             match meta.harness_cost_usd {
+                // A zeroed total (a crashed process's last result) says nothing: keep the baseline.
                 Some(before) if running == 0.0 && before > 0.0 => {}
                 Some(before) if running >= before => turn.cost_usd = Some(running - before),
+                // A session's first turn: all of the total is its own.
                 None if meta.turn_count <= 1 => turn.cost_usd = Some(running),
+                // Below the baseline (a process that started over or restored less), or no
+                // baseline after earlier turns (an older session, a fork through an earlier
+                // turn): this turn's share cannot be told from history, so it records none.
                 _ => {}
             }
             if running > 0.0 || meta.harness_cost_usd.is_none() {
