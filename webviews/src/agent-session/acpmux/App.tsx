@@ -298,6 +298,7 @@ import {
 } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationMic } from "./DictationMic";
+import { useComposerView } from "./composer/composerView";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
@@ -5384,6 +5385,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chat: () => sessionIdRef.current,
     elsewhere: () => directClient.current?.notice(translate("dictation.recordingOtherChat")),
   });
+  // The composer's mic, the same element while the dictation is (dictation.ts keeps it while its state is).
+  const composerMic = useMemo(() => <DictationMic dictation={dictation} strip={false} />, [dictation]);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -5694,6 +5697,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
   ]);
+  // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
+  // so a tool call or another row added to the transcript does not draw the composer again.
+  const composerDrawn = useComposerView(composerSnapshot);
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -9648,7 +9654,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <ImageViewerContext.Provider value={openImage}>
           <Composer
             locked={cloudStarting}
-            snapshot={composerSnapshot}
+            snapshot={composerDrawn}
             headerCwd={snapshot.summary?.cwd ?? ""}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
@@ -10084,7 +10090,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             authChecking={authPreflightPending}
             authBlocked={Boolean(authBlock)}
             // The composer draws the session's strip before its Send, and Send ends the session.
-            accessory={<DictationMic dictation={dictation} strip={false} />}
+            accessory={composerMic}
             dictating={isWaitingForWords(dictation.state)}
             dictation={dictation}
             onImportFile={importFile}

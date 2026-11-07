@@ -1097,7 +1097,10 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let all = tools();
     assert_eq!(names(&allowed(all.clone(), None)), names(&all));
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
-    assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]);
+    assert_eq!(
+        names(&chief),
+        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+    );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }
 
