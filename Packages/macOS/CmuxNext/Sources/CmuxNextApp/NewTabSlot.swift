@@ -150,20 +150,9 @@ enum NewTabSlot {
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
         // The open's live anchor first (re-anchored, chained, the strip's), then the one it began with or the daemon's tab that stand-in became.
-        case .after(let anchor): pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) } ?? slot(after: anchor, in: others)
-            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { slot(after: $0, in: others) } }
+        case .after(let anchor): pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) } ?? others.newTabSlot(after: anchor)
+            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { others.newTabSlot(after: $0) } }
         case .start: others.prefix { $0.pinned }.count
         }
-    }
-
-    /// The final index right after `anchor` among `others` (the pane's tabs
-    /// but the new one): never among the pinned tabs, and after the anchor's
-    /// tab group, which the new tab does not join. Nil when the anchor left.
-    static func slot(after anchor: TabModel, in others: [TabModel]) -> Int? {
-        guard var index = others.firstIndex(where: { $0 === anchor }) else { return nil }
-        if let group = others[index].tabGroup {
-            while index + 1 < others.count, others[index + 1].tabGroup == group { index += 1 }
-        }
-        return max(index + 1, others.prefix { $0.pinned }.count)
     }
 }

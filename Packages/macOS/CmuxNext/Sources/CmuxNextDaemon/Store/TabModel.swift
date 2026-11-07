@@ -465,3 +465,14 @@ public final class TabModel: Identifiable {
         if cwd != value { cwd = value }
     }
 }
+
+@MainActor
+extension Array where Element == TabModel {
+    /// Where a new tab goes right after `anchor` among these tabs (the pane's but the new one): never among the pinned tabs, and
+    /// after the anchor's tab group, which the new tab does not join. Nil when the anchor left (`NewTabSlot`).
+    public func newTabSlot(after anchor: TabModel) -> Int? {
+        guard let start = firstIndex(where: { $0 === anchor }) else { return nil }
+        let end = anchor.tabGroup.map { group in dropFirst(start + 1).firstIndex { $0.tabGroup != group } ?? count } ?? start + 1
+        return Swift.max(end, prefix { $0.pinned }.count)
+    }
+}

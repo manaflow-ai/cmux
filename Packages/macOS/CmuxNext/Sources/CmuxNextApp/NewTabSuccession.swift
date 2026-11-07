@@ -76,20 +76,18 @@ struct NewTabSuccession {
         expire(after: Self.orderLimit)
     }
 
-    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) while it is placed: after the anchor the strip shows it after
-    /// (re-anchored when it closed, the daemon's tab for a stand-in, chained after an earlier open's tab); nil once the open ended.
-    /// While `before` is an earlier open's tab the daemon has not moved into its slot yet, the tab goes after that open's anchor, so the two
-    /// land in order whichever move comes first. Nil when its anchor left and was not re-anchored yet.
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it): after the anchor the strip shows it after; while that is an earlier
+    /// open's tab not yet moved into its slot, after that open's anchor, so both land in order. Nil once the open ended or its anchor left.
     static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? {
         guard let opens = active[ObjectIdentifier(pane)]?.map({ $0.resolving(pane) }), let mine = opens.first(where: { $0.expiry === open }) else { return nil }
         guard var id = mine.before else { return others.prefix { $0.pinned }.count }
         for _ in opens.indices {
             guard let tab = others.first(where: { $0.id == id.rawValue }) else { return nil }
             guard let earlier = opens.first(where: { $0.claimed == id }), let before = earlier.before, let anchor = others.first(where: { $0.id == before.rawValue }),
-                  NewTabSlot.slot(after: anchor, in: others.filter { $0 !== tab }) != others.firstIndex(where: { $0 === tab }) else { return NewTabSlot.slot(after: tab, in: others) }
+                  others.filter { $0 !== tab }.newTabSlot(after: anchor) != others.firstIndex(where: { $0 === tab }) else { return others.newTabSlot(after: tab) }
             id = before
         }
-        return others.first { $0.id == id.rawValue }.flatMap { NewTabSlot.slot(after: $0, in: others) }
+        return others.first { $0.id == id.rawValue }.flatMap { others.newTabSlot(after: $0) }
     }
 
     /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.
@@ -146,12 +144,7 @@ struct NewTabSuccession {
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
             if let before = open.before, !others.contains(where: { $0.id == before }) { open.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
-            var slot = others.prefix { $0.isPinned }.count // `NewTabSlot`'s: the page's, else right after the anchor's group (re-anchored above), never among the pinned
-            if let before = open.before, var index = others.firstIndex(where: { $0.id == before }) {
-                while open.page == nil, let group = others[index].groupID, index + 1 < others.count, others[index + 1].groupID == group { index += 1 }
-                slot = open.page == nil ? max(index + 1, slot) : index + 1
-            }
-            others.insert(item, at: slot)
+            others.insert(item, at: others.newTabSlot(after: open.before, replacing: open.page != nil)) // `NewTabSlot`'s: the page's, else after the anchor's group
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
             if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others
