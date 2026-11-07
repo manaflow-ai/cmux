@@ -267,7 +267,7 @@ enum AgentHookNotificationClassifier {
                     return true
                 }
             }
-            if token == "question", lowercasedText.contains("?") || tokens.contains(where: {
+            if token == "question", lowercasedText.contains("?") || lowercasedText.contains("？") || tokens.contains(where: {
                 $0 == "answer" || $0 == "respond" || $0 == "response" || $0 == "reply"
                     || $0 == "choose" || $0 == "confirm" || $0 == "continue"
             }) {

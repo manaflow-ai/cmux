@@ -693,6 +693,103 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
     return 0
 
 
+def check_question_completion_sends_question_type(bun: str, root: Path, extension_path: Path) -> int:
+    question_cmux = root / "question-completion-cmux"
+    make_executable(
+        question_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf '%s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_QUESTION_LOG"
+printf '{}\n'
+""",
+    )
+    modern_package = root / "question-modern-node-modules" / "@earendil-works" / "pi-coding-agent"
+    modern_cli = modern_package / "dist" / "cli.js"
+    modern_cli.parent.mkdir(parents=True)
+    make_executable(modern_cli, "#!/usr/bin/env node\n")
+    (modern_package / "package.json").write_text(
+        json.dumps({"name": "@earendil-works/pi-coding-agent", "version": "0.80.5"}),
+        encoding="utf-8",
+    )
+    source = """
+if (process.env.CMUX_TEST_PI_QUESTION_SCRIPT) {
+  process.argv.splice(0, process.argv.length, "/opt/homebrew/bin/node", process.env.CMUX_TEST_PI_QUESTION_SCRIPT);
+}
+const mod = await import(process.env.CMUX_TEST_PI_EXTENSION_PATH);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-question-completion",
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-question-completion-session"; } }
+};
+handlers.get("before_agent_start")({ prompt: "hello" }, ctx);
+handlers.get("agent_end")({
+  messages: [JSON.parse(process.env.CMUX_TEST_PI_QUESTION_MESSAGE)],
+  stopReason: "completed"
+}, ctx);
+handlers.get("agent_settled")({}, ctx);
+handlers.get("agent_settled")({}, ctx);
+await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
+"""
+    cases = (
+        ("fullwidth question", "请确认：采用 WAV 还是 AAC？", None, True),
+        ("ASCII question", "Use WAV or AAC?", None, True),
+        ("ordinary completion", "The docs now explain which version to choose.", None, False),
+        ("interrupted question", "请确认：采用 WAV 还是 AAC？", "aborted", None),
+    )
+    for lifecycle, script in (("agent_end", None), ("agent_settled", str(modern_cli))):
+        for name, text, stop_reason, asks in cases:
+            log = root / "question-completion.log"
+            log.unlink(missing_ok=True)
+            message = {"role": "assistant", "content": text}
+            if stop_reason:
+                message["stopReason"] = stop_reason
+            extra_env = {
+                "CMUX_TEST_PI_QUESTION_LOG": str(log),
+                "CMUX_TEST_PI_QUESTION_MESSAGE": json.dumps(message),
+            }
+            if script:
+                extra_env["CMUX_TEST_PI_QUESTION_SCRIPT"] = script
+            result = run_extension(
+                bun=bun,
+                root=root,
+                extension_path=extension_path,
+                fake_cmux=question_cmux,
+                source=source,
+                extra_env=extra_env,
+            )
+            label = f"{name} via {lifecycle}"
+            if result.returncode != 0:
+                print(f"FAIL: Pi question harness failed for {label}: {result.stderr!r}")
+                return 1
+            calls = log.read_text(encoding="utf-8").splitlines()
+            notifications = [
+                json.loads(line.split("|", 1)[1]) for line in calls if "hooks pi notification" in line
+            ]
+            stops = [json.loads(line.split("|", 1)[1]) for line in calls if "hooks pi stop" in line]
+            if len(stops) != 1:
+                print(f"FAIL: expected one Pi Stop for {label}: {calls!r}")
+                return 1
+            if asks is None:
+                if notifications or stops[0].get("cmux_notification_routed") is not True:
+                    print(f"FAIL: interrupted Pi turn must stay quiet for {label}: {calls!r}")
+                    return 1
+                continue
+            if len(notifications) != 1 or notifications[0].get("message") != text:
+                print(f"FAIL: expected one Pi notification for {label}: {calls!r}")
+                return 1
+            notification_type = notifications[0].get("notification", {}).get("type")
+            if (notification_type == "question") is not asks:
+                print(f"FAIL: wrong Pi notification type for {label}: {notifications[0]!r}")
+                return 1
+            if notifications[0].get("hook_event_name") != "Notification":
+                print(f"FAIL: a completion must keep its text out of questionAsked for {label}: {notifications[0]!r}")
+                return 1
+    return 0
+
+
 def check_cross_session_lifecycle_isolation(
     bun: str,
     root: Path,
@@ -3562,6 +3659,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_ui_dialog_rejection_publishes_response,
         check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
+        check_question_completion_sends_question_type,
         check_cross_session_lifecycle_isolation,
         check_panel_only_target_fails_closed,
         check_feed_backlog,
