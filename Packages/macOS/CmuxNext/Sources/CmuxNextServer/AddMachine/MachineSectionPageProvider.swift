@@ -26,6 +26,8 @@ public final class MachineSectionPageProvider: PageProvider {
     static let newWorkspaceOp = "cmux.machines.newWorkspace"
     static let addMachineOp = "cmux.machines.addMachine"
     static let menuOp = "cmux.machines.menu"
+    /// The menus `menuOp` opens: a row's New Workspace, and a joined machine's Check / Rotate / Revoke.
+    static let rowMenu = "row", joinedMenu = "joined"
 
     /// What the page reads and runs, so a test can stand in for the app.
     public struct Dependencies {
@@ -95,9 +97,15 @@ public final class MachineSectionPageProvider: PageProvider {
             return ["ran": .bool(dependencies.addMachine())]
         case Self.menuOp:
             try Self.requireGesture(context)
+            // A row the section shows (never a fleet daemon the rows leave out), and a menu that row has: its
+            // New Workspace row, or a joined machine's menu only on a joined row. Every item the menu runs
+            // targets that row's machine, and a menu choice is the person's own input.
             guard let id = params["row"]?.stringValue, let kind = params["menu"]?.stringValue,
                   let row = dependencies.rows().first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("row is not a machine of the section")
+            }
+            guard kind == Self.rowMenu || (kind == Self.joinedMenu && row.joined != nil) else {
+                throw PageError.invalidParams("row has no \(kind) menu")
             }
             guard let menu = dependencies.menu(kind, row) else { return .object([:]) }
             let point = CGPoint(x: params["x"]?.doubleValue ?? 0, y: params["y"]?.doubleValue ?? 0)

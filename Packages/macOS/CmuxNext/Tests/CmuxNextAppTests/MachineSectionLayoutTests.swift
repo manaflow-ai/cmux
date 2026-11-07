@@ -139,6 +139,35 @@ import Testing
         #expect(box.ran == ["new:local"])
     }
 
+    /// A menu opens only on a row the section shows, and only a menu that row has, even with the person's
+    /// click: a fleet daemon the rows leave out, an unknown menu, or a joined menu on a machine that is not
+    /// joined present nothing.
+    @Test func aMenuOpensOnlyOnAShownRowWithThatMenu() async throws {
+        let box = Box()
+        let machine = JoinedMachine(id: "m_1", name: "lane-vm-3", state: .online, platform: "linux", mintedBy: nil)
+        box.rows.append(.joined(machine, health: nil))
+        let provider = Self.provider(box)
+        let refused: [JSONValue] = [["row": "fleet-lane-7", "menu": "row"], ["row": "local", "menu": "joined"],
+                                    ["row": "local", "menu": "revoke"], ["menu": "row"]]
+        for params in refused {
+            await #expect(throws: PageError.self) {
+                try await provider.call(MachineSectionPageProvider.menuOp, params: params, context: Self.context)
+            }
+        }
+        #expect(box.presented.isEmpty)
+        _ = try await provider.call(MachineSectionPageProvider.menuOp, params: ["row": "joined:m_1", "menu": "joined"], context: Self.context)
+        let titles = box.presented.map(\.0)
+        #expect(titles == ["joined:joined:m_1"])
+    }
+
+    /// Add Machine takes no target: it opens the app's own Add Machine card, and only on the person's click.
+    @Test func addMachineTakesNoTargetFromThePage() async throws {
+        let box = Box()
+        let provider = Self.provider(box)
+        _ = try await provider.call(MachineSectionPageProvider.addMachineOp, params: ["machine": "fleet-lane-7"], context: Self.context)
+        #expect(box.ran == ["add"], "a machine the page names changes nothing")
+    }
+
     /// The row's native menu: New Workspace on This Machine from the registry, off while the link is down.
     @Test func aRowsMenuIsTheRegistrysNewWorkspaceRow() {
         let registry = ActionRegistry.standard()
