@@ -29,6 +29,13 @@ final class OnboardingPageProvider: PageProvider {
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         if op == "cmux.onboarding.state" { return try Self.json(state) }
+        // The page gained focus. Only a read (after a Sign In, the sign-ins are checked again), so it
+        // needs no click or key; a click into the page keys the page engine's child window, which
+        // the window's own didBecomeKey does not see.
+        if op == "cmux.onboarding.focused" {
+            model.windowBecameKey()
+            return [:]
+        }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on its own click or key in the window")
         }

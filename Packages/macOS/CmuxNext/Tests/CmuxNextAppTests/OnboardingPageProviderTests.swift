@@ -39,6 +39,25 @@ import Testing
         #expect(!model.ended, "a page script alone cannot end the window")
     }
 
+    /// Back from a Sign In, the page's focus rechecks the sign-ins: a click into the page keys the
+    /// page engine's child window, which the onboarding window's own didBecomeKey does not see.
+    @Test func thePagesFocusRechecksTheSignInsAfterASignIn() async throws {
+        let services = MockOnboardingServices()
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "codex", name: "Codex", brand: "openai", auth: .signedOut)])
+        services.agentSource = source
+        let model = OnboardingModel(services: services, step: .agents)
+        let provider = OnboardingPageProvider(model: model)
+        model.stepDidAppear()
+        await Self.until { model.agents.loaded }
+        _ = try await provider.call("cmux.onboarding.focused", params: [:], context: scripted)
+        #expect(source.reads == [false], "no Sign In yet: focus reads nothing")
+        _ = try await provider.call("cmux.onboarding.agents.signIn", params: ["id": "codex"], context: clicked(50))
+        await Self.until { source.signIns == ["codex"] }
+        _ = try await provider.call("cmux.onboarding.focused", params: [:], context: scripted)
+        await Self.until { source.reads.count == 2 }
+        #expect(source.reads == [false, true], "after a Sign In, focus checks the sign-ins again")
+    }
+
     @Test func oneClickRunsOneGesture() async throws {
         let (model, provider) = make()
         _ = try await provider.call("cmux.onboarding.skip", params: [:], context: clicked(10))

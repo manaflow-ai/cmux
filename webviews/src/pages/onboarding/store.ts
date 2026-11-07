@@ -4,13 +4,17 @@
 import type { PageClient } from "../shared/pageClient";
 import { OPS, type OnboardingOps, type OnboardingState } from "./ops";
 
-type GestureOp = Exclude<keyof OnboardingOps, "cmux.onboarding.state">;
+type GestureOp = Exclude<keyof OnboardingOps, "cmux.onboarding.state" | "cmux.onboarding.focused">;
 
 export class OnboardingStore {
   private state: OnboardingState | null;
   private readonly listeners = new Set<() => void>();
   private unsubscribe: (() => void) | null = null;
   private stopped = false;
+  /** Tells the host the page gained focus (back from a Sign In). */
+  private readonly onFocus = (): void => {
+    void this.client?.call(OPS.focused, {}).catch(() => {});
+  };
 
   constructor(
     private readonly client: PageClient | null,
@@ -41,6 +45,7 @@ export class OnboardingStore {
       return;
     }
     this.unsubscribe = unsubscribe;
+    if (typeof window !== "undefined") window.addEventListener("focus", this.onFocus);
     try {
       const first = await client.call<OnboardingState>(OPS.state, {});
       if (!changed) this.set(first);
@@ -51,6 +56,7 @@ export class OnboardingStore {
 
   stop(): void {
     this.stopped = true;
+    if (typeof window !== "undefined") window.removeEventListener("focus", this.onFocus);
     this.unsubscribe?.();
     this.unsubscribe = null;
   }

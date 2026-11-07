@@ -29,6 +29,8 @@ export class MockOnboardingProvider implements PageClient {
     switch (op) {
       case OPS.state:
         return state as R;
+      case OPS.focused:
+        return {} as R;
       case OPS.next:
         if (state.step === "importData" && state.importer?.phase === "idle") this.change(importState("ready"));
         else if (state.step === "importData" && state.importer?.phase === "ready") this.change(importState("finished"));

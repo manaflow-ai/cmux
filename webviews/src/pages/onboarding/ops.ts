@@ -208,6 +208,9 @@ export interface OnboardingState {
  * `cmux.onboarding.changed`. */
 export interface OnboardingOps {
   "cmux.onboarding.state": [Record<string, never>, OnboardingState];
+  /** The page gained focus: back from a Sign In, the host checks the sign-ins again. A read, so it
+   * needs no click or key (the page engine keys its own child window, not the onboarding window). */
+  "cmux.onboarding.focused": [Record<string, never>, unknown];
   /** The footer's filled button, or Return. */
   "cmux.onboarding.next": [Record<string, never>, unknown];
   /** Skip / Skip Importing / Not Now, or Escape. */
@@ -235,6 +238,7 @@ export interface OnboardingEvents {
 
 export const OPS = {
   state: "cmux.onboarding.state",
+  focused: "cmux.onboarding.focused",
   next: "cmux.onboarding.next",
   skip: "cmux.onboarding.skip",
   back: "cmux.onboarding.back",
