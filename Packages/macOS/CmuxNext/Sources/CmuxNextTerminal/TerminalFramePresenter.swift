@@ -170,7 +170,7 @@ final class TerminalFramePresenter {
             for (_, done) in commits { done.view?.hostFrameCommitted() }
             commits.removeAll(keepingCapacity: true)
         }
-        // A grid-report window ends at the first refresh at or after its 25 ms (its timer is the backstop).
+        // A grid-report window ends at this refresh: its newest grid goes (its timer is the backstop).
         for (id, reports) in gridReports where reports.coalescer?.frameTicked() != true {
             gridReports[id] = nil
         }

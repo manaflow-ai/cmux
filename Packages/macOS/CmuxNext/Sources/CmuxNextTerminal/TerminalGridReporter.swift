@@ -3,16 +3,16 @@ import GhosttyNextKit
 
 /// A terminal view's grid reports to its PTY owner (the cmux-tui daemon resizes the PTY and sends SIGWINCH for each).
 /// Every report goes through one ``TerminalGridReportCoalescer``, so its last sent grid is the PTY's: a person's divider
-/// drag sends its grids while it moves, coalesced as Ghostty.app does (cmux-ad m29: the newest grid at most once per
-/// 25 ms, so a full-screen program, which the reflow preview does not re-wrap, follows its pane); every other report
+/// drag sends its grids while it moves, coalesced to the display refresh (cmux-ad m29, RESIZE P0 6: the newest grid at
+/// most once per refresh, so a full-screen program, which the reflow preview does not re-wrap, follows its pane); every other report
 /// (at rest, forced, a spring's final grid) goes now. A drag's grid is the grid of a size shown on screen: a size asked of
 /// Ghostty and not shown yet waits for the commit that shows it with its frame (``shown(_:live:)``), so the program never
 /// redraws at a size the person does not see (the RESIZE OWNER's rule, cmux-ad m29).
 @MainActor
 final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
-    /// Its window also ends at the first refresh of the view's window at or after 25 ms (T-KEYS B3: that window's presenter
-    /// ticks it); its timer stays the backstop.
+    /// Its window ends at the next refresh of the view's window (T-KEYS B3: that window's presenter ticks it; RESIZE P0 6:
+    /// not at 25 ms); its timer stays the backstop.
     private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock, ticks: { [weak self] in
         self?.view?.window.map(TerminalFramePresenter.forWindow)
     }) { [weak self] in self?.deliver($0) }
@@ -45,7 +45,7 @@ final class TerminalGridReporter {
         sendsAwaitedNow = false
     }
 
-    /// The pointer let go (a drag's mouse-up, in its turn): the newest grid goes to the program now, not when the 25 ms
+    /// The pointer let go (a drag's mouse-up, in its turn): the newest grid goes to the program now, not when the
     /// window or the release's landing ends (the RESIZE OWNER's film of px-col-drag-2, STATUS 15707: the program was
     /// whole only 4 refreshes after its pane rested). The newest shown grid is the one that waits in the window; if a newer
     /// size is in flight, the waiting grid is older and is dropped, and that size's grid goes when its frame shows.

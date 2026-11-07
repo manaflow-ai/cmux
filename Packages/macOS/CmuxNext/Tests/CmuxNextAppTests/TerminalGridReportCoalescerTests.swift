@@ -4,9 +4,10 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// T-KEYS (frame-owner-s4): a key resize or a divider drag changes a terminal's fit grid on almost every display
-/// frame, and each report resized the PTY and sent SIGWINCH. ``TerminalGridReportCoalescer`` applies Ghostty.app's
-/// rule (`src/termio/Thread.zig`, `min_ms = 25`): one resize per 25 ms window, always the newest grid. Every test
-/// runs on a manual clock: the window is a `DemandTimer` deadline, so nothing here waits on the wall clock.
+/// frame, and each report resized the PTY and sent SIGWINCH. ``TerminalGridReportCoalescer`` sends one resize per display
+/// refresh, always the newest grid (RESIZE P0 6, Chromium's begin-frame rule); a window no refresh reaches ends at its
+/// 25 ms timer (Ghostty.app's `min_ms`). Every test runs on a manual clock: the backstop is a `DemandTimer` deadline, so
+/// nothing here waits on the wall clock.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct TerminalGridReportCoalescerTests {
     /// One 120 Hz display frame, rounded down to the nanosecond.

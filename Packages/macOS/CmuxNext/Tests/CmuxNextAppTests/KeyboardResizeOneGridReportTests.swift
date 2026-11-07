@@ -84,7 +84,7 @@ struct KeyboardResizeOneGridReportTests {
                                  since pressed: ContinuousClock.Instant) -> [String] {
         var issues: [String] = []
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
-        if sent.count > windows { issues.append("\(sent.count) grids, more than one per 25 ms window (\(windows))") }
+        if sent.count > windows { issues.append("\(sent.count) grids, more than one per refresh (\(windows))") }
         if let start, sent.contains(start) { issues.append("the start grid \(start) again") }
         if sent.last != final { issues.append("not ending at the final grid \(final)") }
         let afterFinal = sent.drop(while: { $0 != final }).dropFirst()

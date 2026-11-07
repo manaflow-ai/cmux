@@ -10,12 +10,13 @@ import Foundation
 import Testing
 
 /// cmux-ad m18/m29: during a person's divider or column-edge drag, the program in each terminal gets its new size while
-/// the drag moves, coalesced as Ghostty.app does (`TerminalGridReportCoalescer`: the first new grid opens a 25 ms window,
-/// later grids replace it, the newest goes when it closes), and the release's grid goes when the release lands. Before
+/// the drag moves, coalesced to the display refresh (`TerminalGridReportCoalescer`: the first new grid opens a window,
+/// later grids replace it, the newest goes at the next refresh, or after 25 ms when no refresh comes; RESIZE P0 6), and
+/// the release's grid goes when the release lands. Before
 /// (feat at 058a07e4ae1): one grid per drag, at the landing. A full-screen program (the alternate screen, which the
 /// reflow preview does not re-wrap) stayed at its start size for the whole drag, the terminal background beside it, then
 /// jumped at the mouse-up (the RESIZE OWNER's film of px-col-drag-2-sw-terminals at 96ad37a03a3, STATUS 14461). Still
-/// never one grid per frame: the program redraws at most once per window.
+/// never more than one grid per frame: the program redraws at most once per window.
 /// Real terminal sessions and the app's ResizeCoordinator (`SplitTerminalResizeCountTests`); the test steps the frames
 /// and the coalescer's clock: each terminal's grid reporter runs on a `ManualClock`, advanced 12 ms per drag frame, so the
 /// 25 ms windows close as in a drag with no real sleep (review of #36631: a loaded runner stretched the real sleeps).
@@ -69,7 +70,7 @@ struct DividerDragTerminalResizeCountTests {
             let terminal = try #require(screen.terminals[pane])
             let during = midDrag[pane] ?? []
             #expect(during.count >= 2, "\(pane): its PTY got \(during.count) grids while the drag moved: it waits for the landing (\(during))")
-            #expect(during.count <= moves / 2, "\(pane): \(during.count) PTY grids in \(moves) drag frames: one per frame, not coalesced")
+            #expect(during.count <= moves, "\(pane): \(during.count) PTY grids in \(moves) drag frames: more than one per frame")
             #expect(zip(during, during.dropFirst()).allSatisfy { $0 != $1 }, "\(pane): the same grid twice in a row: \(during)")
             let applied = terminal.pty.applied
             if let grid = terminal.session.surfaceView.fittedGrid, let last = applied.last {
