@@ -31501,6 +31501,11 @@
           "kind" : "string",
           "name" : "repo",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "environment",
+          "required" : false
         }
       ],
       "cli" : "offered",
