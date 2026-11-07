@@ -68,8 +68,9 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     expect(playFailures(result.report)).toEqual([]);
   });
 
-  test("a capture too large to attach says so", async () => {
-    const result = await play("attach-screenshot-too-large");
+  // Leo, 2026-11-07: "do we EVER block them? we dont need to right? since they're local chats anyways?"
+  test("a capture over the image cap attaches with its original saved, never refused", async () => {
+    const result = await play("attach-screenshot-oversized");
     expect(playFailures(result.report)).toEqual([]);
   });
 
