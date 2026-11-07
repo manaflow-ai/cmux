@@ -15,7 +15,7 @@ import Testing
                                && SameTreeDaemonBinary.url != nil,
                            "name it in CMUX_SWIFT_TEST_SUITES on a fleet run"))
 struct ClassicUpgradeHugeProfileTests {
-    static let window = 20
+    static let window = 8
 
     /// The simulation the phases share.
     private static var sim: ClassicUpgradeSimulator?
@@ -43,7 +43,7 @@ struct ClassicUpgradeHugeProfileTests {
             let sim = try #require(Self.sim)
             let clock = ContinuousClock()
             let until = clock.now + .seconds(150)
-            while clock.now < until, sim.made().count < 250 { try? await Task.sleep(for: .seconds(1)) }
+            while clock.now < until, sim.made().count < 400 { try? await Task.sleep(for: .seconds(1)) }
             print("CLASSIC-PROFILE waited made=\(sim.made().count)")
         default:
             let sim = try #require(Self.sim)
