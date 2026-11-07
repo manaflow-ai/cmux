@@ -10370,6 +10370,9 @@ export class AcpmuxDirectClient {
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
   /// agent refused, a take-over that failed): a toast, never a transcript line.
   transient(text: string): void {
+    // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
+    // about a pane that is gone: neither the new pane's toasts nor a line.
+    if (this.closed) return;
     if (this.toastSink) this.toastSink(text);
     else this.notice(text);
   }
@@ -11244,6 +11247,7 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
+    this.toastSink = undefined;
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
