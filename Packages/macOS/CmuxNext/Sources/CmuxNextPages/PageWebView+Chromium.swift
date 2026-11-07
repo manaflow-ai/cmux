@@ -46,7 +46,7 @@ extension PageWebView {
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
-        PageChromiumDocumentScripts.pageDropHandler,
+        PageChromiumDocumentScripts.pageDropHandler, PageTitleRowPress.handlerName,
     ]
 
     /// How long after a drag of files entered the page its drop may still open one in the host.
@@ -318,6 +318,8 @@ extension PageWebView {
         switch name {
         case PagePaintProbe.handlerName:
             notePainted()
+        case PageTitleRowPress.handlerName:
+            if let report = PageTitleRowPress.Report(body) { titleRowPressed(report) }
         case PageInputReadiness.handlerName:
             inputReadiness.receive(body)
         case ConsoleErrorCapture.handlerName:
