@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42353414399",
+  "recorded_at": "2026-11-07T08:06:29Z",
+  "reason": "cmux-tui 6b1608c2a6d9 changes the image's cmux-tui (pinned c0713f56f6e9)",
+  "dry_run": false,
+  "cmux_tui": "6b1608c2a6d978fa0b268ec16ece2c39a099ee56",
+  "fixes": [
+    {
+      "sha": "f965956905ade6ade0aa99bbb1a509762675a00f",
+      "mergedAt": "2026-11-06T23:42:01-08:00",
+      "subject": "cloud identity: a token's claims need three non-empty segments, as the old Swift parser required (#37570)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T08:06:29Z",
+    "snapshot_id": "sh-dc5b4d07035f4662972cf6c3d30049a3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42353414399): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a0e3332a5d74032b78fd97dab159b9bdb1ed8be9",
+    "image": "cloud-native-auto-6b1608c2-42353414399-1",
+    "revision": "ci-42353414399-1",
+    "at": "2026-11-07T08:06:29Z"
+  },
+  "rolled_back": false
+}
