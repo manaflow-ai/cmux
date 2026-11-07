@@ -424,8 +424,14 @@ fn a_daemon_socket_reads_the_setting_from_its_owning_app() {
     assert!(setting_stream(wrong_kind, || Ok(owner)).is_some());
     // Another failure (no app, an unreachable socket) reads nothing; the owner is not asked.
     let unreachable = || Err(json!({ "code": "socket.unreachable", "message": "gone" }));
-    assert!(setting_stream(unreachable, || -> Result<_, String> { panic!("asked the owner") }).is_none());
+    assert!(
+        setting_stream(unreachable, || -> Result<_, String> { panic!("asked the owner") })
+            .is_none()
+    );
     // A socket that is the app's is read as named.
     let (named, _app) = std::os::unix::net::UnixStream::pair().unwrap();
-    assert!(setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") }).is_some());
+    assert!(
+        setting_stream(|| Ok(named), || -> Result<_, String> { panic!("asked the owner") })
+            .is_some()
+    );
 }
