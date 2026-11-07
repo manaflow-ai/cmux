@@ -188,6 +188,17 @@ extension CloudWait {
     /// How long a start or a copy waits for a machine's new link after an update restarted its daemon.
     public nonisolated static var relinkWait: Duration { .milliseconds(CloudMoveCore.deadlines.relinkMs) }
 
+    /// `attempt`, tried once more when it failed while the link dropped under it (`epoch`, the daemon store's connection
+    /// epoch, moved during the try, or the link no longer `held`), once `relink` connects again. A new machine's daemon can
+    /// restart under start-session's wait for its first tree (an image whose updater flips right after boot): `cmux chat
+    /// --on vm:new` answered "didn't connect" 13 s after the machine came up (prod, 2026-11-07). A failure with the link
+    /// still up, a cancellation, a relink that fails or a second failure throws as it is.
+    public static func relinkedOnce<T>(epoch: () -> Int, held: () -> Bool, relink: () async -> Bool,
+                                       _ attempt: () async throws -> T) async throws -> T {
+        let before = epoch()
+        return try await retriedOnce(attempt, closed: { _ in epoch() != before || !held() }, relink: relink)
+    }
+
     public static func retriedOnce<T>(_ start: () async throws -> T, closed: (any Error) -> Bool,
                                       relink: () async -> Bool) async throws -> T {
         do {
@@ -290,12 +301,20 @@ public struct CloudMachineWorkspace {
     /// tree that never comes within `limit` throws `notConnected`: never "none", which would make one.
     public static func existing(in store: DaemonStore, within limit: Duration = .milliseconds(CloudMoveCore.deadlines.workspaceTreeMs), notConnected: @autoclosure () -> any Error,
                                 listedElsewhere: (String) -> Bool = { _ in false }) async throws -> String? {
+        guard await live(store, within: limit) else { throw notConnected() }
+        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+    }
+
+    /// Whether `store` is connected with this connection's tree applied, waiting up to `limit` for it: what
+    /// ``existing(in:within:notConnected:listedElsewhere:)`` reads before it trusts the list. A connection that is
+    /// down and dialing again by itself is not live, though the daemon still holds it.
+    public static func live(_ store: DaemonStore, within limit: Duration) async -> Bool {
         let current = { @MainActor @Sendable in
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !(await current()), await !CloudWait.holds(within: limit, until: current) { throw notConnected() }
-        return store.workspaces.lazy.map(\.id).first { !listedElsewhere($0) }
+        if current() { return true }
+        return await CloudWait.holds(within: limit, until: current)
     }
 
     /// ``existing(in:within:notConnected:listedElsewhere:)``, else a workspace `create` makes (nil:
