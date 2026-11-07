@@ -18,8 +18,10 @@
   );
   /* The card's glass on an opaque window: the popover level's share of the surface. */
   --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-glass-popover-tint, 70%), transparent);
-  /* The edge (--acpmux-composer-edge): the text at 18%, one device pixel, all four sides. */
-  --composer-material-edge: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
+  /* The edge (--acpmux-composer-edge): the text at 18% over the page under it, one device pixel,
+     all four sides. Mixed toward the page (opaque on an opaque window, clear on a see-through one),
+     never toward transparent, so on an opaque theme it is the composer's line, not a fainter one. */
+  --composer-material-edge: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, var(--agent-page-bg, var(--cmux-surface-background, transparent)));
   --composer-material-ring: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--composer-material-edge);
   /* The top-lit rim inside the edge (--acpmux-composer-rim). */
   --composer-material-rim:
