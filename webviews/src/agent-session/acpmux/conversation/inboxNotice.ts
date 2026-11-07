@@ -11,14 +11,20 @@ import type { AcpmuxRow } from "../model";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
 import { bareSender, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
 
+/// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
+/// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave
+/// (its label, never cut). A chip opens the sender by these, never by `from`, the line's display
+/// text (Leo, 2026-11-07: clicking a sender "just fundamentally doesn't load"). The record's
+/// verification and harness read as `unverified` and `harness` beside it.
+export type SenderRef = { session?: string; label?: string };
+
 /// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it. `from` is the bare
 /// name (senderIdentity.ts); `unverified` when acpmux could not verify who sent it, `harness` the
 /// sender's family from its record.
 export type InboxMessage = {
-  /// acpmux's sender record, kept whole (its label and session too) while the name reads bare.
-  sender?: SenderRecord;
   promptId?: string;
   from: string;
+  sender?: SenderRef;
   at?: number;
   text: string;
   unverified?: true;
@@ -27,8 +33,6 @@ export type InboxMessage = {
 
 /// One thread of a notice.
 export type InboxThread = {
-  /// The newest message's sender record, kept whole (its label and session too).
-  sender?: SenderRecord;
   /// acpmux's thread id: `pr:N`, `topic:T`, `from:SENDER/pr:N` or `from:SENDER`.
   threadId: string;
   /// How it reads: `#N`, the topic, or empty for a sender's own thread.
@@ -37,6 +41,8 @@ export type InboxThread = {
   from: string[];
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
+  /// The newest message's sender, as acpmux recorded it (its label and session).
+  sender?: SenderRef;
   /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
   /// (prompt_provenance.rs `fromHarness`; cmux#30247) or its sender record names it: its line draws
   /// that harness's mark.
@@ -63,6 +69,16 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
+/// The session and label of acpmux's sender record (senderIdentity.ts `senderRecord`).
+const senderRef = (record: SenderRecord | undefined): SenderRef | undefined =>
+  record?.session || record?.label
+    ? { ...(record.session && { session: record.session }), ...(record.label && { label: record.label }) }
+    : undefined;
+
+/// The key a sender's chat is asked for by: its session id, else the name it gave, else `from`.
+export const senderKey = (from: string, sender: SenderRef | undefined): string =>
+  sender?.session ?? sender?.label ?? from.trim();
+
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
 
@@ -110,6 +126,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     const newest = messages?.at(-1)?.text;
     const senders = strings(p.from).map(bareSender);
     const record = senderRecord(p.sender);
+    const sender = senderRef(record);
     const harness = text(p.fromHarness) || record?.harness || messages?.at(-1)?.harness;
     const unverified =
       senderUnverified(record, senders.at(-1)?.declared ?? false) || messages?.at(-1)?.unverified === true;
@@ -118,9 +135,9 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       label: shownLabel(text(p.label), threadId),
       from: [...new Set(senders.map((sender) => sender.name).filter(Boolean))],
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
+      ...(sender && { sender }),
       ...(harness && { fromHarness: harness }),
       ...(unverified && { unverified: true as const }),
-      ...(record && { sender: record }),
       count,
       preview:
         withoutRelayHead(text(p.preview).trim()) ||
@@ -140,15 +157,16 @@ export function inboxMessages(records: unknown[]): InboxMessage[] {
   return records.flatMap((m): InboxMessage[] => {
     const r = m as Record<string, unknown> | null;
     if (!r || typeof r.text !== "string") return [];
-    const sender = bareSender(text(r.from));
+    const name = bareSender(text(r.from));
     const record = senderRecord(r.sender);
+    const sender = senderRef(record);
     return [
       {
-        from: sender.name,
+        from: name.name,
+        ...(sender && { sender }),
         text: withoutRelayEnvelope(r.text),
-        ...(senderUnverified(record, sender.declared) && { unverified: true as const }),
+        ...(senderUnverified(record, name.declared) && { unverified: true as const }),
         ...(record?.harness && { harness: record.harness }),
-        ...(record && { sender: record }),
         ...(typeof r.promptId === "string" && { promptId: r.promptId }),
         ...(typeof r.at === "number" && { at: r.at }),
       },

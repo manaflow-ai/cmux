@@ -391,7 +391,7 @@ test("a sender named only by its record's session still opens its chat", async (
         preview: "hello",
         blocker: false,
         promptIds: ["a1"],
-        sender: { verification: "verified", session: "sess-a" },
+        sender: { session: "sess-a" },
       },
     ],
   };

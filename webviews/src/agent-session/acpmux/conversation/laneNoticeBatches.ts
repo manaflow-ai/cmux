@@ -1,5 +1,5 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { inboxText, type InboxNotice } from "./inboxNotice";
+import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
   type LaneNotice,
@@ -17,6 +17,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
   const threads: LaneNoticeThread[] = notice.threads.map((thread) => {
     const messages = thread.messages?.map((message) => ({
       sender: message.from,
+      ...(message.sender && { lookup: senderKey(message.from, message.sender) }),
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
       ...(message.unverified ? { unverified: message.unverified } : {}),
@@ -24,10 +25,12 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
       ...(message.sender?.session ? { session: message.sender.session } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
+    const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
     const preview = messages?.at(-1)?.text ?? thread.preview;
     return {
       id: thread.threadId,
       sender,
+      ...(lookup && { lookup }),
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
@@ -127,6 +130,7 @@ const inboxDeliveries = (thread: LaneNoticeThread): readonly LaneNoticeDelivery[
     : [
         {
           sender: thread.sender,
+          ...(thread.lookup && { lookup: thread.lookup }),
           text: thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
           ...(thread.unverified ? { unverified: thread.unverified } : {}),
@@ -168,6 +172,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           kind: "message",
           message: {
             name: delivery.sender,
+            ...(delivery.lookup && { lookup: delivery.lookup }),
             text: delivery.text,
             raw: delivery.text,
             threadId: thread.id,

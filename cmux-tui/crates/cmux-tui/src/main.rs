@@ -22,6 +22,8 @@ mod app_identity;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
+#[cfg(unix)]
+mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -41,6 +43,8 @@ mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_secrets;
 mod page_listener;
 mod private_mode;
 #[cfg(unix)]

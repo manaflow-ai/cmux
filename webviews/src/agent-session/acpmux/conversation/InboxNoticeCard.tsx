@@ -24,7 +24,14 @@ import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
 import { groupSender, MessageGroupHead } from "./MessageGroupHead";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
-import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
+import {
+  inboxCounts,
+  inboxThreadKey,
+  senderKey,
+  type InboxMessage,
+  type InboxNotice,
+  type InboxThread,
+} from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
 import { inboxHover } from "./MessageGroupHover";
@@ -38,6 +45,13 @@ export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
 /// The sender a thread's line names: the newest message's.
 function newestSender(thread: InboxThread): string {
   return thread.messages?.at(-1)?.from || thread.from.at(-1) || "";
+}
+
+/// The key the newest sender's chat is asked for by (`senderKey`), when acpmux recorded who sent it.
+function newestLookup(thread: InboxThread): string | undefined {
+  const newest = thread.messages?.at(-1);
+  const sender = newest ? newest.sender : thread.sender;
+  return sender && senderKey(newestSender(thread), sender);
 }
 
 /// One thread's received line, and its messages under it once opened.
@@ -108,6 +122,7 @@ function InboxThreadLine({
     };
   }, [wanted, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
+  const lookup = newestLookup(thread);
   const newest = messages?.at(-1);
   // Its session: the thread's, else its sender record's (an acpmux that names the sender's session
   // only there), so the name resolves and opens its chat.
@@ -115,13 +130,14 @@ function InboxThreadLine({
   const sender = useMemo<IncomingMessage>(
     () => ({
       name,
+      ...(lookup && { lookup }),
       text: "",
       raw: "",
       ...(senderSession && { sessionId: senderSession }),
       ...((thread.fromHarness ?? newest?.harness) && { harness: thread.fromHarness ?? newest?.harness }),
       ...((thread.unverified || newest?.unverified) && { unverified: true as const }),
     }),
-    [name, senderSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
+    [name, lookup, senderSession, thread.fromHarness, thread.unverified, newest?.harness, newest?.unverified],
   );
   const whole = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(whole);
@@ -262,6 +278,7 @@ export function InboxNoticeCard({
       ? groupSender(
           notice.threads.map((thread) => ({
             name: newestSender(thread) || senders[0]!,
+            ...(newestLookup(thread) && { lookup: newestLookup(thread) }),
             text: "",
             raw: "",
             ...((thread.fromSession ?? thread.sender?.session) && {

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The Chat Colors… panel (a chat row's menu, the palette, `home.chatColors`): one small floating
 /// panel for the app, showing one chat at a time; opening it for another chat switches it there.

@@ -22,6 +22,7 @@ import { cx } from "./cx";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { HOVER_INTENT } from "./hoverIntent";
 import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
+import { usePopupPadding } from "./popupInset";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -58,6 +59,9 @@ export interface TooltipProps {
 export function Tooltip({ label, detail, children, side = "top", shortcut, className, anchor }: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
+  // Below what covers the page's top (the tab row, an open find bar: ui/popupInset.ts), flipping or
+  // shifting there instead of drawing over it.
+  const padding = usePopupPadding();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
@@ -79,6 +83,7 @@ export function Tooltip({ label, detail, children, side = "top", shortcut, class
           className="ui-positioner"
           side={side}
           sideOffset={tooltipGap}
+          collisionPadding={padding}
           {...(anchor && { anchor: () => placed() })}
         >
           <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
@@ -158,6 +163,7 @@ export function AnchoredCard({
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
+  const padding = usePopupPadding();
   // The popup mounts after this component commits (the portal places it first), so the blur keys
   // on the popup node itself, not a ref read in this component's own commit.
   const [popup, setPopupNode] = useState<HTMLDivElement | null>(null);
@@ -183,11 +189,16 @@ export function AnchoredCard({
           side={side}
           align="start"
           sideOffset={tooltipGap}
+          collisionPadding={padding}
         >
           <BaseTooltip.Popup
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
+            // what it covers itself.
+            data-host-glass="popover"
+            data-host-glass-cover={under ? undefined : ""}
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}

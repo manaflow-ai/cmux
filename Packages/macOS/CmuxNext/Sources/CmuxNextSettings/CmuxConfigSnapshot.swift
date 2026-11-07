@@ -212,13 +212,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `sidebar.spacesVisibility` (cx-5k3r); "hover" when unset or invalid.
     public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
-    public var tabBarPosition: TabBarPosition = .top
+    public var tabBarPosition: TabBarPosition = ChromePlacementSetting.tabBarPositionDefault
     /// `appearance.paneBackgrounds`: one background for the window or one per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
-    public var tabBarOrder: TabBarOrder = .aboveToolbar
+    public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
-    public var browserToolbarPosition: ToolbarPosition = .top
+    public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
@@ -232,7 +232,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `tabs.verticalTabs`; off when unset or invalid.
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
-    public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
+    public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverDefault
     /// `tabs.hideLoneChatTab`; off when unset or invalid.
     public var hideLoneChatTab: Bool = LoneChatTabSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
@@ -384,7 +384,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.nowPlaying = NowPlayingSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
+        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? SidebarBorderSetting.borderDefault,
                                                             diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
