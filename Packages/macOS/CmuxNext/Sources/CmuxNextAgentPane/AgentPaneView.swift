@@ -534,6 +534,8 @@ public final class AgentPaneView: NSView {
         super.viewDidHide()
         dictation.handle(.stop)
         popupHostStorage?.dismiss()
+        // Hidden, itself or an ancestor (a workspace switch): toasts stop avoiding its composer.
+        toastAvoidanceMoved()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -550,6 +552,12 @@ public final class AgentPaneView: NSView {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
         onNativeToolOwnerChange?()
+    }
+
+    /// Shown again, itself or a hidden ancestor (a workspace switch): toasts avoid its composer again.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        toastAvoidanceMoved()
     }
 
     public override func viewDidMoveToWindow() {
