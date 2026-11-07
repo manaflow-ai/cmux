@@ -362,6 +362,10 @@ and requires its canonical ID to match exactly; mutable aliases or unavailable
 images produce 503 without falling back to a base image. Prepare images without
 embedded credentials. Snapshot references and service approvals stay private;
 the catalog exposes only `id`, `revision` and `displayName`.
+The list keeps `VM_BOOT_IMAGES` order and says so with `order: "configured"`:
+the first entry is the image in use. A caller that follows the list (the cloud
+platform picks the first entry, or the last on an append-only list) must treat a
+response without `order` as unordered, since older servers sorted it by id.
 
 An image create returns `bootImage: { id, revision, displayName }`. Callers must
 check that receipt because an older API may ignore `image`. With the same retry

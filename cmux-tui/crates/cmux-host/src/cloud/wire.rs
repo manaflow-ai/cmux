@@ -129,6 +129,12 @@ impl Env {
         }
     }
 
+    /// The `iss` of a carrier grant for a machine bound here: the Worker
+    /// signs grants as `cmux:cloud:<ENVIRONMENT>`, never the short tag.
+    pub fn grant_issuer(self) -> String {
+        format!("cmux:cloud:{}", self.auth_environment())
+    }
+
     fn parse(raw: &str) -> Option<Env> {
         match raw {
             "dev" => Some(Env::Dev),
@@ -146,6 +152,8 @@ pub struct BindFile {
     pub bind_token: String,
     pub api_origin: String,
     pub env: Env,
+    /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
+    pub carrier: Option<crate::carrier_entry::CarrierRoute>,
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -181,7 +189,18 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
     if api_origin != env.api_origin() {
         return Err(format!("bind.json: api_origin is not the {} origin", field("env")));
     }
-    Ok(BindFile { team, machine, bind_token, api_origin, env })
+    let carrier = match raw.get("carrier") {
+        None => None,
+        Some(section) => {
+            let route = crate::carrier_entry::parse_section(section)
+                .map_err(|why| format!("bind.json: {why}"))?;
+            if route.machine != machine {
+                return Err("bind.json: `carrier.machine` is not this machine".to_owned());
+            }
+            Some(route)
+        }
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.

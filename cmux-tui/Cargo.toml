@@ -77,6 +77,7 @@ members = [
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
+    "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -160,6 +161,7 @@ default-members = [
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
+    "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -237,6 +239,7 @@ cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
+cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
