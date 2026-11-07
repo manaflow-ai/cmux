@@ -13,7 +13,7 @@ import Testing
 /// `needsLayout`, so the CA commit's `-[NSWindow layoutIfNeeded]` runs a window pass in every spring frame. Chrome's
 /// views place their children by frame and lay out only the boxes whose size changed.
 ///
-/// The rule: with a terminal in each pane, a spring frame's window pass (`NSWindow.layoutIfNeeded`, as the CA commit runs
+/// The rule: in the app's titled window (`ShellWindow`) with a terminal in each pane, a spring frame's window pass (`NSWindow.layoutIfNeeded`, as the CA commit runs
 /// it) lays out no view whose size did not change in that frame: in particular not the window's frame view.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
@@ -38,7 +38,7 @@ struct SpringFrameNoWindowPassTests {
     @Test(arguments: [LayoutDirection.left, .right])
     func aKeyResizeSpringFrameRunsNoWindowPass(direction: LayoutDirection) throws {
         LayoutPassGuard.shared.install()
-        let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
+        let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2", titled: true)
         defer { rig.close() }
         let frameView = try #require(rig.window.contentView?.superview)
         let frameClass = String(describing: type(of: frameView))
