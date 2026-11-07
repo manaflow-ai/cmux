@@ -48,6 +48,10 @@ pub(super) enum Next {
     /// The target's machine answered that it has no such session: failed at once, never tried
     /// again (a name that is no session's stays so; `hub/no_session.rs`).
     NoSession,
+    /// The session the attempt named (`sessionCreatedAt`) is not the one under that id now (it
+    /// was purged and made again): a first delivery reads the session again and tries again; a
+    /// delivery again of a prompt that session took fails (`hub/open_delivery.rs`).
+    Stale,
 }
 
 /// How long one attempt waits for the target's acceptance.
@@ -139,7 +143,7 @@ pub(super) async fn handle(
         never_sent: true,
         relay_post: None,
         open_on_peer: false,
-        peer_generation: None,
+        pin: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -236,7 +240,7 @@ pub(super) async fn remember_forward(
         never_sent: false,
         relay_post: None,
         open_on_peer: false,
-        peer_generation: None,
+        pin: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -574,6 +578,13 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
         let mut link_unsent = true;
+        // The peer's session as it is now, read before the attempt and carried through its
+        // answer: a link replaced meanwhile changes nothing recorded (`open_delivery.rs`).
+        let pin = if request.pointer("/_meta/acpmux/forwardProjection").is_none() {
+            crate::hub::open_delivery::pin(hub, &delivery.target)
+        } else {
+            None
+        };
         let outcome = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
             // A projection reconciles with the receiver's log; it never uses the link to send.
             link_unsent = false;
@@ -591,6 +602,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 Err((why, Next::Retry))
             })
         } else {
+            crate::hub::open_delivery::name_generation(&mut request, pin.as_ref());
             let outcome =
                 attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
             link_unsent = matches!(outcome, Err((_, Next::Unsent)));
@@ -608,22 +620,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         };
         match outcome {
             Ok(accepted) => {
-                // A peer's session may lose it with the machine's disk until its journal is
-                // seen holding it after a later link (`redeliver_open`).
-                // Kept with the generation of the session it reached: a delivery again goes to
-                // that one only.
-                let remote = (hub.resolve(&delivery.target).is_err() && !duplicate(&accepted))
-                    .then(|| hub.resolve_remote(&delivery.target))
-                    .flatten();
-                let open = remote.is_some();
-                let generation =
-                    remote.and_then(|(_, _, row)| row.get("createdAt").and_then(Value::as_u64));
+                // A peer's session may lose it with the machine's disk until the owner's copy of
+                // that session holds it (`hub/open_delivery.rs`): open until then.
+                let open = pin.is_some();
                 hub.outbox.update(id, |d| {
-                    d.state = State::Delivered;
-                    d.open_on_peer = open;
-                    d.peer_generation = generation;
-                    d.error = None;
-                    d.accepted = Some(accepted);
+                    crate::hub::open_delivery::accepted(d, pin, accepted);
                     // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
                     // its peer keeps them until it closes: a delivery again sends them too.
                     if !open {
@@ -650,6 +651,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         let (text, _) = hub.no_session_text(&delivery.target);
                         (format!("{NO_SESSION_PREFIX}{text}"), Next::NoSession)
                     }
+                    // Purged and made again since the attempt read it. A first attempt reached
+                    // nothing: read again, and tried. A later one may have been taken by the
+                    // session that is gone: it never runs in the new one; failed, saying why.
+                    Next::Stale if attempt == 1 => (error, Next::Retry),
+                    Next::Stale => (error, Next::Fail),
                     next => (error, next),
                 };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
@@ -701,77 +707,77 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
     }
 }
 
-/// Whether an acceptance is the answer to a prompt id the target took before: its journal or
-/// its ledger holds it.
-fn duplicate(accepted: &Value) -> bool {
-    accepted.get("duplicate") == Some(&Value::Bool(true))
-        || accepted.pointer("/_meta/acpmux/duplicate") == Some(&Value::Bool(true))
-}
-
-/// Peer `peer`'s link is ready again, and its journals took back what this daemon
-/// kept of them (`hub/peer_snapshot/restore.rs`): every delivery it accepted and was not seen to
-/// keep (`Delivery::open_on_peer`) goes again, in the order it was sent, as a resend of its own
-/// prompt id. A machine that kept it (its journal, or the records given back) answers with its
-/// first outcome, which closes it; one that lost it with its disk (a session moved to a fresh
-/// machine, a VM back on an older snapshot) runs it now, once. A delivery past its day closes
-/// unsent. One task per call; each resend waits at most [`ATTEMPT_WAIT`].
+/// Peer `peer`'s link is ready again, and its journals took back what this daemon kept of them
+/// (`hub/peer_snapshot/restore.rs`): every delivery to it that is still open (`hub/open_delivery.rs`)
+/// is, in the order it was sent, closed when the owner's copy of its pinned session holds its
+/// record, else sent again as a resend of its own prompt id to its pinned generation. A machine
+/// that kept it answers with its first outcome (it stays open until the copy shows it); one that
+/// lost it with its disk runs it now, once; a stale or refused one fails it, saying why. Open past
+/// its bound, it fails, saying so. At most [`REDELIVER_PER_LINK`] go on one link, oldest first;
+/// one task per call; each resend waits at most [`ATTEMPT_WAIT`].
 pub(crate) fn redeliver_open(hub: &Arc<Hub>, peer: &str) {
     let now = crate::store::now_ms();
-    let open: Vec<Delivery> = hub
+    let mut open: Vec<Delivery> = hub
         .outbox
         .open_on_peers()
         .into_iter()
-        .filter(|d| hub.resolve_remote(&d.target).is_some_and(|(p, _, _)| p.name == peer))
+        .filter(|d| d.pin.as_ref().is_some_and(|p| p.peer == peer))
         .collect();
+    open.truncate(REDELIVER_PER_LINK);
     if open.is_empty() {
         return;
     }
     let hub = hub.clone();
     tokio::spawn(async move {
+        use crate::hub::open_delivery::{self as od, Again};
         for d in open {
-            // Open past its bound: failed, saying so (`hub/outbox.rs` `OPEN_ON_PEER_FOR_MS`).
+            let Some(pin) = d.pin.clone() else { continue };
             if d.open_lapsed(now) {
                 let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
                 close_open(&hub, &d, |d| d.fail_open(lapsed)).await;
                 continue;
             }
+            // The copy is the only proof that nothing loses it.
+            let held = {
+                let (h, pin, prompt) = (hub.clone(), pin.clone(), d.prompt_id().to_owned());
+                tokio::task::spawn_blocking(move || h.peer_snapshots.holds(&pin, &prompt))
+                    .await
+                    .ok()
+                    .flatten()
+            };
+            if held == Some(true) {
+                close_open(&hub, &d, |d| {
+                    od::close_if_held(d, true);
+                })
+                .await;
+                continue;
+            }
             let mut request = d.request.clone();
             if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                 mux.insert("resend".into(), json!(true));
-                // Only to the generation it reached: one purged and made again under the same
-                // id refuses it as stale (`server/requests.rs`).
-                if let Some(generation) = d.peer_generation {
-                    mux.insert("sessionCreatedAt".into(), json!(generation));
-                }
             }
-            match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await {
-                Ok(accepted) if duplicate(&accepted) => {
-                    close_open(&hub, &d, |d| d.open_on_peer = false).await;
-                }
-                // Taken again: settled, as a first delivery is, and not delivered a third time.
-                Ok(accepted) => {
-                    tracing::info!(delivery = %d.id, "a peer that had lost a delivery took it again");
-                    close_open(&hub, &d, |d| {
-                        d.open_on_peer = false;
-                        d.accepted = Some(accepted);
-                    })
-                    .await;
-                }
-                // Held there for a paused pair: the peer has it.
-                Err((_, Next::Held)) => {
-                    close_open(&hub, &d, |d| d.open_on_peer = false).await;
-                }
-                // Refused for good (the session is gone there, or is another generation of it):
-                // it did not run, and its sender sees why, never a quiet close.
-                Err((error, Next::Fail | Next::NoSession)) => {
-                    tracing::warn!(delivery = %d.id, "a delivery again was refused: {error}");
-                    close_open(&hub, &d, |d| d.fail_open(error)).await;
-                }
-                Err(_) => {}
+            od::name_generation(&mut request, Some(&pin));
+            let again = match attempt_once(&hub, d.caller.as_deref(), request, Origin::Local).await
+            {
+                Ok(answer) => Again::Taken(answer),
+                Err((error, Next::Fail | Next::NoSession | Next::Stale)) => Again::Refused(error),
+                Err(_) => Again::Unknown,
+            };
+            if let Again::Refused(error) = &again {
+                tracing::warn!(delivery = %d.id, "a delivery again was refused: {error}");
+            }
+            let mut settled = false;
+            hub.outbox.update(&d.id, |d| settled = od::after_again(d, again));
+            if settled {
+                close_open(&hub, &d, |_| {}).await;
             }
         }
     });
 }
+
+/// The most open deliveries one link of a peer sends again (`redeliver_open`): the rest go on
+/// the next link, so a link's cost is bounded however many are open.
+const REDELIVER_PER_LINK: usize = 256;
 
 /// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
 /// the ones kept beside the outbox go.
@@ -963,6 +969,9 @@ fn next(e: &RpcError) -> Next {
     if reason == "peer_unreachable" {
         return Next::Unsent;
     }
+    if reason == "stale_generation" {
+        return Next::Stale;
+    }
     // No such session on the target's machine: a not-found answer (this daemon's for a peer
     // that lists none, or the peer's own), which every later attempt would give again.
     if reason == "no_session"
@@ -1017,7 +1026,7 @@ mod retry_delay_tests {
             never_sent: true,
             relay_post: None,
             open_on_peer: false,
-            peer_generation: None,
+            pin: None,
             error: None,
             accepted: None,
             created_at,

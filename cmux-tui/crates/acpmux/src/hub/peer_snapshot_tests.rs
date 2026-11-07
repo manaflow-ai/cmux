@@ -17,7 +17,7 @@ fn key(mux: &str) -> Key {
 }
 
 fn store_at(dir: &Path) -> Store {
-    let mut store = Store::new(disk::root(dir), Arc::default());
+    let mut store = Store::new(disk::root(dir), Arc::default(), Arc::default());
     store.scan();
     store
 }

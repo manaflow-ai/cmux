@@ -264,6 +264,7 @@ pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
@@ -1087,6 +1088,16 @@ impl Hub {
             hub.refresh_web_modes(&c);
         }
         hub.recover_staged_replacements();
+        // A copy's write tells the prompts it now holds: their open deliveries close.
+        {
+            let weak = Arc::downgrade(&hub);
+            let written: peer_snapshot::Written = Arc::new(move |key, generation, prompts| {
+                if let Some(hub) = weak.upgrade() {
+                    hub.close_captured(&key.0, &key.1, generation, &prompts);
+                }
+            });
+            *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
+        }
         if loading {
             hub.logs_ready.send_replace(false);
             hub.adoption_ready.send_replace(false);

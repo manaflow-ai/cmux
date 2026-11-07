@@ -165,6 +165,30 @@ impl PeerSnapshots {
         blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
     }
 
+    /// Whether the copy of `pin`'s session and generation holds prompt `prompt_id`'s journal
+    /// record on disk; None when it could not be read (then the delivery stays open).
+    pub(crate) fn holds(&self, pin: &crate::hub::outbox::Pin, prompt_id: &str) -> Option<bool> {
+        if self.dir.is_none() {
+            return Some(false);
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        let key = (pin.peer.clone(), pin.session.clone());
+        let op = Op::Holds {
+            key,
+            generation: pin.generation,
+            prompt_id: prompt_id.to_owned(),
+            reply: tx,
+        };
+        let sent = {
+            let mut dropped = self.dropped();
+            self.send_unsent(&mut dropped) && self.reserve(OP_BYTES) && self.enqueue(OP_BYTES, op)
+        };
+        if !sent {
+            return None;
+        }
+        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
+    }
+
     fn restored(&self, (peer, mux): (&str, &str), at: (Link, u64), last: Option<u64>) {
         let key = (peer.to_owned(), mux.to_owned());
         let (link, generation) = at;
@@ -189,6 +213,22 @@ impl Store {
     pub(super) fn keeps_ahead(c: &Kept, page: &Page) -> bool {
         let seen = page.host_last_seq.or(page.through);
         seen.is_some_and(|s| c.head.first_seq <= s + 1 && s < c.head.last_seq)
+    }
+
+    /// Whether the copy of `key`, of generation `generation` and with nothing left to write,
+    /// holds the journal record of prompt `prompt_id`.
+    pub(super) fn holds(&mut self, key: &Key, generation: u64, prompt_id: &str) -> bool {
+        let written = self.copies.get(key).is_some_and(|c| {
+            c.head.generation == Some(generation) && c.due.is_none() && c.disk > 0
+        });
+        if !written || !self.load(key) {
+            return false;
+        }
+        let names = |r: &Value| crate::hub::open_delivery::names_prompt(r, prompt_id);
+        self.copies
+            .get(key)
+            .and_then(|c| c.records.as_ref())
+            .is_some_and(|records| records.values().any(names))
     }
 
     pub(super) fn ahead(&mut self, peer: &str, rows: Vec<Row>) -> Vec<Ahead> {

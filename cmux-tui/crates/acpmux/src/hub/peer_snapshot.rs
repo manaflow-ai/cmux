@@ -207,8 +207,6 @@ enum Op {
         rows: Vec<restore::Row>,
         reply: mpsc::SyncSender<Vec<restore::Ahead>>,
     },
-    /// How the peer took a copy's records back: its journal's new end, or None (refused, the
-    /// copy goes).
     /// The peer's answer to a restore of generation `generation`, on link `link`: taken (its
     /// journal ends at `last`) or refused (None, and the copy goes), only while `link` is the
     /// newest the store saw and the copy is still of that generation.
@@ -218,7 +216,19 @@ enum Op {
         generation: u64,
         last: Option<u64>,
     },
+    /// Whether the copy of `key`, of generation `generation`, holds the journal record of prompt
+    /// `prompt_id` on disk (`open_delivery.rs`).
+    Holds {
+        key: Key,
+        generation: u64,
+        prompt_id: String,
+        reply: mpsc::SyncSender<bool>,
+    },
 }
+
+/// Told, after a copy's write, the prompts whose journal records it now holds on disk: the
+/// copy's key, its generation and their prompt ids (`open_delivery.rs` closes their deliveries).
+pub(crate) type Written = Arc<dyn Fn(&(String, String), u64, Vec<String>) + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -283,6 +293,8 @@ pub struct PeerSnapshots {
     warm: warm::Warm,
     /// The peers whose journals are being given back their records (`restore.rs`).
     restoring: restore::Gate,
+    /// Told the prompts each write of a copy put on disk (`Hub::new` sets it).
+    pub(crate) written: Arc<StdMutex<Option<Written>>>,
 }
 
 impl PeerSnapshots {
@@ -298,6 +310,7 @@ impl PeerSnapshots {
             untaken: Arc::default(),
             warm: warm::Warm::default(),
             restoring: restore::Gate::default(),
+            written: Arc::default(),
         }
     }
 
@@ -323,7 +336,7 @@ impl PeerSnapshots {
         for _ in 0..2 {
             if thread.is_none() {
                 let (tx, rx) = mpsc::channel();
-                let store = Store::new(root.clone(), self.dropped.clone());
+                let store = Store::new(root.clone(), self.dropped.clone(), self.written.clone());
                 let (ended, untaken) = (self.ended.clone(), self.untaken.clone());
                 let spawned = std::thread::Builder::new()
                     .name("acpmux-peer-snapshots".into())
@@ -529,13 +542,29 @@ struct Kept {
     failures: u64,
     /// When it was last captured or read (ms), for eviction; a restart keeps its `capturedAt`.
     used: u64,
+    /// Prompts whose journal records came since its last write: told once written ([`Written`]).
+    fresh_prompts: Vec<String>,
 }
 
 impl Kept {
     fn new(head: Head, disk: u64) -> Self {
         let used = head.captured_at;
         let (memory, epoch, joined, due, retry, failures, own) = (0, None, None, None, None, 0, 0);
-        Self { head, records: None, memory, disk, own, epoch, joined, due, retry, failures, used }
+        let fresh_prompts = Vec::new();
+        Self {
+            head,
+            records: None,
+            memory,
+            disk,
+            own,
+            epoch,
+            joined,
+            due,
+            retry,
+            failures,
+            used,
+            fresh_prompts,
+        }
     }
 }
 
@@ -581,6 +610,8 @@ struct Store {
     wake: Option<Instant>,
     /// Bytes of every loaded copy's records.
     memory: u64,
+    /// Told the prompts a write put on disk ([`Written`]).
+    written: Arc<StdMutex<Option<Written>>>,
     /// What every copy costs itself (`Kept::own`).
     own: u64,
     dropped: Arc<StdMutex<Dropped>>,
@@ -603,7 +634,11 @@ fn backoff(before: Option<Duration>) -> Duration {
 }
 
 impl Store {
-    fn new(root: PathBuf, dropped: Arc<StdMutex<Dropped>>) -> Self {
+    fn new(
+        root: PathBuf,
+        dropped: Arc<StdMutex<Dropped>>,
+        written: Arc<StdMutex<Option<Written>>>,
+    ) -> Self {
         Self {
             root,
             write: crate::config::write_atomic,
@@ -623,6 +658,7 @@ impl Store {
             memory: 0,
             own: 0,
             dropped,
+            written,
         }
     }
 
@@ -734,6 +770,9 @@ impl Store {
             Op::Ahead { peer, rows, reply } => {
                 let _ = reply.send(self.ahead(&peer, rows));
             }
+            Op::Holds { key, generation, prompt_id, reply } => {
+                let _ = reply.send(self.holds(&key, generation, &prompt_id));
+            }
             Op::Restored { key, link, generation, last } => {
                 let same =
                     self.copies.get(&key).is_some_and(|c| c.head.generation == Some(generation));
@@ -767,7 +806,7 @@ impl Store {
             }
             Op::Flush { .. } => return,
             // Its reader is answered at once that there is nothing (its reply went with it).
-            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } => return,
+            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } | Op::Holds { .. } => return,
             Op::LostPeer(_) => return self.take(op),
             Op::Clear(_) => {
                 self.clear();
@@ -1068,6 +1107,11 @@ impl Store {
         let Some(held) = c.records.as_mut() else { return };
         for r in records {
             let Some(seq) = seq_of(&r) else { continue };
+            if let Some(prompt) = r.pointer("/msg/promptId").and_then(Value::as_str)
+                && crate::hub::open_delivery::names_prompt(&r, prompt)
+            {
+                c.fresh_prompts.push(prompt.to_owned());
+            }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
                 let old_bytes = record_bytes(&old);
@@ -1441,9 +1485,20 @@ impl Store {
             // The write took the place of a file whose removal was refused.
             self.dead.remove(&path);
         }
+        let mut told = None;
         if let Some(c) = self.copies.get_mut(key) {
             c.disk = written;
             (c.due, c.retry, c.failures) = (None, None, 0);
+            let prompts = std::mem::take(&mut c.fresh_prompts);
+            if let Some(generation) = c.head.generation.filter(|_| !prompts.is_empty()) {
+                told = Some((generation, prompts));
+            }
+        }
+        if let Some((generation, prompts)) = told {
+            let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(hook) = hook {
+                hook(key, generation, prompts);
+            }
         }
         self.trim_memory(None);
         Ok(())

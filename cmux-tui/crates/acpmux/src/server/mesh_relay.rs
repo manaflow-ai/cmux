@@ -953,7 +953,7 @@ pub async fn deliver(
         }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
-        Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
+        Err((why, Next::Retry | Next::Unsent | Next::NoSession | Next::Stale)) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
