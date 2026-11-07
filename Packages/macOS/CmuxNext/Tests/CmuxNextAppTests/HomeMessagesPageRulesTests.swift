@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextHome
 @testable import CmuxNextApp
+import CmuxNextHostedChief
 import CmuxNextPages
 import Testing
 
