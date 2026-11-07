@@ -8,7 +8,8 @@
 // all (composerPlusRegistry.ts, recentCommands.ts).
 import type React from "react";
 import { AtIcon, BuildIcon, PaperclipIcon, PlanIcon, Picker, PlusIcon, SearchIcon, SlashIcon } from "./ComposerPickers";
-import type { Choice, Section } from "./ComposerPickers";
+import type { Section } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import {
   composerPlusSections,
   runComposerPlusAction,

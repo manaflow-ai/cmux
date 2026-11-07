@@ -12,7 +12,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { rowIconSize } from "../icons/iconSize";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
-import { SIDEWAYS_SCROLLER, useSidewaysRef } from "./BlockParts";
+import { SIDEWAYS_SCROLLER, useSidewaysRef } from "./blockPartsModel";
 import { copyTextResult } from "./clipboard";
 import { CopyButton } from "./CopyButton";
 import { Expand } from "./icons";

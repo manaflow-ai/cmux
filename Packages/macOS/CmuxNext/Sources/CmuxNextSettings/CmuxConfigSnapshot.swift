@@ -163,6 +163,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarBorder = SidebarBorder()
     /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
     public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
+    /// `appearance.iconTheme`: reserved for the optional Neko family. Neko
+    /// remains on the default drawings until reviewed artwork is enabled.
+    public var iconTheme: NekoIconTheme = NekoIconThemeSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
@@ -219,7 +222,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
     public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
-    /// `app.quitBehavior`; "ask" when unset or invalid.
+    /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
@@ -384,6 +387,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.nowPlaying = NowPlayingSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.iconTheme = NekoIconThemeSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? SidebarBorderSetting.borderDefault,
                                                             diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
@@ -407,7 +411,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
-        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        let styleBorders: BorderMode? = snapshot.chromeStyle.drawsLines.map { $0 ? .default : .none }
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root, defaultMode: styleBorders ?? BordersSetting.fallback)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(

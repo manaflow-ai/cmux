@@ -95,3 +95,21 @@ test("the doodle-decorated card wears the same material", () => {
   expect(doodle).toContain('data-composer-material=""');
   expect(doodle).not.toContain("ui-glass");
 });
+
+// Review F1 of #37743: the composer wears the shared glass material (glass.css "GLASS MATERIAL":
+// its specular rim and two-step depth), so the card beside it reads the same rim and depth, under the
+// same conditions: not under Reduce Transparency, and not the lens's own rim over a see-through window.
+test("where the composer wears the glass material, the card's rim and depth are that material's", () => {
+  const override = /@media not \(prefers-reduced-transparency: reduce\) \{([\s\S]*?)\n\}/.exec(material)?.[1] ?? "";
+  expect(override).toContain("--composer-material-rim: var(--glass-material-rim)");
+  expect(override).toContain("--composer-material-depth: var(--glass-material-depth)");
+  expect(override).toContain("data-reduce-transparency");
+  expect(override).toMatch(/data-cmux-see-through[^{]*data-glass="lens"/);
+  expect(declaration(material, "--composer-material-depth")).toBe("0 0 transparent");
+  for (const selector of ["\\.wn-card\\.wn-updated", '\\.wn-card\\[data-decoration="doodle"\\]']) {
+    const surface = new RegExp(`${selector} \\{([^}]*)\\}`).exec(card)?.[1] ?? "";
+    expect(surface).toContain(
+      "box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth)",
+    );
+  }
+});

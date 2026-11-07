@@ -88,7 +88,6 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// Whether a pane showing an agent chat (`agentChat`) or anything else rings.
     public func rings(agentChat: Bool) -> Bool { surface(agentChat: agentChat).drawsRing }
 
-    public static let widthRange: ClosedRange<CGFloat> = 0.5...8
     public static let blinkRange: ClosedRange<Int> = 1...10
     public static let durationRange: ClosedRange<Double> = 0.3...30
 }

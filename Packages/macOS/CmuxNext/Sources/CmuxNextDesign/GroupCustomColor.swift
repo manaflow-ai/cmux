@@ -86,16 +86,25 @@ public final class GroupCustomSwatchView: NSView {
     }
 }
 
-/// The system color panel for a group's custom color (cx-25az). A group editor bubble closes
-/// when the panel takes focus, so `open` keeps where the color goes (its `onColor`); each color
-/// the person settles on goes out once (not while dragging). One for the app, like the panel it
-/// borrows: it stays the panel's target after any editor that opened it is gone.
+/// The app's one borrower of the system color panel (`NSColorPanel.shared`, one per app). Every part
+/// that picks a color with it (a group editor's custom color, cx-25az; a chat's Chat Colors) borrows it
+/// here, so only the latest borrower receives colors: a new borrow ends the previous one, which hears
+/// it through its `onEnd`. The panel's own settings are kept from before the first borrow and put back
+/// when the last borrower is done or the person closes the panel.
 @MainActor
 public final class GroupColorPanel: NSObject {
     public static let shared = GroupColorPanel()
 
-    private var onColor: ((GroupTint) -> Void)?
-    /// The shared panel's settings before it was borrowed, put back when it closes.
+    /// A borrow's token: `giveBack` and `holds` name the borrow they mean.
+    public struct Borrow: Equatable, Sendable {
+        let id: UInt64
+    }
+
+    private var onPick: ((NSColor) -> Void)?
+    private var onEnd: (() -> Void)?
+    private var current: Borrow?
+    private var nextID: UInt64 = 0
+    /// The shared panel's settings before it was borrowed, put back when it is given back.
     private var borrowed: (showsAlpha: Bool, isContinuous: Bool)?
     private var closeObserver: MainActorObservation?
 
@@ -103,29 +112,61 @@ public final class GroupColorPanel: NSObject {
         super.init()
     }
 
+    /// A group editor's custom color: each color the person settles on goes out once (not while
+    /// dragging). A group editor bubble closes when the panel takes focus, so this keeps where the
+    /// color goes after the editor that opened it is gone.
     public func open(current: GroupTint?, onColor: @escaping (GroupTint) -> Void) {
-        self.onColor = onColor
+        borrow(start: current?.picked, continuous: false, onPick: { color in
+            if let tint = GroupTint(picked: color) { onColor(tint) }
+        }, onEnd: {})
+        NSColorPanel.shared.makeKeyAndOrderFront(nil)
+    }
+
+    /// Borrows the panel: `onPick` receives each color from now on (every change when `continuous`,
+    /// else the settled one), until the next borrow, `giveBack`, or the person closes the panel; then
+    /// `onEnd` runs once (not when the borrower gives it back itself). Setting `start` is not a pick.
+    /// The caller shows the panel where it wants it.
+    @discardableResult
+    public func borrow(start: NSColor?, continuous: Bool, onPick: @escaping (NSColor) -> Void,
+                       onEnd: @escaping () -> Void) -> Borrow {
+        let previousEnd = self.onEnd
         let panel = NSColorPanel.shared
         if borrowed == nil {
             borrowed = (panel.showsAlpha, panel.isContinuous)
         }
-        // The panel is shared: once it closes, its colors no longer go to this group.
         if closeObserver == nil {
+            // The panel is shared: once it closes, its colors no longer go to anyone.
             closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: panel) { [weak self] in
-                self?.release()
+                self?.end(notify: true)
             }
         }
+        panel.setTarget(nil)
+        panel.setAction(nil)
         panel.showsAlpha = false
-        panel.isContinuous = false
+        panel.isContinuous = continuous
+        if let start { panel.color = start }
+        nextID += 1
+        let borrow = Borrow(id: nextID)
+        (current, self.onPick, self.onEnd) = (borrow, onPick, onEnd)
         panel.setTarget(self)
         panel.setAction(#selector(changed(_:)))
-        if let picked = current?.picked { panel.color = picked }
-        panel.makeKeyAndOrderFront(nil)
+        previousEnd?()
+        return borrow
     }
 
-    private func release() {
+    /// Gives the panel back, when `borrow` still has it (a later borrow already took it otherwise).
+    public func giveBack(_ borrow: Borrow) {
+        guard current == borrow else { return }
+        end(notify: false)
+    }
+
+    /// Whether `borrow` still has the panel.
+    public func holds(_ borrow: Borrow) -> Bool { current == borrow }
+
+    private func end(notify: Bool) {
         let panel = NSColorPanel.shared
-        if onColor != nil {
+        let ended = onEnd
+        if current != nil {
             panel.setTarget(nil)
             panel.setAction(nil)
         }
@@ -133,13 +174,11 @@ public final class GroupColorPanel: NSObject {
             panel.showsAlpha = borrowed.showsAlpha
             panel.isContinuous = borrowed.isContinuous
         }
-        borrowed = nil
-        onColor = nil
-        closeObserver = nil
+        (borrowed, current, onPick, onEnd, closeObserver) = (nil, nil, nil, nil, nil)
+        if notify { ended?() }
     }
 
     @objc private func changed(_ sender: Any?) {
-        guard let onColor, let tint = GroupTint(picked: NSColorPanel.shared.color) else { return }
-        onColor(tint)
+        onPick?(NSColorPanel.shared.color)
     }
 }

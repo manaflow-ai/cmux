@@ -87,8 +87,10 @@ describe("judging a replay", () => {
     };
     const { rows, misses } = judge([{ log: "mock:a", cls: 0, moved: 0, movedRow: "none", shiftNotes: [] }], [live]);
     expect(rows.find((row) => row.name === "transcript_replay.long.token_slope_ms_per_krow")?.p95).toBe(1);
-    expect(misses).toHaveLength(1);
+    expect(misses).toHaveLength(2);
     expect(misses[0]).toContain("BUDGET MISS transcript_replay.long.token_slope_ms_per_krow = 1");
     expect(misses[0]).toContain("O(rows) work per update");
+    // 3 ms at 2,000 rows against 1 ms at none: past the growth check's factor.
+    expect(misses[1]).toContain("BUDGET MISS token growth = 3x (budget 1.5x)");
   });
 });

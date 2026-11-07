@@ -12,15 +12,8 @@ import { cornerAction } from "./cornerActions";
 import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import {
-  lineCount,
-  Lines,
-  PreviewMore,
-  SIDEWAYS_SCROLLER,
-  usePreview,
-  useSidewaysEdge,
-  WrapButton,
-} from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";

@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { RETURN_GLYPH_PATH } from "../src/agent-session/acpmux/ComposerPickers";
+import { RETURN_GLYPH_PATH } from "../src/agent-session/acpmux/composerPickerModel";
 
 const acpmux = path.resolve(import.meta.dir, "../src/agent-session/acpmux");
 const css = (file: string) => readFileSync(path.join(acpmux, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
