@@ -90,6 +90,80 @@ class CheckTests(unittest.TestCase):
             self.assertEqual(path.read_text(encoding="utf-8"), manifest('"CmuxNextFeed",', '"CmuxNextTabs",'))
 
 
+class UnmarkedListTests(unittest.TestCase):
+    """Every list of more than one entry is one per line (2026-11-07: 25 conflicted base merges of Package.swift in a
+    week, each on a one-line `dependencies: [...]` that two pull requests both appended to)."""
+
+    PACKAGE = (
+        "let package = Package(\n"
+        "    targets: [\n"
+        "        .target(\n"
+        '            name: "CmuxNextHome",\n'
+        "            // Why Home needs these.\n"
+        '            dependencies: ["CmuxNextWakeups", "CmuxNextCompat", .product(name: "A", package: "A"), "CmuxNextWakeups"],\n'
+        "        ),\n"
+        "        .target(\n"
+        '            name: "CmuxNextFeed",\n'
+        "            dependencies: [\n"
+        '                "CmuxNextTabs", "CmuxNextDaemon", // the timeline\n'
+        "                // Actions' ids.\n"
+        '                "CmuxNextActions",\n'
+        "            ],\n"
+        "        ),\n"
+        "        .target(\n"
+        '            name: "CmuxNextTabs",\n'
+        '            dependencies: ["CmuxNextCompat"],\n'
+        "        ),\n"
+        '        .testTarget(name: "CmuxNextTabsTests", dependencies: ["CmuxNextTabs", "CmuxNextCompat"]),\n'
+        "    ]\n"
+        ")\n")
+
+    def problems(self, text: str) -> list[str]:
+        with unittest.mock.patch.object(lint, "REQUIRED", ()):  # the fixture has no CmuxNextAppTests
+            return lint.check(text, fix=False)[0]
+
+    def test_an_unmarked_list_of_several_entries_fails(self):
+        problems = self.problems(self.PACKAGE)
+        self.assertTrue(any(p.startswith("CmuxNextHome: its dependencies list has more than one entry") for p in problems))
+        self.assertTrue(any(p.startswith("CmuxNextFeed: its dependencies list has more than one entry") for p in problems))
+        # One entry may stay inline; a one-line target call cannot be laid out by line and is left alone.
+        self.assertFalse(any(p.startswith(("CmuxNextTabs:", "CmuxNextTabsTests:")) for p in problems), problems)
+
+    def test_fix_lays_it_out_sorted_with_its_comments_and_one_copy_of_a_duplicate(self):
+        fixed = lint.check(self.PACKAGE, fix=True)[1]
+        self.assertIn(
+            "            // Why Home needs these.\n"
+            f"            dependencies: [ {lint.MARKER}\n"
+            '                "CmuxNextCompat",\n'
+            '                "CmuxNextWakeups",\n'
+            '                .product(name: "A", package: "A"),\n'
+            "            ],\n", fixed)
+        self.assertIn(
+            f"            dependencies: [ {lint.MARKER}\n"
+            "                // Actions' ids.\n"
+            '                "CmuxNextActions",\n'
+            "                // the timeline\n"
+            '                "CmuxNextDaemon",\n'
+            '                "CmuxNextTabs",\n'
+            "            ],\n", fixed)
+        self.assertIn('            dependencies: ["CmuxNextCompat"],\n', fixed)
+        self.assertEqual(self.problems(fixed), [])
+        before = {name: declared for name, (_, declared, _) in lint.manifest_targets(self.PACKAGE).items()}
+        after = {name: declared for name, (_, declared, _) in lint.manifest_targets(fixed).items()}
+        self.assertEqual(before, after)
+
+    def test_two_additions_to_a_laid_out_list_merge_by_line(self):
+        fixed = lint.check(self.PACKAGE, fix=True)[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [Path(tmp, name) for name in ("ours", "base", "theirs")]
+            paths[0].write_text(fixed.replace('"CmuxNextCompat",\n', '"CmuxNextBrowser",\n                "CmuxNextCompat",\n', 1))
+            paths[1].write_text(fixed)
+            paths[2].write_text(fixed.replace('"CmuxNextWakeups",\n', '"CmuxNextWakeups",\n                "CmuxNextZoom",\n', 1))
+            merged = subprocess.run(["git", "merge-file", "-p", *map(str, paths)], capture_output=True, text=True)
+        self.assertEqual(merged.returncode, 0, merged.stdout)
+        self.assertEqual(self.problems(merged.stdout), [])
+
+
 class ImportTests(unittest.TestCase):
     """A target that imports another local target declares it (2026-10-24: CmuxNextDaemonTests imported
     CmuxNextCompat undeclared, and incremental builds linked a stale object against an old Mutex symbol)."""
