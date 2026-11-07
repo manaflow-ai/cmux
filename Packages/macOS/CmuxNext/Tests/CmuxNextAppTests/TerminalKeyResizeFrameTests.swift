@@ -163,6 +163,54 @@ struct TerminalKeyResizeFrameTests {
         #expect(off.isEmpty, "\(off.count) terminals did not show their pane's size in the first frame after the key: \(off)")
     }
 
+    /// RESIZE P0 8 (cause T, Chromium surface sync): in a key spring each program gets the grid of the size drawn ahead for
+    /// the next refresh in the turn that draws it ahead, one refresh before its frame shows. Before, the grid went when its
+    /// size showed, so the program's redraw came 3-4 refreshes after its pane (m20 allows 2; px-keys-held-2-s1r x1, a5490d1b
+    /// cmux21 1x: 21 band frames at 3 refreshes, journal resize:CxR 3 ms before the sample that showed its width).
+    ///
+    /// p1 | p2, IOs that announce each grid as the daemon does; Ctrl-Shift-L on p2, stepped one frame per refresh. After
+    /// each frame's pass, per terminal with a size drawn ahead whose grid is not the shown size's: the newest grid its PTY
+    /// was asked for (the coalescer's waiting grid counts as asked) is the grid of the size drawn ahead.
+    @Test func aKeySpringsProgramGetsEachGridWithTheSizeDrawnAhead() async throws {
+        let screen = try await PaneScreen(announcesGrids: true)
+        defer { screen.close() }
+        try #require(screen.announcing.count == screen.sessions.count, "SETUP: a terminal has no announcing IO")
+        // Warm-up press: one-time setup is not the press under test.
+        _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "Ctrl-Shift-L on p2 moved nothing")
+        var behind: [String] = [], cases = 0, steps = 0, moving = true
+        while moving, steps < 240 {
+            moving = await Self.stepFrame(screen).moving
+            steps += 1
+            for (index, session) in screen.sessions.enumerated() {
+                let view = session.surfaceView
+                guard let ahead = view.frameOwnership.ahead, let surface = view.surface,
+                      let window = view.window else { continue }
+                let pixels = window.convertToBacking(NSRect(origin: .zero, size: ahead)).size
+                var columns: UInt16 = 0, rows: UInt16 = 0
+                guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows) else { continue }
+                let next = TerminalGridSize(columns: Int(columns), rows: Int(rows))
+                guard next != view.fittedGrid else { continue }
+                cases += 1
+                let asked = view.gridReports.coalescer.pending
+                    ?? screen.announcing[index].reports.withLock { $0.last?.grid }
+                if asked != next {
+                    behind.append("frame \(steps) p\(index + 1): PTY asked \(Self.text(asked)), drawn ahead \(Self.text(next)), "
+                        + "shown \(Self.text(view.fittedGrid))")
+                }
+            }
+        }
+        await Self.settle(screen)
+        try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
+        try #require(cases >= 3, "only \(cases) frames drew ahead a size of another grid: the case under test did not happen")
+        print("RESIZE P0 8 send ahead: \(steps) frames, \(cases) with a new grid drawn ahead, \(behind.count) behind")
+        #expect(behind.isEmpty, "\(behind.count) of \(cases) frames asked the PTY for the shown grid, not the one drawn ahead: \(behind.prefix(6))")
+        let ends = Self.ptyEndsAtItsViewsGrid(screen)
+        #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
+    }
+
     /// Review of #35470 (F1): a terminal whose frames wait at the landing (a busy program, or one that holds its frames
     /// with synchronized output, mode 2026, as agent TUIs do). The landing's release once sized the surface from a stale
     /// size and reported its grid, then the final grid again: final, stale, final. cmux-ad m18 replaces "one grid per
@@ -464,6 +512,8 @@ struct TerminalKeyResizeFrameTests {
         let window: NSWindow
         var sessions: [TerminalSession] = []
         var ios: [ScriptedTerminalIO] = []
+        /// Each terminal's announcing IO (`announcesGrids`), in `sessions` order; empty otherwise.
+        var announcing: [AnnouncingTerminalIO] = []
         private let drew: Bool
 
         init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false) async throws {
@@ -488,7 +538,9 @@ struct TerminalKeyResizeFrameTests {
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
                 let io = ScriptedTerminalIO()
-                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io) : io
+                let announcer = announcesGrids ? AnnouncingTerminalIO(io) : nil
+                let owner: any TerminalIO = announcer ?? io
+                if let announcer { announcing.append(announcer) }
                 let session = TerminalSession(io: owner)
                 ios.append(io)
                 guard session.surfaceView.surface != nil, let content = provider.views[pane] else {
