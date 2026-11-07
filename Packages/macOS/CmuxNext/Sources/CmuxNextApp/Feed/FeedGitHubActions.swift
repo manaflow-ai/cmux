@@ -56,6 +56,8 @@ enum FeedGitHubActions {
     }
 
     private static func perform(_ action: String, item: FeedDaemonItem, text: String?, services: AppServices) {
+        // Only an action the daemon offers for this item (its `github_actions`), never one the caller names.
+        guard item.githubActions?.contains(action) == true else { return }
         guard let detail = item.github, let link = detail.url, let url = URL(string: link) else { return }
         switch action {
         case "open":
