@@ -31515,7 +31515,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -31582,6 +31583,13 @@
             "text" : "Floating Panes"
           },
           "value" : "floating"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.blocks",
+            "text" : "Blocks"
+          },
+          "value" : "blocks"
         }
       ],
       "consumers" : [
@@ -31616,7 +31624,8 @@
         "minimal",
         "bare",
         "floating",
-        "gaps"
+        "gaps",
+        "blocks"
       ],
       "kind" : "choice",
       "page_hidden" : false,
