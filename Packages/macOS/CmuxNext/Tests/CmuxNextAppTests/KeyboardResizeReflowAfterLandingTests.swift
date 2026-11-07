@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
 @testable import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
@@ -72,6 +73,7 @@ struct KeyboardResizeReflowAfterLandingTests {
                 return (pane, (session.view.frame.size, session.surfaceView.frame.size))
             })
         }
+        for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
         let reports = TerminalSurfaceView.gridReports
         let start = try sizes()
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
@@ -79,6 +81,8 @@ struct KeyboardResizeReflowAfterLandingTests {
         #expect(TerminalSurfaceView.gridReports == reports, "the key's turn sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its refresh")
         try #require(rig.frame(), "the press did not spring")
         let atPress = try sizes()
+        var atPressGrids: [PaneID: TerminalGridSize] = [:]
+        for pane in panes { atPressGrids[pane] = try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid }
         // RESIZE P0 7: the first frame's landed grid goes in that frame's turn, at most one per terminal.
         #expect(TerminalSurfaceView.gridReports - reports <= panes.count, "the press's first frame sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
         var frames = 1, hostsOff: [String] = [], surfacesOff: [String] = []
@@ -107,6 +111,15 @@ struct KeyboardResizeReflowAfterLandingTests {
         }
         #expect(surfacesOff.isEmpty, "\(surfacesOff.count) frames showed a surface off its pane's size: \(surfacesOff.prefix(3))")
         #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
-        try await KeyboardResizeContentHoldTests.expectEachPTYEndsAtItsViewsGrid(panes, rig)
+        // Per terminal, exact (RESIZE P0 8, review of 28a640183a7): the PTY got the final grid, or the press's first frame's
+        // own grid and then the final grid. m6 (the final grid with the first frame, one per press) fails: it is neither.
+        for pane in panes {
+            let grids = try await PaneContentPolicyTests.grids(pane, rig)
+            let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
+            let first = try #require(atPressGrids[pane])
+            #expect(first != final, "\(pane)'s first frame already showed the landing's grid \(final)")
+            #expect(grids == [final] || grids == [first, final],
+                    "\(pane)'s PTY got \(grids), not [its first frame's grid \(first),] then its view's rest grid \(final)")
+        }
     }
 }
