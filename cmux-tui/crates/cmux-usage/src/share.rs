@@ -163,11 +163,13 @@ pub struct Sent<E> {
 }
 
 impl Pending {
-    /// The records `dir` has not uploaded yet; nil before anything was recorded (no salt).
+    /// The records `dir` has not uploaded yet; nil before anything was recorded (no salt). Only
+    /// records made while sharing is on count: what was recorded before this Mac's consent to
+    /// share, or while sharing was off, never goes (none while it is off).
     pub fn read(dir: &UsageDir) -> Option<Self> {
         let install = install_id(&dir.existing_salt()?);
         let cursor = Cursor::load(dir, &install);
-        let records = dir.read(0);
+        let records = dir.sharing_since().map_or_else(Vec::new, |since| dir.read(since));
         let start = cursor.start(&records);
         Some(Self { install, records, start, cursor })
     }
@@ -293,10 +295,31 @@ mod tests {
         let dir = temp_dir(name);
         dir.set_enabled(true).expect("on");
         dir.set_sharing(true).expect("share");
+        let since = dir.sharing_since().expect("sharing since");
         let mut rec = Recorder::new(dir.clone(), Source::App, "app-dev");
-        rec.append((0..records as u64).map(|i| (100 + i / 3, Event::Active { on: i % 2 == 0 })))
+        rec.append((0..records as u64).map(|i| (since + i / 3, Event::Active { on: i % 2 == 0 })))
             .expect("append");
         dir
+    }
+
+    /// The second opt-in covers what is recorded from then on: what this Mac recorded before it
+    /// agreed to share, or while sharing was off, never goes.
+    #[test]
+    fn only_records_made_while_sharing_is_on_go() {
+        let dir = temp_dir("share-since");
+        dir.set_enabled(true).expect("on");
+        let mut rec = Recorder::new(dir.clone(), Source::App, "app-dev");
+        rec.append([(1, Event::Active { on: true })]).expect("append");
+        assert_eq!(Pending::read(&dir).expect("pending").count(), 0);
+        dir.set_sharing(true).expect("share");
+        let since = dir.sharing_since().expect("since");
+        rec.append([(since, Event::Active { on: false })]).expect("append");
+        let pending = Pending::read(&dir).expect("pending");
+        assert_eq!(pending.count(), 1);
+        assert_eq!(pending.records[pending.start].at, since);
+        dir.set_sharing(false).expect("unshare");
+        assert_eq!(Pending::read(&dir).expect("pending").count(), 0);
+        let _ = fs::remove_dir_all(dir.path());
     }
 
     #[test]
@@ -304,7 +327,9 @@ mod tests {
         let dir = shared_dir("upload", 10);
         let pending = Pending::read(&dir).expect("pending");
         assert_eq!(pending.count(), 10);
-        assert!(pending.sample().expect("sample").starts_with(r#"{"at":100,"src":"app""#));
+        let since = dir.sharing_since().expect("since");
+        let sample = pending.sample().expect("sample");
+        assert!(sample.starts_with(&format!(r#"{{"at":{since},"src":"app""#)), "{sample}");
         // The second batch is refused: only the first moves the cursor.
         let mut calls = 0;
         let sent = pending.send(&dir, (4, MAX_BODY_BYTES), |_| {
