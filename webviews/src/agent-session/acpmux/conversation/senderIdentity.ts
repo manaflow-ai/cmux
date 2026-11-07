@@ -23,6 +23,11 @@ export type SenderRecord = {
   /// The sender's harness family (`claude`, `codex`, `gemini`, ...), for its mark.
   harness?: string;
   relay?: SenderRelay;
+  /// The name the sender declared (`--from`), as acpmux kept it: never cut, so a reader that opens
+  /// the sender's chat by its record (an agent chip) finds it.
+  label?: string;
+  /// The sender's session, when acpmux knows it.
+  session?: string;
 };
 
 /// `name` without the unverified suffix an older acpmux wrote into it, and whether it had one.
@@ -54,8 +59,12 @@ export function senderRecord(value: unknown): SenderRecord | undefined {
   const by = word(relay?.by);
   const machine = word(relay?.machine);
   const session = word(relay?.session);
+  const label = word(r.label);
+  const senderSession = word(r.session);
   const record: SenderRecord = {
     ...(verification && { verification }),
+    ...(label && { label }),
+    ...(senderSession && { session: senderSession }),
     ...(harness && { harness }),
     ...(relay && { relay: { ...(by && { by }), ...(machine && { machine }), ...(session && { session }) } }),
   };

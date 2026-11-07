@@ -9,12 +9,14 @@
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
-import { bareSender, senderRecord, senderUnverified } from "./senderIdentity";
+import { bareSender, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
 
 /// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it. `from` is the bare
 /// name (senderIdentity.ts); `unverified` when acpmux could not verify who sent it, `harness` the
 /// sender's family from its record.
 export type InboxMessage = {
+  /// acpmux's sender record, kept whole (its label and session too) while the name reads bare.
+  sender?: SenderRecord;
   promptId?: string;
   from: string;
   at?: number;
@@ -25,6 +27,8 @@ export type InboxMessage = {
 
 /// One thread of a notice.
 export type InboxThread = {
+  /// The newest message's sender record, kept whole (its label and session too).
+  sender?: SenderRecord;
   /// acpmux's thread id: `pr:N`, `topic:T`, `from:SENDER/pr:N` or `from:SENDER`.
   threadId: string;
   /// How it reads: `#N`, the topic, or empty for a sender's own thread.
@@ -116,6 +120,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
       ...(harness && { fromHarness: harness }),
       ...(unverified && { unverified: true as const }),
+      ...(record && { sender: record }),
       count,
       preview:
         withoutRelayHead(text(p.preview).trim()) ||
@@ -143,6 +148,7 @@ export function inboxMessages(records: unknown[]): InboxMessage[] {
         text: withoutRelayEnvelope(r.text),
         ...(senderUnverified(record, sender.declared) && { unverified: true as const }),
         ...(record?.harness && { harness: record.harness }),
+        ...(record && { sender: record }),
         ...(typeof r.promptId === "string" && { promptId: r.promptId }),
         ...(typeof r.at === "number" && { at: r.at }),
       },
