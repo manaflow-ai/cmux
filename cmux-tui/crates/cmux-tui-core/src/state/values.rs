@@ -103,6 +103,10 @@ fn workspace_extra(
         )
         .optional()?;
     if let Some(key) = key {
+        // `workspace-created-by-v1`: absent for a workspace made before it.
+        if let Some(created_by) = super::created_by::snapshot(connection, &key)? {
+            fields.insert("created_by".into(), created_by);
+        }
         fields.insert("key".into(), json!(key));
     }
     Ok(fields)
