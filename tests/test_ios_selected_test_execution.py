@@ -120,6 +120,50 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_rejects_zero_selected_bundle_beside_unrelated_nonzero_summary(self) -> None:
+        result = self.run_guard(
+            "\n".join(
+                (
+                    "Test Suite 'cmuxUITests.xctest' passed at 2026-10-31 10:00:00.000.",
+                    "\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds",
+                    "Test Suite 'cmuxTests.xctest' passed at 2026-10-31 10:00:01.000.",
+                    "\t Executed 1 test, with 0 failures (0 unexpected) in 0.010 (0.011) seconds",
+                )
+            ),
+            "cmuxUITests/cmuxUITests/doesNotExist",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("matched zero tests", result.stderr)
+
+    def test_accepts_zero_child_suite_before_nonzero_selected_bundle(self) -> None:
+        result = self.run_guard(
+            "\n".join(
+                (
+                    "Test Suite 'EmptyTests' passed at 2026-10-31 10:00:00.000.",
+                    "\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds",
+                    "Test Suite 'cmuxUITests.xctest' passed at 2026-10-31 10:00:01.000.",
+                    "\t Executed 1 test, with 0 failures (0 unexpected) in 0.010 (0.011) seconds",
+                )
+            ),
+            "cmuxUITests/cmuxUITests/testExample",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "1\n")
+
+    def test_accepts_swift_testing_count_when_selected_bundle_xctest_count_is_zero(self) -> None:
+        result = self.run_guard(
+            "\n".join(
+                (
+                    "Test Suite 'cmuxTests.xctest' passed at 2026-10-31 10:00:00.000.",
+                    "\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds",
+                    "Test run with 3 tests in 1 suite passed after 0.012 seconds.",
+                )
+            ),
+            "cmuxTests/ExampleSwiftTestingSuite",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "3\n")
+
     def test_allows_empty_filter_without_an_execution_summary(self) -> None:
         result = self.run_guard("** TEST SUCCEEDED **", "")
         self.assertEqual(result.returncode, 0, result.stderr)
