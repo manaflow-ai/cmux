@@ -4369,6 +4369,13 @@ export class AcpmuxDirectClient {
     const generation = ++this.selectionGeneration;
     this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    // The tail is for a relist during the hold only: when the hold ends (the chat stayed gone, or
+    // another chat's attach drew), its rows go, not kept for as long as the client lives.
+    const left = this.leftTail;
+    if (left && hold !== undefined)
+      void this.snapshotHold?.released.then(() => {
+        if (this.leftTail === left) this.leftTail = undefined;
+      });
     this.resetSessionState(reason);
     this.emit(reason);
     // The tab's chat went away while shown: why (chatUnavailable.ts) reads the machines as they are now.
