@@ -744,6 +744,16 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return views
     }
 
+    /// A header with a meter (Context, Progress) keeps a slot of its own for the grip at its right end,
+    /// at rest too, so its meter and count sit left of it and the grip never draws across them at any
+    /// width; the meter is never hidden.
+    var gripHasOwnSlot: Bool {
+        grip != nil && gripCoversTrailing && line.kind == .header && (meter != nil || segmentedMeter != nil)
+    }
+
+    /// The room the grip's own slot takes from the trailing column's right edge: its box past the dots.
+    private static let gripSlot: CGFloat = SessionInfoGripView.size.width + (LayoutGrid.iconBox - SessionInfoGripView.size.width) / 2
+
     /// The grip sits over the trailing column: the line has no control at its right end.
     private var gripCoversTrailing: Bool { buttons.isEmpty && toggle == nil && menuButton == nil }
 
@@ -756,7 +766,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private func trailingWidth(_ width: CGFloat) -> CGFloat {
-        var used: CGFloat = 0
+        var used: CGFloat = gripHasOwnSlot ? Self.gripSlot : 0
         for button in buttons { used += button.naturalWidth + 2 }
         if let toggle { used += toggle.intrinsicContentSize.width + 6 }
         if let menuButton { used += menuButton.naturalWidth + 2 }
@@ -772,7 +782,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func layout() {
         super.layout()
         let width = bounds.width, height = bounds.height
-        var x = width - SessionInfoMetrics.trail
+        var x = width - SessionInfoMetrics.trail - (gripHasOwnSlot ? Self.gripSlot : 0)
         for button in buttons.reversed() {
             let size = CGSize(width: button.naturalWidth, height: 18)
             x -= size.width
@@ -1006,10 +1016,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
         grip?.isHidden = !showsGrip
         grip?.lit = isDragging
-        // The grip takes the trailing column's place while it shows, as the web head's whole meta fades
-        // under its handle: the count, a header's meter (Context, Progress) and its marks yield the slot,
-        // so the grip never draws across them. Nothing in the line moves.
-        if grip != nil, gripCoversTrailing {
+        // The grip takes the count's place while it shows, as the web head's meta fades under its handle;
+        // a head with a meter keeps its own slot for the grip, so its count and meter stay. Nothing moves.
+        if grip != nil, gripCoversTrailing, !gripHasOwnSlot {
             for view in trailingMeta { view.isHidden = showsGrip }
         }
         // Only the grip's own box lights under the pointer (the web handle's :hover), never the head.

@@ -691,8 +691,21 @@ struct AgentPaneNativeSessionInfoTests {
 
         let enter = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
                                                     windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        // At rest the meters draw in the trailing column.
+        // At rest the meters draw in the trailing column, left of the grip's own slot, at any width.
         #expect(context.trailingMeta.count == 2 && progress.trailingMeta.count == 2)
+        #expect(context.gripHasOwnSlot && progress.gripHasOwnSlot && !changes.gripHasOwnSlot)
+        for width in [200, 260, 320, 560] as [CGFloat] {
+            for line in [context, progress] {
+                line.frame.size.width = width
+                line.layoutSubtreeIfNeeded()
+                let hit = try #require(line.gripHitRect)
+                for meta in line.trailingMeta { #expect(meta.frame.maxX <= hit.minX + 0.5) }
+            }
+        }
+        for line in [context, progress] {
+            line.frame.size.width = 320
+            line.layoutSubtreeIfNeeded()
+        }
         for line in [context, changes, plain, machine, progress] {
             let before = try title(line)
             line.mouseEntered(with: enter)
@@ -708,7 +721,12 @@ struct AgentPaneNativeSessionInfoTests {
             #expect(handle.frame.size == SessionInfoGripView.size)
             #expect(abs(handle.frame.maxX - (line.bounds.maxX - SessionInfoMetrics.trail)) < 0.5)
             #expect(hit.width == LayoutGrid.iconBox && abs(hit.midX - handle.frame.midX) < 0.5)
-            #expect(countHidden(line))
+            if line.gripHasOwnSlot {
+                // A head with a meter keeps its grip in a slot of its own: its count and meter stay.
+                #expect(countShown(line))
+            } else {
+                #expect(countHidden(line))
+            }
             for other in line.subviews where other !== handle && !other.isHidden {
                 #expect(other.frame.maxX <= hit.minX)
             }
