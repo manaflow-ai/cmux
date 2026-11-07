@@ -208,6 +208,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await pasteScreenshots(page);
     const loading = page.locator(LOADING);
     await loading.waitFor();
+    // The indicator comes only once the read passes 400 ms (composer/pasteLoading.tsx): a quick paste
+    // never flashes one.
+    await loading.locator(".acpmux-md-inline-spinner").waitFor();
     expect(await loading.locator(".acpmux-md-inline-spinner").count()).toBe(1);
     await loading.locator(".acpmux-md-inline-remove").click();
     expect(await loading.count()).toBe(0);
