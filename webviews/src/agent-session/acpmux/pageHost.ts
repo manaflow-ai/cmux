@@ -28,12 +28,16 @@ import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
 import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
+import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
 
-const RENAMED: Record<string, string> = { ready: "handshake", "chat.persistSession": "session.persist" };
+const RENAMED: Record<string, string> = {
+  ready: "handshake",
+  "chat.persistSession": "session.persist",
+};
 
 /// The `cmux.agent` op of an old bridge method.
 export function agentPageOp(method: string): string {
@@ -192,6 +196,18 @@ export function applyHostEvent(event: HostEvent): void {
       return receiveTransportEvent(event.value as TransportEvent);
     case "models.catalog":
       return receiveModelCatalog(event.value);
+    case "cloudPreviewPort":
+      return void addCloudPreviewPort(event.value);
+    case "cloudPreviewPortsKnown": {
+      const value = event.value;
+      const ports =
+        value && typeof value === "object" && Array.isArray((value as { ports?: unknown }).ports)
+          ? (value as { ports: unknown[] }).ports
+          : Array.isArray(value)
+            ? value
+            : [];
+      return seedCloudPreviewPorts(ports);
+    }
   }
 }
 

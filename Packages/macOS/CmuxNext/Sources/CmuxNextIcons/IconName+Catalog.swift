@@ -274,6 +274,7 @@ extension IconName {
         .statePinned,
         .stateSelected,
         .statusAttention,
+        .statusCheck,
         .statusComplete,
         .statusCritical,
         .statusDisconnected,
