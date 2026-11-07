@@ -3,6 +3,7 @@
 // closes); a video plays inline with its poster and the browser's controls; any other file is a
 // row with its type, size and a download link. The composer shows each file it uploads as a tile
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
+import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
@@ -16,12 +17,22 @@ import "../../ui/motion/motion.css";
 /** The page's attachment service (absent: attachments show as named rows only). */
 export const AttachmentContext = createContext<AttachmentService | undefined>(undefined);
 
+/** A page's own viewer for a message's media (the Messages page's picture viewer and View Larger).
+ * Absent: pictures open in the lightbox here and videos play only in place. */
+export interface AttachmentOpener {
+  openImages(conversation: string, images: readonly HomeAttachment[], index: number): void;
+  /** `video`: the bubble's player, which pauses; the viewer goes on from its time. */
+  openVideo(conversation: string, part: HomeAttachment, video?: HTMLVideoElement): void;
+}
+
+export const AttachmentOpenContext = createContext<AttachmentOpener | undefined>(undefined);
+
 /** Most image tiles shown in a message; the last one counts the rest. */
 const GRID_TILES = 4;
 
 /** A data URL (or URL) of one image variant: `src` once loaded, `failed` when this host cannot read
  * it (an owner without attachment reads here, a record that is gone). */
-function useImage(
+export function useImage(
   conversation: string,
   part: HomeAttachment,
   prefer: "preview" | "original",
@@ -61,6 +72,7 @@ export function MessageAttachments({
   const videos = parts.filter((part) => attachmentClass(part.mimeType) === "video");
   const files = parts.filter((part) => !images.includes(part) && !videos.includes(part));
   const [open, setOpen] = useState<number>();
+  const opener = useContext(AttachmentOpenContext);
   return (
     <div className="hc-attachments">
       {images.length > 0 && (
@@ -73,7 +85,7 @@ export function MessageAttachments({
               single={images.length === 1}
               more={index === GRID_TILES - 1 ? images.length - GRID_TILES : 0}
               strings={strings}
-              onOpen={() => setOpen(index)}
+              onOpen={() => (opener ? opener.openImages(conversation, images, index) : setOpen(index))}
             />
           ))}
         </div>
@@ -157,6 +169,8 @@ function VideoPlayer({
   strings: Strings;
 }) {
   const service = useContext(AttachmentContext);
+  const opener = useContext(AttachmentOpenContext);
+  const player = useRef<HTMLVideoElement | null>(null);
   const [src, setSrc] = useState<string>();
   const posterSrc = usePoster(conversation, part);
   const size = frame(part, 480, 320);
@@ -186,6 +200,8 @@ function VideoPlayer({
     <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }} data-attachment={part.hash}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
+        ref={player}
+        data-attachment-video={part.hash}
         src={src}
         poster={posterSrc}
         controls
@@ -195,6 +211,7 @@ function VideoPlayer({
         height={size.height}
         aria-label={part.name}
         onError={(event) => renew(event.currentTarget)}
+        onDoubleClick={opener ? (event) => opener.openVideo(conversation, part, event.currentTarget) : undefined}
         onLoadedMetadata={(event) => {
           const at = resume.current?.at;
           if (at) event.currentTarget.currentTime = at;
@@ -207,6 +224,16 @@ function VideoPlayer({
             .filter(Boolean)
             .join(" · ")}
         </span>
+        {opener && src && (
+          <button
+            type="button"
+            className="hc-att-download ui-reveal"
+            aria-label={strings.t("home.video.viewLarger")}
+            onClick={() => opener.openVideo(conversation, part, player.current ?? undefined)}
+          >
+            <Icon name="view.expand" size={14} />
+          </button>
+        )}
         {src && (
           <a
             className="hc-att-download ui-reveal"

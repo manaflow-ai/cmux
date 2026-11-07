@@ -30,6 +30,7 @@ import type { Strings } from "../../shared/i18n";
 import { useWebSwapHold } from "../../shared/useWebSwapHold";
 import { AttachmentDrafts } from "./attachmentDrafts";
 import { ComposerHistory, historyTakesArrow } from "./history";
+import { excerpt } from "./replyQuote";
 import { intakeProblem, textBeside, transferFiles, type TransferLike } from "./intake";
 
 /** The host's call for dictation (`dictation.toggle`, `dictation.cancel`, ...), as the agent pane's. */
@@ -65,6 +66,10 @@ export interface MessageComposerProps {
   placeholder?: string;
   /** The field checks spelling (Settings agentPane.spellChecking; off by default, as the setting). */
   spellChecking?: boolean;
+  /** Reply to Selection's quote, shown in a card above the field (`name`: whose words; absent:
+   * "Replying to Selection"); the send carries it (the caller's `onSend`). */
+  quote?: { text: string; name?: string };
+  onRemoveQuote?(): void;
   ref?: Ref<MessageComposerHandle>;
 }
 
@@ -84,6 +89,8 @@ export function MessageComposer({
   drafts: kept,
   placeholder,
   spellChecking = false,
+  quote,
+  onRemoveQuote,
   ref,
 }: MessageComposerProps) {
   const { t } = strings;
@@ -209,6 +216,16 @@ export function MessageComposer({
         </div>
       )}
       {dictation && <DictationNotice dictation={voice} />}
+      {quote && (
+        <QuoteCard
+          quote={quote}
+          strings={strings}
+          onRemove={() => {
+            onRemoveQuote?.();
+            editor.current?.focus();
+          }}
+        />
+      )}
       <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
       <div className="mt-compose-bar">
         {attachments && (
@@ -310,6 +327,35 @@ export function MessageComposer({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** The quote a reply answers, on the message box (ReplyQuoteCardView): whose words, the words in
+ * two lines at most, and a remove button. */
+export function QuoteCard({
+  quote,
+  strings,
+  onRemove,
+}: {
+  quote: { text: string; name?: string };
+  strings: Strings;
+  onRemove(): void;
+}) {
+  const title = quote.name
+    ? strings.format("home.replyQuote.replyingTo", quote.name)
+    : strings.t("home.replyQuote.replyingToSelection");
+  const words = excerpt(quote.text);
+  const remove = strings.t("home.replyQuote.remove");
+  return (
+    <div className="mt-quote-card">
+      <span className="mt-quote-text">
+        <span className="mt-quote-title">{title}</span>
+        <span className="mt-quote-words">{words}</span>
+      </span>
+      <button type="button" className="mt-quote-remove" aria-label={remove} title={remove} onClick={onRemove}>
+        <HomeIcon name="close" size={14} />
+      </button>
     </div>
   );
 }

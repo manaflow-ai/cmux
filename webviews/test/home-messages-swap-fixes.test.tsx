@@ -774,10 +774,10 @@ test("round 5 F2: Reply… opens the message's thread, and a send there carries 
   await rightClick(bubble("a reply")!);
   await act(async () => item(strings.t("menu.replyEllipsis"))!.click());
   await settle();
-  // The thread shows over the conversation, with Back.
+  // The thread shows over the conversation at the reply's branch (round 6: native tree mode), with Back.
   expect(store.getSnapshot().thread).toBe("m1");
-  expect(container.querySelector(".hm-thread-bar")?.textContent).toBe(strings.t("thread.back"));
-  expect(bubble("root text")).toBeDefined();
+  expect(container.querySelector(".hm-thread-bar button")?.textContent).toBe(strings.t("thread.back"));
+  expect(bubble("a reply")).toBeDefined();
   // A send there goes in the thread, answering the reply it came from.
   await act(async () => nav.replaceDraft("dm", "in the thread"));
   await settle();
@@ -785,7 +785,10 @@ test("round 5 F2: Reply… opens the message's thread, and a send there carries 
   await act(async () => send.click());
   await settle();
   expect(sends).toMatchObject([{ conversation: "dm", text: "in the thread", threadRoot: "m1", replyTo: "m2" }]);
-  // Back closes the thread.
+  // Back steps out of the branch to the whole thread, then closes it.
+  await act(async () => container.querySelector<HTMLElement>(".hm-thread-bar button")!.click());
+  await settle();
+  expect(bubble("root text")).toBeDefined();
   await act(async () => container.querySelector<HTMLElement>(".hm-thread-bar button")!.click());
   await settle();
   expect(store.getSnapshot().thread).toBeUndefined();

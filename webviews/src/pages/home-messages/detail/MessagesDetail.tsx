@@ -40,6 +40,9 @@ import {
 import { createTranscriptStrings } from "../transcript/strings";
 import type { HeaderPanelItem } from "../transcript/TranscriptHeader";
 import type { RowLinks } from "../transcript/TranscriptRows";
+import { quotedReply, selectionQuote, type ReplyQuote } from "../transcript/replyQuote";
+import { timelineReplyCounts } from "../transcript/rows";
+import { threadBranch, threadPath } from "../transcript/threadBranch";
 import type { MessagesDetailProps } from "../types";
 import {
   bubbleHostActions,
@@ -376,9 +379,10 @@ function ConversationView(
   },
 ) {
   const { store, snapshot, me, host, nav, words, conversation, firstRun } = props;
-  // Reply… on a message (the native transcript's): its thread opens over the conversation, and a
-  // send there answers that message (the root's own thread when it is the root).
-  const [replying, setReplying] = useState<{ root: string; parent: string }>();
+  // Reply… on a message (the native transcript's tree mode): its thread opens over the
+  // conversation at the replied message's branch (the drill path from the root down to it), and a
+  // send there answers the branch's message (the root when the path is empty).
+  const [replying, setReplying] = useState<{ root: string; path: readonly string[] }>();
   // The bubbles' menus: what the app offers here, and the runs of their rows (both views share them).
   const bubbleHost = useBubbleFacts(host, conversation.id);
   const hostRuns = useMemo(() => bubbleHostActions(host), [host]);
@@ -390,6 +394,41 @@ function ConversationView(
     onShare: hostRuns.share,
     onFile: hostRuns.file,
   };
+  // Reply to Selection's quote: it goes out before the next send's text in the thread it opened.
+  const [quote, setQuote] = useState<ReplyQuote>();
+  const timelineCounts = useMemo(
+    () => timelineReplyCounts(snapshot.messages, snapshot.threadStats),
+    [snapshot.messages, snapshot.threadStats],
+  );
+  const known = (id: string) =>
+    snapshot.threadView?.messages.find((message) => message.id === id) ??
+    snapshot.messages.find((message) => message.id === id);
+  const openBranch = (root: string, path: readonly string[]) => {
+    setReplying({ root, path });
+    if (snapshot.thread !== root) void store.openThread(root);
+  };
+  const onReply = (message: HomeMessage) => {
+    const root = threadOf(message) ?? message.id;
+    const loaded = [...(snapshot.threadView?.messages ?? []), ...snapshot.messages];
+    // Another message's Reply… ends a quote taken from a different one (native forgetQuote).
+    if (quote && quote.message !== message.id) setQuote(undefined);
+    openBranch(root, threadPath(message.id, root, loaded));
+  };
+  const onReplyToSelection = (message: HomeMessage, taken: ReplyQuote) => {
+    onReply(message);
+    setQuote(taken);
+    nav.requestFocus();
+  };
+  // The host's Reply to Selection (Cmd-Shift-R, the palette): the page's selection, in one message.
+  const replier = useRef<() => boolean>(() => false);
+  replier.current = () => {
+    const taken = selectionQuote(document);
+    const message = taken && known(taken.message);
+    if (!taken || !message) return false;
+    onReplyToSelection(message, taken);
+    return true;
+  };
+  useEffect(() => nav.setReplier(() => replier.current()), [nav]);
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -398,24 +437,31 @@ function ConversationView(
   const firstRunShown = conversation.kind === "chief" && conversation.lastSeq === 0 && snapshot.messages.length === 0;
   const chief = conversation.participants.find((person) => person.id !== me.id && person.chief);
   const intro = firstRun.introKind ? chiefIntroText(firstRun.introKind, words.cards) : undefined;
-  const onReply = (message: HomeMessage) => {
-    const root = threadOf(message) ?? message.id;
-    setReplying({ root, parent: message.id });
-    void store.openThread(root);
-  };
   const root = snapshot.thread;
   if (root) {
-    const parent = replying?.root === root && replying.parent !== root ? replying.parent : undefined;
+    const path = replying?.root === root ? replying.path : [];
+    const quoteName =
+      quote && conversation.participants.find((person) => person.id === known(quote.message)?.author)?.name;
     return (
       <ThreadView
         {...props}
         me={me}
         menus={menus}
         root={root}
+        path={path}
+        onPath={(next) => setReplying({ root, path: next })}
         onReply={onReply}
-        onSend={(text, files) => store.send(text, root, parent, files)}
+        onReplyToSelection={onReplyToSelection}
+        {...(quote ? { quote: { text: quote.text, ...(quoteName ? { name: quoteName } : {}) } } : {})}
+        onRemoveQuote={() => setQuote(undefined)}
+        onSend={async (text, files) => {
+          const sent = await store.send(quote ? quotedReply(quote.text, text) : text, root, path.at(-1), files);
+          if (sent) setQuote(undefined);
+          return sent;
+        }}
         onClose={() => {
           setReplying(undefined);
+          setQuote(undefined);
           void store.openThread(undefined);
         }}
       />
@@ -463,6 +509,9 @@ function ConversationView(
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={onReply}
         {...menus}
+        onReplyToSelection={onReplyToSelection}
+        replyCounts={timelineCounts}
+        onOpenReplies={(id) => openBranch(id, [])}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
@@ -503,12 +552,18 @@ function ThreadView(
     me: HomeParticipant;
     menus: BubbleMenuProps;
     root: string;
+    /** The drilled replies below the root (outermost first); empty: the whole thread. */
+    path: readonly string[];
+    onPath(path: readonly string[]): void;
     onReply(message: HomeMessage): void;
+    onReplyToSelection(message: HomeMessage, quote: ReplyQuote): void;
+    quote?: { text: string; name?: string };
+    onRemoveQuote(): void;
     onSend(text: string, files?: readonly HomeAttachment[]): Promise<boolean>;
     onClose(): void;
   },
 ) {
-  const { store, snapshot, words, conversation, root } = props;
+  const { store, snapshot, words, conversation, root, path } = props;
   const view = snapshot.threadView;
   const messages = useMemo(() => {
     const source = view
@@ -521,6 +576,16 @@ function ThreadView(
     const { root: first, replies } = threadMessages(source, root);
     return first ? [first, ...replies] : replies;
   }, [view, snapshot.messages, root]);
+  // Tree order, or the drilled branch, with "N Replies" under each reply that has replies.
+  const branch = useMemo(() => threadBranch(messages, root, path), [messages, root, path]);
+  const names = useMemo(
+    () =>
+      [root, ...path].map((id) => {
+        const author = messages.find((message) => message.id === id)?.author;
+        return conversation.participants.find((person) => person.id === author)?.name ?? "";
+      }),
+    [messages, root, path, conversation.participants],
+  );
   const pending = useMemo(
     () => snapshot.pending.filter((entry) => entry.threadRoot === root),
     [snapshot.pending, root],
@@ -537,7 +602,13 @@ function ThreadView(
       strings={words.transcript}
       me={props.me.id}
       conversation={conversation}
-      messages={messages}
+      messages={branch.messages}
+      replyCounts={branch.counts}
+      threadMode
+      onOpenReplies={(id) => props.onPath(threadPath(id, root, messages))}
+      onReplyToSelection={props.onReplyToSelection}
+      {...(props.quote ? { quote: props.quote } : {})}
+      onRemoveQuote={props.onRemoveQuote}
       pending={pending}
       typing={snapshot.typing}
       viewing={snapshot.viewing}
@@ -548,9 +619,29 @@ function ThreadView(
       colors={colors}
       pinned={
         <div className="hm-thread-bar">
-          <Button variant="ghost" size="sm" onClick={props.onClose}>
+          {/* Back steps out of a drilled branch one level, then closes the thread (native crumb). */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => (path.length ? props.onPath(path.slice(0, -1)) : props.onClose())}
+          >
             {words.transcript.t("thread.back")}
           </Button>
+          {path.length > 0 && (
+            <span className="hm-thread-crumbs">
+              {names.map((name, level) => (
+                <Button
+                  key={level}
+                  variant="ghost"
+                  size="sm"
+                  disabled={level === names.length - 1}
+                  onClick={() => props.onPath(path.slice(0, level))}
+                >
+                  {name}
+                </Button>
+              ))}
+            </span>
+          )}
         </div>
       }
       {...(store.attachments && takesFiles(snapshot, conversation) ? { attachments: store.attachments } : {})}

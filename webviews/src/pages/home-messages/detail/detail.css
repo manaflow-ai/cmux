@@ -32,3 +32,12 @@
   display: flex;
   justify-content: flex-start;
 }
+
+/* A drilled thread: Back and the names of the levels above the branch. */
+.hm-thread-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}

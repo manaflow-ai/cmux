@@ -3,13 +3,13 @@
 // received one, the group's last with its tail), the Edited and Not Delivered labels, the Read and
 // Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu is the
 // native transcript's (bubbleMenu.ts), built from what was under the pointer when it opened.
-import { memo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { memo, useContext, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Markdown } from "../../../agent-session/acpmux/conversation/Markdown";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { Popover } from "../../../ui/Popover";
 import type { EmojiTable } from "../../../icon-picker/emojiData";
-import { MessageAttachments } from "../../home-channels/AttachmentViews";
+import { AttachmentOpenContext, MessageAttachments } from "../../home-channels/AttachmentViews";
 import { EmojiPicker, loadEmoji } from "../../home-channels/EmojiPicker";
 import { Avatar } from "../../home-channels/Avatar";
 import type { HomeAttachment, HomeMessage, HomePart, HomeParticipant } from "../../home-channels/types";
@@ -28,6 +28,7 @@ import {
   type BubblePointer,
   NO_BUBBLE_HOST,
 } from "./bubbleMenu";
+import { selectionQuote } from "./replyQuote";
 import type { TranscriptRow } from "./rows";
 
 export { TAPBACKS, bubbleCopyText } from "./bubbleMenu";
@@ -47,6 +48,8 @@ export interface RowActions extends Omit<
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   /** Reply… (the native menu's): the message's thread opens, and a send there answers it. */
   onReply?(message: HomeMessage): void;
+  /** "N Replies" under a message: its thread (or, in a thread, its branch) opens. */
+  onOpenReplies?(message: string): void;
   links?: RowLinks;
   /** The conversation's facts as the menu opens (read then, so a change re-renders no row). */
   context?(): BubbleContext;
@@ -119,6 +122,14 @@ export const TranscriptRowView = memo(function TranscriptRowView({
           {row.receipt === "read" && row.at !== undefined ? ` ${formatTime(row.at, strings)}` : ""}
         </div>
       );
+    case "replies":
+      return (
+        <div className={`mt-replies-row ${row.outgoing ? "out" : "in"}${row.indent ? " indent" : ""}`} style={style}>
+          <button type="button" className="mt-replies" onClick={() => actions.onOpenReplies?.(row.root)}>
+            {row.count === 1 ? t("label.replies.one") : strings.format("label.replies", String(row.count))}
+          </button>
+        </div>
+      );
     case "typing": {
       const names = row.participants.map((id) => people.get(id)?.name ?? id);
       const label = names.length === 1 ? strings.format("typing.one", names[0]!) : t("typing.many");
@@ -175,6 +186,7 @@ function BubbleRow({
   const [emoji, setEmoji] = useState<EmojiTable>();
   const box = useRef<HTMLDivElement | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
+  const opener = useContext(AttachmentOpenContext);
   const context = actions.context?.() ?? {
     me,
     conversation: { id: message.conversation, kind: "direct", participants: [] },
@@ -197,7 +209,10 @@ function BubbleRow({
       onVideo: (action) => {
         const element = video.current;
         if (!element) return;
-        if (action === "larger") void element.requestFullscreen?.().catch(() => undefined);
+        // View Larger: the page's video viewer, else the player's own full screen.
+        const shown = pointer.attachment;
+        if (action === "larger" && opener && shown) opener.openVideo(message.conversation, shown);
+        else if (action === "larger") void element.requestFullscreen?.().catch(() => undefined);
         else if (element.paused) void element.play().catch(() => undefined);
         else element.pause();
       },
@@ -207,7 +222,8 @@ function BubbleRow({
   const onContextMenuCapture = (event: ReactMouseEvent) => {
     const read = readPointer(event.target, box.current, row.parts);
     video.current = read.element;
-    setPointer(read.pointer);
+    const quote = selectionQuote(document, message.id);
+    setPointer(quote ? { ...read.pointer, quote } : read.pointer);
   };
   const reactions = row.reactions.length > 0 && (
     <span className={`mt-tapbacks ${outgoing ? "out" : "in"}`} aria-label={t("menu.tapback")}>

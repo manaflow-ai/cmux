@@ -38,9 +38,11 @@ import { historyEntries } from "./history";
 import { MessageComposer, dragOffersFiles, type DictationCall, type MessageComposerHandle } from "./MessageComposer";
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
+import type { ReplyQuote } from "./replyQuote";
 import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
 import type { BubbleContext, BubbleHostFacts, FileAction, FileTarget } from "./bubbleMenu";
 import { NO_BUBBLE_HOST } from "./bubbleMenu";
+import { MediaViewerHost } from "../viewer/MediaViewer";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
@@ -101,6 +103,13 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onFile?(action: FileAction, target: FileTarget): void;
   /** What the app offers the bubbles' menus (Copy Link's scheme, Forward…, Share…, Retry Reply, file rows). */
   bubbleHost?: BubbleHostFacts;
+  /** Reply to Selection on a message's selected words (its thread opens with the quote). */
+  onReplyToSelection?(message: HomeMessage, quote: ReplyQuote): void;
+  /** "N Replies" under a message: its thread, or in a thread its branch, opens. */
+  onOpenReplies?(message: string): void;
+  /** The quote the next send carries, on its card above the field. */
+  quote?: { text: string; name?: string };
+  onRemoveQuote?(): void;
   /** The composer's placeholder (a thread's says Reply). */
   composerPlaceholder?: string;
   /** The message box checks spelling (Settings). */
@@ -160,6 +169,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           draft: props.draft,
           hasOlder: props.hasOlder,
           loadingOlder: props.loadingOlder,
+          ...(props.replyCounts ? { replyCounts: props.replyCounts } : {}),
+          ...(props.threadMode ? { threadMode: true } : {}),
         },
         now,
         cache,
@@ -175,6 +186,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.draft,
       props.hasOlder,
       props.loadingOlder,
+      props.replyCounts,
+      props.threadMode,
       now,
     ],
   );
@@ -225,6 +238,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       ...(props.onForward ? { onForward: props.onForward } : {}),
       ...(props.onShare ? { onShare: props.onShare } : {}),
       ...(props.onFile ? { onFile: props.onFile } : {}),
+      ...(props.onReplyToSelection ? { onReplyToSelection: props.onReplyToSelection } : {}),
+      ...(props.onOpenReplies ? { onOpenReplies: props.onOpenReplies } : {}),
       ...(links ? { links } : {}),
       ...(props.approvals ? { approvals: props.approvals } : {}),
       context: () => facts.current,
@@ -242,6 +257,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.onForward,
       props.onShare,
       props.onFile,
+      props.onReplyToSelection,
+      props.onOpenReplies,
       links,
       props.approvals,
     ],
@@ -358,62 +375,68 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           composer.current?.addFiles(event.dataTransfer.files);
         }}
       >
-        <div
-          ref={scroller}
-          className="mt-scroller"
-          {...{ [WEB_SWAP_KEPT_SCROLL]: "end" }}
-          onScroll={() => {
-            if (onScroll() && props.hasOlder && !props.loadingOlder) onLoadOlder();
-            readRef.current();
-          }}
-          role="log"
-          aria-live="polite"
-        >
-          <div ref={stack} className="mt-stack" style={{ height: total }}>
-            {items.map((item) => {
-              const row = item.index > 0 ? rows[item.index - 1]! : undefined;
-              return (
-                <div
-                  key={item.key}
-                  data-key={item.key}
-                  ref={measure}
-                  className="mt-slot"
-                  style={{ transform: `translateY(${item.start}px)` }}
-                >
-                  {row ? (
-                    <TranscriptRowView
-                      row={row}
-                      me={me}
-                      strings={strings}
-                      now={now}
-                      people={people}
-                      actions={actions}
-                      highlight={highlight}
-                    />
-                  ) : (
-                    <div className="mt-top" style={{ height: HEADER_ROOM + pinnedHeight }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {empty && rows.length === 0 && <div className="mt-empty">{empty}</div>}
-        </div>
-        <TranscriptHeader
-          title={title}
-          participant={other}
-          alsoHere={alsoHere}
-          panels={props.panels}
-          onPanel={props.onPanel}
-          onContact={props.onContact}
+        <MediaViewerHost
           strings={strings}
-        />
-        {pinned && (
-          <div ref={pinnedBox} className="mt-pinned">
-            {pinned}
+          onClosed={() => composer.current?.focus()}
+          {...(attachments ? { onSend: (file: File) => composer.current?.addFiles([file]) } : {})}
+        >
+          <div
+            ref={scroller}
+            className="mt-scroller"
+            {...{ [WEB_SWAP_KEPT_SCROLL]: "end" }}
+            onScroll={() => {
+              if (onScroll() && props.hasOlder && !props.loadingOlder) onLoadOlder();
+              readRef.current();
+            }}
+            role="log"
+            aria-live="polite"
+          >
+            <div ref={stack} className="mt-stack" style={{ height: total }}>
+              {items.map((item) => {
+                const row = item.index > 0 ? rows[item.index - 1]! : undefined;
+                return (
+                  <div
+                    key={item.key}
+                    data-key={item.key}
+                    ref={measure}
+                    className="mt-slot"
+                    style={{ transform: `translateY(${item.start}px)` }}
+                  >
+                    {row ? (
+                      <TranscriptRowView
+                        row={row}
+                        me={me}
+                        strings={strings}
+                        now={now}
+                        people={people}
+                        actions={actions}
+                        highlight={highlight}
+                      />
+                    ) : (
+                      <div className="mt-top" style={{ height: HEADER_ROOM + pinnedHeight }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {empty && rows.length === 0 && <div className="mt-empty">{empty}</div>}
           </div>
-        )}
-        {dropping && <div className="mt-drop-highlight" aria-hidden />}
+          <TranscriptHeader
+            title={title}
+            participant={other}
+            alsoHere={alsoHere}
+            panels={props.panels}
+            onPanel={props.onPanel}
+            onContact={props.onContact}
+            strings={strings}
+          />
+          {pinned && (
+            <div ref={pinnedBox} className="mt-pinned">
+              {pinned}
+            </div>
+          )}
+          {dropping && <div className="mt-drop-highlight" aria-hidden />}
+        </MediaViewerHost>
         <MessageComposer
           ref={composer}
           strings={strings}
@@ -435,6 +458,8 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           {...(props.attachmentDrafts ? { drafts: props.attachmentDrafts } : {})}
           {...(props.composerPlaceholder ? { placeholder: props.composerPlaceholder } : {})}
           spellChecking={props.spellChecking === true}
+          {...(props.quote ? { quote: props.quote } : {})}
+          {...(props.onRemoveQuote ? { onRemoveQuote: props.onRemoveQuote } : {})}
           key={`${conversation.id}:${props.composerKey ?? ""}`}
         />
       </section>

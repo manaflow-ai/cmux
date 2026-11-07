@@ -56,6 +56,11 @@ export interface TranscriptData {
   /** Older messages exist before the first one: the top row loads them. */
   hasOlder?: boolean;
   loadingOlder?: boolean;
+  /** Replies under each message (`timelineReplyCounts`, or a thread's `branchReplyCounts`): an
+   * "N Replies" row under it opens them. */
+  replyCounts?: ReadonlyMap<string, number>;
+  /** The rows are an open thread's: every count of 1 or more shows (a branch to drill into). */
+  threadMode?: boolean;
 }
 
 interface RowBase {
@@ -92,6 +97,7 @@ export type TranscriptRow =
   | (RowBase & { kind: "label"; outgoing: boolean; label: "edited" | "notDelivered" | "notKept" })
   | (RowBase & { kind: "unsent"; outgoing: boolean })
   | (RowBase & { kind: "receipt"; receipt: "read" | "delivered"; at?: number })
+  | (RowBase & { kind: "replies"; root: string; count: number; outgoing: boolean; indent: boolean })
   | (RowBase & { kind: "typing"; participants: readonly string[] });
 
 /** The id prefix of a running reply's message. */
@@ -212,10 +218,13 @@ interface RowInputs {
   threadNext?: string;
   /** My pending send the app refused to keep (too large): it says so, as it would be lost on quit. */
   unkept?: boolean;
+  /** The "N Replies" row's count (undefined: none shows). */
+  replies?: number;
 }
 
 const INPUT_KEYS = [
   "unkept",
+  "replies",
   "prev",
   "next",
   "above",
@@ -288,6 +297,7 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       threadSelf: thread(message),
       threadNext: thread(next),
       unkept: unkept.has(message.id) || undefined,
+      replies: repliesLabel(data, message, next),
     };
     const kept = cache?.get(message, inputs);
     if (kept) {
@@ -368,6 +378,16 @@ export function transcriptRows(data: TranscriptData, now: number, cache?: RowCac
       if (delivery?.state === "failed")
         own.push({ kind: "label", key: `failed:${message.id}`, gap: 1, outgoing, label: "notDelivered" });
       if (inputs.unkept) own.push({ kind: "label", key: `unkept:${message.id}`, gap: 1, outgoing, label: "notKept" });
+      if (inputs.replies !== undefined)
+        own.push({
+          kind: "replies",
+          key: `replies:${message.id}`,
+          gap: 0,
+          root: message.id,
+          count: inputs.replies,
+          outgoing,
+          indent: group && !outgoing,
+        });
       if (receipt) own.push({ kind: "receipt", key: `receipt:${message.id}`, gap: 0, ...receipt });
     }
     cache?.set(message, inputs, own);
@@ -404,6 +424,8 @@ export function estimateRow(row: TranscriptRow): number {
       return row.gap + 16;
     case "receipt":
       return 16;
+    case "replies":
+      return 22;
     case "typing":
       return row.gap + 35;
     case "bubble": {
@@ -421,4 +443,40 @@ export function estimateRow(row: TranscriptRow): number {
 /** The participant ids the typing row names, as the a11y line reads them. */
 export function typingNames(participants: readonly string[], people: ReadonlyMap<string, HomeParticipant>): string[] {
   return participants.map((id) => people.get(id)?.name ?? id);
+}
+
+/** The count an "N Replies" row under `message` shows, or undefined (RowBuilder's rule): in the
+ * timeline a root with 2 or more replies, or 1 that is not right under it; in a thread every
+ * message with a reply under it (the caller leaves out the root and the branch's top). */
+export function repliesLabel(
+  data: Pick<TranscriptData, "replyCounts" | "threadMode">,
+  message: HomeMessage,
+  next: HomeMessage | undefined,
+): number | undefined {
+  const count = data.replyCounts?.get(message.id);
+  if (!count || message.retracted) return undefined;
+  if (data.threadMode) return count;
+  if (threadOf(message)) return undefined;
+  // One reply right under its root shows as the thread itself, with no label.
+  if (count >= 2) return count;
+  return next && threadOf(next) === message.id ? undefined : count;
+}
+
+/** Each loaded root's live replies, counted over the loaded messages; the owner's count wins when
+ * it has one (`threadStats`: replies outside the window too). O(messages). */
+export function timelineReplyCounts(
+  messages: readonly HomeMessage[],
+  stats?: ReadonlyMap<string, { replyCount: number }>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    const root = threadOf(message);
+    if (root && !message.retracted) counts.set(root, (counts.get(root) ?? 0) + 1);
+  }
+  if (stats)
+    for (const message of messages) {
+      const owned = stats.get(message.id)?.replyCount;
+      if (owned !== undefined && !threadOf(message)) counts.set(message.id, Math.max(0, owned));
+    }
+  return counts;
 }

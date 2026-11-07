@@ -1,6 +1,6 @@
 // A transcript bubble's right-click menu, in the native transcript's order (MessagesLabHome
 // PaneMenu.swift `menu(at:)`): the link or path under the pointer, the tapbacks, Tapback Details…,
-// Reply…, Attach Sticker…; Copy, Copy Link, Forward…; a video's Play/Pause and View Larger and an
+// Reply to Selection, Reply…, Attach Sticker…; Copy, Copy Link, Forward…; a video's Play/Pause and View Larger and an
 // attachment's rows; Try Again and Delete on my failed send, else Retry Reply, else Cancel Upload;
 // Share…; Delete.
 // It reads only the row, what was under the pointer and the host's facts, and builds no state.
@@ -9,6 +9,7 @@ import { messageLink, partText } from "../../home-channels/model";
 import type { HomeAttachment, HomeConversation, HomeMessage } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { locationCopyText } from "../cards/parts/PartCards";
+import type { ReplyQuote } from "./replyQuote";
 import type { TranscriptRow } from "./rows";
 
 /** The tapbacks, in Messages' order: the name sent back (`HomeReaction.tapback`) and its emoji. */
@@ -55,6 +56,8 @@ export interface BubblePointer {
   path?: string;
   /** The words selected inside this bubble. */
   selection?: string;
+  /** The selection as Reply to Selection's quote (one sent message's words). */
+  quote?: ReplyQuote;
   /** The attachment under the pointer (a run of them shows several). */
   attachment?: HomeAttachment;
   /** A video under the pointer: whether it plays now. */
@@ -81,6 +84,8 @@ export interface BubbleMenuActions {
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   onCopy?(text: string): void;
   onReply?(message: HomeMessage): void;
+  /** Reply to Selection: the message's thread opens with the selected words quoted. */
+  onReplyToSelection?(message: HomeMessage, quote: ReplyQuote): void;
   onOpenLink?(href: string): void;
   onDelete?(message: HomeMessage): void;
   onRetryReply?(message: HomeMessage): void;
@@ -242,6 +247,15 @@ export function bubbleMenuItems(
       label: t("menu.tapbackDetails"),
       symbol: "plus.magnifyingglass",
       onSelect: actions.onTapbackDetails,
+    });
+  // Reply to Selection (MessagesLab PaneMenu): words selected in this message, right before Reply….
+  const quote = pointer.quote;
+  if (committed && quote && actions.onReplyToSelection)
+    add({
+      id: "replyToSelection",
+      label: t("home.message.replyToSelection"),
+      symbol: "text.quote",
+      onSelect: () => actions.onReplyToSelection?.(message, quote),
     });
   if (committed && actions.onReply)
     add({

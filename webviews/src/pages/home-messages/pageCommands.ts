@@ -10,6 +10,7 @@
 //   home.messages.focusComposer {}                                -> {focused}
 //   home.moveConversation     {delta}                             -> {moved}    (as Channels serves it)
 //   home.messages.selectNumber {number: 1..9}                     -> {selected} (9 = the last)
+//   home.messages.replyToSelection {}                             -> {replied}  (Cmd-Shift-R, the palette)
 //
 // Page → host: `cmux.home.messages.selected {conversation: string | null, message?, composing?}` on
 // every change of the shown conversation once the inbox is read (fire and forget): the host keeps it
@@ -30,6 +31,7 @@ export const MessagesPageOps = {
   focusComposer: "home.messages.focusComposer",
   moveConversation: MOVE_CONVERSATION_OP,
   selectNumber: "home.messages.selectNumber",
+  replyToSelection: "home.messages.replyToSelection",
 } as const;
 
 /** Page → host: the shown conversation changed. */
@@ -178,6 +180,7 @@ export function servePageCommands(host: PageClient, latest: () => PageCommandCon
       once((params) => present(latest(), params)),
     ),
     host.handle(MessagesPageOps.focusComposer, () => ({ focused: latest().nav.focus() })),
+    host.handle(MessagesPageOps.replyToSelection, () => ({ replied: latest().nav.replyToSelection() })),
     host.handle(
       MessagesPageOps.moveConversation,
       once((params) => moveConversation(latest(), params)),

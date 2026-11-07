@@ -93,6 +93,7 @@ export class MessagesNav {
   private focuser: (() => boolean) | undefined;
   /** Where files dropped on the list go now (the detail registers it); none on New Message. */
   private dropTarget: (() => FileDropTarget | undefined) | undefined;
+  private replier: (() => boolean) | undefined;
 
   constructor(
     private readonly keeper?: DraftKeeper,
@@ -291,6 +292,20 @@ export class MessagesNav {
   /** Where files dropped on the list go now; undefined when nothing takes them. */
   fileDrop(): FileDropTarget | undefined {
     return this.dropTarget?.();
+  }
+
+  /** Who answers the host's Reply to Selection (the shown conversation); returns the stop. */
+  setReplier(replier: () => boolean): () => void {
+    this.replier = replier;
+    return () => {
+      if (this.replier === replier) this.replier = undefined;
+    };
+  }
+
+  /** Reply to Selection: the words selected in one message open its reply with them quoted;
+   * false when nothing is selected in one shown message. */
+  replyToSelection(): boolean {
+    return this.replier?.() ?? false;
   }
 
   /** The keyboard goes to the composer after the next commit (the detail's effect). */
