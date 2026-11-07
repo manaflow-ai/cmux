@@ -412,10 +412,9 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
         return Read::Unreadable;
     };
     let head: Vec<&str> = head.split(' ').filter(|part| !part.is_empty()).collect();
-    let (3, Some(now)) = (head.len(), head.get(2).and_then(|n| n.parse::<i64>().ok())) else {
-        return Read::Unreadable;
-    };
-    let lock = head[1];
+    let [_, lock, now] = head.as_slice() else { return Read::Unreadable };
+    let Ok(now) = now.parse::<i64>() else { return Read::Unreadable };
+    let lock = *lock;
     if lock == "held" {
         return Read::Wait;
     }
@@ -484,7 +483,7 @@ pub fn read(ran: &ExecAnswer, repo: Option<&Repo>) -> Read {
         "running" => Read::Unreadable,
         "starting" => {
             let at = integer(status.get("at")).unwrap_or(now);
-            if now - at >= 60 { Read::Ended(Run::RunnerNeverCame) } else { Read::Wait }
+            if now.saturating_sub(at) >= 60 { Read::Ended(Run::RunnerNeverCame) } else { Read::Wait }
         }
         _ => Read::Unreadable,
     }
@@ -531,9 +530,9 @@ pub fn wait_next(read_: &WaitRead) -> WaitNext {
                 return WaitNext { ended: Some(run), failures: read_.failures, unreachable: None };
             }
             Read::Wait => (0, String::new()),
-            Read::Unreadable => (read_.failures + 1, "unreadable answer".to_owned()),
+            Read::Unreadable => (read_.failures.saturating_add(1), "unreadable answer".to_owned()),
         },
-        (None, error) => (read_.failures + 1, error.clone().unwrap_or_default()),
+        (None, error) => (read_.failures.saturating_add(1), error.clone().unwrap_or_default()),
     };
     WaitNext {
         ended: None,
