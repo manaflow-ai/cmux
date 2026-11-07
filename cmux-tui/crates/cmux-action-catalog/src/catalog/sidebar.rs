@@ -471,7 +471,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "palette.toggleMatchTerminalBackground",
         group: GROUP,
-        title: t("ActionCatalog", "action.palette.toggleMatchTerminalBackground", "Toggle Match Terminal Background"),
+        title: t("ActionCatalog", "action.palette.toggleMatchTerminalBackground", "Match Terminal Background"),
         keywords: &["sidebar", "theme"],
         category: "sidebar",
         symbol: "paintbrush",

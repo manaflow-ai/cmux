@@ -414,6 +414,8 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
+const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
 /// names when it answers (the row changed while it was out); past that the open fails.
 const ATTACH_TRIES = 3;
@@ -3840,7 +3842,7 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     const reason =
       typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
-    this.notice(translate("queue.stopRefused", { reason }));
+    this.transient(translate("queue.stopRefused", { reason }));
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -4479,6 +4481,46 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error());
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
+  }
+
+  /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
+  /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
+  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
+  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
+  /// finished subagent as running.
+  async readSubagentLog(subagent: string): Promise<EventRecord[]> {
+    const sessionId = this.selectedSessionId;
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (!sessionId) throw new Error("No chat");
+    const found: EventRecord[] = [];
+    let after = 0;
+    for (let page = 0; page < SUBAGENT_LOG_PAGES; page += 1) {
+      const result = await this.typed("_acpmux/events", {
+        sessionId,
+        subagent,
+        afterSeq: after,
+        limit: KEPT_EVENTS,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+      if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+      const events = records(result?.events);
+      found.push(...events);
+      if (result?.hasMore !== true || events.length === 0) return found;
+      after = Math.max(...events.map((event) => event.seq));
+    }
+    const newest = await this.typed("_acpmux/events", {
+      sessionId,
+      subagent,
+      beforeSeq: Number.MAX_SAFE_INTEGER,
+      limit: KEPT_EVENTS,
+      maxBytes: OLDER_PAGE_BYTES,
+      kinds: ["transcript"],
+    });
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
   }
 
   /// Reads only this pane's selected chat; the native relay enforces the same scope.
@@ -10234,7 +10276,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.notice(errorMessage(error) || String(error));
+      this.transient(errorMessage(error) || String(error));
       return false;
     }
   }
@@ -10253,6 +10295,15 @@ export class AcpmuxDirectClient {
     }
     await this.create(text(summary.harness), text(summary.cwd));
   }
+  /// Where feedback on a click goes (App.tsx: the pane's toasts, paneToasts.ts). Unset (a test, a
+  /// client with no pane), it is a transcript line as before.
+  toastSink: ((text: string) => void) | undefined;
+  /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
+  /// agent refused, a take-over that failed): a toast, never a transcript line.
+  transient(text: string): void {
+    if (this.toastSink) this.toastSink(text);
+    else this.notice(text);
+  }
   /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
   notice(text: string, id = noticeId("notice")): string {
     const at = Date.now();
@@ -10260,11 +10311,12 @@ export class AcpmuxDirectClient {
     this.emit();
     return id;
   }
-  /// The recap's ×: it stays dismissed on this device, and its row goes.
-  dismissRecap(rowId: string): void {
-    const recap = this.rows.get(rowId)?.recap;
-    if (!recap) return;
-    rememberRecapDismissed(recap.key);
+  /// The recap's ×: it stays dismissed on this device, and its row goes. `key` is the recap the
+  /// person pressed; the row goes only when it is that recap, not another chat's with the same seq
+  /// (a press on the chat a switch still shows).
+  dismissRecap(rowId: string, key: string): void {
+    rememberRecapDismissed(key);
+    if (this.rows.get(rowId)?.recap?.key !== key) return;
     this.rows.delete(rowId);
     this.emit();
   }
