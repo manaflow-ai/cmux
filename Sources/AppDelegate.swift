@@ -4287,17 +4287,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             consumeWindowlessRecoverableRouteForSessionReopen(windowId: windowId)
         }
         var createdWindowIds: [UUID] = []
+        // Collected once and grown per window, as in the startup restore,
+        // rather than rescanning every live window for each one reopened.
+        var excludedStableIdentities = liveStableIdentitySet()
         var excludedWorkspaceIds = liveWorkspaceIdSet()
 
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: false,
-                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet(),
+                excludingStableIdentitiesFromSessionSnapshot: excludedStableIdentities,
                 excludingWorkspaceIdsFromSessionSnapshot: excludedWorkspaceIds
             )
             createdWindowIds.append(windowId)
             if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+                excludedStableIdentities.formUnion(context.tabManager.liveStableIdentitySet())
                 excludedWorkspaceIds.formUnion(context.tabManager.liveWorkspaceIdSet())
             }
         }
