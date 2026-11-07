@@ -1,0 +1,142 @@
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+index 379762eb..2920fcd6 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
++++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
+@@ -459,6 +459,9 @@ fn dispatch_validation_error(tool_name: &str, detail: &str) -> ToolResult {
+ }
+ 
+ /// Thread-safe collection of all registered tools.
++/// The typed reason of a call refused while the screen is locked (acpmux's `mac_lock::MAC_LOCKED`).
++pub const MAC_LOCKED: &str = "mac_locked";
++
+ pub struct ToolRegistry {
+     tools: HashMap<String, Box<dyn Tool>>,
+     /// Ordered list of tool names for `tools/list`.
+@@ -481,6 +484,11 @@ pub struct ToolRegistry {
+     /// tool name, its args, and the trusted allow list before every call; an
+     /// `Err` is returned to the caller and the tool does not run.
+     target_policy_hook: Option<TargetPolicyHook>,
++    /// Whether the screen is locked now (`None`: unknown, which refuses).
++    /// Read after the last consent check, right before dispatch, so a call
++    /// that waited on consent or fronting while the Mac locked never runs on
++    /// the lock screen. `None` here (no hook) checks nothing.
++    screen_lock_hook: Option<fn() -> Option<bool>>,
+     /// Where machine-join consent comes from. Asked on every call and right
+     /// before every capture (see [`crate::machine_consent::ConsentSource`]).
+     consent: Arc<dyn crate::machine_consent::ConsentSource>,
+@@ -520,6 +528,7 @@ impl ToolRegistry {
+             target_app_resolver: Some(crate::session_state::resolve_process_name),
+             target_front_hook: None,
+             target_policy_hook: None,
++            screen_lock_hook: None,
+             consent: crate::machine_consent::default_source(),
+             consent_watcher: std::sync::Mutex::new(None),
+             #[cfg(test)]
+@@ -558,6 +567,11 @@ impl ToolRegistry {
+     }
+ 
+     /// Install the platform hook that fronts a driven target in watchable mode.
++    /// See [`ToolRegistry::screen_lock_hook`].
++    pub fn set_screen_lock_hook(&mut self, hook: fn() -> Option<bool>) {
++        self.screen_lock_hook = Some(hook);
++    }
++
+     /// See [`ToolRegistry::target_front_hook`].
+     pub fn set_target_front_hook(&mut self, hook: fn(i64, Option<&str>)) {
+         self.target_front_hook = Some(hook);
+@@ -685,6 +699,7 @@ impl ToolRegistry {
+     }
+ 
+     /// Invoke a tool by name and (if recording is enabled) write its result to disk.
++    /// A call the screen lock refuses answers `{"error": "mac_locked"}`, as acpmux's gate does.
+     pub async fn invoke(&self, name: &str, mut args: Value) -> ToolResult {
+         // The trusted allow list never reaches a tool; trusted entry points
+         // put it here with `target_policy::scope_target_args`.
+@@ -961,6 +976,24 @@ impl ToolRegistry {
+         Err(refuse(self.consent.as_ref(), &status, tool, surface))
+     }
+ 
++    /// Refuses a call that needs the screen or input while the screen is
++    /// locked (or its lock state is unknown): a screenshot would see only the
++    /// lock screen, and a click or keystroke would land in its password field.
++    /// No await follows this read before dispatch.
++    #[allow(dead_code)]
++    fn require_unlocked(&self, tool: &str) -> Result<(), ToolResult> {
++        use crate::machine_consent::{requirement_for, Requirement};
++        let Some(locked) = self.screen_lock_hook else { return Ok(()) };
++        if requirement_for(tool) == Requirement::Nothing || locked() == Some(false) {
++            return Ok(());
++        }
++        Err(ToolResult::error(format!(
++            "{MAC_LOCKED}: this Mac's screen is locked, so nothing can see or use it. `{tool}` did not run. \
++             It runs again once the person unlocks the Mac."
++        ))
++        .with_structured(serde_json::json!({"error": MAC_LOCKED})))
++    }
++
+     fn watchable_front(&self) -> bool {
+         #[cfg(test)]
+         if self.force_watchable_front {
+@@ -2229,6 +2262,48 @@ mod machine_consent_registry_tests {
+         assert_eq!((result.is_error, fronts, ran), (None, 1, 1));
+     }
+ 
++    static LOCKED_BY_CONSENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++    fn locked_by_consent() -> Option<bool> {
++        Some(LOCKED_BY_CONSENT.load(Ordering::SeqCst))
++    }
++
++    /// Grants everything, and locks the screen as it answers.
++    struct LockingSource;
++
++    impl crate::machine_consent::ConsentSource for LockingSource {
++        fn status(&self) -> crate::machine_consent::ConsentStatus {
++            LOCKED_BY_CONSENT.store(true, Ordering::SeqCst);
++            crate::machine_consent::ConsentStatus { screen: true, control: true, ..crate::machine_consent::ConsentStatus::UNKNOWN }
++        }
++        fn record_refusal(&self, _surface: crate::machine_consent::Surface) {}
++    }
++
++    /// The person locked the Mac while the call waited on consent (acpmux's
++    /// lock gate passed it while unlocked; review of cmux#37239): the lock
++    /// read after the last consent answer refuses it as `mac_locked`, and
++    /// nothing is fronted or dispatched. Unlocked, the same call runs.
++    #[tokio::test]
++    async fn a_mac_that_locks_during_the_consent_wait_runs_nothing() {
++        let home = tempfile::tempdir().unwrap();
++        let (mut registry, _screen, control) = counting_registry(home.path());
++        registry.set_consent_source(Arc::new(LockingSource));
++        registry.set_screen_lock_hook(locked_by_consent);
++        LOCKED_BY_CONSENT.store(false, Ordering::SeqCst);
++        let result = registry.invoke("click", json!({"pid": 4242})).await;
++        assert!(LOCKED_BY_CONSENT.load(Ordering::SeqCst), "the consent answer locked the Mac");
++        assert_eq!(result.is_error, Some(true));
++        assert_eq!(result.structured_content.unwrap()["error"], MAC_LOCKED);
++        assert_eq!(control.load(Ordering::SeqCst), 0, "dispatched on a locked screen");
++
++        fn unlocked() -> Option<bool> {
++            Some(false)
++        }
++        registry.set_screen_lock_hook(unlocked);
++        assert_eq!(registry.invoke("click", json!({"pid": 4242})).await.is_error, None);
++        assert_eq!(control.load(Ordering::SeqCst), 1);
++    }
++
+     #[tokio::test]
+     async fn every_check_asks_the_consent_source_and_nothing_else() {
+         use crate::machine_consent::ConsentStatus;
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+index e6e32040..979809d7 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+@@ -604,6 +604,9 @@ pub fn register_all(registry: &mut ToolRegistry, compat: bool) {
+     // driver, and security surfaces in every profile, not only Codex
+     // compatibility. See cmux_cua_core::target_policy.
+     registry.set_target_policy_hook(crate::target_guard::enforce_native);
++    // A call that waited on consent or fronting while the Mac locked never
++    // runs on the lock screen (cmux's lock gate checks only on the way in).
++    registry.set_screen_lock_hook(crate::session::current_screen_locked);
+     let state = Arc::new(ToolState::default());
+     // Share the element cache with the recording-hook layer so it can
+     // resolve element_index → window-local screenshot coords for click.png.
