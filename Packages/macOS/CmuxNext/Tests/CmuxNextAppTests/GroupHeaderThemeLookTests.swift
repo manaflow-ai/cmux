@@ -138,6 +138,8 @@ import Testing
         let (sidebar, headers) = try Self.headers(in: Self.latte())
         defer { sidebar.window?.close() }
         let header = try #require(headers.first { $0.1 == .red }?.0)
+        // Off screen, so no display pass of the window's clears the flag the observation sets.
+        sidebar.window?.orderOut(nil)
         header.displayIfNeeded()
         #expect(!header.needsDisplay)
         DesignSettings.shared.groupWallpaperTint = WallpaperTint(red: 0.8, green: 0.2, blue: 0.15)
