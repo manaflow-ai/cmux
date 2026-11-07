@@ -1913,20 +1913,49 @@ fn the_bootstrap_files_decide_whether_the_folder_is_ready() {
     }
 }
 
-/// No bootstrap and no folder yet (a machine whose bootstrap is still being put on it): asked again,
-/// never started, and out of time at the deadline.
+/// No bootstrap and no folder (a typo in `--cwd`, or a machine whose bootstrap is still being put on
+/// it): a short fixed grace for a bootstrap to show up (30 s, or the time left when that is less), then
+/// a typed `cloud.folder_missing` (`no_such_folder`, exit 1, no bootstrap log), never a start and never
+/// a wait to the deadline.
 #[test]
-fn no_bootstrap_and_no_folder_is_not_ready() {
-    let home = tempfile::tempdir().unwrap();
-    let mut fake = ShellFake::new(home.path());
-    let cwd = home.path().join("work/r");
-    let Outcome::Failed { error, .. } = run(&mut fake, &repo_start(cwd.to_str().unwrap(), "30"))
-    else {
+fn no_bootstrap_and_no_folder_is_no_such_folder_after_a_short_grace() {
+    for timeout in ["900", "20"] {
+        let home = tempfile::tempdir().unwrap();
+        let mut fake = ShellFake::new(home.path());
+        let cwd = home.path().join("work/typo");
+        let began = fake.clock;
+        let Outcome::Failed { error, exit } =
+            run(&mut fake, &repo_start(cwd.to_str().unwrap(), timeout))
+        else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.folder_missing"), 1), "{error}");
+        assert_eq!(error["details"]["reason"], "no_such_folder");
+        assert!(
+            error["details"].get("log").is_none() && error["details"].get("bootstrap").is_none()
+        );
+        assert!(!error["message"].as_str().unwrap().contains("bootstrap.log"), "{error}");
+        let spent = fake.clock.saturating_duration_since(began);
+        assert!(spent <= Duration::from_secs(45), "{timeout}: {spent:?}");
+        assert!(no_start(&fake.ran), "{:?}", fake.ran);
+        fake.assert_clean();
+    }
+}
+
+/// A bootstrap that shows up inside the grace is waited on like any other.
+#[test]
+fn a_bootstrap_that_shows_up_inside_the_grace_is_waited_on() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        exec_out("absent\n"),
+        exec_out("busy\n"),
+        exec_out("ready\n"),
+        relay_ok(),
+    ]);
+    let Outcome::Done(_) = run(&mut fake, &repo_start("/home/cmux/work/r", "900")) else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(error["code"], "cloud.start_pending");
-    assert!(no_start(&fake.ran), "{:?}", fake.ran);
-    fake.assert_clean();
+    assert!(is_relay(&fake.ran[4]), "{:?}", fake.ran);
 }
 
 /// Review of #37248: one deadline from the command's start. Each check waits on the machine at most
@@ -2017,7 +2046,8 @@ fn a_cwd_with_shell_text_in_it_is_only_ever_a_folder_name() {
         let Outcome::Failed { error, .. } = run(&mut fake, &repo_start(cwd, "20")) else {
             panic!("{name:?}: {:?}", fake.ran)
         };
-        assert_eq!(error["code"], "cloud.start_pending", "{name:?}");
+        assert_eq!(error["details"]["reason"], "no_such_folder", "{name:?}");
+        assert_eq!(error["details"]["cwd"], cwd, "{name:?}");
         assert!(no_start(&fake.ran), "{name:?}");
         fake.assert_clean();
         assert!(!pwned(), "{name:?} ran");
