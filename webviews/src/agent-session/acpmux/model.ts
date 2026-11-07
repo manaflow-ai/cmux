@@ -496,6 +496,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
+  /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
+  agentText?: { from?: string };
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry

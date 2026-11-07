@@ -405,6 +405,11 @@ path = "tests/test_notarize_computer_use_helper.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_notary_submit_retry.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Drives notary_submit_retry in scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_submit_retry.py yourself after changing it (under 1 s, no Mac)."
+
+[[test]]
 path = "tests/test_notary_wait_recover.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_wait_recover.py yourself after changing it (under 1 s, no Mac)."
