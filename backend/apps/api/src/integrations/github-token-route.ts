@@ -7,7 +7,8 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
-import type { RepoListReply, TokenAsk, TokenReply } from "./github-tokens.ts"
+import type { TokenAsk } from "./github-tokens.ts"
+import { platformCloud } from "../platform-cloud.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
@@ -26,13 +27,7 @@ const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.me
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
-interface ConnectionStub {
-  githubToken(entity: string, p: Principal, ask: TokenAsk): Promise<TokenReply>
-  githubRevoke(entity: string, who: { principal: string } | { install: string }): Promise<number>
-  githubStatus(entity: string, p: Principal): Promise<unknown>
-  githubRepos(entity: string, p: Principal, query: { readonly query?: string; readonly cursor?: string }): Promise<RepoListReply>
-}
-const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)) as unknown as ConnectionStub
+const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
@@ -58,7 +53,7 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
   // This live-machine ownership check gates the VM's existing vm-self read and write access.
-  const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
+  const cloud = platformCloud(env.CLOUD_DO, p.team!)
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
   return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
@@ -72,7 +67,7 @@ const isFail = (x: unknown): x is Fail => typeof x === "object" && x !== null &&
 /** Whether `p` administers `team` (its personal team, or an owner or admin in TeamDO). */
 const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean | null> => {
   if (team === personalTeamIdFor(p.user!)) return true
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
   return stub.memberRole(team, p.user!).then((role) => roleHas(role ?? undefined, "team.manage"), () => null)
 }
 

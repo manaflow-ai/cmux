@@ -56,9 +56,11 @@ final class LocalServerSource: ServerSource {
     private var readAgain = false
     private var work: [String: Task<Void, Never>] = [:]
     private var lastSnapshot: ServerSnapshot?
+    /// The switch and Show Pairing Code (`server up|down`, the `server pair` wait).
+    private var controls: LocalServerControls?
     private var lastUnavailable: String?
 
-    init(cli: BundledExecutable, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI,
+    init(cli: BundledExecutable, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI, runWait: @escaping LocalServerControls.Wait,
          fix: @escaping Fix, makeWatcher: @escaping MakeWatcher, localFixes: [HealthCheckID: HealthFix] = [:]) {
         self.cli = cli
         self.hostName = hostName
@@ -67,6 +69,8 @@ final class LocalServerSource: ServerSource {
         self.fix = fix
         self.makeWatcher = makeWatcher
         self.localFixes = localFixes
+        controls = LocalServerControls(run: { guard let binary = await cli.resolve() else { return nil }; return await runCLI(binary, $0)?.status },
+                                       wait: runWait, settle: { [weak self] in self?.settle($0, reject: $1) }, refresh: { [weak self] in self?.refresh() })
     }
 
     /// The App's source: the bundled CLI, the user-mode server's files, and
@@ -77,6 +81,7 @@ final class LocalServerSource: ServerSource {
             hostName: MacName.captureOverride ?? (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
+            runWait: { guard let binary = await cli.resolve() else { return nil }; return await runProcess(binary, $0, timeout: .seconds(20 * 60), line: $1)?.status },
             fix: { await fixer.fix($0) },
             makeWatcher: fileWatcher,
             localFixes: ServerHealthFixer.localFixes)
@@ -85,10 +90,9 @@ final class LocalServerSource: ServerSource {
     /// The user-mode server's files on macOS (cmux-server-core layout): the
     /// process roles status `<state>/roles/status.json` and `server.json`.
     nonisolated static func watchedFiles(home: URL) -> [URL] {
-        [
-            home.appendingPathComponent("Library/Application Support/cmux/server/roles/status.json"),
-            home.appendingPathComponent(".config/cmux/server.json"),
-        ]
+        let state = home.appendingPathComponent("Library/Application Support/cmux/server")
+        return [state.appendingPathComponent("roles/status.json"), home.appendingPathComponent(".config/cmux/server.json"),
+                state.appendingPathComponent("pairing/identity.json")]
     }
 
     // MARK: - ServerSource
@@ -114,8 +118,11 @@ final class LocalServerSource: ServerSource {
             }
         case .openHealth:
             settle(intent.key, reject: nil)
-        case .setEnabled, .showPairingCode, .lookupCode, .approveCode, .revokeDevice:
-            settle(intent.key, reject: RefusalStrings.text("refusal.server.controlNotYet", "This server control is not available yet."))
+        case .setEnabled, .showPairingCode:
+            _ = controls?.send(intent)
+        case .lookupCode, .approveCode, .revokeDevice:
+            // The signed-in team answers these (CloudPairingSource); this Mac alone cannot.
+            settle(intent.key, reject: RefusalStrings.text("refusal.server.needsCloud", "Sign in to cmux to manage paired servers and devices."))
         }
     }
 
@@ -127,6 +134,7 @@ final class LocalServerSource: ServerSource {
         readAgain = false
         for task in work.values { task.cancel() }
         work = [:]
+        controls?.stop()
         sink = nil
         lastSnapshot = nil
         lastUnavailable = nil
@@ -193,9 +201,10 @@ final class LocalServerSource: ServerSource {
         RefusalStrings.text("refusal.server.statusFailed", "Could not read the server status.")
     }
 
-    @concurrent nonisolated static func runProcess(_ executable: URL, _ arguments: [String]) async -> CLIResult? {
+    @concurrent nonisolated static func runProcess(_ executable: URL, _ arguments: [String], timeout: Duration = .seconds(15),
+                                                   line: (@Sendable (String) -> Void)? = nil) async -> CLIResult? {
         guard let result = try? await ProcessRunner.run(executable: executable, arguments: arguments, environment: nil,
-                                                        timeout: .seconds(15), clock: ContinuousClock())
+                                                        timeout: timeout, stderrLine: line, clock: ContinuousClock())
         else { return nil }
         return CLIResult(status: result.status, stdout: result.stdout)
     }

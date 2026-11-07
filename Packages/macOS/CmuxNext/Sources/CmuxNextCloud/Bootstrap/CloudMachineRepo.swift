@@ -1,45 +1,61 @@
 public import Foundation
 
-/// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the new machine clones into
-/// `~/work/NAME` before its bootstrap script runs. Parsed and checked here, on the Mac; the
+/// `cloud new-machine --repo OWNER/NAME[@REF]` (or any https git URL): the repository the new machine
+/// clones into `~/work/NAME` before its bootstrap script runs. Parsed and checked here, on the Mac; the
 /// machine gets `repo.json` (a record, no secret) and the `repo` step with these values in it.
 ///
-/// No token is ever written to the machine. The step uses the first GitHub path the machine
-/// already has: the lane broker's `lane-gh-credential` when it is git's helper (lane VMs), else
-/// `cmux github credential` when the machine's Cloud agent socket is there (it mints a short
-/// repo-scoped token in memory), else no credential at all (public repositories). Every other
-/// helper, a stored gh login's included, is reset for its git commands. A private repository
-/// with none of these ends `needs_github`.
+/// The step writes no token. On GitHub it uses the first path the machine already has: the lane
+/// broker's `lane-gh-credential` when it is git's helper (lane VMs), else `cmux github credential`
+/// when the machine's Cloud agent socket is there (it mints a short repo-scoped token in memory),
+/// else no credential at all (public repositories). Every other helper, a stored gh login's
+/// included, is reset for its git commands. A private repository with none of these ends
+/// `needs_github`. A repository on another host (GitLab, Codeberg, a company server: any
+/// `https://HOST/GROUP/.../NAME`) uses `cmux gitlab credential` when the person's token for that
+/// host was sealed to the machine (`~/.config/cmux/git-hosts/HOST`, written by its daemon), else no
+/// credential; the GitHub paths are never offered to another host, and one that does not clone
+/// ends `failed`, never `needs_github`: connecting GitHub would not help it. A checkout cloned
+/// through a cmux helper keeps that helper in its own config, so the agent's push works there.
 ///
 /// Prior art: #21028's `cmux vm clone` spec parser and its idempotent clone-or-fetch.
 public struct CloudMachineRepo: Equatable, Sendable {
+    public static let gitHub = "github.com"
+
+    /// On GitHub, the owner; elsewhere the group path (`group/subgroup` on GitLab).
     public var owner: String
     public var name: String
     /// A branch, tag or commit; nil keeps the remote's default branch.
     public var ref: String?
+    /// The git host, lowercased: `github.com`, or the host of an https URL.
+    public var host: String
 
-    public init(owner: String, name: String, ref: String? = nil) {
+    public init(owner: String, name: String, ref: String? = nil, host: String = Self.gitHub) {
         self.owner = owner
         self.name = name
         self.ref = ref
+        self.host = host
     }
 
+    public var isGitHub: Bool { host == Self.gitHub }
+
     public enum Invalid: Error, Equatable {
-        /// Not a GitHub repository in one of the accepted forms.
+        /// Not a GitHub repository or an https git URL in one of the accepted forms.
         case unrecognized
         /// A token or password in the URL: it would land in the machine's git config.
         case credentialsInURL
         case invalidRef
     }
 
-    public var url: String { "https://github.com/\(owner)/\(name).git" }
+    public var url: String { "https://\(host)/\(owner)/\(name).git" }
     /// Relative to the machine user's home.
     public var directory: String { "work/\(name)" }
-    public var spec: String { "\(owner)/\(name)" + (ref.map { "@\($0)" } ?? "") }
+    public var spec: String {
+        (isGitHub ? "\(owner)/\(name)" : "https://\(host)/\(owner)/\(name)") + (ref.map { "@\($0)" } ?? "")
+    }
 
     /// `owner/name`, `https://github.com/owner/name[.git][/tree/BRANCH]`, `git@github.com:owner/name.git`
     /// or `ssh://git@github.com/owner/name.git`, each with an optional `@REF` at the end (it wins
-    /// over a `/tree/BRANCH`).
+    /// over a `/tree/BRANCH`). Any other host takes an https URL only,
+    /// `https://HOST/GROUP[/SUBGROUP...]/NAME[.git][/-/tree/BRANCH]` (GitLab's form), with the same `@REF`.
     public static func parse(_ raw: String) throws -> CloudMachineRepo {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         var ref: String?
@@ -59,8 +75,11 @@ public struct CloudMachineRepo: Equatable, Sendable {
                   let components = URLComponents(string: text), let host = components.host else { throw Invalid.unrecognized }
             if components.password != nil { throw Invalid.credentialsInURL }
             if let user = components.user, !(user == "git" && components.scheme?.lowercased() == "ssh") { throw Invalid.credentialsInURL }
-            guard ["github.com", "www.github.com"].contains(host.lowercased()), components.port == nil,
-                  components.query == nil, components.fragment == nil else { throw Invalid.unrecognized }
+            guard components.port == nil, components.query == nil, components.fragment == nil else { throw Invalid.unrecognized }
+            if !["github.com", "www.github.com"].contains(host.lowercased()) {
+                guard components.scheme?.lowercased() == "https", components.user == nil else { throw Invalid.unrecognized }
+                return try other(host: host.lowercased(), path: components.path.split(separator: "/").map(String.init), ref: ref)
+            }
             segments = components.path.split(separator: "/").map(String.init)
         } else if let colon = text.firstIndex(of: ":") {
             // git's scp-like form; only GitHub's own login is not a credential.
@@ -78,6 +97,38 @@ public struct CloudMachineRepo: Equatable, Sendable {
         if ref == nil, segments.count >= 4 { ref = segments[3...].joined(separator: "/") }
         if let ref { guard isRef(ref) else { throw Invalid.invalidRef } }
         return CloudMachineRepo(owner: owner, name: name, ref: ref)
+    }
+
+    /// A repository on a host other than GitHub: every group segment and the name are path
+    /// components, a `/-/tree/BRANCH` tail is the ref (an `@REF` wins over it), and the host is a
+    /// plain DNS name.
+    static func other(host: String, path: [String], ref: String?) throws -> CloudMachineRepo {
+        guard isHost(host) else { throw Invalid.unrecognized }
+        var path = path, ref = ref
+        if let dash = path.firstIndex(of: "-") {
+            let tail = path[(dash + 1)...]
+            guard tail.first == "tree", tail.count >= 2 else { throw Invalid.unrecognized }
+            if ref == nil { ref = tail.dropFirst().joined(separator: "/") }
+            path = Array(path[..<dash])
+        }
+        guard path.count >= 2, let last = path.last else { throw Invalid.unrecognized }
+        let name = last.lowercased().hasSuffix(".git") ? String(last.dropLast(4)) : last
+        let groups = path.dropLast()
+        guard isPathComponent(name), groups.allSatisfy(isPathComponent) else { throw Invalid.unrecognized }
+        if let ref { guard isRef(ref) else { throw Invalid.invalidRef } }
+        return CloudMachineRepo(owner: groups.joined(separator: "/"), name: name, ref: ref, host: host)
+    }
+
+    /// A DNS name: labels of letters, digits and `-`, at least two, none starting or ending with `-`,
+    /// and a top-level label with a letter in it (so never an IP address).
+    static func isHost(_ value: String) -> Bool {
+        let labels = value.split(separator: ".", omittingEmptySubsequences: false)
+        return value.count <= 253 && labels.count >= 2
+            && labels.last?.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) && $0.isASCII }) == true
+            && labels.allSatisfy { label in
+            !label.isEmpty && label.count <= 63 && !label.hasPrefix("-") && !label.hasSuffix("-")
+                && label.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+        }
     }
 
     /// Letters, digits, `.`, `_`, `-`; not starting with `.` or `-` (it becomes a directory).
@@ -100,6 +151,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
     public var record: Data {
         var object: [String: String] = ["url": url, "owner": owner, "name": name, "dir": "~/" + directory]
         if let ref { object["ref"] = ref }
+        if !isGitHub { object["host"] = host }
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
 
@@ -116,10 +168,11 @@ public struct CloudMachineRepo: Equatable, Sendable {
         return #"""
             #!/bin/sh
             # cmux machine bootstrap: the repo step (cmux cloud new-machine --repo). It stores no secret
-            # anywhere: it uses the GitHub access the machine already has, or none.
+            # anywhere: it uses the GitHub access the machine already has, or none (always none off GitHub).
             set -u
             d=$(cd "$(dirname "$0")" && pwd)
-            url=\#(quoted(url)); ref=\#(quoted(ref ?? "")); dir="$HOME/\#(directory)"
+            url=\#(quoted(url)); ref=\#(quoted(ref ?? "")); dir="$HOME/\#(directory)"; github=\#(isGitHub ? "1" : "0")
+            host=\#(quoted(host)); key="credential.https://$host"
             cred=none; helper=""; status=failed; sha=""; why=""; fresh=""
             result() {
               printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s"}\n' \
@@ -135,11 +188,13 @@ public struct CloudMachineRepo: Equatable, Sendable {
             # leo-workspace tools/lane-vm-bootstrap installs), the Cloud agent's, none.
             lane="!$HOME/.local/bin/lane-gh-credential"
             creds=""
-            if [ -x "$HOME/.local/bin/lane-gh-credential" ] &&
+            if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ] &&
               git config --global --includes --get-all credential.https://github.com.helper 2>/dev/null | grep -qxF -- "$lane"; then
               creds="lane-gh"
             fi
-            if [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+            if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+            # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
+            if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && cm=$(command -v cmux); then creds="cmux-gitlab"; fi
             creds="$creds anonymous"
             # From here git reads no user or system config (a username that is a secret, an askpass, a
             # helper, a trace target): the chosen helper comes on the command line.
@@ -149,6 +204,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
               case "$1" in
                 lane-gh) helper=$lane ;;
                 cmux-github) helper="!'$cm' github credential" ;;
+                cmux-gitlab) helper="!'$cm' gitlab credential" ;;
                 *) helper="" ;;
               esac
             }
@@ -157,9 +213,9 @@ public struct CloudMachineRepo: Equatable, Sendable {
             # The usernames are emptied for the same reason.
             g() {
               if [ -n "$helper" ]; then
-                set -- -c "credential.https://github.com.helper=$helper" -c credential.https://github.com.useHttpPath=true "$@"
+                set -- -c "$key.helper=$helper" -c "$key.useHttpPath=true" "$@"
               fi
-              git -c credential.helper= -c core.askPass= -c credential.username= -c credential.https://github.com.username= "$@"
+              git -c credential.helper= -c core.askPass= -c credential.username= -c "$key.username=" "$@"
             }
             # A clone or fetch with each path until one works; the checkout after it keeps that path.
             # A clone that failed half way (its checkout) is removed before the next path tries.
@@ -168,8 +224,10 @@ public struct CloudMachineRepo: Equatable, Sendable {
                 use "$c"; g "$@" && return 0
                 [ -n "$fresh" ] && rm -rf "$dir"
               done
-              status=needs_github; cred=none; result
-              echo "cmux repo: $url needs GitHub access this machine does not have (private, not found, or offline)" >&2
+              cred=none
+              [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); give this machine access to $host first"
+              status=needs_github; result
+              echo "cmux repo: $url needs access this machine does not have (private, not found, or offline)" >&2
               exit \#(Self.needsGitHubExit)
             }
             # Switch to $ref: a local or remote branch (tracked), else a tag or commit (detached).
@@ -216,6 +274,16 @@ public struct CloudMachineRepo: Equatable, Sendable {
               net clone --quiet --filter=blob:none "$url" "$dir"
               switch || { rm -rf "$dir"; die "$why"; }
               status=cloned
+            fi
+            # The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
+            # work (the token is minted or read per git process, never written to the checkout), unless
+            # it has a helper of its own for the host. The empty value first drops a global helper for
+            # the host in this checkout only.
+            if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir" config --local --get-all "$key.helper" >/dev/null; then
+              git -C "$dir" config --local --add "$key.helper" "" &&
+                git -C "$dir" config --local --add "$key.helper" "$helper" &&
+                git -C "$dir" config --local "$key.useHttpPath" true ||
+                echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
             fi
             sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
             result

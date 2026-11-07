@@ -35,7 +35,7 @@ import Testing
             b.close()
         }
         let pageA = ObjectIdentifier(a.contentView)
-        chrome.followPaneMotion(PaneMotionHold(trailing: true, bottom: false, containersFollow: true), heldSize: nil)
+        chrome.followPaneMotion(PaneMotionHold(trailing: true, bottom: false), heldSize: nil)
         #expect(Self.holds[pageA] != nil, "the shown page holds through the key resize")
         pane.bind(b, state: stateB)  // a tab switch while the key is held: page a parks in the shared page area
         chrome.followPaneMotion(nil, heldSize: nil)  // the hold ends

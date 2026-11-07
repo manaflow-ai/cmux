@@ -198,25 +198,18 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     }
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
-    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
-    /// unless `xterm-ghostty` is installed in a system terminfo directory;
-    /// `COLORTERM` and `TERM_PROGRAM=ghostty`. `TERMINFO` is not set. The version
-    /// stays unset because cmux forwards TUI mouse reports instead of providing
-    /// Ghostty's native selection path; advertising a Ghostty version makes Codex
-    /// disable its copy-on-select fallback.
+    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `TERM=xterm-256color`,
+    /// the entry every ssh target has, even when `xterm-ghostty` is installed on this
+    /// Mac (ssh carries `TERM` to hosts without it, user 2026-11-05); `COLORTERM` and
+    /// `TERM_PROGRAM=ghostty`. `TERMINFO` is not set. The version stays unset because
+    /// cmux forwards TUI mouse reports instead of providing Ghostty's native selection
+    /// path; advertising a Ghostty version makes Codex disable its copy-on-select fallback.
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
-        version _: String? = GhosttyRuntime.version,
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
+        version _: String? = GhosttyRuntime.version
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
-                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
-        if roots.contains(where: { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }) {
-            result["TERM"] = "xterm-ghostty"
-        }
         return result
     }
 }

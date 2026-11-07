@@ -214,8 +214,9 @@ struct AgentChatsScreen: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }
-                    .buttonStyle(.borderedProminent)
+                // The load replaces this page at once (phase .loading), which would cancel a
+                // task owned by the button: the screen's model runs it unowned.
+                RetryButton("Try Again") { Task { await model.load() } }
             }
             .accessibilityIdentifier("agentChats.failed")
         case .loaded:
@@ -327,16 +328,19 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    if chat.isActive {
-                        Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
+                // No blank line under the title when there is nothing to say (no status, no folder).
+                if chat.isActive || !subtitle.isEmpty {
+                    HStack(spacing: 6) {
+                        if chat.isActive {
+                            Circle().fill(chat.status == "waiting" ? Color.orange : Color.green).frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(theme.colors.label2.color)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
             }
             Spacer(minLength: 8)
@@ -357,7 +361,7 @@ struct AgentChatRow: View {
         var parts: [String] = []
         if chat.status == "waiting" { parts.append("Needs you") } else if chat.status == "running" { parts.append("Working") }
         parts.append(Self.folder(chat.cwd))
-        return parts.joined(separator: " · ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// `~/x` for a folder in a home folder, as the Mac's chats page abbreviates it.

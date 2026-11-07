@@ -16,19 +16,19 @@ struct CloudMachineTeamMetadataTests {
         #expect(machine.createdBy == "user-a")
     }
 
-    // GET /api/vm maps creatorFor(entry, names) into createdBy; the internal
-    // createdByUserId field is not part of that response. Exercise the real list decoder.
+    // A machine record maps creatorFor(entry, names) into createdBy; the internal
+    // createdByUserId field is not part of that response.
     @Test func decodesClassicListCreatorObjectsAndNull() throws {
         let data = Data(#"""
-        {"vms":[
+        [
           {"id":"vm-a","provider":"freestyle","status":"running","displayName":"Shared box","slug":"calm-blue-sky","image":"devbox","imageVersion":null,"kind":"devbox","createdAt":1760000000000,"createdBy":{"userId":"user-a","displayName":"Ada Lovelace"},"address":{"ipv4":null,"ipv6":null}},
           {"id":"vm-b","provider":"freestyle","status":"paused","createdBy":{"userId":"user-b","displayName":null}},
           {"id":"vm-c","provider":"freestyle","status":"running","createdBy":null}
-        ],"limits":null}
+        ]
         """#.utf8)
-        let list = try JSONDecoder().decode(CloudMachineList.self, from: data)
-        #expect(list.vms.map(\.createdBy) == ["user-a", "user-b", nil])
-        #expect(list.vms.map(\.id) == ["vm-a", "vm-b", "vm-c"])
+        let vms = try JSONDecoder().decode([CloudMachine].self, from: data)
+        #expect(vms.map(\.createdBy) == ["user-a", "user-b", nil])
+        #expect(vms.map(\.id) == ["vm-a", "vm-b", "vm-c"])
     }
 
     // POST /api/vm omits status; GET /api/vm/:id includes it. Both use creatorFor.

@@ -22,6 +22,18 @@ public nonisolated struct WindowDocks: Hashable, Sendable {
         public var extentPermille: Int
         /// Toggled off: kept, not placed.
         public var hidden: Bool
+        /// The Home Chief pane's no-tab-bar mode, per dock: a pane of the docked workspace that shows one tab has
+        /// no tab bar; a second tab dragged in brings it back while it is there (``hidesTabBar(shownTabs:)``).
+        public var hidesTabBar: Bool = false
+        /// How the dock came to be (cmux#37365): false for a dock the person made (Dock Workspace, Open Chief Dock,
+        /// Move Pane to Dock, Toggle on an empty edge), true for Home docked by a link from the Chief
+        /// (`home.chiefDock.openBeside`), nil for a dock read from a record saved before the mark. A relaunch keeps
+        /// a Home dock only when the person chose it (``dropUnchosenHomeDocks(isHome:)``).
+        public var byLink: Bool? = false
+
+        /// Whether a pane of this dock's workspace that shows `shownTabs` tabs draws no tab bar: the same rule as
+        /// the Home Chief pane (``DockColumn/hidesTabBar(shownTabs:)``), so a tab dragged in stays reachable.
+        public func hidesTabBar(shownTabs: Int) -> Bool { hidesTabBar && shownTabs <= 1 }
     }
 
     /// What Toggle did to an edge.
@@ -69,12 +81,14 @@ public nonisolated struct WindowDocks: Hashable, Sendable {
     /// sidebar. Returns that displaced workspace.
     @discardableResult
     public mutating func dock(_ workspace: String, at edge: DockEdge, mode: DockMode = .docked,
-                       extentPermille: Int = WindowDocks.defaultExtentPermille) -> String? {
+                       extentPermille: Int = WindowDocks.defaultExtentPermille, byLink: Bool? = false) -> String? {
         let displaced = dock(at: edge).flatMap { $0.workspace == workspace ? nil : $0.workspace }
+        // The workspace keeps its own tab-bar mode when it moves to another edge.
+        let hidesTabBar = all.first { $0.workspace == workspace }?.hidesTabBar ?? false
         all.removeAll { $0.edge == edge || $0.workspace == workspace }
         all.append(Dock(edge: edge, workspace: workspace, mode: mode,
                         extentPermille: min(max(extentPermille, Self.extentRange.lowerBound), Self.extentRange.upperBound),
-                        hidden: false))
+                        hidden: false, hidesTabBar: hidesTabBar, byLink: byLink))
         all.sort { Self.order($0.edge) < Self.order($1.edge) }
         return displaced
     }
@@ -105,6 +119,62 @@ public nonisolated struct WindowDocks: Hashable, Sendable {
         guard let index = all.firstIndex(where: { $0.workspace == workspace }) else { return nil }
         all[index].mode = all[index].mode == .overlay ? .docked : .overlay
         return all[index].mode
+    }
+
+    /// Moves `workspace`'s dock to `edge`, keeping its mode, extent and tab-bar mode, and shows it (W1: a dock that
+    /// held `edge` goes back to the sidebar). Returns that displaced workspace; nil, and nothing changes, when
+    /// `workspace` has no dock.
+    @discardableResult
+    public mutating func move(_ workspace: String, to edge: DockEdge) -> String? {
+        guard let current = all.first(where: { $0.workspace == workspace }) else { return nil }
+        return dock(workspace, at: edge, mode: current.mode, extentPermille: current.extentPermille, byLink: current.byLink)
+    }
+
+    /// Marks `workspace`'s dock as one the person chose (Open Chief Dock on a Home a link docked); false when it
+    /// has no dock.
+    @discardableResult
+    public mutating func choose(_ workspace: String) -> Bool {
+        guard let index = all.firstIndex(where: { $0.workspace == workspace }) else { return false }
+        all[index].byLink = false
+        return true
+    }
+
+    /// Drops every Home dock (`isHome`) the person did not choose: one a link from the Chief made, or one read from
+    /// a record saved before ``Dock/byLink`` (cmux#37365: links docked the Chief by default then, so such a dock
+    /// was almost always not chosen). Other docks stay. True when one went.
+    @discardableResult
+    public mutating func dropUnchosenHomeDocks(isHome: (String) -> Bool) -> Bool {
+        let before = all.count
+        all.removeAll { $0.byLink != false && isHome($0.workspace) }
+        return all.count != before
+    }
+
+    /// Turns the no-tab-bar mode of `workspace`'s dock on or off; the new value, nil when it has no dock.
+    @discardableResult
+    public mutating func toggleTabBar(_ workspace: String) -> Bool? {
+        guard let index = all.firstIndex(where: { $0.workspace == workspace }) else { return nil }
+        all[index].hidesTabBar.toggle()
+        return all[index].hidesTabBar
+    }
+
+    /// Sets the no-tab-bar mode of `workspace`'s dock; false when it has no dock.
+    @discardableResult
+    public mutating func setHidesTabBar(_ hides: Bool, of workspace: String) -> Bool {
+        guard let index = all.firstIndex(where: { $0.workspace == workspace }) else { return false }
+        all[index].hidesTabBar = hides
+        return true
+    }
+
+    /// Whether a pane of `workspace` that shows `shownTabs` tabs draws no tab bar because its dock is in the
+    /// no-tab-bar mode (``Dock/hidesTabBar(shownTabs:)``); false for a workspace in no dock.
+    public func hidesTabBar(of workspace: String, shownTabs: Int) -> Bool {
+        all.first { $0.workspace == workspace }?.hidesTabBar(shownTabs: shownTabs) ?? false
+    }
+
+    /// The dock the window-dock actions act on: the one holding `focused`, else the first shown one, else the
+    /// first hidden one; nil with no dock.
+    public func target(focused: String?) -> Dock? {
+        all.first { $0.workspace == focused } ?? visible.first ?? all.first
     }
 
     /// Keeps only the docks whose workspace `keeping` accepts (W3: a workspace that closed or left the window).

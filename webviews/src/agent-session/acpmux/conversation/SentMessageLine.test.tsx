@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
 import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -259,7 +259,7 @@ test("a batch's message names its recipient and the file its words came from; op
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
   const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
-  const sends = groups.map((group) => (group.type === "send" ? group.send : undefined)!);
+  const sends = sendEntries(groups).map((group) => group.send);
   const container = await render(
     <>
       {sends.map((send) => (

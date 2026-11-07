@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
+inline constexpr std::string_view kProtocolIrSha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -107,6 +107,9 @@ struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
 struct Layout;
+struct LayoutSizePaneWidth;
+struct LayoutSizeSplitRatio;
+struct LayoutSizeValue;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
 struct LayoutUndoUndone;
@@ -139,6 +142,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct RemoteHostAppResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -224,6 +228,8 @@ struct TerminalHistoryPagesResult;
 enum class TerminalKey;
 enum class TerminalKeyAction;
 struct TerminalKeyInput;
+struct TerminalLastCommand;
+struct TerminalLastCommandResult;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
@@ -484,6 +490,10 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteHostAppRequest;
+struct RemoteHostCallRequest;
+struct RemoteHostConfigRequest;
+struct RemoteHostStatusRequest;
 struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
@@ -522,6 +532,7 @@ struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
+struct SetLayoutSizesRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -551,6 +562,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalLastCommandRequest;
 struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
@@ -911,6 +923,7 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_generation{};
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
+    Field<std::uint32_t> replay_history_rows{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
     std::optional<bool> snapshot_images{};
@@ -3440,6 +3453,24 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutSizePaneWidth {
+    Id pane{};
+    float width{};
+    friend bool operator==(const LayoutSizePaneWidth&, const LayoutSizePaneWidth&) = default;
+};
+
+struct LayoutSizeSplitRatio {
+    float ratio{};
+    Id split{};
+    friend bool operator==(const LayoutSizeSplitRatio&, const LayoutSizeSplitRatio&) = default;
+};
+
+struct LayoutSizeValue {
+    using Variant = std::variant<LayoutSizeSplitRatio, LayoutSizePaneWidth>;
+    Variant value{};
+    friend bool operator==(const LayoutSizeValue&, const LayoutSizeValue&) = default;
+};
+
 struct LayoutUndoConfirmationRequired {
     std::vector<Id> closes_panes{};
     std::uint64_t revision{};
@@ -4489,6 +4520,34 @@ struct ReloadConfigResult {
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
 };
 
+struct RemoteHostAppRequest {
+    friend bool operator==(const RemoteHostAppRequest&, const RemoteHostAppRequest&) = default;
+};
+
+struct RemoteHostAppResult {
+    std::uint32_t host_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const RemoteHostAppResult&, const RemoteHostAppResult&) = default;
+};
+
+struct RemoteHostCallRequest {
+    std::string method{};
+    Field<JsonValue> params{};
+    friend bool operator==(const RemoteHostCallRequest&, const RemoteHostCallRequest&) = default;
+};
+
+struct RemoteHostConfigRequest {
+    Field<bool> computer_use{};
+    Field<bool> headless{};
+    Field<bool> screen_sharing{};
+    friend bool operator==(const RemoteHostConfigRequest&, const RemoteHostConfigRequest&) = default;
+};
+
+struct RemoteHostStatusRequest {
+    friend bool operator==(const RemoteHostStatusRequest&, const RemoteHostStatusRequest&) = default;
+};
+
 struct RemoteTerminalSnapshotRequest {
     Id surface{};
     friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
@@ -5074,7 +5133,10 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
+    std::optional<std::uint64_t> wal_commits{};
+    std::optional<std::uint64_t> wal_synced_commits{};
     std::uint64_t writer_registry_locks{};
     friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
 };
@@ -5178,6 +5240,12 @@ struct SetHostSizePolicyRequest {
 struct SetHostSizePolicyResult {
     HostSizePolicy policy{};
     friend bool operator==(const SetHostSizePolicyResult&, const SetHostSizePolicyResult&) = default;
+};
+
+struct SetLayoutSizesRequest {
+    std::uint64_t transaction{};
+    std::vector<LayoutSizeValue> values{};
+    friend bool operator==(const SetLayoutSizesRequest&, const SetLayoutSizesRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -5703,6 +5771,26 @@ struct TerminalInputUnclaimedEvent {
     friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
 };
 
+struct TerminalLastCommand {
+    std::string command{};
+    std::string ended_at_ms{};
+    std::optional<std::int32_t> exit_code{};
+    std::string started_at_ms{};
+    friend bool operator==(const TerminalLastCommand&, const TerminalLastCommand&) = default;
+};
+
+struct TerminalLastCommandRequest {
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalLastCommandRequest&, const TerminalLastCommandRequest&) = default;
+};
+
+struct TerminalLastCommandResult {
+    std::optional<TerminalLastCommand> last_command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalLastCommandResult&, const TerminalLastCommandResult&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -6031,6 +6119,7 @@ struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
     Base64 data{};
+    std::optional<std::uint64_t> history_rows_omitted{};
     std::optional<KittyGraphicsState> kitty_graphics_state{};
     std::optional<std::vector<KittyImageAlias>> kitty_image_aliases{};
     std::uint16_t rows{};
@@ -6720,6 +6809,24 @@ struct Codec<Layout> {
 };
 
 template <>
+struct Codec<LayoutSizePaneWidth> {
+    static Result<Json> encode(const LayoutSizePaneWidth& value);
+    static Result<LayoutSizePaneWidth> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeSplitRatio> {
+    static Result<Json> encode(const LayoutSizeSplitRatio& value);
+    static Result<LayoutSizeSplitRatio> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeValue> {
+    static Result<Json> encode(const LayoutSizeValue& value);
+    static Result<LayoutSizeValue> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutUndoConfirmationRequired> {
     static Result<Json> encode(const LayoutUndoConfirmationRequired& value);
     static Result<LayoutUndoConfirmationRequired> decode(const Json& value);
@@ -6909,6 +7016,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostAppResult> {
+    static Result<Json> encode(const RemoteHostAppResult& value);
+    static Result<RemoteHostAppResult> decode(const Json& value);
 };
 
 template <>
@@ -7419,6 +7532,18 @@ template <>
 struct Codec<TerminalKeyInput> {
     static Result<Json> encode(const TerminalKeyInput& value);
     static Result<TerminalKeyInput> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommand> {
+    static Result<Json> encode(const TerminalLastCommand& value);
+    static Result<TerminalLastCommand> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommandResult> {
+    static Result<Json> encode(const TerminalLastCommandResult& value);
+    static Result<TerminalLastCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -8982,6 +9107,30 @@ struct Codec<ReloadConfigResult> {
 };
 
 template <>
+struct Codec<RemoteHostAppRequest> {
+    static Result<Json> encode(const RemoteHostAppRequest& value);
+    static Result<RemoteHostAppRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostCallRequest> {
+    static Result<Json> encode(const RemoteHostCallRequest& value);
+    static Result<RemoteHostCallRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostConfigRequest> {
+    static Result<Json> encode(const RemoteHostConfigRequest& value);
+    static Result<RemoteHostConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteHostStatusRequest> {
+    static Result<Json> encode(const RemoteHostStatusRequest& value);
+    static Result<RemoteHostStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<RemoteTerminalSnapshotRequest> {
     static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
     static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
@@ -9210,6 +9359,12 @@ struct Codec<SetHostSizePolicyRequest> {
 };
 
 template <>
+struct Codec<SetLayoutSizesRequest> {
+    static Result<Json> encode(const SetLayoutSizesRequest& value);
+    static Result<SetLayoutSizesRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetPersonalTerminalRequest> {
     static Result<Json> encode(const SetPersonalTerminalRequest& value);
     static Result<SetPersonalTerminalRequest> decode(const Json& value);
@@ -9381,6 +9536,12 @@ template <>
 struct Codec<TerminalHistoryRequest> {
     static Result<Json> encode(const TerminalHistoryRequest& value);
     static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommandRequest> {
+    static Result<Json> encode(const TerminalLastCommandRequest& value);
+    static Result<TerminalLastCommandRequest> decode(const Json& value);
 };
 
 template <>

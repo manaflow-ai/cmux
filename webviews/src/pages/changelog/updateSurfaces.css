@@ -240,7 +240,7 @@
 .wn-pop-brief > .wn-pop-all { display: block; margin: 4px 0 0; }
 .wn-pop-brief .wn-pop-from .wn-pop-all { margin: 0; }
 .wn-pop-brief .wn-pop-head .wn-pop-all { flex: none; margin: 0; }
-.wn-pop-brief .wn-pop-more { margin-top: 2px; }
+.wn-pop-brief .wn-pop-more { margin-top: var(--ds-space-1); }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {

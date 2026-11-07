@@ -260,10 +260,17 @@ pub struct DaemonRuntimeOptions {
     pub trusted_carrier_websocket: bool,
     pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
+    /// The carrier grant config (`--carrier-grant-config`,
+    /// `cmux_remote::grant::GrantConfig`); without it the daemon refuses
+    /// every grant.
+    pub carrier_grant_config: Option<PathBuf>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
     pub resume_lease: Duration,
     pub replaceable_sidecar: bool,
+    /// The Unix sockets an owner's carrier session may reach
+    /// (`--remote-local-socket`, cmux-remote's `local-socket` service).
+    pub local_sockets: Vec<PathBuf>,
 }
 
 impl fmt::Debug for DaemonRuntimeOptions {
@@ -288,6 +295,7 @@ impl fmt::Debug for DaemonRuntimeOptions {
             .field("advertised_routes", &advertised_routes)
             .field("resume_lease", &self.resume_lease)
             .field("replaceable_sidecar", &self.replaceable_sidecar)
+            .field("local_sockets", &self.local_sockets)
             .finish()
     }
 }
@@ -1481,6 +1489,7 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
         ClientAuthMode::Enrolled => AuthKind::Enrolled,
         ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
         ClientAuthMode::Carrier => AuthKind::Carrier,
+        ClientAuthMode::Grant { .. } => AuthKind::Grant,
     }
 }
 
@@ -2160,6 +2169,9 @@ async fn run_daemon(
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
+        if let Some(path) = &options.carrier_grant_config {
+            install_grant_verifier(&auth, path);
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
@@ -2381,7 +2393,11 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::new(workspace, Some(mux_socket));
+            let services = DaemonServices::with_local_sockets(
+                workspace,
+                Some(mux_socket),
+                options.local_sockets.clone(),
+            );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
             shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
@@ -2507,6 +2523,29 @@ async fn recover_inactive_predecessor_state(
     remove_shutdown_recovery_evidence(state_dir, runtime_snapshot, outcome_snapshot)
         .context("could not remove stale remote daemon lifecycle evidence")?;
     Ok(())
+}
+
+/// Installs the carrier grant verifier from `path`. A config that cannot be
+/// read leaves grants refused (the daemon's default) and says why; the
+/// daemon still serves every other route.
+fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
+    let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
+        let machine = verifier.config().machine.clone();
+        auth.set_grant_verifier(Arc::new(verifier))
+            .map(|()| machine)
+            .map_err(|error| error.to_string())
+    });
+    match installed {
+        Ok(machine) => {
+            crate::client_log::stderr_log!(
+                "remote",
+                "{BIN}: carrier grants admitted for {machine}"
+            );
+        }
+        Err(error) => {
+            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
+        }
+    }
 }
 
 async fn load_daemon_auth_during_handoff(
@@ -3671,10 +3710,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -3731,10 +3772,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         let error = match result {
@@ -3769,10 +3812,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         let error = match result {
@@ -3821,10 +3866,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             );
             let error = match result {
@@ -3873,10 +3920,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -3916,10 +3965,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -3969,10 +4020,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -4017,10 +4070,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
         });
@@ -4064,10 +4119,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -4110,10 +4167,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
 
@@ -4174,10 +4233,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("verified modern state did not migrate");
@@ -4236,10 +4297,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("lifecycle-fenced startup retry was rejected");
@@ -4280,10 +4343,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("explicit marker-only recovery did not make startup safe");
@@ -4364,10 +4429,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
             .unwrap_or_else(|error| {
@@ -4409,10 +4476,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
         });
@@ -4447,10 +4516,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4493,10 +4564,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4519,10 +4592,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4568,10 +4643,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         if let Ok(runtime) = result {
@@ -4602,10 +4679,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4714,10 +4793,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_millis(100),
             );
@@ -4770,10 +4851,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_millis(500),
             )
@@ -4854,10 +4937,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_secs(3),
             );
@@ -5058,10 +5143,12 @@ mod tests {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: vec![relay_options],
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
             resume_lease: Duration::from_secs(1),
             replaceable_sidecar: false,
+            local_sockets: Vec::new(),
         };
         let daemon_info = DaemonRuntimeInfo {
             session: "debug-control".into(),
@@ -5344,10 +5431,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: false,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -6284,10 +6373,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -6317,10 +6408,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("finalized preliminary lifecycle blocked the next startup");

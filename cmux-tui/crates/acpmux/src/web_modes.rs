@@ -351,7 +351,7 @@ pub(crate) fn any_mode_for_web(
 pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
     let from_modes = m.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
     let from_option = || {
-        m.config_options.as_ref().and_then(Value::as_array).and_then(|a| {
+        m.config_options.as_deref().and_then(Value::as_array).and_then(|a| {
             a.iter()
                 .find(|o| o.get("id").and_then(Value::as_str) == Some("mode"))
                 .and_then(|o| o.get("currentValue"))

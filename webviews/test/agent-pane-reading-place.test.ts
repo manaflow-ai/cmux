@@ -1,8 +1,11 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// A long chat reopens where the reader left it, even far above its newest page (cx-odzaz). The pane
-// opens a chat on its tail (#20536); the host keeps the row the reader rested on (cx-6bgzj). When
-// that row is older than the tail, the pane pages back to it before it shows the chat, then puts
-// it where it was, instead of opening at the latest message.
+// A chat reopens on what the pane already holds, at once (Leo 2026-11-05: "you don't need to load
+// the entire thing ... Just load the recent bits and render, like, what you already have"). The pane
+// opens a chat on its tail (#20536); the host keeps the row the reader rested on (cx-6bgzj). A kept
+// row inside the tail reopens where it was. A row older than the tail no longer hides the chat
+// while older pages are read back to it (cx-odzaz, which under load kept a long chat blank for
+// seconds and then often opened at the latest message anyway): the chat shows its latest message
+// on its first frame, and older history comes in as the reader scrolls up.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -209,29 +212,47 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
       return bubble && row ? bubble.getBoundingClientRect().top - row.getBoundingClientRect().top : 0;
     });
 
-  test("a long chat reopens at the turn the reader left it on, far above its newest page", async () => {
+  /// Every painted frame the transcript had rows in: the first question drawn, null while hidden.
+  const frames = (tab: Page) =>
+    tab.evaluate(() => (window as any).openFrames as { shown: string | null; jump: boolean }[]);
+
+  test("a chat whose kept place is older than its tail shows its latest message at once, never hidden", async () => {
     const tab = await reopen({ rowId: `user-${questionSeq.get(100)}`, offset: 0 });
     const errors: string[] = [];
     tab.on("pageerror", (error) => errors.push(error.message));
-    await tab.getByText("Question 100", { exact: true }).waitFor({ timeout: 60_000 });
+    await tab.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
     await settle(tab);
 
-    // The row the reader rested on is back at the top of the view, and the view did not open at the
-    // latest message first.
-    const top = await bubbleTop(tab, "Question 100");
+    // Not one painted frame held the transcript's rows hidden, and the first one shown was the
+    // tail, not a page read back toward the kept row.
+    const painted = await frames(tab);
+    expect(painted.length).toBeGreaterThan(0);
+    expect(painted.filter((frame) => frame.shown === null)).toEqual([]);
+    expect(Number(painted[0]!.shown?.replace("Question ", ""))).toBeGreaterThan(TURNS - 50);
+    // It opened at the latest message.
+    const top = await bubbleTop(tab, `Question ${TURNS}`);
+    const height = await tab.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight);
+    expect(top).toBeDefined();
+    expect(top!).toBeLessThan(height);
+    expect(await bubbleTop(tab, "Question 100")).toBeUndefined();
+    expect(errors).toEqual([]);
+    await tab.close();
+  });
+
+  test("a kept place inside the tail reopens where the reader left it", async () => {
+    const kept = TURNS - 8;
+    const tab = await reopen({ rowId: `user-${questionSeq.get(kept)}`, offset: 0 });
+    await tab.getByText(`Question ${kept}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await settle(tab);
+    const top = await bubbleTop(tab, `Question ${kept}`);
     expect(top).toBeDefined();
     expect(Math.abs(top! - (await rowPad(tab)))).toBeLessThan(40);
-    expect(await bubbleTop(tab, `Question ${TURNS}`)).toBeUndefined();
-    // The first frame the transcript showed was already the reader's place, never the latest
-    // turns, and Jump to latest never showed over the hidden transcript.
-    const frames = await tab.evaluate(() => (window as any).openFrames as { shown: string | null; jump: boolean }[]);
-    const firstShown = frames.find((frame) => frame.shown !== null)?.shown;
-    expect(Number(firstShown?.replace("Question ", ""))).toBeLessThanOrEqual(100);
-    expect(frames.filter((frame) => frame.jump)).toEqual([]);
-    // Paging back never saved another place over the kept one.
+    // The first frame shown was already the reader's place.
+    const painted = await frames(tab);
+    expect(painted.filter((frame) => frame.shown === null)).toEqual([]);
+    expect(painted.filter((frame) => frame.jump)).toEqual([]);
     const saved = await tab.evaluate(() => (window as any).savedAnchors as { rowId: string | null }[]);
-    expect(saved.filter((anchor) => anchor.rowId !== `user-${questionSeq.get(100)}`)).toEqual([]);
-    expect(errors).toEqual([]);
+    expect(saved.filter((anchor) => anchor.rowId !== `user-${questionSeq.get(kept)}`)).toEqual([]);
     await tab.close();
   });
 

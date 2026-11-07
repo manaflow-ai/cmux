@@ -18,6 +18,11 @@ fn wire_name_round_trips_through_serde() {
         "origin.confirmation.issue",
         "chief.continue",
         "chief.retry",
+        "conductor_import.plan",
+        "conductor_import.record",
+        "cloud.vm.resize",
+        "cloud.owner.acpmux_keyed_start",
+        "cloud.machine.io",
     ] {
         let operation: ResourceOperation =
             serde_json::from_str(&format!("\"{name}\"")).expect("known operation");

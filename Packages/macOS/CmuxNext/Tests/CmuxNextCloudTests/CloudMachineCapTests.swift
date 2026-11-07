@@ -66,6 +66,16 @@ import Testing
         #expect(Set(calls.compactMap(\.key)).count == 1 && calls.allSatisfy { $0.key != nil }, "a retry made a new key")
     }
 
+    @Test func passiveMachinePowerPreservesScriptOrigin() async throws {
+        let sent = SentOps()
+        try await CloudMachinePower.run("cloud.machine.start", machine: "vm_a", origin: .script, ops: { op, args, key, origin in
+            _ = await sent.record(op: op, machine: args["machine"]?.stringValue, key: key, origin: origin)
+            return .object([:])
+        })
+        #expect(await sent.calls.count == 1)
+        #expect(await sent.calls.first?.origin == .script)
+    }
+
     @Test func theAppServerPauseStopsAfterItsAttemptsAndOnAnyOtherError() async {
         let sent = SentOps()
         await #expect(throws: CloudAppOpFailure(code: CloudMachinePower.indeterminate, message: "")) {

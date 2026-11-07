@@ -37,6 +37,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     "transfer_out",
     "transfer_aborted",
     "imported",
+    "transferred_in",
     "dequeued",
     "queue_removed",
     "user_message",

@@ -5,27 +5,6 @@ import Dispatch
 import Observation
 import SwiftUI
 
-@main
-struct UiLayerHostApp: App {
-    private let controlServer: UiLayerControlServer?
-    @State private var projection = ProjectionModel(arguments: CommandLine.arguments)
-
-    init() {
-        // Never claim cmux's live control socket. Capture tooling opts in to
-        // this host-only seam with its separate path.
-        let path = ProcessInfo.processInfo.environment["CMUX_UI_LAYER_CONTROL_SOCKET"]
-        controlServer = UiLayerControlServer(socketPath: path)
-        controlServer?.start()
-    }
-
-    var body: some Scene {
-        WindowGroup("cmux UI layer") {
-            UiLayerView(projection: projection)
-        }
-        .defaultSize(width: 1_120, height: 720)
-    }
-}
-
 @MainActor
 @Observable
 final class ProjectionModel {
@@ -149,7 +128,7 @@ private func readProjection(_ source: URL) -> Result<ProjectionSnapshot, Project
     }
 }
 
-private final class ProjectionFileWatcher: @unchecked Sendable {
+final class ProjectionFileWatcher: @unchecked Sendable {
     // All source state and callbacks are confined to the main dispatch queue.
     private let url: URL
     private let onChange: @Sendable () -> Void
@@ -251,12 +230,15 @@ struct ProjectionTab: Codable, Identifiable, Sendable {
 
 struct UiLayerView: View {
     let projection: ProjectionModel
+    let animator: UiLayerAnimator
+    let look: UiLayerLookModel
 
     var body: some View {
         UiLayerPreviewView(data: previewData)
             .background(UiLayerFrameReceipt())
+            .background(UiLayerDragArea())
         .overlay(alignment: .top) {
-            if let error = projection.error {
+            if let error = projection.error ?? look.problem {
                 Text(error).font(.caption).foregroundStyle(.red).padding(8)
                     .frame(maxWidth: .infinity).background(.regularMaterial)
             }
@@ -264,13 +246,15 @@ struct UiLayerView: View {
     }
 
     private var previewData: UiLayerPreviewData {
+        if animator.isRunning, let frame = animator.frame(of: projection.snapshot) { return frame }
         let workspace = selectedWorkspace
         let tab = workspace?.tabs.first
         return UiLayerPreviewData(
             workspaceName: workspace?.name ?? "No workspace",
             tabTitle: tab?.title ?? "No tab",
             tabSubtitle: tab?.subtitle,
-            composerPlaceholder: projection.snapshot.capturedAt
+            composerPlaceholder: projection.snapshot.capturedAt,
+            unread: workspace?.tabs.contains(where: \.unread) ?? false
         )
     }
 

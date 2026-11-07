@@ -294,7 +294,19 @@ button.cv-agentmsg__name:focus-visible {
 .cv-received .cv-disclosure__label {
   flex-shrink: 1000;
 }
+/* At rest a message line (sent, received, a group's or a run's head) reads in the activity tone the
+   other finished tool rows rest at; it lights to the text tone only under the pointer or keyboard
+   focus (Leo, 2026-11-03, on "Received 6 messages" / "Sent 2 messages" after #34464 drew them in the
+   text tone at rest: "these are now too lit up by default? they should only be this bright when u
+   hover over it"). A session chip that has the pointer or focus lights alone (AgentTag.css). The
+   opened message's own card keeps the text tone. */
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]),
+.acpmux-row .cv-received > .cv-disclosure__line {
+  color: var(--cv-activity-text);
+}
+.acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }
@@ -307,4 +319,11 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
   color: var(--cv-text-muted);
+}
+/* A group of sent messages (SentMessageLine.tsx `SentMessageGroup`): its head is a message group's
+   (MessageGroupHead.css), the group its narrow-pane container; opened, its messages sit on the
+   head's icon and text columns, flush, as an opened "Received N messages" row's do. */
+.cv-sent-group {
+  container-type: inline-size;
+  min-width: 0;
 }

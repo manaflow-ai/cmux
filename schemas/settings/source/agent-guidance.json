@@ -1,0 +1,108 @@
+{
+  "$comment": "HAND-EDITED source of the Agent Guidance settings: cmux's built-in guidance for the agents it runs and the person's own skills (cmux-tui/crates/acpmux/src/agent_guidance.rs, plans/cmux-next/agent-guidance-DESIGN.md). The daemon reads these keys from the settings file when a chat is created; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "agentGuidance",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentGuidance",
+        "text": "Guidance and Skills"
+      },
+      "note": "Settings > Agents > Guidance and Skills (Leo, 2026-11-05: \"cmux-next should add a few and we can think about extending them as well and letting other users define stuff too!\"). Each switch applies to chats created after the change.",
+      "rows": [
+        {
+          "key": "agents.guidance.claude",
+          "name": "guidanceClaude",
+          "note": "On: a new Claude Code chat gets the cmux:cmux-chat skill's first-turn pointer (agent_guidance.rs CLAUDE_GUIDANCE). The skill itself stays listed either way.",
+          "title": {
+            "key": "settings.agents.guidance.claude",
+            "text": "cmux Guidance for Claude Code"
+          },
+          "help": {
+            "key": "settings.agents.guidance.claude.help",
+            "text": "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "guidance",
+            "skills",
+            "system prompt",
+            "instructions",
+            "agents",
+            "claude"
+          ]
+        },
+        {
+          "key": "agents.guidance.codex",
+          "name": "guidanceCodex",
+          "note": "On: a new Codex chat gets cmux's chat guidance as first-turn context (agent_guidance.rs AGENT_GUIDANCE), the channel Codex uses for AGENTS.md.",
+          "title": {
+            "key": "settings.agents.guidance.codex",
+            "text": "cmux Guidance for Codex"
+          },
+          "help": {
+            "key": "settings.agents.guidance.codex.help",
+            "text": "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "guidance",
+            "skills",
+            "system prompt",
+            "instructions",
+            "agents",
+            "codex"
+          ]
+        },
+        {
+          "key": "agents.guidance.otherAgents",
+          "name": "guidanceOtherAgents",
+          "note": "On: every other harness (Gemini, OpenCode, pi, your own) gets the same first-turn guidance as Codex.",
+          "title": {
+            "key": "settings.agents.guidance.otherAgents",
+            "text": "cmux Guidance for Other Agents"
+          },
+          "help": {
+            "key": "settings.agents.guidance.otherAgents.help",
+            "text": "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "guidance",
+            "skills",
+            "system prompt",
+            "instructions",
+            "agents"
+          ]
+        },
+        {
+          "key": "agents.guidance.userSkills",
+          "name": "guidanceUserSkills",
+          "note": "On: the skills in ~/.config/cmux/skills/<name>/SKILL.md reach every new chat: Claude Code as the cmux-user plugin, other agents as an index of names, descriptions and paths in the first-turn context.",
+          "title": {
+            "key": "settings.agents.guidance.userSkills",
+            "text": "Your Skills in Every Chat"
+          },
+          "help": {
+            "key": "settings.agents.guidance.userSkills.help",
+            "text": "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "guidance",
+            "skills",
+            "system prompt",
+            "instructions",
+            "agents",
+            "custom",
+            "user skills"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLiveCode
 import CmuxNextPages
 
 extension WindowController {
@@ -22,6 +23,12 @@ extension WindowController {
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
+        // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
+        services.liveCode.whenLive { [weak self] in
+            self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()
+            self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
         let model = sidebar.model
@@ -53,8 +60,8 @@ extension WindowController {
     /// and in the top row after the traffic lights while the sidebar is
     /// hidden (strips under it start after it).
     func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
+        root.titlebarBadge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }

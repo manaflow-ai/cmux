@@ -511,7 +511,11 @@ impl Store {
             Ok(bytes) => {
                 let v: serde_json::Value =
                     serde_json::from_slice(&bytes).map_err(|e| StoreError::Io(e.to_string()))?;
-                let id = v["automation"].as_str().unwrap_or_default().to_string();
+                let id = v
+                    .get("automation")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 if let Ok(a) = self.get(&id) {
                     return Ok(Imported { automation: a, replayed: true });
                 }

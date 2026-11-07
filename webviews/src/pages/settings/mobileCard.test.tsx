@@ -242,3 +242,35 @@ test("a waiting pairing request has Allow and Don't Allow, and the blocked count
   expect(card(page.container)!.querySelector("[data-pair-request]")).toBeNull();
   page.unmount();
 });
+
+// Lawrence, msg 3790: "everywhere we say sign in, we need to have a button for signing in". Signed
+// out, the status ("Sign in to cmux to allow iPhone connections.") shows the shared Sign In button,
+// which runs the app's Sign In; signed in, it does not.
+test("signed out, the status row offers Sign In, which runs the app's Sign In", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const signedOut: IPhoneHostState = {
+    ...state,
+    account: null,
+    space: null,
+    phase: "off",
+    phones: [],
+    status: "Sign in to cmux to allow iPhone connections.",
+    sign_in: "Sign In",
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: signedOut }));
+  await settle();
+  const button = card(page.container)!.querySelector<HTMLButtonElement>('[data-action="sign-in"]');
+  expect(button?.textContent).toBe("Sign In");
+  await act(async () => button!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" && (entry.params as { action?: string }).action === "palette.auth.signIn",
+    ),
+  ).toBe(true);
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: { ...state, sign_in: null } }));
+  await settle();
+  expect(card(page.container)!.querySelector('[data-action="sign-in"]')).toBeNull();
+  page.unmount();
+});

@@ -309,8 +309,3 @@ extension HomeService {
         return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
 }
-
-enum HomeActionChiefResult {
-    case success(HomeChiefRecord)
-    case failure(HomeComposeOutcome)
-}

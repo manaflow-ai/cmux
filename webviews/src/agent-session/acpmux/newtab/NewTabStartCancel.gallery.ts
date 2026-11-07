@@ -156,9 +156,9 @@ async function staleFolder(ctx: PlayContext) {
   const view = await ready(ctx);
   const chip = () => ctx.document.querySelector('[aria-label="Folder"]')?.textContent ?? "";
   const trustAsk = () => ctx.document.querySelector(".acpmux-trust-ask-text")?.textContent ?? "";
-  // Choose folder… picks atlas-web (`project.browse`); the tab inherited harbor, so it is a real pick.
+  // Add folder… picks atlas-web (`project.browse`); the tab inherited harbor, so it is a real pick.
   await ctx.click({ selector: '[aria-label="Folder"]' });
-  await ctx.click({ role: "option", name: "Choose folder…" });
+  await ctx.click({ role: "option", name: "Add folder…" });
   await ctx.waitFor(() => chip().includes("atlas-web"), { capMs: 10_000 });
   await ctx.type(DRAFT, { selector: EDITOR });
   // Return asks the host about atlas-web for this send (`workspace.useFolder`, which answers after

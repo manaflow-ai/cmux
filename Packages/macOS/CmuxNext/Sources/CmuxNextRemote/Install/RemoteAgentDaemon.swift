@@ -99,12 +99,19 @@ extension SSHHost {
     /// --build-facts`; an older cmux-tui ignores the flag and answers its plain probe, which the
     /// rule counts as older) go to the app's bundled `cmux-tui remote update-need`.
     public func updateCheck(binary: URL, environment: [String: String]) async -> (probe: RemoteProbe, need: RemoteUpdateNeed)? {
+        await updateCheck(remoteBinary: remoteBinary, binary: binary, environment: environment)
+    }
+
+    /// ``updateCheck(binary:environment:)`` for another cmux-tui on the machine (the person's own
+    /// `SSHHost.staticInstallBinary`). A file that is not cmux-tui (classic cmux's relay CLI at the
+    /// same path) gives nil: it is never touched.
+    public func updateCheck(remoteBinary: String, binary: URL, environment: [String: String]) async -> (probe: RemoteProbe, need: RemoteUpdateNeed)? {
         guard let facts = try? await SSHProcessRunner.run(
             SSHCommandLine().command(self, "\(remoteBinary) remote-probe --json --build-facts </dev/null"),
             environment: environment, deadline: .seconds(20), label: "remote-probe \(destination)"),
             facts.status == 0,
             let line = facts.stdout.split(separator: "\n").last(where: { $0.hasPrefix("{") }),
-            let probe = try? RemoteProbe.decode(String(line)),
+            let probe = try? RemoteProbe.decode(String(line)), probe.app == "cmux-tui",
             let need = await probe.updateNeed(asking: binary) else { return nil }
         return (probe, need)
     }

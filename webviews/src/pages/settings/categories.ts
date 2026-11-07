@@ -128,6 +128,20 @@ export function categoryOf(id: string | undefined): string {
   return (id && aliases.get(id)) || defaultCategory;
 }
 
+/** The card a route names inside `category`: a path that is one of its cards and not the category
+ * itself (`#/settings/machines` is Accounts' Machines card), or `?focus=card.<card>` (the host's
+ * card deep link). The page opens on that card, not the category's top. Null otherwise. */
+export function routeCard(
+  section: string | undefined,
+  focus: string | null | undefined,
+  category: string,
+): CategoryCard | null {
+  const named = focus?.startsWith("card.") ? focus.slice("card.".length) : section;
+  if (!named || named === category || !isCard(named)) return null;
+  const { lead, trail } = categoryById(category);
+  return lead.includes(named) || trail.includes(named) ? named : null;
+}
+
 export function categoryById(id: string): Category {
   return categories.find((category) => category.id === id) ?? categories[0]!;
 }

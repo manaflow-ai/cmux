@@ -17,9 +17,10 @@ import os
 ///   interrupted (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE. IT JUST WONT. YOU'LL JUST HAVE TO
 ///   ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT INTERRUPTED. END OF STORY FOR THE
 ///   DAEMON UPDATE."). One that cannot update now (unreachable, another update running) is asked
-///   again with backoff (2 minutes, doubling, at most 30 minutes apart) and is left for the next
-///   launch after 6 hours; an unreachable one shows as offline, never as a failure, and is asked
-///   again at once when it connects (its next offer), also after those 6 hours;
+///   again with backoff (2 minutes, doubling, at most 30 minutes apart; a busy one at most 4, as
+///   a Cloud start holds it a minute or two) and is left for the next launch after 6 hours; an
+///   unreachable one shows as offline, never as a failure, and is asked again at once when it
+///   connects (its next offer), also after those 6 hours;
 /// - one target at a time across every source, urgent targets first;
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
@@ -46,6 +47,9 @@ public actor DaemonUpdatePolicy {
         public var directory: URL
         public var clock: any Clock<Duration>
         public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
+        /// The longest wait after a busy answer (an unreachable one waits up to ``busyBackoff``'s maximum): a Cloud
+        /// machine answers busy while a chat start runs on it (`CloudStartGate`), a minute or two.
+        public var busyMaximum: Duration = .seconds(240)
         /// A target busy for this long is updated mid-turn
         /// (``DaemonUpdateTarget/update(to:whileBusy:)``); before, only at a quiet moment. Zero,
         /// the default (Leo's order above): every update runs mid-turn from the first ask.
@@ -206,6 +210,15 @@ public actor DaemonUpdatePolicy {
         // The joined turn ended before its update ran: the mark queued its next turn, which runs
         // the update; wait for that one too.
         if retried.contains(id) { await turnEnded(id) }
+    }
+
+    /// Waits while a turn of target `id` runs now (reading the machine or updating it) and returns true once
+    /// it ended (or the task was cancelled); false at once when no turn of it runs. Nothing is queued: a Cloud
+    /// chat start waits out an update that restarts the daemon its agent is about to start on.
+    public func turnRunning(_ id: String) async -> Bool {
+        guard running == id else { return false }
+        await turnEnded(id)
+        return true
     }
 
     /// Whether an ``updateNow`` waits on a turn of target `id` (tests order a join against it).
@@ -431,7 +444,7 @@ public actor DaemonUpdatePolicy {
             let since = again.firstBusy ?? now
             again.firstBusy = since
             again.offline = outcome == .unreachable
-            let delay = again.backoff.next()
+            let delay = again.offline ? again.backoff.next() : min(again.backoff.next(), deps.busyMaximum)
             guard now + delay - since <= deps.giveUpAfter else {
                 // Not settled: its next offer, once it connects, updates it in this run. Its line stays.
                 if again.offline {

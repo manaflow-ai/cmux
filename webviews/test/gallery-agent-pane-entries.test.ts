@@ -86,6 +86,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
     // No header tool draws a box in any state; the open panel's toggle is lit by its ink (Leo 2026-10-25).
     { entry: "header-tools", variant: "plain-icons", play: "error" },
+    // The hat's checklist and its command lines share a short dock; neither is pushed out of view.
+    { entry: "subagent-tray", variant: "plan-short-dock", play: "error" },
     { entry: "dictation", variant: "hide", play: "steps" },
     { entry: "harness-health-notice", variant: "dismissed", play: "steps", shows: composerWithoutNotice },
     {

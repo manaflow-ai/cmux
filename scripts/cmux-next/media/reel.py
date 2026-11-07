@@ -50,7 +50,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[3]
 NOTES_HOST = "https://files-next.cmux.com/"
-NOTES_BASE = f"{NOTES_HOST}nightly-next/next/notes"
+NOTES_BASE = f"{NOTES_HOST}nightly-next/notes"
 # The content-signing public key the nightly verifies notes with (.github/workflows/nightly.yml).
 CONTENT_PUBLIC_KEY = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
 CARD_SECONDS = 1.5

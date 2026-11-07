@@ -124,6 +124,16 @@ export function framesNote(video: string, durationMs: number, width: number, hei
 }
 
 const NOTE = /^Frames from the video .+ \(\d[\d:]*, \d+×\d+\), in order, at: \d[\d:., ]*\.$/;
+/// What a video's frames note (`framesNote`) says of it: its name, its length and how many frames
+/// follow. Undefined for any other text.
+export function framesNoteVideo(text: string): { name: string; durationMs: number; frames: number } | undefined {
+  if (!NOTE.test(text)) return undefined;
+  const head = text.match(/^Frames from the video (.+) \((\d[\d:]*), \d+×\d+\), in order, at: (.+)\.$/);
+  const durationMs = head ? timeMs(head[2]!) : undefined;
+  return head && durationMs !== undefined
+    ? { name: head[1]!, durationMs, frames: head[3]!.split(", ").length }
+    : undefined;
+}
 /// Whether `text` is a video's frames note (`framesNote`).
 export function isFramesNote(text: string): boolean {
   return NOTE.test(text);

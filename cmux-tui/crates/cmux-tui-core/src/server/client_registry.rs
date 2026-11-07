@@ -3,9 +3,11 @@
 //! surfaces and view leases) and the daemon handoff reservation. Attach and
 //! view-lease methods are in `client_registry_views`.
 
+mod facts;
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
+pub(super) use facts::ClientFacts;
 pub(super) use record::ClientRecord;
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
@@ -326,56 +328,6 @@ pub(super) struct ClientRegistryState {
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
-/// What a connection's own line and key paths read about the session's connections, published after every change
-/// of the client registry and read with one atomic load, never through its lock (R-DAEMON-STATE stage S1,
-/// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 2.6). Every connect, disconnect, attach and detach of every
-/// client holds the registry lock; a person's key must not wait for any of them.
-pub(super) struct ClientFacts {
-    /// The daemon handoff, when one is reserved: `true` once it was acknowledged (committed).
-    pub(super) handoff: Option<bool>,
-    pub(super) clients: HashMap<u64, ConnectionFacts>,
-}
-
-/// One connection's facts in [`ClientFacts`].
-pub(super) struct ConnectionFacts {
-    pub(super) transport: ClientTransport,
-    /// `ClientRecord::remote_device`.
-    pub(super) remote_device: bool,
-    /// The connection's base actor (`ConnectionOrigin::actor`).
-    pub(super) actor: crate::workspace_registry::Actor,
-    /// The surfaces the connection is attached to, each with whether it can type into it
-    /// (`AttachedSurface::can_type`): its keys there are the person's (server/input_qos.rs).
-    pub(super) attached: Vec<(SurfaceId, bool)>,
-}
-
-impl ClientFacts {
-    /// The projection of `state` (runs under the registry lock after each change).
-    fn of(state: &ClientRegistryState) -> Self {
-        let handoff = state
-            .daemon_handoff
-            .map(|reservation| matches!(reservation, DaemonHandoffReservation::Committed(_)));
-        let clients = state
-            .clients
-            .iter()
-            .map(|(client, record)| {
-                let attached = record
-                    .attached
-                    .iter()
-                    .map(|(surface, attached)| (*surface, attached.can_type()))
-                    .collect();
-                let facts = ConnectionFacts {
-                    transport: record.transport,
-                    remote_device: record.remote_device,
-                    actor: record.origin.actor(),
-                    attached,
-                };
-                (*client, facts)
-            })
-            .collect();
-        Self { handoff, clients }
-    }
-}
-
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
@@ -407,6 +359,7 @@ pub(crate) struct ClientRegistry {
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
+    pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
@@ -474,12 +427,13 @@ impl ClientRegistry {
             browser_runtimes: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
-            agent_sessions: Default::default(),
+            agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
+            remote_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -568,20 +522,15 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
-    /// Turns stage S1 on or off for this registry (tests): the switch, and the publication it reads.
+    /// Turns stage S1 on or off for this registry (tests): the switch, and the publications it reads (the facts, the
+    /// proxy authors). Only part of the stage: tests call `Mux::set_input_lane_for_test`, which also publishes the
+    /// session's routes and the link peers and switches the admission budget.
     #[cfg(test)]
     pub(crate) fn set_input_lane_for_test(&self, on: bool) {
         self.state.set_publishing_for_test(on);
+        #[cfg(unix)]
+        self.agent_sessions.set_publishing_for_test(on);
         self.input_lane.set_for_test(on);
-    }
-
-    /// Whether `client` is attached to `surface` and can type into it (`AttachedSurface::can_type`): its keys there
-    /// are the person's. Reads the published facts, never the registry lock (R-DAEMON-STATE stage S1).
-    pub(super) fn types_into(&self, client: u64, surface: SurfaceId) -> bool {
-        let facts = self.state.load().recover_poison();
-        facts.clients.get(&client).is_some_and(|connection| {
-            connection.attached.iter().any(|(attached, can_type)| *attached == surface && *can_type)
-        })
     }
 
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {

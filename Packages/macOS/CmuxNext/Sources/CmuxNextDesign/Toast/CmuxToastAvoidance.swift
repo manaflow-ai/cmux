@@ -51,6 +51,16 @@ public final class CmuxToastAvoidance {
         if link.hosts.anyObject == nil { objc_setAssociatedObject(window, &key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
+    /// `view` came into `window` (a tab shown again, a pane moved): it learns where `window`'s toasts
+    /// rest now, at once, or that none shows (it may have left while toasts showed, and they went).
+    public static func reservingViewMoved(_ view: any CmuxToastReserving, to window: NSWindow) {
+        guard let link = existing(in: window), link.hosts.anyObject != nil else {
+            view.toastsSettled(in: nil, duration: 0)
+            return
+        }
+        for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.settled(in: window, only: view) }
+    }
+
     /// An avoided view in `window` changed its rect: each host registered in the window moves
     /// that window's shown toasts clear of it on the next main-actor turn (after the layout pass
     /// that called this), sliding from where they are drawn.

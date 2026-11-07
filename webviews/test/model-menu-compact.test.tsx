@@ -1059,9 +1059,9 @@ test.each(["claude", "codex"])(
           input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
         });
       };
-      await fill("id", "work");
+      // No id or folder to type: the new login's id comes from its name, its folder from the id.
+      expect(dialog.querySelector('input[name="id"], input[name="accountHome"]')).toBeNull();
       await fill("name", "Work login");
-      await fill("accountHome", "/Users/demo/.claude-work");
       await act(async () =>
         dialog
           .querySelector("form")!
@@ -1072,11 +1072,12 @@ test.each(["claude", "codex"])(
         {
           method: "account.add",
           params: {
-            id: "work",
+            id: "work-login",
             name: "Work login",
             kind: "direct-subscription",
             family,
-            accountHome: "/Users/demo/.claude-work",
+            accountHome: "~/.cmux/accounts/work-login",
+            ...(family === "codex" ? { shadow: true } : {}),
           },
         },
       ]);

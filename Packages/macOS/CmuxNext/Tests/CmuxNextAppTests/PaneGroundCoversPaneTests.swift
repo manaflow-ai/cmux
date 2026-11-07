@@ -54,8 +54,6 @@ struct PaneGroundCoversPaneTests {
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
-            // S3's switch pinned on this view, on as shipped: the shared store leaks across suites.
-            root.context.contentPolicyOverride = true
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = root
@@ -158,7 +156,8 @@ struct PaneGroundCoversPaneTests {
 
     static func column(_ root: SplitNode) -> ScreenLayout { .columns([LayoutColumn(id: "c0", width: 1, root: root)]) }
 
-    /// (a) One Ctrl-Shift-H/L/K/J press on p2: at every tick, each pane's terminal ground covers its content area.
+    /// (a) One Ctrl-Shift-H/L/K/J press on p2: at every tick, each pane's terminal ground covers its content area. In both
+    /// states of `motion.frameOwner.terminals` (review of #35470, T5).
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
     func aKeyPressShowsEachPanesOwnGroundInEveryFrame(direction: LayoutDirection) throws {
         let rig = Rig(Self.column(direction == .left || direction == .right ? Self.pair : Self.stack), focused: "p2")
@@ -180,8 +179,10 @@ struct PaneGroundCoversPaneTests {
         #expect(found.isEmpty, "\(found.count) pane frames show no ground of their own (the shell shows there); first: \(found.prefix(3)), last: \(found.suffix(1))")
     }
 
-    /// (b) A held key: three Ctrl-Shift-L presses 4 frames apart retarget one spring.
-    @Test func aHeldKeyShowsEachPanesOwnGroundInEveryFrame() throws {
+    /// (b) A held key: three Ctrl-Shift-L presses 4 frames apart retarget one spring. In both states of
+    /// `motion.frameOwner.terminals` (review of #35470, T5).
+    @Test
+    func aHeldKeyShowsEachPanesOwnGroundInEveryFrame() throws {
         let rig = Rig(Self.column(Self.pair), focused: "p1")
         defer { rig.close() }
         #expect(rig.misses().isEmpty, "SETUP: at rest a pane's ground does not cover it: \(rig.misses())")

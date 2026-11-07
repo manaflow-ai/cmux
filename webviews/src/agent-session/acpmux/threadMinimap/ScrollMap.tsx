@@ -14,7 +14,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { railEdge, useRailSide } from "./railSide";
+import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -253,6 +253,7 @@ export function ScrollMap({
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
+          id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
           style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}

@@ -530,8 +530,17 @@ impl Hub {
             msg.set("inlineParts", Value::Array(ordered));
         }
         super::session::mark_pasted(&mut msg, blocks);
-        // Not recorded, so a retry knows it cannot send the prompt again whole (`retry_turn.rs`).
-        if blocks.iter().any(crate::prompt_context::is_context) {
+        // The immutable cmux snapshot is saved in metadata and can be appended again
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        let mut saved_context = Vec::new();
+        crate::context_inventory::append_snapshot(
+            session.meta().cmux_context.as_deref(),
+            &mut saved_context,
+        );
+        if blocks
+            .iter()
+            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
+        {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.

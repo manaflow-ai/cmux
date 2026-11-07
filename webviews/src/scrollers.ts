@@ -14,7 +14,7 @@
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
 // its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
-// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
 // 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
@@ -45,8 +45,8 @@ export const SCROLLING_HIDE_MS = 800;
  * the element scrolls, and `followShownScrollerFade` fades it between the two.
  */
 export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
-/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
-    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+/** On `<html>` when shown scrollers fade out at rest instead (the agent pane sets it whenever its
+    host pushes a theme, acpmux paneTheme.ts `applyPaneTheme`). */
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
@@ -168,7 +168,9 @@ export function markScrolling(element: Element, timers: ScrollTimers = defaultTi
     element.removeAttribute(SCROLLING_ATTRIBUTE);
     return;
   }
-  element.setAttribute(SCROLLING_ATTRIBUTE, "");
+  // Set once per scroll, not on every step: each set is a DOM change that restyles the scroller and
+  // wakes every observer of the mark (Session Info's body took one per frame while it scrolled).
+  if (!element.hasAttribute(SCROLLING_ATTRIBUTE)) element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
     timers.set(() => {
@@ -656,6 +658,16 @@ export const CARD_SCROLLER_CSS = `
 [${CARD_SCROLL_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
+}
+/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only] {
+  --cmux-card-scroll-only-thumb: transparent;
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only][${SCROLLING_ATTRIBUTE}] {
+  --cmux-card-scroll-only-thumb: var(--cmux-scroller-thumb);
+}
+:root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only]::-webkit-scrollbar-thumb {
+  background-color: var(--cmux-card-scroll-only-thumb);
 }
 [${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
   --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);

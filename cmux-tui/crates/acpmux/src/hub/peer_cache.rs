@@ -206,6 +206,8 @@ mod tests {
         peer.stop();
         running.await.unwrap();
 
+        // The first daemon's shutdown seal: the journal's lock passes to the next one.
+        hub.seal();
         let again = hub_at(dir.path());
         let restored = add_idle_peer(&again, "absent");
         again.load_peer_cache(&restored);
@@ -272,7 +274,9 @@ mod tests {
         assert_eq!(hub.peers()[0]["state"], "reconnecting");
         assert!(dir.path().join("peers/huge-blue.json").is_file());
 
-        // This daemon restarts while the peer is still down.
+        // This daemon restarts while the peer is still down (its shutdown seal passes the
+        // journal's lock to the next one).
+        hub.seal();
         let again = hub_at(dir.path());
         let peer = add_idle_peer(&again, "huge-blue");
         again.load_peer_cache(&peer);

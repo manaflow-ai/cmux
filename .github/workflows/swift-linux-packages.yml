@@ -42,6 +42,10 @@ concurrency:
   # A push run finishes, so it can seed the cache; a newer PR head cancels the old one.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   swift-linux-packages:
     name: Swift packages on Linux (listed)

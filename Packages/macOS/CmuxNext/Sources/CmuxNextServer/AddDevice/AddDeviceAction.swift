@@ -17,8 +17,15 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     case makeJoinLine
     /// Mint a new join line (an expired or failed one is never shown again).
     case newJoinLine
+    /// The app's Sign In (a join line refused because nobody is signed in).
+    case signIn
     /// The joined machine's row in the Machines sidebar.
     case showMachines
+    /// Hand off to the Pair Another Machine card (way ``AddDeviceWay/joinLine`` while signed in): the
+    /// new machine runs `cmux pair CODE` and the person confirms its words, with no ssh.
+    case pairAnotherMachine
+    /// Open or close Advanced, where the ssh way (``AddDeviceWay/network``) sits.
+    case toggleAdvanced
     case done
     case cancel
 }

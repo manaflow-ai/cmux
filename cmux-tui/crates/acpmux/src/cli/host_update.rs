@@ -277,6 +277,17 @@ fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
             }
             asks || !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || matches!(s.get("status").and_then(Value::as_str), Some("running" | "waiting"))
+                // An agent start under way (`starting`): a restart now ends it. A row without the
+                // field is from an older acpmux: one it made or changed in the last two minutes
+                // may be starting.
+                || match s.get("starting") {
+                    Some(starting) => starting.as_bool() == Some(true),
+                    None => ["updatedAt", "createdAt"].iter().any(|k| {
+                        s.get(*k)
+                            .and_then(Value::as_u64)
+                            .is_some_and(|at| crate::store::now_ms().saturating_sub(at) < 120_000)
+                    }),
+                }
         })
         .map(|s| s.get("name").and_then(Value::as_str).unwrap_or("?").to_owned())
         .collect();

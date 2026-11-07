@@ -82,26 +82,42 @@ public struct RemoteInstaller: Sendable {
     /// (`daemonPID` from its `identify`, nil when none runs).
     public func install(_ plan: RemoteInstallPlan, on host: SSHHost, daemonPID: Int32?, environment: [String: String],
                         progress: @Sendable (Phase) -> Void) async throws {
-        progress(.remoteDownload)
-        let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install")
-        if fetched.status != 0 {
-            let error = try failure(fetched)
-            guard error.fallsBackToUpload else { throw error }
-            logger.info("\(host.destination.description, privacy: .public) cannot fetch (\(String(describing: error), privacy: .public)); uploading")
-            progress(.localDownload)
-            let file = try await localCopy(plan, environment: environment)
-            progress(.upload)
-            let uploaded = try await SSHProcessRunner.run(commandLine.command(host, plan.uploadCommand), input: .file(file),
-                                                       environment: environment, deadline: .seconds(1800),
-                                                       label: "upload cmux-tui to \(host.destination)")
-            if uploaded.status == 255, let failure = SSHFailure.classify(status: 255, stderr: uploaded.stderr) { throw failure }
-            guard uploaded.status == 0 else { throw RemoteInstallError.notWritable(uploaded.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            let installed = try await ssh(host, script: plan.uploadScript, environment: environment, label: "remote install")
-            guard installed.status == 0 else { throw try failure(installed) }
-        }
+        _ = try await put(plan, on: host, environment: environment, progress: progress)
         progress(.restart)
         _ = try await ssh(host, script: RemoteInstallPlan.restartScript(host: host, daemonPID: daemonPID), environment: environment,
                           label: "restart cmux-tui", deadline: .seconds(60))
+    }
+
+    /// Stages `plan` (``RemoteInstallPlan/stageOnly``) on `host` without a restart: no session
+    /// server, terminal or shell is signalled. Returns true when the script swapped it in at once
+    /// (no session server ran the binary), false when it waits as `<binary>.staged`.
+    public func stage(_ plan: RemoteInstallPlan, on host: SSHHost, environment: [String: String]) async throws -> Bool {
+        var plan = plan
+        plan.stageOnly = true
+        let output = try await put(plan, on: host, environment: environment) { _ in }
+        return output.contains("cmux-install-swapped")
+    }
+
+    /// Fetches (or uploads) and checks `plan` on the machine; the script's output.
+    private func put(_ plan: RemoteInstallPlan, on host: SSHHost, environment: [String: String],
+                     progress: @Sendable (Phase) -> Void) async throws -> String {
+        progress(.remoteDownload)
+        let fetched = try await ssh(host, script: plan.fetchScript, environment: environment, label: "remote install")
+        if fetched.status == 0 { return fetched.stdout }
+        let error = try failure(fetched)
+        guard error.fallsBackToUpload else { throw error }
+        logger.info("\(host.destination.description, privacy: .public) cannot fetch (\(String(describing: error), privacy: .public)); uploading")
+        progress(.localDownload)
+        let file = try await localCopy(plan, environment: environment)
+        progress(.upload)
+        let uploaded = try await SSHProcessRunner.run(commandLine.command(host, plan.uploadCommand), input: .file(file),
+                                                   environment: environment, deadline: .seconds(1800),
+                                                   label: "upload cmux-tui to \(host.destination)")
+        if uploaded.status == 255, let failure = SSHFailure.classify(status: 255, stderr: uploaded.stderr) { throw failure }
+        guard uploaded.status == 0 else { throw RemoteInstallError.notWritable(uploaded.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let installed = try await ssh(host, script: plan.uploadScript, environment: environment, label: "remote install")
+        guard installed.status == 0 else { throw try failure(installed) }
+        return installed.stdout
     }
 
     /// Gives the machine's install lock back (cx-3r9mt); a failure leaves it to expire.

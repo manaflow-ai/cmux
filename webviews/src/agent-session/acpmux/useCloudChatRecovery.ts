@@ -45,9 +45,6 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    let cancelDeadline: (() => void) | undefined;
-    const deadline = Date.now() + 60_000;
     if (!resuming) setState(undefined);
     const finishResume = (failed = false) => {
       // Late attach failures no longer own the card after recovery stops.
@@ -57,59 +54,30 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       if (failed) setError(true);
     };
     // A failed or superseded inventory read says nothing about the accepted wake.
-    // Keep the paused card and the original deadline while the machine reconnects.
+    // Keep the paused card while the machine reconnects.
     const retry = () => {
       if (disposed || !resuming) return;
-      if (Date.now() < deadline) {
-        timer = setTimeout(() => void read(), 1_000);
-      } else {
-        finishResume(true);
-      }
+      timer = setTimeout(() => void read(), 1_000);
     };
-    // Each request shares the resume's original deadline. Cleanup also settles a hung
-    // request so its continuation can observe disposal without waiting on the native reply.
-    const beforeDeadline = async <T>(
-      work: Promise<T>,
-    ): Promise<{ kind: "done"; value: T } | { kind: "deadline" } | { kind: "disposed" }> => {
-      try {
-        return await Promise.race([
-          work.then((value) => ({ kind: "done" as const, value })),
-          new Promise<{ kind: "deadline" | "disposed" }>((resolve) => {
-            cancelDeadline = () => resolve({ kind: "disposed" });
-            if (resuming) {
-              deadlineTimer = setTimeout(() => resolve({ kind: "deadline" }), Math.max(0, deadline - Date.now()));
-            }
-          }),
-        ]);
-      } finally {
-        if (deadlineTimer !== undefined) {
-          clearTimeout(deadlineTimer);
-          deadlineTimer = undefined;
-        }
-        cancelDeadline = undefined;
-      }
-    };
+    // A live native bridge owns the request's lifetime. Cleanup only settles a request when this
+    // effect is disposed; a busy machine never turns a slow list into a terminal resume failure.
+    const beforeDeadline = async <T>(work: Promise<T>): Promise<{ kind: "done"; value: T }> => ({
+      kind: "done",
+      value: await work,
+    });
     const read = async () => {
       if (disposed || !identity || !active) return;
       try {
         const replyResult = await beforeDeadline(
           postNative(resuming ? "cloudMachine.list" : "cloudMachine.recoveryList"),
         );
-        if (disposed || replyResult.kind === "disposed") return;
-        if (replyResult.kind === "deadline") {
-          finishResume(true);
-          return;
-        }
+        if (disposed) return;
         const reply = replyResult.value;
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
         if (next !== undefined || !resuming) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) {
-          const result = await beforeDeadline(recheck());
+          await beforeDeadline(recheck());
           if (disposed) return;
-          if (result.kind === "deadline") {
-            finishResume(true);
-            return;
-          }
         }
         if (disposed) return;
         if (next === "deleted") {
@@ -130,8 +98,6 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     return () => {
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
-      cancelDeadline?.();
-      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
     };
   }, [identity, session, active, resuming, recheck, readRevision]);
 

@@ -65,7 +65,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   }
 
   /** Every entry of an element's computed box-shadow, inset or not: spread in CSS px and alpha. */
-  function shadows(page: Page, id: string): Promise<(Inset & { inset: boolean })[]> {
+  function shadows(page: Page, id: string): Promise<(Inset & { inset: boolean; blur: number })[]> {
     return page.evaluate((id) => {
       const shadow = getComputedStyle(document.getElementById(id)!).boxShadow;
       if (shadow === "none") return [];
@@ -88,14 +88,17 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
         const alpha =
           color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
-        return { inset: /\binset\b/.test(entry), spread: lengths[3] ?? 0, alpha };
+        return { inset: /\binset\b/.test(entry), spread: lengths[3] ?? 0, blur: lengths[2] ?? 0, alpha };
       });
     }, id);
   }
   // The ring is the inset layer with a spread. Since #24593 (2026-10-23) a glass card on every window
   // also draws the glass's light rim, a top and a bottom line with no spread (composerStates.css,
   // --acpmux-composer-rim); those are not a ring, and focus leaves them as they rest (checked below).
-  const isRing = ({ inset, spread }: { inset: boolean; spread: number }) => inset && spread !== 0;
+  // Nor are the glass material's blurred highlights (glass.css, "GLASS MATERIAL": the specular band,
+  // its return and the sheen), which draw with a spread but are soft light: a ring is crisp.
+  const isRing = ({ inset, spread, blur }: { inset: boolean; spread: number; blur: number }) =>
+    inset && spread !== 0 && blur === 0;
   const rims = async (page: Page, id: string) => (await shadows(page, id)).filter(isRing);
   const outline = (page: Page, id: string) =>
     page.evaluate((id) => getComputedStyle(document.getElementById(id)!).outlineStyle, id);

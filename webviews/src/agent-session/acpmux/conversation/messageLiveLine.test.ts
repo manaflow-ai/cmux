@@ -22,7 +22,7 @@ test("the live line names the recipient of a SendMessage in flight", () => {
       items: [sendMessage("m1", "picker", "completed"), sendMessage("m2", "picker", "in_progress")],
     } as AcpmuxRow,
   ];
-  const view = turnView(rows, new Set(), { now: 10_000, working: true, liveRuns: true, lineBelow: true });
+  const view = turnView(rows, new Set(), { now: 10_000, working: true });
   const line = view.find((row) => row.doingSendTo !== undefined);
   expect(line?.doingSendTo).toBe("picker");
   // The finished one stays in its run; the one in flight is only on the line.

@@ -271,6 +271,9 @@ fn dispatch_resource_request(
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
+        OperationOwner::ConductorImport => {
+            crate::state::conductor_import_router::dispatch(mux, request)
+        }
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -954,9 +957,9 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         .fields
         .get("notification_id")
         .map(|value| {
-            NotificationPublicId::parse(
-                value.as_str().expect("catalog resource-id validation").to_string(),
-            )
+            // The catalog validates resource ids as strings; a non-string
+            // parses as "" and fails as a validation error, never a panic.
+            NotificationPublicId::parse(value.as_str().unwrap_or_default().to_string())
         })
         .transpose()?;
     let scope = match (&terminal_id, &workspace_id, &notification_id) {
