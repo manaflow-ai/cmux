@@ -2907,8 +2907,8 @@ KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
 KIT_STEP = "swift test (macOS)"
 KIT_TEST = ("✘ Test silentDropDetectionBenchmark() recorded an issue at LinkRecoveryTests.swift:145:9: "
             "Expectation failed: (elapsed → 13.4 seconds) <= 6.0 seconds")
-KIT_LOCK = "\n".join(f'[[package]]\nname = "{name}"\nversion = "0.1.0"\n'
-                     for name in excuse.PACKAGE_JOBS[KIT]["crates"]) + (
+KIT_CRATES = ("cmux-mobile-link", "cmux-wg", "cmux-transport")
+KIT_LOCK = "\n".join(f'[[package]]\nname = "{name}"\nversion = "0.1.0"\n' for name in KIT_CRATES) + (
     '[[package]]\nname = "tokio"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n')
 KIT_FILES = {
     "cmux-next-ios/CmuxMobileKit/Package.swift": '.package(path: "../../Packages/Shared/CmuxGhosttyKit"),\n'
@@ -2917,6 +2917,15 @@ KIT_FILES = {
     "Packages/iOS/CmuxTabsKit/Package.swift": "",
     "vendor/stack-auth-swift-sdk-prerelease/Package.swift": "",
     "cmux-next-ios/rust/Cargo.lock": KIT_LOCK,
+    "cmux-next-ios/rust/Cargo.toml": '[workspace]\nmembers = ["crates/cmux-mobile-link"]\n'
+                                     '[workspace.dependencies]\ncmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }\n',
+    "cmux-next-ios/rust/crates/cmux-mobile-link/Cargo.toml": '[package]\nname = "cmux-mobile-link"\n'
+                                                             '[dependencies]\ncmux-wg.workspace = true\n',
+    "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/cmux-wg"]\n[workspace.dependencies]\ntokio = "1"\n'
+                           'cmux-transport = { path = "crates/cmux-transport" }\n',
+    "cmux-tui/crates/cmux-wg/Cargo.toml": '[package]\nname = "cmux-wg"\n[dependencies]\ntokio.workspace = true\n'
+                                          'cmux-transport.workspace = true\n',
+    "cmux-tui/crates/cmux-transport/Cargo.toml": '[package]\nname = "cmux-transport"\n',
 }
 
 
@@ -2965,14 +2974,42 @@ class PackageFixedOnBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "Packages/macOS/CmuxNext is outside its declared reads"):
             self.judge(KitFixedOnBaseGitHub(files=files))
 
-    def test_an_undeclared_path_crate_is_refused(self):
+    def test_a_path_crate_outside_the_declared_reads_is_refused(self):
+        # An older head whose cmux-wg resolves elsewhere: the name is declared, the directory is not (review F1).
         files = dict(KIT_FILES)
-        files["cmux-next-ios/rust/Cargo.lock"] = KIT_LOCK + '[[package]]\nname = "cmux-agent-pane-policy"\n'
-        with self.assertRaisesRegex(excuse.Refused, "path crates outside its declared reads.*cmux-agent-pane-policy"):
+        files["cmux-next-ios/rust/Cargo.toml"] = files["cmux-next-ios/rust/Cargo.toml"].replace(
+            "../../cmux-tui/crates/cmux-wg", "../../Packages/macOS/cmux-wg")
+        del files["cmux-tui/crates/cmux-wg/Cargo.toml"]
+        files["Packages/macOS/cmux-wg/Cargo.toml"] = ('[package]\nname = "cmux-wg"\n[dependencies]\n'
+                                                     'cmux-transport = { path = "../../../cmux-tui/crates/cmux-transport" }\n')
+        with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/cmux-wg is outside its declared"):
             self.judge(KitFixedOnBaseGitHub(files=files))
 
+    def test_a_locked_path_crate_no_manifest_reaches_is_refused(self):
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/Cargo.lock"] = KIT_LOCK + '[[package]]\nname = "cmux-agent-pane-policy"\n'
+        with self.assertRaisesRegex(excuse.Refused, "path crates its manifests do not reach: cmux-agent-pane-policy"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_glob_member_is_refused(self):
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/Cargo.toml"] = '[workspace]\nmembers = ["crates/*"]\n'
+        with self.assertRaisesRegex(excuse.Refused, "names its members by a glob"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_test_step_without_a_failing_test_of_its_own_is_not_excused(self):
+        # One step's failing test never covers another test step's compile error (review F2).
+        github = KitFixedOnBaseGitHub()
+        sim = "xcodebuild test (iOS simulator)"
+        github.jobs[1]["steps"].append({"name": sim, "status": "completed", "conclusion": "failure"})
+        github.logs[1] += "\n" + log(KIT, sim, "error: cannot find 'LinkTestClock' in scope",
+                                    "##[error]Process completed with exit code 65.")
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"step '{sim}' names no failing test of its own")):
+            self.judge(github)
+
     def test_an_unreadable_manifest_is_refused(self):
-        for path in ("cmux-next-ios/rust/Cargo.lock", "Packages/iOS/CmuxTabsKit/Package.swift"):
+        for path in ("cmux-next-ios/rust/Cargo.lock", "Packages/iOS/CmuxTabsKit/Package.swift",
+                     "cmux-tui/crates/cmux-wg/Cargo.toml"):
             files = {key: value for key, value in KIT_FILES.items() if key != path}
             with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, f"{path} could not be read"):
                 self.judge(KitFixedOnBaseGitHub(files=files))
@@ -2997,22 +3034,24 @@ class PackageFixedOnBase(unittest.TestCase):
             self.judge(github)
 
     def test_the_declared_reads_cover_the_tree(self):
-        # The FFI's Rust crates and every file their sources include_str! (cmux-rd-ffi's tests read
-        # schemas/remote-tab/), read from this checkout the way cargo_test_verdict reads a crate's inputs.
+        # The Rust crates the manifests reach (cargo_crates, as the classifier resolves them at a head) and every file
+        # their sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/), read from this checkout the way
+        # cargo_test_verdict reads a crate's inputs.
         package = excuse.PACKAGE_JOBS[KIT]
         spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
         cargo = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cargo)
-        lock = tomllib.loads((ROOT / package["cargo_lock"]).read_text())
-        self.assertEqual(sorted(package["crates"]),
-                         sorted(crate["name"] for crate in lock["package"] if "source" not in crate))
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
-        crates = []
-        for name in package["crates"]:
-            found = [where for where in (f"cmux-next-ios/rust/crates/{name}", f"cmux-tui/crates/{name}")
-                     if (ROOT / where / "Cargo.toml").is_file()]
-            self.assertEqual(len(found), 1, name)
-            crates += found
+        github = KitFixedOnBaseGitHub(files={})
+
+        def checkout(repo, ref, path):
+            if not (ROOT / path).is_file():
+                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
+            return (ROOT / path).read_text()
+        github.blob = checkout
+        crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github).values())
+        self.assertIn("cmux-tui/crates/cmux-wg", crates)
+        self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
         for crate in crates:
             dirs, files = cargo.crate_inputs(ROOT, crate)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
@@ -3030,12 +3069,6 @@ class PackageFixedOnBase(unittest.TestCase):
                     if (ROOT / path).is_file():
                         with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
-        files = {path: (ROOT / path).read_text() for path in
-                 sorted(str(p.relative_to(ROOT)) for p in ROOT.glob("Packages/*/*/Package.swift"))}
-        files.update({path: (ROOT / path).read_text() for path in
-                      ("cmux-next-ios/CmuxMobileKit/Package.swift", package["cargo_lock"])})
-        files.update({str(p.relative_to(ROOT)): p.read_text() for p in ROOT.glob("vendor/*/Package.swift")})
-        github = KitFixedOnBaseGitHub(files=files)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
 
 

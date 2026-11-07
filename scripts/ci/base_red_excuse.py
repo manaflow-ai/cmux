@@ -1593,15 +1593,14 @@ COMPARE_FILES_CAP = 300
 # sources include_str! (cmux-rd-ffi's tests read schemas/remote-tab/) and the repository files its Swift names by path
 # (its tests read cmux-tui/spec/ and schemas/deeplinks/ at run time), checked against the tree by
 # tests/test_base_red_excuse.py. At the head they are checked again: every Swift package Package.swift reaches by
-# path and every path crate in the Cargo.lock must lie in them, else the red is refused (a new dependency the
+# path and every Rust crate the Cargo manifests reach by path (cargo_crates, which must cover every path crate in the
+# Cargo.lock) must lie in them, and every failed step must name its own failing test, else the red is refused (a new dependency the
 # declaration has not caught up with reads paths this rule cannot see).
 PACKAGE_JOBS = {
     "CmuxMobileKit tests (macOS swift test, iOS simulator)": {
         "steps": ("swift test (macOS)", "xcodebuild test (iOS simulator)"),
         "swift": ("cmux-next-ios/CmuxMobileKit",),
         "cargo_lock": "cmux-next-ios/rust/Cargo.lock",
-        "crates": ("cmux-mobile-host", "cmux-mobile-link", "cmux-mobile-link-ffi", "cmux-rd-core", "cmux-rd-engine",
-                   "cmux-rd-ffi", "cmux-rd-proto", "cmux-remote-browser", "cmux-transport", "cmux-wg"),
         "reads": ("cmux-next-ios/CmuxMobileKit/", "cmux-next-ios/rust/", "cmux-next-ios/.cargo/", ".cargo/",
                   "Packages/Shared/", "Packages/iOS/", "cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock",
                   "cmux-tui/rust-toolchain.toml", "cmux-tui/rust-toolchain", "cmux-tui/.cargo/",
@@ -1617,11 +1616,99 @@ PACKAGE_JOBS = {
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
 
 
+CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+CARGO_MANIFESTS = 200  # a bound on the manifests one resolution reads
+
+
+def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
+    """{crate name: its directory} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
+    then each path dependency (a `path`, or `workspace = true` resolved in the crate's own workspace root, the nearest
+    ancestor manifest with a [workspace]), read from the manifests at SHA, never from a declaration. Raises Refused
+    when a manifest cannot be read or parsed, a member is a glob, or a path crate in LOCK resolves to no directory."""
+    import posixpath
+    import tomllib
+    manifests: dict[str, dict | None] = {}
+
+    def manifest(where: str, required: bool) -> dict | None:
+        if where not in manifests:
+            if len(manifests) >= CARGO_MANIFESTS:
+                raise Refused(f"resolving {lock}'s crates read more than {CARGO_MANIFESTS} manifests")
+            path = f"{where}/Cargo.toml" if where else "Cargo.toml"
+            try:
+                text = source_text(repo, sha, path, github)
+            except Refused as why:
+                if required:
+                    raise Refused(f"{path} could not be read at {sha[:12]}: {why}") from None
+                text = None
+            try:
+                manifests[where] = None if text is None else tomllib.loads(text)
+            except tomllib.TOMLDecodeError as why:
+                raise Refused(f"{path} could not be parsed at {sha[:12]}: {why}") from None
+        return manifests[where]
+
+    def workspace_of(where: str) -> tuple[str, dict]:
+        at = where
+        while True:
+            found = manifest(at, at == where)
+            if found is not None and isinstance(found.get("workspace"), dict):
+                return at, found["workspace"]
+            if not at:
+                return where, {}
+            at = posixpath.dirname(at)
+
+    root = posixpath.dirname(lock)
+    top = (manifest(root, True) or {}).get("workspace")
+    if not isinstance(top, dict):
+        raise Refused(f"{root}/Cargo.toml has no [workspace]")
+    members = top.get("members") or []
+    if any(not isinstance(member, str) or any(c in member for c in "*?[") for member in members):
+        raise Refused(f"{root}/Cargo.toml names its members by a glob")
+    queue = [posixpath.normpath(posixpath.join(root, member)) for member in members] + [root]
+    crates: dict[str, str] = {}
+    seen: set[str] = set()
+    while queue:
+        where = queue.pop()
+        if where in seen:
+            continue
+        seen.add(where)
+        if where.startswith(".."):
+            raise Refused(f"a path crate of {lock} is outside the repository ({where})")
+        found = manifest(where, True) or {}
+        package = found.get("package")
+        if isinstance(package, dict) and isinstance(package.get("name"), str):
+            crates[package["name"]] = where
+        home, workspace = workspace_of(where)
+        shared = workspace.get("dependencies") if isinstance(workspace.get("dependencies"), dict) else {}
+        tables = [found.get(name) for name in CARGO_DEPENDENCY_TABLES]
+        targets = found.get("target") if isinstance(found.get("target"), dict) else {}
+        tables += [target.get(name) for target in targets.values() if isinstance(target, dict)
+                   for name in CARGO_DEPENDENCY_TABLES]
+        tables += [patch for patch in (found.get("patch") or {}).values() if isinstance(patch, dict)]
+        tables += [shared] if where == home else []
+        for table in tables:
+            for name, spec in (table or {}).items() if isinstance(table, dict) else ():
+                if not isinstance(spec, dict):
+                    continue
+                if isinstance(spec.get("path"), str):
+                    base = home if table is shared else where
+                    queue.append(posixpath.normpath(posixpath.join(base, spec["path"])))
+                elif spec.get("workspace") and isinstance(shared.get(name), dict) \
+                        and isinstance(shared[name].get("path"), str):
+                    queue.append(posixpath.normpath(posixpath.join(home, shared[name]["path"])))
+    try:
+        locked = tomllib.loads(source_text(repo, sha, lock, github)).get("package", [])
+    except (Refused, tomllib.TOMLDecodeError) as why:
+        raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
+    if missing := sorted({str(crate.get("name")) for crate in locked if isinstance(crate, dict)
+                          and "source" not in crate} - crates.keys()):
+        raise Refused(f"{lock} has path crates its manifests do not reach: {', '.join(missing)}")
+    return crates
+
+
 def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]:
     """PACKAGE's declared reads, once its Swift path packages and Cargo.lock path crates at SHA are shown to lie in
     them; raises Refused naming the first that does not."""
     import posixpath
-    import tomllib
     reads = package["reads"]
     seen: set[str] = set()
     queue = list(package["swift"])
@@ -1641,26 +1728,31 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
             if path.startswith(".."):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
-    lock = package["cargo_lock"]
-    try:
-        locked = tomllib.loads(source_text(repo, sha, lock, github)).get("package", [])
-    except (Refused, tomllib.TOMLDecodeError) as why:
-        raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
-    if extra := sorted({crate.get("name") for crate in locked if isinstance(crate, dict) and "source" not in crate}
-                       - set(package["crates"])):
-        raise Refused(f"{lock} has path crates outside its declared reads (PACKAGE_JOBS): {', '.join(map(str, extra))}")
+    crates = cargo_crates(repo, sha, package["cargo_lock"], github)
+    for crate, where in sorted(crates.items()):
+        if not any(touches(where + "/Cargo.toml", read) for read in reads + GUARD_READS_DEFAULT):
+            raise Refused(f"its Rust crate {crate} at {where} is outside its declared reads (PACKAGE_JOBS)")
     return reads
 
 
 def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
-    """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps; raises Refused."""
+    """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps and names a failing
+    test of its own (one step's test failure never covers another's compile error); raises Refused."""
     steps, _, _ = signature(job, head_log)
     if other := sorted(steps - set(package["steps"])):
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
-    failed = sorted(test_reds.read(head_log).failed)
-    if not steps or not failed:
+    if not steps:
         raise Refused("no failing test in its test steps")
-    return failed
+    by_step = step_lines(job, head_log)
+    if by_step is None:
+        raise Refused("its log's lines cannot each be told to one step")
+    failed: set[str] = set()
+    for step in sorted(steps):
+        found = test_reds.read("\n".join(by_step.get(step, []))).failed
+        if not found:
+            raise Refused(f"its failed step {step!r} names no failing test of its own")
+        failed |= found
+    return sorted(failed)
 
 
 def guard_job(name: str) -> bool:
@@ -1927,19 +2019,13 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
-    """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
-    found = test_reds.read(head_log)
-    steps, _, errors = signature(job, head_log)
-    if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
-            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
-        return False
-    # A generic failed test-named step must not borrow a quarantined test from another step. gh run view labels
-    # steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines.
+def step_lines(job: dict, head_log: str) -> dict[str, list[str]] | None:
+    """{step name: its log lines} of JOB's HEAD_LOG, or None when a line's step cannot be told. gh run view labels
+    steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines."""
     metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     names = [step.get("name") for step in metadata]
     if len(set(names)) != len(names):
-        return False
+        return None
     by_step: dict[str, list[str]] = {}
     for line in head_log.splitlines():
         parts = line.split("\t", 2)
@@ -1956,7 +2042,7 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
         for step in metadata:
             start, end = timestamp(step.get("started_at")), timestamp(step.get("completed_at"))
             if start is None or end is None or end < start:
-                return False
+                return None
             # Actions step metadata rounds to seconds. A line in a shared boundary second cannot identify its
             # step, so match every possible window and retain it only when there is exactly one owner.
             windows.append((step["name"], start, end + timedelta(seconds=1)))
@@ -1968,6 +2054,20 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
             owners = [name for name, start, end in windows if start <= when < end]
             if len(owners) == 1:
                 by_step.setdefault(owners[0], []).append(line)
+    return by_step
+
+
+def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
+    """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
+    found = test_reds.read(head_log)
+    steps, _, errors = signature(job, head_log)
+    if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
+            or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
+        return False
+    # A generic failed test-named step must not borrow a quarantined test from another step.
+    by_step = step_lines(job, head_log)
+    if by_step is None:
+        return False
     for step in steps:
         result = test_reds.read("\n".join(by_step.get(step, [])))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
