@@ -87,6 +87,18 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
             const problems = await clipped(page);
             if (out) await page.screenshot({ path: path.join(out, `capture-bar-${variant}-${scheme}.png`) });
             expect(problems).toEqual([]);
+            if (variant === "band") {
+              // At a usual pane width the band is one row: its × never wraps alone onto a second line.
+              const rows = await page.evaluate(
+                () =>
+                  new Set(
+                    Array.from(document.querySelectorAll(".acpmux-capture button"), (button) =>
+                      Math.round(button.getBoundingClientRect().top / 8),
+                    ),
+                  ).size,
+              );
+              expect(rows).toBe(1);
+            }
             if (variant === "recording") {
               expect(await page.locator(".acpmux-capture__elapsed").textContent()).toMatch(/^0:1\d$/);
               await page.locator(".acpmux-capture__stop").waitFor();

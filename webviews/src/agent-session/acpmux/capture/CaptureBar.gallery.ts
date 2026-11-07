@@ -59,7 +59,7 @@ export default componentEntry<Props>({
   experiment: { definition: captureBarLook, script: captureBarScript },
   variants: {
     band: {
-      note: "Open, the band: Screenshot with Region, Window, Pane and cmux, Record with Pointer and Clicks, then Chat, Copy or Save.",
+      note: "Open, the band: Region, Window, Pane and cmux, Record with Pointer and Clicks, then Chat, Copy or Save.",
       props: { phase: "open" },
     },
     segmented: {

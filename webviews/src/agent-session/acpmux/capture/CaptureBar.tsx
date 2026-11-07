@@ -280,10 +280,9 @@ export function CaptureBar({
   } else {
     body = (
       <div className="acpmux-capture__row" key="band" data-wrap="">
-        <span className="acpmux-capture__group">
-          <span className="acpmux-capture__label">{t("capture.screenshot")}</span>
+        <fieldset className="acpmux-capture__group" aria-label={t("capture.screenshot")}>
           {CAPTURE_TARGETS.map(targetButton)}
-        </span>
+        </fieldset>
         <span className="acpmux-capture__divider" aria-hidden="true" />
         <span className="acpmux-capture__group">
           {recordButton}

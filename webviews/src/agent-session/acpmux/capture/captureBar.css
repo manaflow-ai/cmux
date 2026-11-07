@@ -94,13 +94,9 @@
   align-items: center;
   gap: var(--ds-space-1, 4px);
   min-width: 0;
-}
-.acpmux-capture__label {
-  padding: 0 var(--ds-space-1, 4px);
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  white-space: nowrap;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
 .acpmux-capture__divider {
   flex: none;
