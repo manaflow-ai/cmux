@@ -11,9 +11,9 @@ use optchat_chief::engine::{self, EngineChoice};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
-/// The mode the brain set on the first turn's session before its prompt,
-/// for engine.json `saved` and the user's settings `user`.
-fn first_turn_mode(saved: Value, user: Option<Value>) -> Option<String> {
+/// The policy of the first turn's session and the mode the brain set on it
+/// before its prompt, for engine.json `saved` and the user's settings `user`.
+fn first_turn(saved: Value, user: Option<Value>) -> (String, Option<String>) {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("engine.json");
     std::fs::write(&file, saved.to_string()).unwrap();
@@ -41,13 +41,41 @@ fn first_turn_mode(saved: Value, user: Option<Value>) -> Option<String> {
         .iter()
         .find(|s| s.name.starts_with(TURN_PREFIX))
         .expect("a turn session started");
-    assert_eq!(turn.policy, "approve-all");
     // Set before the turn's prompt (0 prompts sent before it).
-    inner
+    let mode = inner
         .modes
         .iter()
         .find(|(_, _, prompts)| *prompts == 0)
-        .map(|(_, mode, _)| mode.clone())
+        .map(|(_, mode, _)| mode.clone());
+    (turn.policy.clone(), mode)
+}
+
+fn first_turn_mode(saved: Value, user: Option<Value>) -> Option<String> {
+    let (policy, mode) = first_turn(saved, user);
+    assert_eq!(policy, "approve-all");
+    mode
+}
+
+/// Manual is Claude Code's `default`, which asks before each change. Under
+/// approve-all acpmux answers every ask with allow, so a Manual turn would
+/// run as wide as bypass: it runs under `ask`, where each ask comes to the
+/// Chief's `turn_permission` and is refused, with `default` set on it.
+#[test]
+fn a_manual_chief_turn_runs_under_ask_so_its_asks_are_refused_not_allowed() {
+    for (saved, user) in [
+        (json!({"permission_mode": "default"}), None),
+        (json!({}), Some(json!({"chief": {"permissionMode": "default"}}))),
+        (
+            json!({"permission_mode": "bypassPermissions"}),
+            Some(json!({"chief.permissionMode": "manual"})),
+        ),
+    ] {
+        assert_eq!(
+            first_turn(saved.clone(), user.clone()),
+            ("ask".to_owned(), Some("default".to_owned())),
+            "engine.json {saved}, settings {user:?}"
+        );
+    }
 }
 
 #[test]
@@ -57,7 +85,6 @@ fn a_claude_chief_turn_runs_in_bypass_by_default_and_in_the_chosen_mode_otherwis
         (json!({}), None, "bypassPermissions"),
         // The Chief's own `engine set --mode`.
         (json!({"permission_mode": "auto"}), None, "auto"),
-        (json!({"permission_mode": "default"}), None, "default"),
         // The person's Settings choice.
         (
             json!({}),
@@ -67,13 +94,13 @@ fn a_claude_chief_turn_runs_in_bypass_by_default_and_in_the_chosen_mode_otherwis
         // Settings caps a wider engine.json choice, and allows a narrower one.
         (
             json!({"permission_mode": "bypassPermissions"}),
-            Some(json!({"chief": {"permissionMode": "default"}})),
-            "default",
+            Some(json!({"chief": {"permissionMode": "auto"}})),
+            "auto",
         ),
         (
-            json!({"permission_mode": "default"}),
+            json!({"permission_mode": "auto"}),
             Some(json!({"chief.permissionMode": "bypassPermissions"})),
-            "default",
+            "auto",
         ),
     ] {
         assert_eq!(
@@ -94,6 +121,12 @@ fn only_an_approve_all_claude_turn_takes_the_chief_mode() {
     );
     // A turn that carries another person's text runs `ask`: never widened.
     assert_eq!(chief_turn_mode(Family::Claude, "ask", bypass), None);
+    assert_eq!(chief_turn_mode(Family::Claude, "ask", Some("auto")), None);
+    // A Manual owner turn runs `ask` with Manual set: no wider than `ask`.
+    assert_eq!(
+        chief_turn_mode(Family::Claude, "ask", Some("default")),
+        Some("default")
+    );
     // codex keeps its full-access mode under approve-all (E6), whatever the Claude mode.
     assert_eq!(
         chief_turn_mode(Family::Codex, "approve-all", Some("default")),
