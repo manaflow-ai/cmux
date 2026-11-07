@@ -62,7 +62,10 @@ test("every decision and form dialog draws on the sheet glass that floats over t
     const named = [...source.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
       .map((match) => match[1] ?? match[2] ?? "")
       .find((value) => value.split(/[\s$]/).includes(cls));
-    expect({ cls, className: named ?? null }).toEqual({ cls, className: expect.stringContaining("ui-glass ui-glass-floats") });
+    expect({ cls, className: named ?? null }).toEqual({
+      cls,
+      className: expect.stringContaining("ui-glass ui-glass-floats"),
+    });
   }
 });
 
