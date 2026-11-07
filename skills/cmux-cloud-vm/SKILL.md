@@ -47,7 +47,7 @@ the person can read it. Without `--wait` it answers once the prompt is sent.
 
   Each `cloud exec` stops after 25 s, so wait in 20-second slices until `wait` exits 0
   (2: the agent asks for a permission, answered in the chat's tab).
-- Errors say what to do next: `cloud.signed_out` (run `cmux cloud sign-in`),
+- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
   `cloud.start_pending` (the machine is still coming up: run the same command again,
   its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
   Run from an agent chat, it starts at once, as from a terminal: nothing asks the

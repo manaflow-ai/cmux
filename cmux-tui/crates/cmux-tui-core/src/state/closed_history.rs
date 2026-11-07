@@ -1070,7 +1070,7 @@ impl Mux {
         // A known place (the closed workspace's personal row was kept): created
         // last, so the row `restore_placement` drops in the reopen commit moves
         // no other row, and the closed row's place comes back. No known place:
-        // where `workspaces.newPlacement` puts a new workspace (top by default).
+        // where `workspaces.newPlacement` puts a new workspace.
         let known = match record["workspace_key"].as_str() {
             Some(closed_key) => {
                 self.read_registry_state(|connection| place_kept(connection, closed_key))?

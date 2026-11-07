@@ -121,14 +121,42 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             ));
         }
     };
-    let mut runner = SelfRunner { globals: forwarded_globals(&global) };
-    let outcome = run(&mut runner, &request);
-    Some(report(&outcome, global.output))
+    Some(start(&global, &request))
+}
+
+/// Runs `request` with this binary's own app verbs and prints the answer: `cloud start-chat`
+/// and `cmux chat --on vm:…` (chat_start.rs) are the same run.
+pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    let outcome = run(&mut runner, request);
+    report(&outcome, global.output)
+}
+
+/// Whether the app is signed in to cmux Cloud now, as its own machine list answers
+/// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
+pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
+    app_machines(global)
+        .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false)))
+}
+
+/// The app's `cloud list-machines` answer, or its error.
+pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of
 /// one of this command's own flags (`--prompt --json`) stays a value.
 pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {
+    lift_output_of(rest, output, TAKES_VALUE)
+}
+
+/// [`lift_output`] for a command whose flags in `takes_value` take the next word as their value.
+pub(super) fn lift_output_of(
+    rest: &[String],
+    output: &mut OutputMode,
+    takes_value: &[&str],
+) -> Vec<String> {
     let mut words = Vec::new();
     let mut value_next = false;
     for word in rest {
@@ -142,7 +170,7 @@ pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<Strin
             "--jsonl" => *output = OutputMode::JsonLines,
             "--quiet" => *output = OutputMode::Quiet,
             _ => {
-                value_next = TAKES_VALUE.contains(&word.as_str());
+                value_next = takes_value.contains(&word.as_str());
                 words.push(word.clone());
             }
         }
@@ -401,6 +429,7 @@ fn signed_out(error: &Value) -> bool {
         || code == "auth.required"
         || message.contains("sign in to use cloud")
         || message.contains("cmux cloud sign-in")
+        || message.contains("cmux login")
 }
 
 /// Where a start the app answered `pending` for is stuck, read from the app's own machine list
@@ -496,7 +525,8 @@ pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStag
 
 /// Runs the steps (module docs) and answers the outcome. An answer on a machine this run made itself says
 /// `new_machine: true`: its own `cloud new-machine`, or a `start-session --name` of the fresh name no machine had. A
-/// caller (the start matrix) may delete that machine as its own; no other answer is proof of that.
+/// failure after that says it in `details` (`machine_id`, `new_machine: true`). A caller (the start matrix) may
+/// delete that machine as its own; no other answer is proof of that.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut made = None;
     let mut timed = Timed::new(runner);
@@ -515,6 +545,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Outcome::Failed { error, .. } => {
             if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
                 details.insert("stages_ms".to_owned(), stages);
+                // A failure after this run made its machine names it, so the caller can delete it.
+                if let Some(id) = made {
+                    details.insert("machine_id".to_owned(), json!(id));
+                    details.insert("new_machine".to_owned(), json!(true));
+                }
             }
         }
     }
@@ -591,8 +626,8 @@ fn steps(runner: &mut dyn Runner, request: &Request, made: &mut Option<String>) 
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
             "cloud.signed_out",
-            "cmux is signed out: run `cmux cloud sign-in`, then this command again",
-            json!({"sign_in": "cmux cloud sign-in"}),
+            "cmux is signed out: run `cmux login`, then this command again",
+            json!({"sign_in": "cmux login"}),
             1,
         );
     }
@@ -876,6 +911,77 @@ fn wait_turn(
     }
 }
 
+/// The pause between reads of the app's machine list while a new machine is being made.
+const CREATE_POLL_PAUSE: Duration = Duration::from_secs(3);
+
+/// The machine a `cloud new-machine` answered `pending` for (`creation_id`), once the app lists it: its
+/// create row leaves `creating` and one machine the first list (`listed`) did not have appears. Waits
+/// until `--timeout`, counted from `started_at`.
+fn await_created(
+    runner: &mut dyn Runner,
+    request: &Request,
+    listed: &Value,
+    created: &Value,
+    started_at: Instant,
+) -> Result<String, Outcome> {
+    let ids = |list: &Value| -> Vec<String> {
+        at(list, "machines")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| at(row, "machine_id").as_str().map(str::to_owned))
+            .collect()
+    };
+    let before = ids(listed);
+    let creation = at(created, "creation_id").as_str();
+    let deadline = started_at.checked_add(request.timeout).unwrap_or(started_at);
+    let pending = |why: String| {
+        failed(
+            "cloud.start_pending",
+            format!(
+                "the new machine is still being made ({why}); find it with `cmux vm list-machines`, \
+                 then run `cmux chat --on vm:ID` with the same prompt"
+            ),
+            json!({"app": created, "list": "cmux vm list-machines --json"}),
+            75,
+        )
+    };
+    loop {
+        if runner.now() >= deadline {
+            return Err(pending(format!("not up after {}s", request.timeout.as_secs())));
+        }
+        runner.pause(CREATE_POLL_PAUSE);
+        let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+        else {
+            continue;
+        };
+        let row = at(&now, "creating")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| creation.is_some() && at(row, "creation_id").as_str() == creation);
+        if let Some(row) = row {
+            if at(row, "status").as_str() == Some("failed") {
+                let reason = at(row, "reason").as_str().unwrap_or("no reason given");
+                return Err(failed(
+                    "cloud.start_failed",
+                    format!("the new machine's create failed: {reason}"),
+                    json!({"app": created, "creation": row}),
+                    1,
+                ));
+            }
+            continue;
+        }
+        let new: Vec<String> = ids(&now).into_iter().filter(|id| !before.contains(id)).collect();
+        match new.as_slice() {
+            [id] => return Ok(id.clone()),
+            // The create row can leave the list a moment before its machine is listed: read again.
+            [] => {}
+            _ => return Err(pending("several new machines appeared".into())),
+        }
+    }
+}
+
 /// What the relay-first chat came to.
 enum Relayed {
     /// The command's answer: the reply, a failure, or a turn the link path waits on.
@@ -919,21 +1025,16 @@ fn relay_chat(
                     Ok(created) => created,
                     Err(error) => return Relayed::Answered(start_refused(error, listed, request)),
                 };
-            match at(&created, "machine_id").as_str() {
-                Some(id) if at(&created, "pending").as_bool() != Some(true) => {
-                    *made = Some(id.to_owned());
-                    id.to_owned()
-                }
-                _ => {
-                    return Relayed::Answered(failed(
-                        "cloud.start_pending",
-                        "the new machine is still being made; find it with `cmux cloud list-machines`, \
-                         then run this command again with --target machine:ID",
-                        json!({"app": created, "list": "cmux cloud list-machines --json"}),
-                        75,
-                    ));
-                }
-            }
+            let id = match at(&created, "machine_id").as_str() {
+                Some(id) if at(&created, "pending").as_bool() != Some(true) => id.to_owned(),
+                // A slow create: `--timeout` covers it too.
+                _ => match await_created(runner, request, listed, &created, started_at) {
+                    Ok(id) => id,
+                    Err(outcome) => return Relayed::Answered(outcome),
+                },
+            };
+            *made = Some(id.clone());
+            id
         }
     };
     let mut args = words(&["cloud", "relay-chat", "--target"]);
@@ -1225,8 +1326,8 @@ fn app_failure(error: Value) -> Outcome {
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
-            format!("{message} (run `cmux cloud sign-in`, then this command again)"),
-            json!({"sign_in": "cmux cloud sign-in", "app": error}),
+            format!("{message} (run `cmux login`, then this command again)"),
+            json!({"sign_in": "cmux login", "app": error}),
             1,
         );
     }

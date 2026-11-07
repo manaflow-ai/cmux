@@ -71,6 +71,16 @@ pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
         || error.is::<crate::client::TransportClosed>()
 }
 
+/// The daemon's refusal as it shuts down (`hub::SHUTTING_DOWN`, typed `daemon.restarting`): a
+/// prompt it answered with it is the next daemon's, never the agent's failure.
+pub(crate) fn daemon_restarting_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+        d.0.message == crate::hub::SHUTTING_DOWN
+            || d.0.data.as_ref().and_then(|v| v["errorKind"].as_str())
+                == Some(crate::recovery::kind::DAEMON_RESTARTING)
+    })
+}
+
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
     let joined = words.join(" ");
     if !joined.is_empty() && joined != "-" {
@@ -1010,7 +1020,9 @@ async fn collect_once(
     }
     let result = match result {
         Ok(v) => v,
-        Err(e) if daemon_closed_error(&e) => {
+        // A daemon that answered it is restarting handed the turn to the next one, as one that
+        // closed mid-turn did (chaos fault `daemon-restart-session-new`).
+        Err(e) if daemon_closed_error(&e) || daemon_restarting_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
         Err(e) => {
@@ -1490,4 +1502,18 @@ fn daemon_error_text_is_not_a_transport_restart() {
     assert!(!daemon_closed_error(&agent));
     assert!(!daemon_closed_error(&anyhow!("daemon connection closed")));
     assert!(daemon_closed_error(&crate::client::closed_error("test EOF", None)));
+}
+
+/// Chaos fault `daemon-restart-session-new`: a prompt the daemon answered with its shutdown
+/// refusal is a daemon restart (`daemon_closed`, retryable), never a final `agent_error`.
+#[test]
+fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
+    let mut e = crate::rpc::RpcError::internal(crate::hub::SHUTTING_DOWN);
+    crate::recovery::annotate(&mut e, None);
+    let restarting: anyhow::Error = crate::client::DaemonError(e).into();
+    assert!(daemon_restarting_error(&restarting));
+    let agent: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::internal("no agent session")).into();
+    assert!(!daemon_restarting_error(&agent));
+    assert!(!daemon_restarting_error(&anyhow!(crate::hub::SHUTTING_DOWN)));
 }
