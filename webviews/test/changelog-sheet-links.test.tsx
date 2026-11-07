@@ -144,7 +144,8 @@ test("a raw change's row shows its description's first paragraph, not the paragr
       {
         title: "Sidebar rows keep their place when a workspace closes",
         pr: 37002,
-        description: "Nothing jumps when a row goes.\nIts neighbours stay put.\n\nThe store now keeps a tombstone per row.",
+        description:
+          "Nothing jumps when a row goes.\nIts neighbours stay put.\n\nThe store now keeps a tombstone per row.",
       },
     ],
   };
