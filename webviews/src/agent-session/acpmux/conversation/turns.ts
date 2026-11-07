@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
+  LANE_NOTICE_BATCH,
   pathKey,
   TURN_RETRY,
   type AcpmuxActivity,
@@ -55,7 +56,7 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
-import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
+import { answerClaim, askKey, CLAIM_SLACK_MS, claimEnds } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -675,6 +676,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
       }
       if (claimed.has(later)) continue;
       if (claim.seen === undefined && out[later]!.at < claim.at - CLAIM_SLACK_MS) continue;
+      // Past the send, a prompt with the same words is a new one: the claim's own never came.
+      if (out[later]!.at > claimEnds(claim)) break;
       claimed.set(later, index);
       own.set(index, later);
       break;
@@ -748,9 +751,11 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
-  // The newest card counts only once a turn came after it: before that it is the chat's last row.
+  // The newest card counts only once a message came after it: before that it is the chat's last row.
+  // Messages from other agents in a row fold into one batch, which is that message too.
   const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  const after = (row: AcpmuxRow) => row.kind === "user" || row.kind === LANE_NOTICE_BATCH;
+  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some(after)) waiting.shift();
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];

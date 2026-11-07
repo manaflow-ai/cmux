@@ -10,12 +10,21 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { AcpmuxRow } from "../model";
+import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { NextStepCard } from "./NextStepCard";
 import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { answersSent, NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
-import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
+import {
+  answerClaim,
+  askKey,
+  bottomAsks,
+  claimAnswer,
+  dismissAsk,
+  dismissedAsks,
+  resetAnswerClaims,
+  settleClaim,
+} from "./waitingAskStore";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -239,4 +248,72 @@ test("a clicked answer settles its card only with a prompt sent past the click",
     "Yes",
     "Yes",
   ]);
+});
+
+/// A review report from another agent; two in a row fold into one batch (laneNoticeBatches.ts).
+const report = (id: string, verdict: string, extra: Partial<AcpmuxRow> = {}) => {
+  const text = `Review (Astra): ${verdict} at 0123456789abcdef0123456789abcdef01234567`;
+  return line(id, "user", {
+    text,
+    untyped: true,
+    incoming: { kind: "message", message: { name: "review-lane", text, raw: text, report: true } },
+    ...extra,
+  } as Partial<AcpmuxRow>);
+};
+
+test("a question followed by two peer notices stays pinned once they fold into one batch", () => {
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
+    line("s1", "turnSummary", { status: "completed" }),
+    report("m1", "SHIP", { continues: true }),
+    // Both delivered into the turn that asked, so the two fold into one batch.
+    report("m2", "BLOCK", { continues: true }),
+  ];
+  const view = turnViewFrom(rows, new Set());
+  expect(view.rows.filter((row) => row.kind === LANE_NOTICE_BATCH)).toHaveLength(1);
+  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([
+    "Should agents keep working while the Mac is locked?",
+  ]);
+});
+
+test("a claim settles nothing past its send: a later prompt with the same words is not its answer", () => {
+  const rows = [
+    line("p1", "user", { text: "Why does it stop on lock?" }),
+    line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
+    line("s1", "turnSummary", { status: "completed" }),
+    inbound("m1", "Gallery ready."),
+    line("a2", "assistant", { text: "[outward] Should I post the gallery?" }),
+    line("s2", "turnSummary", { status: "completed" }),
+  ];
+  const [older] = waitingAsks(turnViewFrom(rows, new Set()));
+  const key = askKey(older!);
+  const answers = (when: number) => {
+    at = when;
+    const view = turnViewFrom([...rows, line("p2", "user", { text: "Yes" })], new Set());
+    return view.rows.filter((row) => row.kind === NEXT_STEP).map((row) => row.nextStep?.answer);
+  };
+  // Clicked and sent: its prompt reached the chat by the time the send settled.
+  const click = at;
+  claimAnswer(key, "Yes", click, 0);
+  settleClaim(key, click + 1000);
+  expect(answers(click + 500)).toEqual(["Yes", undefined]);
+  // A "Yes" well after that settled send is the person answering the newer card.
+  expect(answers(click + 600_000)).toEqual([undefined, "Yes"]);
+  // A claim whose send never settled (the pane closed) holds only so long.
+  resetAnswerClaims();
+  claimAnswer(key, "Yes", click, 0);
+  expect(answers(click + 7_200_000)).toEqual([undefined, "Yes"]);
+});
+
+test("a failed send drops its claim", async () => {
+  const ask = nextStepAsk("[taste] Which look should ship?\n- Box\n- Inline")!;
+  const container = dom!.window.document.getElementById("root")!;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<NextStepCard ask={ask} onAnswer={() => Promise.reject(new Error("refused"))} answerKey="card-9" />);
+  });
+  const button = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("Inline"))!;
+  await act(async () => button.click());
+  expect(answerClaim("card-9")).toBeUndefined();
 });

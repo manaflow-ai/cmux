@@ -3,7 +3,15 @@ import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
 import type { NextStepAsk } from "./nextStepAsk";
-import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
+import {
+  answerState,
+  claimAnswer,
+  dropClaim,
+  setAnswerState,
+  settleClaim,
+  subscribeAnswers,
+  type AnswerState,
+} from "./waitingAskStore";
 import "./NextStepCard.css";
 
 /// A tagged ask at the end of a turn (nextStepAsk.ts) as Claude desktop's next-step box draws it
@@ -87,8 +95,14 @@ export const NextStepCard = memo(function NextStepCard({
     if (answerKey) claimAnswer(answerKey, label, Date.now(), answersSent?.(answerKey, label));
     update({ sending: label });
     void onAnswer(label).then(
-      () => update({}),
-      () => update({ failed: true }),
+      () => {
+        if (answerKey) settleClaim(answerKey);
+        update({});
+      },
+      () => {
+        if (answerKey) dropClaim(answerKey);
+        update({ failed: true });
+      },
     );
   };
   return (

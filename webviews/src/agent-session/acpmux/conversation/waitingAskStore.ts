@@ -71,13 +71,21 @@ export function shownAsks(asks: readonly AcpmuxRow[], dismissed: ReadonlySet<str
 /// the card at the click (turns.ts `answersSent`), so a "Yes" sent earlier for a newer card is never
 /// this one's. Kept in local storage so a reload settles the same card; bounded to the newest
 /// CLAIMS_CAP. A typed answer, or one from another device, has no claim and settles as before.
-export type AnswerClaim = { key: string; text: string; at: number; seen?: number };
+/// `sent` is when the send settled: the prompt is in the chat by then, so no later one is the answer.
+/// A failed send drops its claim (`dropClaim`), and one that never settled (the pane closed) holds for
+/// CLAIM_OPEN_MS.
+export type AnswerClaim = { key: string; text: string; at: number; seen?: number; sent?: number };
 
 const CLAIMS_KEY = "cmux.agentPane.answerClaims.v1";
 const CLAIMS_CAP = 100;
 /// A claim without its boundary (the card was not in the shown view): how much earlier than the click
 /// a prompt's own time may read, since its row is stamped by acpmux's clock, which the pane's can trail.
 export const CLAIM_SLACK_MS = 60_000;
+/// How long a claim whose send never settled may still name its prompt.
+export const CLAIM_OPEN_MS = 30 * 60_000;
+
+/// The latest time, by acpmux's clock give or take CLAIM_SLACK_MS, a prompt answering `claim` can read.
+export const claimEnds = (claim: AnswerClaim) => (claim.sent ?? claim.at + CLAIM_OPEN_MS) + CLAIM_SLACK_MS;
 
 let claims: AnswerClaim[] | undefined;
 
@@ -92,7 +100,8 @@ function readClaims(): AnswerClaim[] {
             typeof c.key === "string" &&
             typeof c.text === "string" &&
             typeof c.at === "number" &&
-            (c.seen === undefined || typeof c.seen === "number"),
+            (c.seen === undefined || typeof c.seen === "number") &&
+            (c.sent === undefined || typeof c.sent === "number"),
         )
       : [];
   } catch {
@@ -111,7 +120,21 @@ export function answerClaim(key: string): AnswerClaim | undefined {
 /// Records that `text` was sent as the answer to card `key`, now, after `seen` prompts with that text.
 export function claimAnswer(key: string, text: string, at = Date.now(), seen?: number): void {
   const claim: AnswerClaim = { key, text, at, ...(seen !== undefined && { seen }) };
-  claims = [...readClaims().filter((c) => c.key !== key), claim].slice(-CLAIMS_CAP);
+  writeClaims([...readClaims().filter((c) => c.key !== key), claim]);
+}
+
+/// Records that the answer sent from card `key` settled at `at`: it reached the chat by then.
+export function settleClaim(key: string, at = Date.now()): void {
+  writeClaims(readClaims().map((c) => (c.key === key && c.sent === undefined ? { ...c, sent: at } : c)));
+}
+
+/// Forgets card `key`'s claim: its send failed, so no prompt answers it.
+export function dropClaim(key: string): void {
+  writeClaims(readClaims().filter((c) => c.key !== key));
+}
+
+function writeClaims(next: AnswerClaim[]): void {
+  claims = next.slice(-CLAIMS_CAP);
   try {
     globalThis.localStorage?.setItem(CLAIMS_KEY, JSON.stringify(claims));
   } catch {
