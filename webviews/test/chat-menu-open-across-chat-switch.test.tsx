@@ -9,11 +9,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import {
-  ChatHeaderTools,
-  guardedChatMenu,
-  type ChatMenuItem,
-} from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { guardedChatMenu, type ChatMenuItem } from "../src/agent-session/acpmux/header/chatHeaderToolsModel";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 

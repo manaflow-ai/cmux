@@ -310,7 +310,8 @@ final class TerminalFramePresenter {
 }
 
 extension TerminalFramePresenter: TerminalGridReportTicks {
-    /// `coalescer`'s window ends at the next refresh (RESIZE P0 6): it is ticked once, at that refresh.
+    /// `coalescer`'s window ends at the next refresh (RESIZE P0 6); it is ticked each refresh until a refresh finds
+    /// nothing waiting, which also clears the refresh its last send spent (RESIZE P0 7).
     func tickGridReports(_ coalescer: TerminalGridReportCoalescer) {
         gridReports[ObjectIdentifier(coalescer)] = GridReports(coalescer: coalescer)
         client.activate()

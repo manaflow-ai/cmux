@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1329,
+    "entries": 1331,
     "shortcuts": 189
   },
   "sections": [
@@ -6400,6 +6400,12 @@
           "command": "cmux agent show-background-tasks"
         },
         {
+          "id": "agentPane.showInMini",
+          "title": "Show in Mini",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.showSubagents",
           "title": "Show Subagents in Session Info",
           "shortcut": null,
@@ -8006,6 +8012,12 @@
           "title": "Window Style: Bare",
           "shortcut": null,
           "command": "cmux settings window-style-bare"
+        },
+        {
+          "id": "appearance.chromeStyle.blocks",
+          "title": "Window Style: Blocks",
+          "shortcut": null,
+          "command": "cmux settings window-style-blocks"
         },
         {
           "id": "appearance.chromeStyle.card",

@@ -7322,5 +7322,29 @@
         ]
       }
     }
+  },
+  "settings.choice.dictationSourceCmux": {
+    "class": "brand",
+    "source": "cmux"
+  },
+  "settings.choice.dictationSourceChatgpt": {
+    "class": "brand",
+    "source": "ChatGPT"
+  },
+  "settings.choice.dictationSourceClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.choice.dictationSourceGemini": {
+    "class": "brand",
+    "source": "Gemini"
+  },
+  "settings.choice.dictationSourceWisprFlow": {
+    "class": "brand",
+    "source": "Wispr Flow"
+  },
+  "settings.choice.dictationSourceSuperwhisper": {
+    "class": "brand",
+    "source": "Superwhisper"
   }
 }
