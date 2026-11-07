@@ -36,17 +36,19 @@ extension ScreenContentView {
     /// either holds its content in motion (a chat) or keeps its size (the panel sliding in at its final width), no dock,
     /// zoom, row or scroll area moves, and no drag or pan is under way. The frames land now; the next presentation pass
     /// places them at rest and starts the springs (``startServerMotion(strip:scale:)``).
-    func handOffToRenderServer(arrivals: [PaneID: PaneArrival]) {
+    /// Returns whether it handed the change off (false: its frames stay on the main thread's springs).
+    @discardableResult
+    func handOffToRenderServer(arrivals: [PaneID: PaneArrival]) -> Bool {
         guard context.springsOnRenderServer(), window != nil, !context.reduceMotion,
               arrivals.values.allSatisfy(\.slides), newDockColumns.isEmpty, zoomMotion.pane == nil,
-              activeDrag == nil, !isUserScrolling, !rowsMoving, !areasMoving, !holdsContentForKeyResize else { return }
+              activeDrag == nil, !isUserScrolling, !rowsMoving, !areasMoving, !holdsContentForKeyResize else { return false }
         var panes: [PaneID: CGRect] = [:]
         for (pane, frame) in paneFrames where frame.rect != frame.targetRect {
             let keepsSize = abs(frame.rect.width - frame.targetRect.width) < 0.01 && abs(frame.rect.height - frame.targetRect.height) < 0.01
-            guard keepsSize || context.hosts[pane]?.holdsContentWhileMoving == true else { return }
+            guard keepsSize || context.hosts[pane]?.holdsContentWhileMoving == true else { return false }
             panes[pane] = frame.rect
         }
-        guard !panes.isEmpty else { return }
+        guard !panes.isEmpty else { return false }
         var dividers: [DividerHandleView.Kind: CGRect] = [:]
         for (kind, frame) in dividerFrames where frame.rect != frame.targetRect { dividers[kind] = frame.rect }
         for pane in panes.keys {
@@ -60,6 +62,7 @@ extension ScreenContentView {
             dividerFrames[kind] = frame
         }
         serverMotion = ScreenServerMotion(panes: panes, dividers: dividers, token: motionState.frameSpring)
+        return true
     }
 
     /// Starts a handed-off motion's springs, in the presentation pass that placed its frames at rest: each host and

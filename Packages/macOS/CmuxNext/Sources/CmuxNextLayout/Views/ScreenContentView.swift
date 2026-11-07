@@ -464,8 +464,11 @@ final class ScreenContentView: NSView {
         // A chat's slide-in split moves on the render server, so a busy main thread never stops it (``ScreenServerMotion``).
         if structural, !arrivals.isEmpty, handoff == nil, !wasMoving, animateFrames, !covering, !returning, !departing {
             handOffToRenderServer(arrivals: arrivals)
-        } else if serverCarriesOn, retargets, animateFrames, !wasMoving {
-            handOffToRenderServer(arrivals: [:])
+        } else if serverCarriesOn, retargets {
+            // A retarget the render server cannot carry (a pane that lays out live changes size, or the change snaps) goes
+            // to the main thread's springs from what shows: the running render-server springs come off first, so the two
+            // never add up.
+            if !(animateFrames && !wasMoving && handOffToRenderServer(arrivals: [:])) { takeBackServerMotion() }
         }
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:

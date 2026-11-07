@@ -105,7 +105,8 @@ struct ChatSlideOnRenderServerTests {
     /// The daemon's echo of the split with its own sizes lands mid-slide: the slide stays on the render server (its new
     /// springs add to the running ones) instead of going back to main-thread frames, which stand still under load.
     @Test func anEchoWithOtherSizesMidSlideStaysOnTheRenderServer() throws {
-        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        // Reopen Closed of a chat beside a chat: both hold their content in motion.
+        let screen = Screen(.leaf("chat"), holding: ["chat", "panel"])
         defer { screen.window.closeAfterTest() }
         screen.show(Self.opened)
         let view = try #require(screen.screen)
@@ -116,6 +117,21 @@ struct ChatSlideOnRenderServerTests {
         for (pane, frame) in view.paneFrames { #expect(frame.rect == frame.targetRect, "\(pane) springs on the main thread") }
         let after = chatHost.layer?.animationKeys()?.filter { $0.hasPrefix(ServerSpring.key) }.count ?? 0
         #expect(after > before, "the echo's move is not on the render server: \(before) springs, then \(after)")
+    }
+
+    /// An echo that resizes a pane laying out live (the panel here does not hold its content) cannot ride the render
+    /// server: its frames go to the main thread's springs from what shows, and the render-server springs come off, so the
+    /// two never add up (review F1 at 6e3c1a70).
+    @Test func anEchoTheRenderServerCannotCarryTakesTheSlideBack() throws {
+        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        defer { screen.window.closeAfterTest() }
+        screen.show(Self.opened)
+        let view = try #require(screen.screen)
+        #expect(view.hasServerMotion)
+        screen.show(.split("r", axis: .horizontal, ratio: 0.55, a: .leaf("chat"), b: .leaf("panel")))
+        #expect(!view.hasServerMotion, "render-server springs still run under the main thread's")
+        for host in view.displayedHosts { #expect(screen.springs(on: host).isEmpty) }
+        for divider in view.dividerViews.values { #expect(screen.springs(on: divider).isEmpty) }
     }
 
     /// Reduce Motion turned on or the window out of sight mid-slide (`landMotion`) lands it: no spring is left to run
