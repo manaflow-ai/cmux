@@ -179,8 +179,7 @@ enum TabLifecycle {
 
     /// A person's new terminal or browser naming no pane (a key, the palette, the menu bar) goes where Cmd-T's does; a menu's
     /// named pane (the +'s) or a script's, the end (Leo 2026-11-07: "you make a new tab with the hotkeys, it opens up, like, subsequently").
-    /// The pane's current tab for a new tab's slot: one this window made and selects once listed (a key pressed before the last new tab
-    /// showed: Ctrl-` then Cmd-T goes after the terminal's stand-in), else the strip's selection, which moves to it a turn later.
+    /// The pane's current tab for a new tab's slot: one it selects once listed (Ctrl-` then Cmd-T: after the terminal), else the strip's selection.
     static func current(_ pane: PaneController) -> String? { pane.pendingSelect.surface.flatMap { surface in pane.pane.tabs.first { $0.surface == surface }?.id } ?? pane.stripModel.selectedID?.rawValue }
 
     static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {

@@ -110,8 +110,8 @@ struct NewTabSuccession {
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
         let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
-        var unpaired = arrived.map(\.id).filter { !claimed.contains($0) } // stand-ins swapped in one snapshot (no answer named them yet): in order
-        var became: [StripTabID: StripTabID] = [:] // each stand-in's tab in this pass, for an open placed after it
+        // Stand-ins swapped in one snapshot (no answer named them yet), in order; each stand-in's tab in this pass, for an open placed after it.
+        var unpaired = arrived.map(\.id).filter { !claimed.contains($0) }, became: [StripTabID: StripTabID] = [:]
         for (index, var open) in opens.enumerated() {
             if let leader = open.before.flatMap({ became[$0] }) { open.before = leader }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
@@ -131,9 +131,8 @@ struct NewTabSuccession {
             (open.claimed, _) = (item.id, claimed.insert(item.id))
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
-            // Re-anchored when its anchor closed; a stand-in under way or a listed tab (hidden until answered) stays: the move reads it (`a b 2 1 c`).
-            let after = open.before.flatMap { before in others.contains { $0.id == before } ? before : pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
-            if let before = open.before?.rawValue, !pane.daemon.store.creations.isUnderway(standIn: before), !pane.pane.tabs.contains(where: { $0.id == before }) { open.before = after }
+            let after = open.before.flatMap { before in others.contains { $0.id == before } ? before : pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) } // re-anchored when it closed
+            if let before = open.before?.rawValue, !pane.daemon.store.creations.isUnderway(standIn: before), !pane.pane.tabs.contains(where: { $0.id == before }) { open.before = after } // a stand-in under way, or a tab hidden until answered, stays the anchor for the move (`a b 2 1 c`)
             // `NewTabSlot`'s slot: the page's, else right after the anchor's group (a duplicate: in it; re-anchored above when it closed), never among the pinned tabs.
             var slot = others.prefix { $0.isPinned }.count, placed = item
             if let before = after, var index = others.firstIndex(where: { $0.id == before }) {

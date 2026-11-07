@@ -25,16 +25,10 @@ enum NewTabSlot {
 
         var joins: TabModel? { if case .after(let tab, true) = self { tab } else { nil } } // whose group the new tab joins
         /// The tab that names the pane.
-        var anchor: TabModel {
-            switch self { case .after(let tab, _), .start(let tab): tab }
-        }
+        var anchor: TabModel { switch self { case .after(let tab, _), .start(let tab): tab } }
 
         static func == (lhs: Target, rhs: Target) -> Bool {
-            switch (lhs, rhs) {
-            case (.after(let a, let x), .after(let b, let y)): a === b && x == y
-            case (.start(let a), .start(let b)): a === b
-            default: false
-            }
+            switch (lhs, rhs) { case (.after(let a, let x), .after(let b, let y)): return a === b && x == y; case (.start(let a), .start(let b)): return a === b; default: return false }
         }
     }
 
@@ -123,10 +117,8 @@ enum NewTabSlot {
 
     /// `pane`'s next new tab's move, its turn taken at the press: moves go in press order (Ctrl-` then Cmd-T: `a b 2 1 c`); an unanswered one passes within the strip's hold.
     private static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: NewTabSuccession.orderLimit, owner: "NewTabSlot.answer", passing: nil) }
-
     /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
-    /// lists it, and once the pane's previous new tab moved (`turn`): a burst's second Cmd-T goes right after the first new tab,
-    /// which sat at the end until its own move, so a slot read before that kept the second there (`a b 1 c 2`).
+    /// lists it, and after the pane's previous new tab's move (`turn`; a Cmd-T burst's second read its slot too early: `a b 1 c 2`).
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, turn: WorkTurn<ActionWorkFailure?>?, services: AppServices,
                               find: @escaping @MainActor (PaneModel) -> TabModel?, joins: TabModel? = nil, index: @escaping @MainActor ([TabModel]) -> Int?) {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }, earlier = turn?.earlier
