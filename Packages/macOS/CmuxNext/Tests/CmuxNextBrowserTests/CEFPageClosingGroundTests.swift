@@ -59,6 +59,17 @@ import Testing
         #expect(Self.argb(tab.pageGround) == Self.navy)
     }
 
+    /// A fork without the see-through switch (API 17) keeps the page opaque on its theme base: the host, the resize gap
+    /// and the closing ground take that color too, so nothing under the page claims a see-through page it is not.
+    @Test func aForkWithoutTheSeeThroughSwitchKeepsTheLoadingBase() throws {
+        let rig = try Rig(forkAPI: 16)
+        defer { rig.close() }
+        let tab = try rig.committedTab()
+        #expect(ShimLog.transparent.isEmpty, "the fork has no see-through switch")
+        #expect(!tab.host.hostView.pageSeeThrough)
+        #expect(tab.pageGround != nil, "the pane closes on the loading base the page shows")
+    }
+
     @Test func aSettledPageClosesOnItsOwnBackground() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -115,8 +126,9 @@ import Testing
         let root: URL
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
 
-        init() throws {
+        init(forkAPI: Int32 = 28) throws {
             ShimLog.reset()
+            ShimLog.forkAPI = forkAPI
             root = FileManager.default.temporaryDirectory.appending(path: "cef-closing-ground-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime(shim: try ShimLog.library(), storage: CEFProfileStorage(root: root))
         }
@@ -189,6 +201,8 @@ private nonisolated enum ShimLog {
     nonisolated(unsafe) static var evaluates = 0
     nonisolated(unsafe) static var lastEvaluate: Int32?
     nonisolated(unsafe) static var nextMessage: Int32 = 100
+    /// The fork API the fake reports (`Rig.init(forkAPI:)`).
+    nonisolated(unsafe) static var forkAPI: Int32 = 28
 
     static func reset() {
         backgrounds = []
@@ -199,7 +213,7 @@ private nonisolated enum ShimLog {
 
     static func library() throws -> CEFShimLibrary {
         // Fork API 28: the tab's scripts and its color scheme go through DevTools (no renderer path).
-        let version: @convention(c) () -> Int32 = { 28 }
+        let version: @convention(c) () -> Int32 = { ShimLog.forkAPI }
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
         let background: @convention(c) (Int32, UInt32) -> Int32 = { _, argb in
             ShimLog.backgrounds.append(argb)

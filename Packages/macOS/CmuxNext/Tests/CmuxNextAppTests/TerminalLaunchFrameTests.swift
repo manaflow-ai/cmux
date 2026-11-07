@@ -208,6 +208,26 @@ import os
         #expect(Self.centerAlpha(shown) == 0, "the cap cut the newer file of the key and the older one showed")
     }
 
+    /// Review 3 of #38056 (P2): a see-through frame is a PNG, much larger than its JPEG, and the read refuses a file over
+    /// ``TerminalLaunchFrames/maximumBytes``. A keeper write of a frame over the cap replaced the key's saved frame with a
+    /// file the next launch refuses, so the pane showed nothing. A frame over the cap is not written, and the key keeps
+    /// the frame it had.
+    @Test func aFrameOverTheReadsSizeCapKeepsTheSavedFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
+        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clear = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: at, to: directory, keeping: nil, maximumBytes: 64)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["tab-1@\(at)x.jpg"],
+                "a frame the read would refuse replaced the saved one")
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "the key lost its saved frame")
+    }
+
     /// The alpha at the center of `image` (0...255).
     static func centerAlpha(_ image: CGImage) -> UInt8? {
         guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),

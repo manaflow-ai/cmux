@@ -526,7 +526,7 @@ public final class TerminalLaunchFrames {
     /// is asked again after the encode and before the cleanup: a quit that stopped the keeper meanwhile writes every
     /// frame itself, so a write that started before it neither lands over those frames nor prunes them.
     nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
-                                     stillWanted: () -> Bool = { true }) {
+                                     maximumBytes: Int = maximumBytes, stillWanted: () -> Bool = { true }) {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let png = frame.showsClearPixels
