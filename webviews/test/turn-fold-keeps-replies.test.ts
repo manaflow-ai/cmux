@@ -181,8 +181,6 @@ test("a running turn keeps the same replies in sight between its runs", () => {
   const running = turn.slice(0, -2);
   const view = turnView(running, new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     agentFamily: "claude",
     now: START + 200_000,
   });
@@ -190,4 +188,51 @@ test("a running turn keeps the same replies in sight between its runs", () => {
   for (const id of ["a-start", "a-middle", "a-notice"]) expect(order).toContain(id);
   expect(order.indexOf("a-start")).toBeLessThan(order.indexOf("a-middle"));
   expect(order.indexOf("a-middle")).toBeLessThan(order.indexOf("a-notice"));
+});
+
+test("a closed fold's line around a reply never shows a draft call as a finished one", () => {
+  // A shell call that never got its command (toolGroups.ts isDraftCall) after the reply: the open
+  // fold drops it, so the closed line must not read it as "Ran 1 command".
+  const draft = row("t-draft", "activity", 25, {
+    items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
+  });
+  const rows: AcpmuxRow[] = [
+    row("u-0", "user", 0, { text: "Group them" }),
+    calls("t-1", 1, 2),
+    row("a-middle", "assistant", 20, { text: REPLIES.middle }),
+    draft,
+    calls("t-2", 30, 3),
+    row("a-final", "assistant", 40, { text: REPLIES.final }),
+    row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 5 }),
+  ];
+  for (const arm of ["groups", "runs"]) {
+    globalThis.cmuxExperiments = { "turn-fold-replies": arm };
+    const view = closed("claude", rows);
+    expect(outline(view)).toEqual(["run:2", "a-middle", "run:3", "a-final"]);
+    const tools = view.flatMap((shown) => (shown.items ?? []).flatMap((item) => (item.tool ? [item.tool.id] : [])));
+    expect(tools).not.toContain("draft-0");
+  }
+});
+
+test("the runs arm splits the work after a reply where the open fold does, a draft call between them", () => {
+  // A short note joins the runs on either side of it (mergeShortNotes); a draft-only row beside it still
+  // ends a run there, as the opened fold draws it, so closing the fold never redraws its runs.
+  const draft = row("t-draft", "activity", 27, {
+    items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
+  });
+  const rows: AcpmuxRow[] = [
+    row("u-0", "user", 0, { text: "Group them" }),
+    calls("t-1", 1, 1),
+    row("a-middle", "assistant", 20, { text: REPLIES.middle }),
+    calls("t-2", 21, 2),
+    row("note", "assistant", 25, { text: "Checking the log next." }),
+    draft,
+    calls("t-3", 30, 3),
+    row("a-final", "assistant", 40, { text: REPLIES.final }),
+    row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 6 }),
+  ];
+  globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
+  const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
+  const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
+  expect(after(closed("claude", rows))).toEqual(after(opened));
 });

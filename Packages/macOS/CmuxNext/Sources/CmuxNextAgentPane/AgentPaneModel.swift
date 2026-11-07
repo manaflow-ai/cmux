@@ -55,6 +55,8 @@ public final class AgentPaneModel {
     /// New Tab page whose host gave it none (``newTabForPage``).
     @ObservationIgnored public var newChatLeftoverDraft: (() -> String?)?
     @ObservationIgnored public var machineLink: AgentPaneMachineLink? // the chat's machine dot (``AgentPanePageHost/currentEvents(_:)``)
+    /// The questions this pane's Cloud starts wait on in their cards (`cloud.answerStart`).
+    @ObservationIgnored public let cloudAsks = AgentPaneCloudAsks()
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -108,6 +110,16 @@ public final class AgentPaneModel {
     func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
+    /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
+    /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value sends nothing.
+    @ObservationIgnored var cloudSignInGeneration = 0
+    /// The `cloud.signIn` waiting on the browser (``AgentPaneModel/waitForCloudSignIn(_:)``), so
+    /// `cloud.signInCancel` ends that wait, and the send's hold, at once.
+    @ObservationIgnored var cloudSignInWait: (generation: Int, done: CheckedContinuation<Bool?, Never>)?
+    /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
+    /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
+    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -157,7 +169,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
-    /// The header's tools in the pane's tab row (``AgentPaneTabRow``, `ChromeTunables.tabRowTools`).
+    /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
@@ -576,12 +588,24 @@ public final class AgentPaneModel {
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
+        case .cloudSignIn(let start): return await AgentPaneHandOff(model: self).cloud(start, signingIn: true)
+        // Starts nothing and needs no gesture: it only withdraws a pending sign-in's send.
+        case .cloudSignInCancel:
+            cloudSignInGeneration += 1
+            cloudSignInGrant = nil
+            endCloudSignInWait(nil)
+            return AgentPaneReply.success()
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).
         case .cloudRepickChat(let repick):
             guard let onCloudRepickChat, remoteChat, newTab == nil else { return Self.unsupported("cloud.repickChat") }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             return await onCloudRepickChat(repick)
+        // A start's question in its card: only this pane's, and a yes only on the person's own click
+        // (never a gesture left by typing); declining needs none.
+        case .cloudAnswerStart(let answer):
+            guard cloudAsks.declines(answer) || transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
+            return cloudAsks.answer(answer) ? AgentPaneReply.success() : AgentPaneReply.failure(code: "cloud_ask_gone", message: "cloud_ask_gone")
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
         case .cloudHandoffTurn(let session):
@@ -700,6 +724,8 @@ public final class AgentPaneModel {
             onAppAction(id)
             return AgentPaneReply.success()
         case .editShortcut(let kind): guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }; onEditShortcut(kind); return AgentPaneReply.success()
+        case .externalAccessOpenSettings(let kind):
+            return AgentPaneExternalAccess().open(kind, remoteChat: remoteChat, gestures: transport.gestures)
         case .dictation(let command):
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)

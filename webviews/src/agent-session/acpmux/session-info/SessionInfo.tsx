@@ -133,6 +133,7 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
+import { chatPlace, type ChatPlace } from "../chatMachine";
 import { usageEntries, type UsageEntry } from "./usageEntries";
 import { samePanelProps } from "./samePanelProps";
 import type { AlsoHere } from "./alsoHere";
@@ -698,8 +699,8 @@ export function useSessionInfo({
   // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
   const scopeId = subagent?.agent.id;
   useEffect(() => backFromAside(), [scopeId, backFromAside]);
-  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
-  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // Lucas, 2026-11-06: "In a narrow layout: it becomes a popover and starts closed." (Every new chat
+  // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
   // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
@@ -1240,6 +1241,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
@@ -1302,6 +1308,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
   const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
+  // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
+  const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
@@ -1348,19 +1356,24 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
-  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
-  // panel lists another agent, not each streamed token's copy.
+  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
   if (
-    galleryRows.current.length !== rows.length ||
+    galleryRows.current.any !== any ||
     galleryRows.current.artifacts !== artifacts ||
     galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
+    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -1450,6 +1463,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
+          place={place}
           repository={repository}
           grants={scope ? undefined : grants}
           cloudRepositoryAvailable={cloudRepositoryAvailable}
@@ -1528,12 +1542,14 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        outputFiles={outputFiles}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
@@ -1775,6 +1791,9 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// No files made (a stable value, so the sections' memo holds).
+const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
@@ -1798,12 +1817,14 @@ export function SessionInfo({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable,
   made,
   artifacts = 0,
   documents = [],
   rows = [],
+  outputFiles,
   plan,
   toolCalls,
   agents = [],
@@ -1859,6 +1880,8 @@ export function SessionInfo({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
@@ -1870,6 +1893,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
+  outputFiles?: ReturnType<typeof chatOutputs>;
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -2061,7 +2086,7 @@ export function SessionInfo({
   // What the chat made for the person (chatOutputs.ts): the documents its replies link to and the
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
-  const madeFiles = useMemo(() => chatOutputs(rows, cwd), [rows, cwd]);
+  const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -2116,6 +2141,7 @@ export function SessionInfo({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
