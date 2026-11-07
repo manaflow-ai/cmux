@@ -135,10 +135,14 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
 /// Whether the app is signed in to cmux Cloud now, as its own machine list answers
 /// (`cloud list-machines`, the first step of every start). An unreadable answer is signed out.
 pub(super) fn app_signed_in(global: &GlobalArgs) -> bool {
-    let mut runner = SelfRunner { globals: forwarded_globals(global) };
-    let ran = runner.cmux(&words(&["cloud", "list-machines", "--json"]));
-    step_result(&ran)
+    app_machines(global)
         .is_ok_and(|listed| listed.pointer("/account/signed_in") != Some(&Value::Bool(false)))
+}
+
+/// The app's `cloud list-machines` answer, or its error.
+pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
+    let mut runner = SelfRunner { globals: forwarded_globals(global) };
+    step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
 }
 
 /// `rest` without the output flags the global scan left in it, which set `output`. A value of

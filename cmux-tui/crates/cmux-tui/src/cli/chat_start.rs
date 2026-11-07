@@ -250,11 +250,14 @@ fn vm_machine(value: &str) -> Result<Machine, UsageError> {
 /// Where `selector` runs a chat, checked against `catalog` (`machine.list` with `catalog: true`,
 /// read for this call) by the SDK's [`cmux::resolve_chat_target`]. `signed_in` reads the app's
 /// cloud sign-in, and only when the target needs it. A name that names exactly one device is read
-/// as that device's id; the id is what the check sees.
+/// as that device's id; the id is what the check sees. A connected Cloud device runs on the app's
+/// Cloud machine that `cloud_machines` (the app's `cloud list-machines` rows) names by that id or,
+/// failing that, by exactly that title: never a machine made for it.
 pub(super) fn route(
     selector: &str,
     catalog: &Value,
     signed_in: impl FnOnce() -> bool,
+    cloud_machines: impl FnOnce() -> Result<Value, Value>,
 ) -> Result<Route, Value> {
     let id = if selector == "cloud" { selector.to_owned() } else { device_id(selector, catalog)? };
     let record = machines(catalog).iter().find(|machine| text(machine, "id") == Some(id.as_str()));
@@ -266,9 +269,8 @@ pub(super) fn route(
         Ok(ChatTarget::Cloud) => Ok(Route::Cloud(Machine::New)),
         Ok(ChatTarget::Device { local: true, .. }) => Ok(Route::Here),
         Ok(ChatTarget::Device { id, local: false }) => match (origin, record) {
-            // A Cloud machine in the catalog is the app's Cloud machine of that name.
             ("cloud", Some(machine)) => {
-                Ok(Route::Cloud(Machine::Named(text(machine, "name").unwrap_or(&id).to_owned())))
+                cloud_machine(&id, text(machine, "name"), &cloud_machines()?).map(Route::Cloud)
             }
             _ => Err(json!({
                 "code": "chat_target.no_route",
@@ -280,6 +282,33 @@ pub(super) fn route(
                 "retryable": false,
             })),
         },
+    }
+}
+
+/// The app's Cloud machine for catalog device `id` (shown as `name`), from the app's
+/// `cloud list-machines` answer: the row with that machine id, else the one row with that title.
+fn cloud_machine(id: &str, name: Option<&str>, listed: &Value) -> Result<Machine, Value> {
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    if rows.iter().any(|row| text(row, "machine_id") == Some(id)) {
+        return Ok(Machine::Target(id.to_owned()));
+    }
+    let titled: Vec<&str> = rows
+        .iter()
+        .filter(|row| name.is_some() && text(row, "title") == name)
+        .filter_map(|row| text(row, "machine_id"))
+        .collect();
+    match titled.as_slice() {
+        [machine] => Ok(Machine::Target((*machine).to_owned())),
+        found => Err(json!({
+            "code": "chat_target.unavailable",
+            "message": format!(
+                "device {id} is a Cloud machine the app does not list as one machine{}; run \
+                 `cmux vm list-machines` and use `cmux chat --vm machine:ID`",
+                name.map(|name| format!(" ({name})")).unwrap_or_default()
+            ),
+            "details": {"device": id, "matches": found},
+            "retryable": false,
+        })),
     }
 }
 
@@ -313,7 +342,7 @@ fn refused(refusal: &ChatTargetRefusal) -> Value {
 }
 
 fn machines(catalog: &Value) -> &[Value] {
-    catalog.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice)
+    cmux::catalog_machines(catalog)
 }
 
 fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
@@ -329,7 +358,8 @@ fn run(global: &GlobalArgs, prefix: &[String], start: Start) -> i32 {
                 Ok(catalog) => catalog,
                 Err(error) => return super::wire::print_local_error(&error, global.output, 1),
             };
-            match route(selector, &catalog, || cloud_start_chat::app_signed_in(global)) {
+            let signed_in = || cloud_start_chat::app_signed_in(global);
+            match route(selector, &catalog, signed_in, || cloud_start_chat::app_machines(global)) {
                 Ok(route) => route,
                 Err(error) => return super::wire::print_local_error(&error, global.output, 1),
             }
