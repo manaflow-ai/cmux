@@ -194,12 +194,15 @@ test("a fetch row shows its page's site mark; a search keeps the globe", async (
   const fetch = {
     kind: "fetch",
     title: "Fetch",
+    status: "completed",
     inputSummary: JSON.stringify({ url: "https://developer.mozilla.org/en-US/docs/Web", prompt: "x" }),
   };
   expect(fetchedUrl(fetch)).toBe("https://developer.mozilla.org/en-US/docs/Web");
-  expect(fetchedUrl({ kind: "fetch", title: "Fetch https://react.dev/learn" })).toBe("https://react.dev/learn");
-  expect(fetchedUrl({ kind: "fetch", title: "useEffect cleanup" })).toBeUndefined();
-  expect(fetchedUrl({ kind: "read", title: "Read https://react.dev/learn" })).toBeUndefined();
+  expect(fetchedUrl({ kind: "fetch", title: "Fetch https://react.dev/learn", status: "completed" })).toBe(
+    "https://react.dev/learn",
+  );
+  expect(fetchedUrl({ kind: "fetch", title: "useEffect cleanup", status: "completed" })).toBeUndefined();
+  expect(fetchedUrl({ kind: "read", title: "Read https://react.dev/learn", status: "completed" })).toBeUndefined();
   const view = await render(
     <>
       <span className="row">{toolIcon("fetch", fetchedUrl(fetch))}</span>
@@ -303,5 +306,56 @@ test("a Markdown link's text still wraps: only its first character stays on the 
   expect(lead).not.toBeNull();
   expect(lead!.textContent).toBe("t");
   expect(view.element.querySelector("a.cv-chip")!.textContent).toBe("the full migration guide for version two");
+  await view.unmount();
+});
+
+test("a fetch that has not finished (waiting for permission, running, or refused) keeps the globe and asks nothing", async () => {
+  const calls = await setup((hosts) => Object.fromEntries(hosts.map((host) => [host, ICON])));
+  const { fetchedUrl } = await import("../src/agent-session/acpmux/conversation/ToolSiteIcon");
+  const { toolIcon } = await import("../src/agent-session/acpmux/conversation/ToolRow");
+  const call = (status: string) => ({ kind: "fetch", title: "Fetch https://secret-data.evil.dev/x", status });
+  expect(fetchedUrl(call("pending"))).toBeUndefined();
+  expect(fetchedUrl(call("failed"))).toBeUndefined();
+  // A missing status reads as running, so a running call is not trusted to have been allowed.
+  expect(fetchedUrl(call("in_progress"))).toBeUndefined();
+  const view = await render(<span className="row">{toolIcon("fetch", fetchedUrl(call("pending")))}</span>);
+  expect(view.element.querySelector(".cv-site-icon")).toBeNull();
+  expect(favicons(calls)).toEqual([]);
+  await view.unmount();
+});
+
+test("a site the host answers later is asked again once, after the delay it names", async () => {
+  const { resetSiteIcons } = await import("../src/agent-session/acpmux/chips/siteIcons");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  resetSiteIcons();
+  const asked: string[][] = [];
+  let askedAgain: () => void = () => {};
+  const again = new Promise<void>((resolve) => (askedAgain = resolve));
+  setChipHost(async (method, params) => {
+    if (method !== "link.favicons") return undefined;
+    const hosts = params.hosts as string[];
+    asked.push(hosts);
+    if (asked.length === 2) askedAgain();
+    return asked.length === 1
+      ? { icons: { "fast.dev": ICON }, later: ["slow.dev"], retryAfterMs: 20 }
+      : { icons: Object.fromEntries(hosts.map((host) => [host, ICON])) };
+  });
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const view = await render(
+    <p>
+      <UrlChip href="https://fast.dev/">https://fast.dev/</UrlChip>
+      <UrlChip href="https://slow.dev/">https://slow.dev/</UrlChip>
+    </p>,
+  );
+  const drawn = () => view.element.querySelectorAll(".cv-site-icon .cv-site-icon__img").length;
+  expect(drawn()).toBe(1);
+  const { act } = await import("react");
+  await act(async () => {
+    // The retry timer fires after the 20 ms the host named; the test waits for its ask, not a time.
+    await again;
+    for (let index = 0; index < 10; index++) await Promise.resolve();
+  });
+  expect(asked).toEqual([["fast.dev", "slow.dev"], ["slow.dev"]]);
+  expect(drawn()).toBe(2);
   await view.unmount();
 });

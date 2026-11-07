@@ -4,13 +4,15 @@ import CmuxNextSettings
 import CoreGraphics
 import Foundation
 import ImageIO
+import CmuxNextWakeupsTestSupport
 import Testing
 import UniformTypeIdentifiers
 
 /// A web link's site mark (`link.favicons`): the host answers each site's favicon as a PNG data URL,
-/// asking the favicon service for the link's host name through the guarded fetch, once per host,
-/// never for a local or private name, never under `agentPane.images.remote = never`, and only an
-/// image answer counts. Every network hop is a stub; nothing leaves the test.
+/// asking the favicon service for the link's registrable domain only (never its subdomains, which
+/// agent text could fill with data) through the guarded fetch, once per site, never for a local or
+/// private name, never without the suffix list, never under `agentPane.images.remote = never`, at a
+/// bounded rate, and only an image answer counts. Every network hop is a stub; nothing leaves the test.
 @MainActor
 struct AgentPaneSiteIconsTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -56,9 +58,23 @@ struct AgentPaneSiteIconsTests {
         return output as Data
     }
 
-    private static func pane(_ site: Site, remoteImages: AgentPaneReplySetting.RemoteImages = .click) -> AgentPaneModel {
+    /// A small stand-in for the app's Public Suffix List: the longest listed suffix plus one label.
+    private nonisolated static func registrable(_ host: String) -> String? {
+        let suffixes = ["com", "dev", "org", "io", "uk", "co.uk", "github.io", "net", "ts.net"]
+        let labels = host.split(separator: ".").map(String.init)
+        for start in labels.indices where suffixes.contains(labels[start...].joined(separator: ".")) {
+            return start == 0 ? nil : labels[(start - 1)...].joined(separator: ".")
+        }
+        return nil
+    }
+
+    private static let domains = AgentPaneSiteDomains { { registrable($0) } }
+
+    private static func pane(_ site: Site, remoteImages: AgentPaneReplySetting.RemoteImages = .click,
+                             domains: AgentPaneSiteDomains = domains, clock: ManualClock = ManualClock()) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: remoteImages) }
+        model.replyLinks.siteIcons = AgentPaneSiteIcons(domains: domains, clock: clock)
         model.replyLinks.siteIcons.guarded.resolver = PublicResolver()
         model.replyLinks.siteIcons.guarded.transport = site
         return model
@@ -88,7 +104,8 @@ struct AgentPaneSiteIconsTests {
         #expect(AgentPaneSiteIcons.publicHost(of: "news.bbc.co.uk") == "news.bbc.co.uk")
         for name in ["localhost", "app.localhost", "printer.local", "db.internal", "mymac", "10.0.0.1", "8.8.8.8",
                      "docs.example.test", "router.lan", "a..b", "-a.dev", "",
-                     "jira.corp.acme.com", "wiki.intranet.acme.com", "api.internal.acme.io", "nas.home", "box.private", "x.alt"] {
+                     "jira.corp.acme.com", "wiki.intranet.acme.com", "api.internal.acme.io", "nas.home", "box.private", "x.alt",
+                     "box.tail1234.ts.net", "ts.net", "login.tailscale.net", "1.0.0.10.in-addr.arpa", "nas.localdomain"] {
             #expect(AgentPaneSiteIcons.publicHost(of: name) == nil, "\(name)")
         }
     }
@@ -106,13 +123,13 @@ struct AgentPaneSiteIconsTests {
         #expect(url.absoluteString == "https://www.google.com/s2/favicons?domain=doc.rust-lang.org&sz=32")
     }
 
-    @Test func aSitesIconIsFetchedOncePerHostAsAPNG() async throws {
+    @Test func aSitesIconIsFetchedOncePerSiteAsAPNG() async throws {
         let site = Site(body: try Self.png(), type: "image/png")
         let model = Self.pane(site)
         let first = await Self.icons(model, ["docs.python.org", "localhost"])
         #expect(first.keys.sorted() == ["docs.python.org"])
         #expect(first.values.allSatisfy { $0.hasPrefix("data:image/png;base64,") })
-        #expect(site.requests == ["www.google.com/s2/favicons?domain=docs.python.org&sz=32"])
+        #expect(site.requests == ["www.google.com/s2/favicons?domain=python.org&sz=32"])
         // Kept: a later request for the same host fetches nothing.
         let again = await Self.icons(model, ["docs.python.org"])
         #expect(again["docs.python.org"] != nil)
@@ -201,5 +218,60 @@ struct AgentPaneSiteIconsTests {
         #expect(!AgentPaneSiteIcons.isImageType("text/html; charset=utf-8"))
         #expect(!AgentPaneSiteIcons.isImageType("image/svg+xml"))
         #expect(!AgentPaneSiteIcons.isImageType("application/json"))
+    }
+
+    @Test func onlyTheRegistrableDomainLeavesTheMac() async throws {
+        let site = Site(body: try Self.png(), type: "image/png")
+        let model = Self.pane(site)
+        let hosts = ["c2vjcmv0.evil.com", "dg9rzw4.evil.com", "react.dev", "someone.github.io"]
+        let icons = await Self.icons(model, hosts)
+        #expect(icons.keys.sorted() == hosts.sorted())
+        #expect(Set(site.requests) == [
+            "www.google.com/s2/favicons?domain=evil.com&sz=32", "www.google.com/s2/favicons?domain=react.dev&sz=32",
+            "www.google.com/s2/favicons?domain=someone.github.io&sz=32",
+        ])
+        #expect(!site.requests.contains { $0.contains("c2vjcmv0") || $0.contains("dg9rzw4") })
+    }
+
+    @Test func withoutTheSuffixListNothingIsFetched() async throws {
+        let site = Site(body: try Self.png(), type: "image/png")
+        #expect(await Self.icons(Self.pane(site, domains: AgentPaneSiteDomains { nil }), ["react.dev"]).isEmpty)
+        #expect(site.requests.isEmpty)
+        // A pane that never got the app's list (tests, previews) fetches nothing either.
+        let bare = AgentPaneModel(host: NoHost())
+        bare.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .open, remoteImages: .always) }
+        bare.replyLinks.siteIcons.guarded.resolver = PublicResolver()
+        bare.replyLinks.siteIcons.guarded.transport = site
+        #expect(await Self.icons(bare, ["react.dev"]).isEmpty)
+        #expect(site.requests.isEmpty)
+    }
+
+    private static func reply(_ model: AgentPaneModel, _ hosts: [String]) async -> (icons: [String: String], later: [String], retry: Int?) {
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "link.favicons", "params": ["hosts": hosts]]))
+        let value = reply["value"] as? [String: Any]
+        return ((value?["icons"] as? [String: String]) ?? [:], (value?["later"] as? [String]) ?? [], value?["retryAfterMs"] as? Int)
+    }
+
+    @Test func pastTheBurstASiteIsAnsweredLaterAndFetchedInTheNextWindow() async throws {
+        let site = Site(body: try Self.png(), type: "image/png")
+        let clock = ManualClock()
+        let model = Self.pane(site, clock: clock)
+        model.replyLinks.siteIcons.burst = 2
+        // The reply does not wait for the window: the third site comes back as `later`.
+        let first = await Self.reply(model, ["a.dev", "b.dev", "c.dev"])
+        #expect(first.icons.keys.sorted() == ["a.dev", "b.dev"])
+        #expect(first.later == ["c.dev"])
+        #expect(first.retry == 30000)
+        #expect(site.requests.count == 2)
+        // Not kept as having no icon: once the window ends, the same ask fetches it.
+        try await clock.waitForSleeper()
+        clock.advance(by: model.replyLinks.siteIcons.refillEvery)
+        var answered: [String: String] = [:]
+        for _ in 0..<1000 where answered.isEmpty {
+            answered = await Self.reply(model, ["c.dev"]).icons
+            await Task.yield()
+        }
+        #expect(answered.keys.sorted() == ["c.dev"])
+        #expect(site.requests.count == 3)
     }
 }
