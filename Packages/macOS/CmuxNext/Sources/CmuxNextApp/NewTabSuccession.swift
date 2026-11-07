@@ -27,8 +27,9 @@ struct NewTabSuccession {
     var before: StripTabID?
     /// The pane's daemon tabs when the open started, in its order.
     let known: [String]
-    /// The new tab (its stand-in, then the daemon's tab) and its surface, once known.
-    var claimed: StripTabID?, surface: SurfaceID?
+    /// The new tab (its stand-in, then the daemon's tab) and its surface, once known; `follows`: an open from the same tab still
+    /// unshown when this began (Ctrl-` then Cmd-T: the selection had not moved yet), whose tab this one goes right after.
+    var claimed: StripTabID?, surface: SurfaceID?, follows: DemandTimer?
     var deadline: ContinuousClock.Instant
     /// Ends the succession at its deadline: the strip then shows the pane as reported.
     let expiry = DemandTimer(owner: "NewTabSuccession.deadline")
@@ -54,7 +55,8 @@ struct NewTabSuccession {
     private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported (opens being placed keep their slots).
         guard ActionRunScope.viewChangeAllowed() else { return nil }
-        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: pane.tabs.map(\.id),
+        let last = active[ObjectIdentifier(pane)]?.last, follows = last.flatMap { $0.page == nil && page == nil && anchor != nil && $0.before?.rawValue == anchor ? $0.expiry : nil }
+        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: pane.tabs.map(\.id), follows: follows,
                                           deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
         active[ObjectIdentifier(pane), default: []].append(succession)
         succession.expire(after: answerLimit)
@@ -74,8 +76,21 @@ struct NewTabSuccession {
         expire(after: Self.orderLimit)
     }
 
-    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) once its anchor closed: after `order`'s re-anchor; nil once the open ended.
-    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? { active[ObjectIdentifier(pane)]?.first { $0.expiry === open }.map { open in open.before.map { open.resolved($0, in: pane) }.flatMap { id in others.first { $0.id == id.rawValue } }.flatMap { NewTabSlot.slot(after: $0, in: others) } ?? others.prefix { $0.pinned }.count } }
+    /// Where `open`'s new tab goes among `others` (the pane's tabs but it) while it is placed: after the anchor the strip shows it after
+    /// (re-anchored when it closed, the daemon's tab for a stand-in, chained after an earlier open's tab); nil once the open ended.
+    /// While `before` is an earlier open's tab the daemon has not moved into its slot yet, the tab goes after that open's anchor, so the two
+    /// land in order whichever move comes first. Nil when its anchor left and was not re-anchored yet.
+    static func rebasedSlot(in pane: PaneModel, by open: DemandTimer?, among others: [TabModel]) -> Int? {
+        guard let opens = active[ObjectIdentifier(pane)]?.map({ $0.resolving(pane) }), let mine = opens.first(where: { $0.expiry === open }) else { return nil }
+        guard var id = mine.before else { return others.prefix { $0.pinned }.count }
+        for _ in opens.indices {
+            guard let tab = others.first(where: { $0.id == id.rawValue }) else { return nil }
+            guard let earlier = opens.first(where: { $0.claimed == id }), let before = earlier.before, let anchor = others.first(where: { $0.id == before.rawValue }),
+                  NewTabSlot.slot(after: anchor, in: others.filter { $0 !== tab }) != others.firstIndex(where: { $0 === tab }) else { return NewTabSlot.slot(after: tab, in: others) }
+            id = before
+        }
+        return others.first { $0.id == id.rawValue }.flatMap { NewTabSlot.slot(after: $0, in: others) }
+    }
 
     /// `id`, or the daemon's tab stand-in `id` became; `resolving` does it for the open's tab and anchor.
     private func resolved(_ id: StripTabID, in pane: PaneModel) -> StripTabID { services?.daemon(for: pane).store.creations.replacement(ofStandIn: id.rawValue, in: pane).map { StripTabID($0.id) } ?? id }
@@ -111,7 +126,9 @@ struct NewTabSuccession {
         let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) }
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
         var unpaired = arrived.map(\.id).filter { !claimed.contains($0) } // stand-ins swapped in one snapshot (no answer named them yet): in order
+        var placed: [ObjectIdentifier: StripTabID] = [:] // each open's tab in this pass, for the ones that follow it
         for (index, var open) in opens.enumerated() {
+            if let leader = open.follows.flatMap({ placed[ObjectIdentifier($0)] }) { (open.before, open.follows) = (leader, nil) }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
             let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
@@ -138,6 +155,7 @@ struct NewTabSuccession {
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
             if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others
+            placed[ObjectIdentifier(open.expiry)] = item.id
         }
         active[key] = kept.isEmpty ? nil : kept
         snapshot.items = items

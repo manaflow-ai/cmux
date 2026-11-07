@@ -146,13 +146,12 @@ enum NewTabSlot {
         })
     }
 
-    /// The final index for `target` among `others` (the pane's tabs but the new one); an after-anchor that was a stand-in
-    /// (Cmd-T on a new tab not answered yet) is the daemon's tab it became; when it left, where `pane`'s `open` re-anchored
-    /// the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil. The start is right after the pinned tabs.
+    /// The final index for `target` among `others` (the pane's tabs but the new one), nil when its anchor left. The start is right after the pinned tabs.
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
-        case .after(let anchor): slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
-            .flatMap { slot(after: $0, in: others) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
+        // The open's live anchor first (re-anchored, chained, the strip's), then the one it began with or the daemon's tab that stand-in became.
+        case .after(let anchor): pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) } ?? slot(after: anchor, in: others)
+            ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane).flatMap { slot(after: $0, in: others) } }
         case .start: others.prefix { $0.pinned }.count
         }
     }
