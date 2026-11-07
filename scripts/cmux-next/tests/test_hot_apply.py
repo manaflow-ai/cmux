@@ -190,6 +190,54 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(self.sha(), self.old)
 
+    def side_commit(self, tree_of, message):
+        """A commit on FIX's parent with TREE_OF's tree: a branch that never merged."""
+        tree = run_git("rev-parse", f"{tree_of}^{{tree}}").stdout.strip()
+        done = subprocess.run(["git", "-C", str(ROOT), "-c", "user.name=t", "-c", "user.email=t@localhost",
+                               "commit-tree", tree, "-p", self.base, "-m", message],
+                              capture_output=True, text=True, check=True)
+        return done.stdout.strip()
+
+    def test_a_branch_head_from_before_the_app_takes_its_daemon_with_branch(self):
+        # The app was built after the PR branched, with no Rust change since: the PR's daemon fits it.
+        app = self.side_commit(self.base, "app: no Rust change after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(FIX, "the PR: FIX's Rust")
+        code, receipt, _ = self.hot("apply", head, "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("unrelated", receipt["left"])
+        self.assertEqual(self.sha(), self.old)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", head, "--branch", "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        plan = json.loads(done.stdout)
+        self.assertEqual((plan["parts"], plan["fork"], plan["published"]), (["rust"], self.base, True))
+        code, receipt, err = self.hot("apply", head, "--branch", "--parts", "rust", "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
+    def test_a_branch_lacking_the_app_s_rust_is_refused(self):
+        # The app has FIX's Rust, which the branch (forked before it) does not: its daemon would drop it.
+        app = self.side_commit(FIX, "app: FIX's Rust after the fork")
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": app}, handle)
+        head = self.side_commit(self.base, "the PR: no Rust")
+        code, receipt, _ = self.hot("apply", head, "--branch", "--app", str(self.app))
+        self.assertEqual(code, 3)
+        self.assertIn("has Rust that", receipt["left"]["unrelated"][0])
+        self.assertEqual(self.sha(), self.old)
+
+    def test_an_unpublished_tree_says_so_and_binary_swaps_a_given_build(self):
+        subprocess.run(["rm", "-rf", str(self.tmp / "tree")], check=True)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--app", str(self.app)],
+                              capture_output=True, text=True, env=self.env)
+        self.assertFalse(json.loads(done.stdout)["published"])
+        built = self.tmp / "built-cmux"
+        built.write_bytes(self.new_body)
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+
     def test_a_commit_the_app_already_has_is_a_no_op(self):
         with open(self.app / "Contents/Info.plist", "wb") as handle:
             plistlib.dump({"CMUXCommit": FIX}, handle)

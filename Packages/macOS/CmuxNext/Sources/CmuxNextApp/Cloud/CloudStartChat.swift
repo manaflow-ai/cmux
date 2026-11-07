@@ -20,6 +20,9 @@ import Foundation
 @MainActor
 struct CloudStartChat {
     let services: AppServices
+    /// Where the start's questions show (its first login, the login copy consent, Codex's sign-in): the
+    /// sending pane's card for a composer start; nil asks in a dialog on the active window.
+    var asker: AgentPaneCloudAsker?
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
@@ -30,19 +33,20 @@ struct CloudStartChat {
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            return await CloudStartChat(services: services).reply(start, tab: tab) { [weak view] step in
+            return await CloudStartChat(services: services, asker: .card(view, start: start.key)).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
             }
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words. `retried`: Retry's start, no card waits for it.
+    /// The page's reply: success with the machine's name, or a refusal in the person's words. The card
+    /// says a failure, with Retry when another try can help (the same start again under its key, so a
+    /// machine already made or a folder already copied is reused): no toast.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel, retried: Bool = false, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
         }
-        let toastID = "cloud-start-" + tab.id
         do {
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
@@ -54,30 +58,16 @@ struct CloudStartChat {
                 }
             }
             let machine = try await run(start, from: origin, report: report)
-            CmuxToastCenter.shared.close(id: toastID) // an earlier try's Retry toast, in every window
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
-            CmuxToastCenter.shared.close(id: toastID) // every window: the start may have begun in one no longer in front
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help (the machine didn't connect, a copy that timed out) offers Retry: the
-            // same start again under its key, so a machine already made or a folder already copied is reused.
-            var retry: (@MainActor () -> Void)?
-            if (error as? CloudMove.Failure)?.retry != nil {
-                let tabID = tab.id
-                retry = { [weak services] in
-                    // The tab is found again by id: a tab closed since then retries nothing.
-                    guard let services, let (tab, _) = services.locateTab(tabID) else { return }
-                    // task-owner: one retried start; it ends with the chat opening or its own failure toast
-                    _ = Task { _ = await CloudStartChat(services: services).reply(start, tab: tab, retried: true) }
-                }
-            }
-            // The card says the failure; a toast only where Retry lives, or for a retry no card waits for.
-            if retry != nil || retried { CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry) } else { CmuxToastCenter.shared.close(id: toastID) }
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
+            // A failure a retry can help (the machine didn't connect, a copy that timed out): the card's Retry
+            // sends the same prompt again, which the page keys as this start (cloudRun.ts `cloudStartKeys`).
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
         }
     }
 
