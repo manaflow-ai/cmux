@@ -21,8 +21,8 @@ pub fn is_team(value: &str) -> bool {
 pub fn backend_team_id(stack_project_id: &str, stack_team_id: &str) -> String {
     let digest =
         Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("team_{}", &hex[..20])
+    let hex: String = digest.iter().take(10).map(|b| format!("{b:02x}")).collect();
+    format!("team_{hex}")
 }
 
 /// Why a token mint may not name the team it asked for.
@@ -65,7 +65,9 @@ pub fn is_transient(code: &str) -> bool {
     if code == "http_429" || code.contains("rate_limit") {
         return true;
     }
-    code.len() == 8 && code.starts_with("http_5") && code[5..].bytes().all(|b| b.is_ascii_digit())
+    code.strip_prefix("http_").is_some_and(|status| {
+        status.len() == 3 && status.starts_with('5') && status.bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// What an access token says about itself (unverified: the API verifies it).
@@ -80,14 +82,17 @@ pub struct Claims {
 
 /// The claims of a three-part JWT; none of a token that is not one.
 pub fn claims(token: &str) -> Claims {
-    let parts: Vec<&str> = token.split('.').collect();
-    let payload = (parts.len() == 3)
-        .then(|| {
+    let mut parts = token.split('.');
+    let middle = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_), Some(middle), Some(_), None) => Some(middle),
+        _ => None,
+    };
+    let payload = middle
+        .and_then(|middle| {
             base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(parts[1].trim_end_matches('='))
+                .decode(middle.trim_end_matches('='))
                 .ok()
         })
-        .flatten()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let Some(payload) = payload else { return Claims::default() };
     Claims {
@@ -107,7 +112,7 @@ pub fn claims(token: &str) -> Claims {
 /// share or rotate each other's key: `install-key-<first 16 hex of SHA-256(user)>`.
 pub fn install_key_account(user: &str) -> String {
     let digest = Sha256::digest(user.as_bytes());
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("install-key-{hex}")
 }
 
