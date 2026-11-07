@@ -144,4 +144,16 @@ struct RemoteThinkingChatRingTests {
         #expect(turns.isWorking(ref, isChatMachine: { $0 == "lab" }), "a push for another peer dropped lab's row from the page")
         #expect(!turns.isWorking(ref, isChatMachine: { $0 == "elsewhere" }), "the page's older row overwrote the newer push")
     }
+
+    /// A peer's purge while a paged watch result is read stays a purge: the page's older lane of
+    /// that chat does not bring it back to the remote machines' sidebar.
+    @Test func aPeerPurgeWhilePagingKeepsTheChatsLaneGone() throws {
+        let lanes = AgentLaneStore()
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/remote-thinking-paging-purge.sock", turns: AgentTurnStateStore(), lanes: lanes)
+        func read(_ line: String) throws -> AgentTurnStateFeed.Message { try #require(AgentTurnStateFeed.Message(line: Data(line.utf8))) }
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"gone","indicator":"working","peer":"lab","lane":{"state":"working"}}],"nextCursor":"k1"}}"#))
+        feed.handle(try read(#"{"jsonrpc":"2.0","method":"_acpmux/session_changed","params":{"sessionId":"gone","kind":"purged","peer":"lab"}}"#))
+        feed.handle(try read(#"{"jsonrpc":"2.0","id":4,"result":{"sessions":[],"nextCursor":null}}"#))
+        #expect(lanes.lanes["gone"] == nil, "the page's older lane brought a purged peer chat back")
+    }
 }
