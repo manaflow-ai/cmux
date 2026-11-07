@@ -104,6 +104,8 @@ pub(crate) struct State {
     pub(crate) wire_wake: Option<WireInterrupt>,
     /// The account the cloud part belongs to (the welcome's user).
     pub(crate) account: Option<String>,
+    /// The person of the lease the account was read on (`driver::lease_identity`).
+    pub(crate) lease_identity: Option<String>,
     pub(crate) github: GitHubSync,
     pub(crate) github_config: GitHubConfig,
     /// Bumped by every configure, refresh and account change: the poller's
@@ -252,6 +254,7 @@ impl FeedClient {
             outbox: Vec::new(),
             wire_wake: None,
             account: None,
+            lease_identity: None,
             github: GitHubSync::new(),
             github_config: GitHubConfig {
                 enabled: false,

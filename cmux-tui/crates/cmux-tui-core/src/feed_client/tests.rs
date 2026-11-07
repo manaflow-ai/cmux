@@ -420,6 +420,42 @@ fn reports_read_the_users_mailbox_and_page_by_cursor() {
 }
 
 #[test]
+fn a_lease_of_another_person_forgets_the_old_account_before_it_connects() {
+    let backend = Arc::new(FakeBackend::default());
+    let cloud = CloudConversations::new(backend);
+    cloud
+        .set_session(
+            serde_json::from_value(json!({
+                "api_base_url": "https://api.cmux.test",
+                "access_token": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGFja191c2VyXzEiLCJhdWQiOiJwcm9qXzEifQ.sig",
+                "expires_at": 4_102_444_800_000_u64
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let h = harness(Some(cloud.clone()));
+    {
+        // Account A was read on another person's lease.
+        let mut state = h.feed.inner.lock();
+        state.lease_identity = Some("stack:proj_1:stack_user_0".to_owned());
+        super::driver::change_account(&mut state, Some("user_a".to_owned()), NOW);
+        let _ = state.mirror.cloud_snapshot("user_a", vec![request("fi_a")], NOW);
+    }
+    assert_eq!(h.feed.list(None, Some("cloud"), true).len(), 1);
+    // Before any socket opens on the new lease, A's items are gone.
+    super::driver::forget_other_lease(&h.feed.inner, &cloud);
+    assert!(h.feed.list(None, Some("cloud"), true).is_empty());
+    let state = h.feed.inner.lock();
+    assert_eq!(state.account, None);
+    assert_eq!(state.lease_identity.as_deref(), Some("stack:proj_1:stack_user_1"));
+    drop(state);
+    // The same person's lease (a refreshed token) keeps what it has.
+    h.feed.inner.lock().account = Some("user_b".to_owned());
+    super::driver::forget_other_lease(&h.feed.inner, &cloud);
+    assert_eq!(h.feed.inner.lock().account.as_deref(), Some("user_b"));
+}
+
+#[test]
 fn the_reports_mailbox_is_the_lease_s_stack_user() {
     let backend = Arc::new(FakeBackend::default());
     let cloud = CloudConversations::new(backend);

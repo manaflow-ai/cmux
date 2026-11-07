@@ -59,10 +59,32 @@ package nonisolated struct FeedDaemonItem: Decodable, Sendable, Equatable {
             package var reason: String?
             package var confirmed: Bool?
             package var proof: Proof?
+
+            enum CodingKeys: String, CodingKey { case decision, scope, reason, confirmed, proof }
+
+            /// A custom kind's answer is any object: a field of another type reads as absent, never
+            /// as a failed decode of the whole item.
+            package init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                decision = try? container.decodeIfPresent(String.self, forKey: .decision)
+                scope = try? container.decodeIfPresent(String.self, forKey: .scope)
+                reason = try? container.decodeIfPresent(String.self, forKey: .reason)
+                confirmed = try? container.decodeIfPresent(Bool.self, forKey: .confirmed)
+                proof = try? container.decodeIfPresent(Proof.self, forKey: .proof)
+            }
         }
         package var value: Value?
         package var by: String?
         package var device: String?
+
+        enum CodingKeys: String, CodingKey { case value, by, device }
+
+        package init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            value = try? container.decodeIfPresent(Value.self, forKey: .value) // a custom kind's value may be no object
+            by = try? container.decodeIfPresent(String.self, forKey: .by)
+            device = try? container.decodeIfPresent(String.self, forKey: .device)
+        }
     }
 
     /// The daemon's GitHub details of a GitHub item (pull request or issue).

@@ -48,6 +48,7 @@ enum Ended {
 fn run(inner: &Inner, cloud: &CloudConversations) {
     let mut backoff = Duration::from_secs(1);
     while !inner.stopped() {
+        forget_other_lease(inner, cloud);
         let (generation, ended) = match cloud.open_owner_wire(FEED_WIRE_PATH) {
             Ok(owner) => {
                 let generation = owner.generation;
@@ -113,6 +114,36 @@ fn disconnect(inner: &Inner, reason: &str, signed_out: bool) {
                 .set_connection(Connection::Disconnected(reason.to_owned()))
                 .map(view_event),
         );
+        events
+    };
+    inner.wake.notify_all();
+    inner.emit(events);
+}
+
+/// The person the lease names: its Stack project and user, else a
+/// self-hosted server and its user; `None` with no lease.
+fn lease_identity(cloud: &CloudConversations) -> Option<String> {
+    cloud.lease_person().map(|(user, project)| format!("stack:{project}:{user}")).or_else(|| {
+        cloud
+            .lease_selfhost()
+            .map(|(origin, user)| format!("selfhost:{origin}:{}", user.unwrap_or_default()))
+    })
+}
+
+/// A lease of another person takes the old account's state away at once,
+/// before any socket opens on it: a refused or failing connection never
+/// leaves the old account's items, reports or GitHub rows readable.
+pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
+    let identity = lease_identity(cloud);
+    let now = inner.now();
+    let events = {
+        let mut state = inner.lock();
+        if state.lease_identity == identity {
+            return;
+        }
+        state.lease_identity = identity;
+        let mut events = change_account(&mut state, None, now);
+        events.extend(state.mirror.set_connection(Connection::Connecting).map(view_event));
         events
     };
     inner.wake.notify_all();

@@ -400,10 +400,8 @@ export class FeedStore {
       const item = this.item(id);
       return item !== undefined && isUnread(item);
     });
-    // One intent per owner limit, so a long Inbox marks every shown item.
-    for (let start = 0; start < unread.length; start += INTENT_IDS) {
-      void this.intent({ kind: "read", items: unread.slice(start, start + INTENT_IDS) }, []);
-    }
+    // One click is one gesture, so one intent: the first 256 (the owner's limit per op).
+    if (unread.length) void this.intent({ kind: "read", items: unread.slice(0, INTENT_IDS) }, []);
   }
 
   /** The Inbox's Mark All Read: the items it shows. */
