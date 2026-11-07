@@ -162,6 +162,14 @@ impl Hub {
             .await;
             if ours(&session) {
                 session.steer_end.send_replace(Some((turn_id, answer)));
+                return;
+            }
+            // Not carried out (a failover keeps the turn's id): the turn's next agent gets its own
+            // end, should its sign-in be refused too.
+            let mut scheduled =
+                session.sign_in_refused_turn.lock().unwrap_or_else(|e| e.into_inner());
+            if scheduled.as_deref() == Some(turn_id.as_str()) {
+                *scheduled = None;
             }
         });
     }
@@ -259,6 +267,15 @@ mod tests {
         Hub::hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
+        // That agent's own refused retries still end the turn.
+        hub.end_sign_in_refused(&session, &refused(3));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let end = session.steer_end.borrow().clone();
+        assert_eq!(
+            end.map(|(turn, _)| turn).as_deref(),
+            Some("turn-1"),
+            "the next agent's refusal ends it"
+        );
     }
 
     #[test]
