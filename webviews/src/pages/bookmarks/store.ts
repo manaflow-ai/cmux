@@ -120,6 +120,8 @@ export class BookmarksStore {
    * idempotency key, so the daemon replays it instead of making a second bookmark. */
   private unanswered?: { ops: string; key: string };
   private saving = false;
+  /** The editor session whose Save is in flight (its fields hold still until it answers). */
+  private savingSession?: number;
   /** Bumped when an editor opens or is cancelled: a Save's reply acts only on the editor it came from. */
   private editorSession = 0;
   /** A `reveal` of a node the tree does not hold yet. */
@@ -445,9 +447,11 @@ export class BookmarksStore {
     this.set({ editor: editState(node) });
   }
 
+  /** A field change. Ignored while this editor's Save is in flight: what was sent is what it shows. */
   setEditor(patch: Partial<Pick<EditorState, "title" | "url" | "folder">>): void {
     const editor = this.snapshot.editor;
-    if (editor) this.set({ editor: { ...editor, ...patch, error: undefined } });
+    if (editor && this.savingSession !== this.editorSession)
+      this.set({ editor: { ...editor, ...patch, error: undefined } });
   }
 
   cancelEditor(): void {
@@ -470,6 +474,7 @@ export class BookmarksStore {
       const ops = JSON.stringify(plan.ops);
       const key = this.unanswered?.ops === ops ? this.unanswered.key : this.key();
       this.saving = true;
+      this.savingSession = session;
       let refusal: Notice | null;
       try {
         refusal = await this.apply(plan.ops, false, key, (lost) => {
@@ -477,6 +482,7 @@ export class BookmarksStore {
         });
       } finally {
         this.saving = false;
+        this.savingSession = undefined;
       }
       // The editor may have closed (Escape), or another opened, while the apply was in flight:
       // the reply then acts on no editor.

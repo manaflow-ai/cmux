@@ -294,6 +294,30 @@ test("a Save that answers after its editor was cancelled leaves the next editor'
   }
 });
 
+test("a field changed while its Save is in flight is not taken: what was sent is what was shown", async () => {
+  let release: () => void = () => {};
+  let hold = true;
+  class Slow extends MockBookmarksProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === BookmarkOps.apply && hold) {
+        hold = false;
+        await new Promise<void>((done) => (release = done));
+      }
+      return super.call<R>(op, params);
+    }
+  }
+  const { store } = await started(new Slow());
+  store.startEdit(byTitle(store, "Docs"));
+  store.setEditor({ title: "Sent" });
+  const saving = store.commitEditor();
+  await tick();
+  store.setEditor({ title: "Typed while saving" });
+  expect(store.getSnapshot().editor?.title).toBe("Sent");
+  release();
+  expect(await saving).toBe(true);
+  expect(byTitle(store, "Sent")).toBeDefined();
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");
