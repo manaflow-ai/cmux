@@ -35,7 +35,13 @@ export function ComposerHatLingerStage({
   const [command, setCommand] = useState<BackgroundCommand["state"] | undefined>(
     start === "finished" ? "completed" : "running",
   );
+  // When the command ended: stamped when it finishes or fails, so its time is what it ran.
+  const [endedAt, setEndedAt] = useState(clock);
   const [agents, setAgents] = useState(start === "three" ? 3 : 1);
+  const end = (state: BackgroundCommand["state"]) => {
+    setEndedAt(Date.now());
+    setCommand(state);
+  };
   const [held, setHeld] = useState(false);
   const commands: BackgroundCommand[] = command
     ? [
@@ -46,7 +52,7 @@ export function ComposerHatLingerStage({
           state: command,
           toolCallId: "gallery-linger-command",
           startedAt: clock - 64_000,
-          ...(command === "running" ? {} : { endedAt: clock }),
+          ...(command === "running" ? {} : { endedAt }),
         },
       ]
     : [];
@@ -71,13 +77,14 @@ export function ComposerHatLingerStage({
       ...finishedTrayItems(subagents, []),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the stage's own state is the key
-  }, [agents, command]);
+  }, [agents, command, endedAt]);
   const live = useMemo(() => items.map(trayItemKey), [items]);
   const candidates = useMemo(
     () => ended.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
     [ended],
   );
-  const kept = useTrayLinger("gallery-linger", live, candidates, held, grace);
+  const lingerOptions = useMemo(() => ({ grace }), [grace]);
+  const kept = useTrayLinger("gallery-linger", live, candidates, held, lingerOptions);
   const finished = useMemo(() => lingeringTrayItems(ended, kept), [ended, kept]);
   const empty = items.length + finished.length === 0;
   return (
@@ -94,10 +101,10 @@ export function ComposerHatLingerStage({
         <button type="button" data-stage="run" onClick={() => setCommand("running")}>
           Command runs
         </button>
-        <button type="button" data-stage="finish" onClick={() => setCommand("completed")}>
+        <button type="button" data-stage="finish" onClick={() => end("completed")}>
           Command finishes
         </button>
-        <button type="button" data-stage="fail" onClick={() => setCommand("failed")}>
+        <button type="button" data-stage="fail" onClick={() => end("failed")}>
           Command fails
         </button>
         <button type="button" data-stage="join" onClick={() => setAgents((current) => current + 1)}>

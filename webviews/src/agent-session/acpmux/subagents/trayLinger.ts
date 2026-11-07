@@ -11,12 +11,17 @@
 // - While the hat is held (open, or the pointer or focus is on it), nothing expires: the grace counts
 //   only time the hat was not held, so after the hat folds each line has the rest of its grace left,
 //   never a sudden purge of everything that ended while the person read it.
+// - An end this view watched (it saw the item running) counts its grace from when the end arrived,
+//   not from its stamp: a completion delivered late (a reconnect, a slow registry read) never
+//   expires at once, held or not. Its stamp still orders the lines and times them.
+// - The clock is the session's (`offsetMs`, the snapshot's `clockOffsetMs`), the one the ends are
+//   stamped on, so a peer whose clock runs behind or ahead keeps its grace.
 // - At most one timer: `useTrayLinger` arms one for the next expiry, none while the hat is held or
 //   nothing lingers, and clears it on unmount or when its inputs change.
 //
 // The state is pure (an injected clock); App.tsx feeds it the tray's running keys and the ended
 // candidates (runningTray.ts `finishedTrayItems`, plus the ended background commands).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { trayItemKey, type TrayItem } from "./runningTray";
 
 /// How long a finished line stays in the hat, counting only time the hat was not held: two minutes,
@@ -29,8 +34,9 @@ export type LingerCandidate = { readonly key: string; readonly endedAt?: number 
 export type Linger = {
   /// Keys this view saw running: when one ends, it lingers whatever its recorded end says.
   readonly seenLive: Set<string>;
-  /// What lingers now: when it ended (clamped to when this view learned it), and the held total then.
-  readonly lingering: Map<string, { at: number; heldAt: number }>;
+  /// What lingers now: when its grace started (its end, or when a watched end arrived), the held
+  /// total then, and its end for its order and time.
+  readonly lingering: Map<string, { at: number; heldAt: number; end: number }>;
   /// Ended keys whose grace ran out, or that ended before this view watched: never shown again
   /// while they stay ended.
   readonly expired: Set<string>;
@@ -101,8 +107,10 @@ export function stepLinger(
         state.expired.add(key);
         continue;
       }
-      // An end stamped after now (another clock) counts from now.
-      record = { at: Math.min(endedAt ?? now, now), heldAt: held };
+      // An end stamped after now (another clock) counts from now. One this view saw running counts
+      // from its arrival: the time before it arrived was not time the person could see it.
+      const end = Math.min(endedAt ?? now, now);
+      record = { at: state.seenLive.has(key) ? now : end, heldAt: held, end };
       state.lingering.set(key, record);
     }
     const unheld = now - record.at - (held - record.heldAt);
@@ -111,7 +119,7 @@ export function stepLinger(
       state.expired.add(key);
       continue;
     }
-    kept.set(key, record.at);
+    kept.set(key, record.end);
     if (!hold) next = Math.min(next ?? Number.POSITIVE_INFINITY, now + grace - unheld);
   }
   // Only keys still listed stay recorded, so another chat's or a cleared list's never pile up.
@@ -129,17 +137,28 @@ const sameKept = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>
 
 const NO_KEPT: ReadonlyMap<string, number> = new Map();
 
+export type LingerOptions = {
+  /// The grace, in ms; TRAY_LINGER_MS by default (a gallery stage shortens it).
+  grace?: number;
+  /// This computer's clock minus the session's; 0 for a local chat.
+  offsetMs?: number;
+  /// This computer's clock (tests inject one).
+  clock?: () => number;
+};
+
 /// The linger for one chat's hat: what stays, by key. A new map only when what stays changes. One
 /// timeout at most, for the next expiry; none while held or with nothing lingering; cleared on
-/// unmount, on a chat switch and whenever the inputs change.
+/// unmount, on a chat switch and whenever the inputs change. `offsetMs` is this computer's clock
+/// minus the session's (the snapshot's `clockOffsetMs`): the linger reads the session's time, as the
+/// ends are stamped on it.
 export function useTrayLinger(
   chat: string | undefined,
   live: readonly string[],
   ended: readonly LingerCandidate[],
   hold: boolean,
-  grace: number = TRAY_LINGER_MS,
-  clock: () => number = Date.now,
+  { grace = TRAY_LINGER_MS, offsetMs = 0, clock: localClock = Date.now }: LingerOptions = {},
 ): ReadonlyMap<string, number> {
+  const clock = useCallback(() => localClock() - offsetMs, [localClock, offsetMs]);
   const state = useRef<{ chat: string | undefined; linger: Linger; kept: ReadonlyMap<string, number> }>(undefined);
   const [tick, setTick] = useState(0);
   const step = useMemo(() => {

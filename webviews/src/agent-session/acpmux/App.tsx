@@ -4723,7 +4723,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The hat is open or under the pointer: nothing expires until it lets go (SubagentTray.tsx `onHold`).
   const [hatHeld, setHatHeld] = useState(false);
-  const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld);
+  // On the session's clock, as the ends are stamped (a peer's may run behind or ahead of this one).
+  const lingerClock = useMemo(() => ({ offsetMs: snapshot.clockOffsetMs ?? 0 }), [snapshot.clockOffsetMs]);
+  const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld, lingerClock);
   const trayFinished = useMemo(() => lingeringTrayItems(endedTray, lingering), [endedTray, lingering]);
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
