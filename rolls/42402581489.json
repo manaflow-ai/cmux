@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42402581489",
+  "recorded_at": "2026-11-07T19:11:07Z",
+  "reason": "cmux-tui be7f9b6982a2 changes the image's cmux-tui (pinned 39f871989244)",
+  "dry_run": false,
+  "cmux_tui": "be7f9b6982a2a06a615339a481755bfe300dea3f",
+  "fixes": [
+    {
+      "sha": "be7f9b6982a2a06a615339a481755bfe300dea3f",
+      "mergedAt": "2026-11-07T18:27:41Z",
+      "subject": "chore(next): base autofix at 56c3427cb645"
+    },
+    {
+      "sha": "56c3427cb645e5b2288e69909b1851afd113fe5d",
+      "mergedAt": "2026-11-07T18:26:49Z",
+      "subject": "chore(next): base autofix at 102a433c848e"
+    },
+    {
+      "sha": "e563000a9f6aa41698ebda826f47f86feee860bd",
+      "mergedAt": "2026-11-07T10:26:38-08:00",
+      "subject": "acpmux: Codex chats get the suggested next prompt too, behind the same switch (#33436)"
+    },
+    {
+      "sha": "102a433c848ea7cc578f1f320618aa4952a7298a",
+      "mergedAt": "2026-11-07T10:23:59-08:00",
+      "subject": "cmux NEXT: an agent's workspace goes below the workspace that made it (created_by) (#37515)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-07T19:11:07Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
