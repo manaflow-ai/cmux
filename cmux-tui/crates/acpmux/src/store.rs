@@ -25,7 +25,10 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
 mod fork_view;
-pub use fork_view::{ForkView, HISTORY_KINDS, HistoryRef, HistoryWriter, folder_to_replace};
+pub use fork_view::{
+    ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
+    folder_to_replace,
+};
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;
@@ -977,11 +980,14 @@ pub trait Store: Send + Sync {
     }
     /// Takes back a [`Store::reserve_reference`] of a fork that was not made.
     fn forget_reference(&self, _fork: &str) {}
-    /// Before `id`'s folder is replaced whole (a chat moved back here): every fork that references
-    /// its history holds that history itself first, as before a delete.
+    /// Before `id`'s folder is replaced whole (a chat moved back here) or removed: every fork that
+    /// references its history holds that history itself first, and no new fork references it
+    /// until [`Store::end_release`] (review of #37020). Use [`fence_history`].
     fn release_history(&self, _id: &str) -> Result<()> {
         Ok(())
     }
+    /// Ends one [`Store::release_history`].
+    fn end_release(&self, _id: &str) {}
     /// A writer of the history a fork referenced, as its log's first segment. None: this store
     /// writes none ([`Store::writes_history`]).
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {

@@ -48,15 +48,31 @@ pub trait HistoryWriter {
     fn commit(self: Box<Self>) -> Result<()>;
 }
 
-/// The chat's folder, for a move that replaces it whole, once the forks that reference its history
-/// hold it themselves: none when the chat has none on disk, and
+/// `id`'s forks hold its history themselves, and no fork references it until this is dropped:
+/// held over a move that replaces the chat's folder, and over its delete ([`Store::release_history`]).
+pub struct HistoryFence<'a> {
+    store: &'a dyn Store,
+    id: String,
+}
+
+impl Drop for HistoryFence<'_> {
+    fn drop(&mut self) {
+        self.store.end_release(&self.id);
+    }
+}
+
+/// Takes a [`HistoryFence`] on `id`: an error, and no fence, when a fork could not take its history.
+pub fn fence_history<'a>(store: &'a dyn Store, id: &str) -> Result<HistoryFence<'a>> {
+    store.release_history(id)?;
+    Ok(HistoryFence { store, id: id.to_owned() })
+}
+
+/// The chat's folder, for a move that replaces it whole, under a [`HistoryFence`]: none when the
+/// chat has none on disk, and
 /// an error when it has one the store would not give (a fork whose history could not be written
 /// into it, `ForkView::session_dir`), since a move into it would add the incoming log to the old
 /// one (review of #37020).
 pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>> {
-    // Its forks keep the history they show: the folder that comes in may hold the chat compacted
-    // elsewhere (review of #37020).
-    store.release_history(id)?;
     if let Some(dir) = store.session_dir(id) {
         return Ok(Some(dir));
     }
@@ -115,6 +131,8 @@ struct Refs {
     dropped: HashMap<String, u64>,
     /// Whether the whole store was listed: before then, `forks_of` lists it first.
     listed: bool,
+    /// The chats under a [`HistoryFence`], with how many hold one: no fork references them.
+    fenced: HashMap<String, usize>,
 }
 
 fn is_history(kind: &str) -> bool {
@@ -518,12 +536,30 @@ impl Store for ForkView {
         }
         self.inner.commit_compaction(id, staged)
     }
+    /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
+    /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {
         let _dropping = self.exclusive();
         for fork in self.forks_of(id)? {
             self.materialize_locked(&fork)?;
         }
+        *self
+            .refs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .fenced
+            .entry(id.to_owned())
+            .or_default() += 1;
         Ok(())
+    }
+    fn end_release(&self, id: &str) {
+        let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(held) = refs.fenced.get_mut(id) {
+            *held -= 1;
+            if *held == 0 {
+                refs.fenced.remove(id);
+            }
+        }
     }
     /// A chat that forks reference goes only once each holds its history itself. Under
     /// `dropping`, as a reservation is: a fork being made is either known here or refused.
@@ -569,6 +605,11 @@ impl Store for ForkView {
         let _dropping = self.exclusive();
         anyhow::ensure!(self.inner.load(&reference.session)?.is_some(), "the chat is gone");
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
+        // Its folder is being replaced or removed: a fork now would read what comes after.
+        anyhow::ensure!(
+            !refs.fenced.contains_key(&reference.session),
+            "the chat is being moved or deleted: try again"
+        );
         refs.known.insert(fork.to_owned());
         refs.by_fork.insert(fork.to_owned(), reference.clone());
         Ok(())
