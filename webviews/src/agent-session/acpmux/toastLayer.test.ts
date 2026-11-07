@@ -13,7 +13,8 @@ const pillCss = readFileSync(join(import.meta.dir, "needsYou/needsYou.css"), "ut
 const px = (source: string, pattern: RegExp) => Number(pattern.exec(source)?.[1] ?? Number.NaN);
 
 describe("toast deck and Jump to latest", () => {
-  const lifted = /\.acpmux-main\[data-jump-latest\]\s*>\s*\.acpmux-dock\s*>\s*\.acpmux-toasts\s*>\s*\.ui-notice-stack\s*\{([^}]*)\}/;
+  const lifted =
+    /\.acpmux-main\[data-jump-latest\]\s*>\s*\.acpmux-dock\s*>\s*\.acpmux-toasts\s*>\s*\.ui-notice-stack\s*\{([^}]*)\}/;
 
   test("while Jump to latest shows, the bottom deck is lifted past the whole button", () => {
     const rule = lifted.exec(css)?.[1];

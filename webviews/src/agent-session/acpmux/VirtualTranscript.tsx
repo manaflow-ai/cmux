@@ -983,6 +983,7 @@ export function VirtualTranscript({
   onLoadOlder,
   sends = 0,
   onFollowingChange,
+  onJumpShownChange,
   coldOpen,
   onColdOpenShown,
   afterLatest,
@@ -1050,6 +1051,9 @@ export function VirtualTranscript({
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
   onFollowingChange?: (following: boolean) => void;
+  /// Jump to latest (or the Needs your input pill) shows or hides: the pane lifts its bottom toast
+  /// deck above it while it shows (toastLayer.css). Told `false` when the transcript goes.
+  onJumpShownChange?: (shown: boolean) => void;
   githubRepository?: string;
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
@@ -3972,6 +3976,15 @@ export function VirtualTranscript({
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
+  // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
+  // moves in the same frame the button starts to fade in or out.
+  const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
+  const jumpShownReport = useRef(onJumpShownChange);
+  jumpShownReport.current = onJumpShownChange;
+  useLayoutEffect(() => {
+    jumpShownReport.current?.(jumpVisible);
+  }, [jumpVisible]);
+  useLayoutEffect(() => () => jumpShownReport.current?.(false), []);
   // CHAT SWITCH PLAY: the last layout effect, so the new chat's rows are placed and scrolled to where
   // they will be drawn when the play picks the visible ones (CHAT SWITCH MOTION above).
   useLayoutEffect(() => {
