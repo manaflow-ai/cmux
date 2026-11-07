@@ -1,0 +1,337 @@
+{
+  "version": 1,
+  "build": "4235597142601",
+  "notes": "notes/4235597142601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37557,
+      "title": "cmux automation: --watch triggers, --if conditions, guardrails and a test dry run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37361,
+      "title": "cmux-host: carrier bind reads the root layout's Noise key and waits for it; keyset rotation, carrier.json removal, unspent jti",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37482,
+      "title": "cmux NEXT sidebar bridge: ask the sidebar_bridge rules in Rust, Swift copies deleted (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37468,
+      "title": "ci(ffi-pin): accept a published base pin the app compiled against; the re-pin pins the newest published release",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37553,
+      "title": "repo: delete KeyboardPinningLab, the standalone iOS keyboard lab no build or test runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37602,
+      "title": "cmux vm short verbs: an unloaded list or a VM being made is a retry; ls takes no name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37563,
+      "title": "Cloud: the machine record and its rules come from cmux-cloud-machine; Swift keeps the fields (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34295,
+      "title": "webviews: migrate markdown viewer to design tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37447,
+      "title": "cmux inference setup: the gateway path, or a device login the person approves on their own computer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37597,
+      "title": "cmux next: the + opens at the end, new-tab keys right after the current tab, also in a burst",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37457,
+      "title": "acpmux: send_status MCP tool, --harness alias for -m",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37572,
+      "title": "start-chat --wait: only cloud start-chat, which runs; vm start-chat is refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37418,
+      "title": "cmux NEXT sidebar: tree edits run on the shared Rust rules; the Swift copies are deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37470,
+      "title": "cmux vm pause dev: short Cloud VM verbs that take a name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37281,
+      "title": "Cloud: sign-in, identity and configuration rules move to Rust (cmux-cloud-config)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34296,
+      "title": "fix(ui): preserve solid danger Button hover fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37260,
+      "title": "Cloud start: sign-in, login copy and Codex device questions ask in the start card; the Swift dialogs and Retry toast are gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37573,
+      "title": "Links: a page already beside another pane opens links as a tab there, not another split",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37565,
+      "title": "ci(base-red): refuse a Swift dependency the package rule cannot read; check every crate directory",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37443,
+      "title": "cmux-next sidebar: auto-archive plans through Rust (auto_archive_plan); the Swift planner rules are deleted (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37576,
+      "title": "Agent chat: Session Info starts closed in every new chat and pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37547,
+      "title": "cmux NEXT: split panes show the sidebar's faint line by default; the drag glow has no bloom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37511,
+      "title": "Reopen Closed: a right-split agent pane comes back straight in its split",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37022,
+      "title": "perf(acpmux): coalesce peer session notice cache saves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37555,
+      "title": "cmux NEXT: delete SidebarMock and SidebarDemoMock, sidebar fixtures nothing reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37264,
+      "title": "Settings page layout and section actions move to schemas/settings/source/page-layout.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36425,
+      "title": "[Thunderdome top-right B] animated icons: cue, spring and morph (agentChat.headerMotion)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/36425/cap-3bd0cc13-tour-topright-animated-spring.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 37570,
+      "title": "cloud identity: a token's claims need three non-empty segments, as the old Swift parser required",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37562,
+      "title": "Cloud: one preview deadline, and a listing's max_bytes counts every byte",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37540,
+      "title": "perf(next frames): an idle frame scheduler pauses its display link and keeps it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37543,
+      "title": "cmux NEXT: delete LocalPTYTerminalIO, the debug-only local shell nothing creates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37542,
+      "title": "acpmux: a full-access agent starts full-access chats on any placement without a new prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37556,
+      "title": "cmux chat and start-chat: --wait and --no-wait take no value in the global scan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37541,
+      "title": "acpmux: a turn's agent_error keeps the daemon's typed kind and recovery",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37539,
+      "title": "ci(base-red): a package job red the PR cannot reach is fixed on base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37537,
+      "title": "base red: main pane corner tests pin the curved chrome style; key resize grid tests follow #36478's coalescing; palette root counts Run Last Command Again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37528,
+      "title": "test(next): motion-off base reds: a taken-back close steps its held snap; the key router tests keep their registry alive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37512,
+      "title": "Agent pane: the tucked composer hat is a centred chevron that grows into its count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37508,
+      "title": "fix(classic import): a loose classic workspace stays loose; quarantine ClassicUpgradeSimulationTests' loaded-run flake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37263,
+      "title": "cmux NEXT Home: the cards in a Home chat in React",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34495,
+      "title": "Offer one-time recovery for macOS-blocked ACP reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37518,
+      "title": "cmux device: pass --jsonl, --quiet and -q through like --json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37427,
+      "title": "cmux-window-rules: the rest of the window handlers' rules in Rust (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37353,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-eaa253411d5f4d3dfb32ae8ec7d0ec4ad2981c43",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37535,
+      "title": "test(ios): time the silent-drop benchmark on the controller's clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37546,
+      "title": "cmux cloud start-chat -- TEXT: the prompt, read as text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34462,
+      "title": "acpmux: a Claude chat past its context window compacts, then goes on by itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37529,
+      "title": "right-pane-open bench: reopen_right, Reopen Closed of a chat that was open on the right",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37524,
+      "title": "cmux chat: an output flag after -- is the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37523,
+      "title": "acpmux: a prompt cut by a restart keeps the trust gate it came with",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37519,
+      "title": "What's New sheet: a raw change's row shows only its description's first paragraph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37494,
+      "title": "Cloud VM image roll: go live (plan checks history first; staging-only rollback)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37472,
+      "title": "cmux chat --on vm reuses my Cloud VM; --on cloud is cmux Cloud's choice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37492,
+      "title": "cmux --help opens with what a person does first",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
