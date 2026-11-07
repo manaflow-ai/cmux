@@ -5,10 +5,7 @@ extension SettingsSchema {
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.
     static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed", "focusRing.enabled", "focusRing.width",
-        "focusRing.color", "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
-        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color",
-        "appearance.surfaces.sidebar.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
     ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding

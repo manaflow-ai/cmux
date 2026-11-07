@@ -556,6 +556,11 @@ export type AcpmuxRow = {
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
+  /// The transcript frame the row draws in, when it is not the row's id: a message run's line takes
+  /// over its first row's frame (conversation/messageRuns.ts), so the run on screen stays the same
+  /// element when it folds, and does not unmount and enter again. The React key and the live
+  /// entrance follow it (`rowFrameKey`); everything else (the fold set, Find, selection) keys by id.
+  frame?: string;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -1209,6 +1214,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
+  /// Those asks, in the order they come next (the composer hat steps to each, question/hatModel.ts).
+  permissionsQueued?: readonly AcpmuxPermission[];
   secret?: AcpmuxSecretAsk;
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
   /// array until one comes or goes.
@@ -1826,6 +1833,9 @@ export type AcpmuxMessageRun = {
 /// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
 /// batch's head (LaneNoticeBatch.tsx) and the waiting messages' head (PendingMessagesCard.tsx).
 /// App.tsx marks it `acpmux-row--line` and joins it to the step rows beside it.
+/// The frame a row draws in: its `frame`, else its id (the transcript's React key and entrance key).
+export const rowFrameKey = (row: AcpmuxRow) => row.frame ?? row.id;
+
 export const isLineRow = (row: AcpmuxRow) =>
   row.kind === LANE_NOTICE_BATCH ||
   row.kind === MESSAGE_RUN ||

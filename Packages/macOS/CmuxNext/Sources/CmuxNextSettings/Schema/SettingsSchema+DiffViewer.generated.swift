@@ -3,41 +3,41 @@
 
 extension DiffViewerSettingsSchema {
     /// `diff.layout`.
-    public nonisolated static let layoutPath = ["diff", "layout"]
-    public nonisolated static let layoutDefault = "auto"
-    public nonisolated static let layoutValues = ["auto", "split", "unified"]
+    nonisolated static let layoutPath = ["diff", "layout"]
+    nonisolated static let layoutDefault = "auto"
+    nonisolated static let layoutValues = ["auto", "split", "unified"]
     /// `diff.diffIndicators`.
-    public nonisolated static let diffIndicatorsPath = ["diff", "diffIndicators"]
-    public nonisolated static let diffIndicatorsDefault = "bars"
-    public nonisolated static let diffIndicatorsValues = ["bars", "classic", "none"]
+    nonisolated static let diffIndicatorsPath = ["diff", "diffIndicators"]
+    nonisolated static let diffIndicatorsDefault = "bars"
+    nonisolated static let diffIndicatorsValues = ["bars", "classic", "none"]
     /// `diff.colors`: Settings only, no toolbar toggle: added and removed lines follow the theme unless a person opts out.
-    public nonisolated static let colorsPath = ["diff", "colors"]
-    public nonisolated static let colorsDefault = "theme"
-    public nonisolated static let colorsValues = ["theme", "muted", "standard"]
+    nonisolated static let colorsPath = ["diff", "colors"]
+    nonisolated static let colorsDefault = "theme"
+    nonisolated static let colorsValues = ["theme", "muted", "standard"]
     /// `diff.wordWrap`.
-    public nonisolated static let wordWrapPath = ["diff", "wordWrap"]
-    public nonisolated static let wordWrapDefault = false
+    nonisolated static let wordWrapPath = ["diff", "wordWrap"]
+    nonisolated static let wordWrapDefault = false
     /// `diff.wordDiffs`: On by default (Leo, 2026-10-20: the diff viewer shows word-level changes, as a code review does).
-    public nonisolated static let wordDiffsPath = ["diff", "wordDiffs"]
-    public nonisolated static let wordDiffsDefault = true
+    nonisolated static let wordDiffsPath = ["diff", "wordDiffs"]
+    nonisolated static let wordDiffsDefault = true
     /// `diff.lineNumbers`.
-    public nonisolated static let lineNumbersPath = ["diff", "lineNumbers"]
-    public nonisolated static let lineNumbersDefault = true
+    nonisolated static let lineNumbersPath = ["diff", "lineNumbers"]
+    nonisolated static let lineNumbersDefault = true
     /// `diff.showBackgrounds`.
-    public nonisolated static let showBackgroundsPath = ["diff", "showBackgrounds"]
-    public nonisolated static let showBackgroundsDefault = true
+    nonisolated static let showBackgroundsPath = ["diff", "showBackgrounds"]
+    nonisolated static let showBackgroundsDefault = true
     /// `diff.expandUnchanged`.
-    public nonisolated static let expandUnchangedPath = ["diff", "expandUnchanged"]
-    public nonisolated static let expandUnchangedDefault = false
+    nonisolated static let expandUnchangedPath = ["diff", "expandUnchanged"]
+    nonisolated static let expandUnchangedDefault = false
     /// `diff.groupByKind`: Off by default: the familiar order is the order the diff arrived in, and a reorder nobody can turn off has no business being the default. The toolbar's toggle writes this row, so turning it on lasts past the tab (webviews/src/viewer-prefs.ts).
-    public nonisolated static let groupByKindPath = ["diff", "groupByKind"]
-    public nonisolated static let groupByKindDefault = false
+    nonisolated static let groupByKindPath = ["diff", "groupByKind"]
+    nonisolated static let groupByKindDefault = false
     /// `diff.hideWhitespace`: Off by default: the diff shows every change, as git does. On, the diff leaves out white space changes (git diff --ignore-all-space), for the git sources only; the ... menu's Hide white space writes this row.
-    public nonisolated static let hideWhitespacePath = ["diff", "hideWhitespace"]
-    public nonisolated static let hideWhitespaceDefault = false
+    nonisolated static let hideWhitespacePath = ["diff", "hideWhitespace"]
+    nonisolated static let hideWhitespaceDefault = false
     /// `diff.showBulkActions`: On by default: the floating Stage All / Revert All bar at the diff's end. Off hides it; each hunk's and file's own Stage and Revert stay.
-    public nonisolated static let showBulkActionsPath = ["diff", "showBulkActions"]
-    public nonisolated static let showBulkActionsDefault = true
+    nonisolated static let showBulkActionsPath = ["diff", "showBulkActions"]
+    nonisolated static let showBulkActionsDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

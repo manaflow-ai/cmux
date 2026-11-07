@@ -3,54 +3,54 @@
 
 extension MarkdownViewerSettingsSchema {
     /// `markdown.remoteImages`.
-    public nonisolated static let remoteImagesPath = ["markdown", "remoteImages"]
-    public nonisolated static let remoteImagesDefault = false
+    nonisolated static let remoteImagesPath = ["markdown", "remoteImages"]
+    nonisolated static let remoteImagesDefault = false
     /// `markdown.layout.width`: The widest the text column gets, in characters of the body font. Wide enough for an ultrawide monitor (1000 characters is about 8,800 points at 16 points); Full Width is its own key, never the top of this range. The default is the page's (MARKDOWN_READING.width).
-    public nonisolated static let widthPath = ["markdown", "layout", "width"]
-    public nonisolated static let widthDefault: Double = 72
-    public nonisolated static let widthRange: ClosedRange<Double> = 30...1000
-    public nonisolated static let widthPlaceholder: Double = 72
+    nonisolated static let widthPath = ["markdown", "layout", "width"]
+    nonisolated static let widthDefault: Double = 72
+    nonisolated static let widthRange: ClosedRange<Double> = 30...1000
+    nonisolated static let widthPlaceholder: Double = 72
     /// `markdown.layout.fullWidth`.
-    public nonisolated static let fullWidthPath = ["markdown", "layout", "fullWidth"]
-    public nonisolated static let fullWidthDefault = false
+    nonisolated static let fullWidthPath = ["markdown", "layout", "fullWidth"]
+    nonisolated static let fullWidthDefault = false
     /// `markdown.font.size`: The body text size in points (CSS pixels in the page) every viewer starts at; Cmd-0 there goes back to it after Cmd-= and Cmd--, which the page clamps to the same range. The default is the page's (--cmux-md-font-size).
-    public nonisolated static let fontSizePath = ["markdown", "font", "size"]
-    public nonisolated static let fontSizeDefault: Double = 16
-    public nonisolated static let fontSizeRange: ClosedRange<Double> = 8...40
-    public nonisolated static let fontSizePlaceholder: Double = 16
+    nonisolated static let fontSizePath = ["markdown", "font", "size"]
+    nonisolated static let fontSizeDefault: Double = 16
+    nonisolated static let fontSizeRange: ClosedRange<Double> = 8...40
+    nonisolated static let fontSizePlaceholder: Double = 16
     /// `markdown.font.preset`.
-    public nonisolated static let fontPresetPath = ["markdown", "font", "preset"]
-    public nonisolated static let fontPresetDefault = "system"
-    public nonisolated static let fontPresetValues = ["system", "serif", "mono"]
+    nonisolated static let fontPresetPath = ["markdown", "font", "preset"]
+    nonisolated static let fontPresetDefault = "system"
+    nonisolated static let fontPresetValues = ["system", "serif", "mono"]
     /// `markdown.font.lineHeight`.
-    public nonisolated static let lineHeightPath = ["markdown", "font", "lineHeight"]
-    public nonisolated static let lineHeightDefault: Double = 1.6
-    public nonisolated static let lineHeightRange: ClosedRange<Double> = 1...2.4
-    public nonisolated static let lineHeightPlaceholder: Double = 1.6
+    nonisolated static let lineHeightPath = ["markdown", "font", "lineHeight"]
+    nonisolated static let lineHeightDefault: Double = 1.6
+    nonisolated static let lineHeightRange: ClosedRange<Double> = 1...2.4
+    nonisolated static let lineHeightPlaceholder: Double = 1.6
     /// `markdown.spacing.paragraph`.
-    public nonisolated static let paragraphSpacingPath = ["markdown", "spacing", "paragraph"]
-    public nonisolated static let paragraphSpacingDefault: Double = 1
-    public nonisolated static let paragraphSpacingRange: ClosedRange<Double> = 0...3
-    public nonisolated static let paragraphSpacingPlaceholder: Double = 1
+    nonisolated static let paragraphSpacingPath = ["markdown", "spacing", "paragraph"]
+    nonisolated static let paragraphSpacingDefault: Double = 1
+    nonisolated static let paragraphSpacingRange: ClosedRange<Double> = 0...3
+    nonisolated static let paragraphSpacingPlaceholder: Double = 1
     /// `markdown.code.scale`: Code size as a share of the body text size; the default is the page's (--cmux-md-code-scale, as GitHub's 85%).
-    public nonisolated static let codeScalePath = ["markdown", "code", "scale"]
-    public nonisolated static let codeScaleDefault: Double = 0.875
-    public nonisolated static let codeScaleRange: ClosedRange<Double> = 0.6...1.25
-    public nonisolated static let codeScalePlaceholder: Double = 0.875
+    nonisolated static let codeScalePath = ["markdown", "code", "scale"]
+    nonisolated static let codeScaleDefault: Double = 0.875
+    nonisolated static let codeScaleRange: ClosedRange<Double> = 0.6...1.25
+    nonisolated static let codeScalePlaceholder: Double = 0.875
     /// `markdown.code.family`.
-    public nonisolated static let codeFamilyPath = ["markdown", "code", "family"]
+    nonisolated static let codeFamilyPath = ["markdown", "code", "family"]
     /// `markdown.code.blockSize`: A fixed code block size in pixels; code.scale is the row. Kept so cmux.json files that set it still validate and the viewer can clear it when the user picks a code size.
-    public nonisolated static let codeBlockSizePath = ["markdown", "code", "blockSize"]
-    public nonisolated static let codeBlockSizeRange: ClosedRange<Double> = 8...32
-    public nonisolated static let codeBlockSizePlaceholder: Double = 14
+    nonisolated static let codeBlockSizePath = ["markdown", "code", "blockSize"]
+    nonisolated static let codeBlockSizeRange: ClosedRange<Double> = 8...32
+    nonisolated static let codeBlockSizePlaceholder: Double = 14
     /// `markdown.tables`.
-    public nonisolated static let tablesPath = ["markdown", "tables"]
-    public nonisolated static let tablesDefault = "scroll"
-    public nonisolated static let tablesValues = ["scroll", "wrap"]
+    nonisolated static let tablesPath = ["markdown", "tables"]
+    nonisolated static let tablesDefault = "scroll"
+    nonisolated static let tablesValues = ["scroll", "wrap"]
     /// `markdown.theme`.
-    public nonisolated static let themePath = ["markdown", "theme"]
-    public nonisolated static let themeDefault = "app"
-    public nonisolated static let themeValues = ["app", "light", "dark"]
+    nonisolated static let themePath = ["markdown", "theme"]
+    nonisolated static let themeDefault = "app"
+    nonisolated static let themeValues = ["app", "light", "dark"]
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
