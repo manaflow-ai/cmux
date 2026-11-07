@@ -199,8 +199,10 @@ test("a failed tile shows its kind and one retry glyph button; a streaming one s
     <AttachmentStrip
       attachments={[]}
       pending={[
-        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out." },
-        { id: "shot", name: "shot.png", image: true, failed: "The disk is full." },
+        { id: "video", name: "Screen Recording.mov", image: false, failed: "The upload timed out.", retryable: true },
+        { id: "shot", name: "shot.png", image: true, failed: "The disk is full.", retryable: true },
+        // A file the composer refused fails the same way again: no Retry, only its x.
+        { id: "refused", name: "notes.heic", image: true, failed: "notes.heic can't be attached" },
         { id: "big", name: "big.mp4", image: false, uploading: true, progress: 0.42 },
       ]}
       onRemove={() => {}}
@@ -208,7 +210,8 @@ test("a failed tile shows its kind and one retry glyph button; a streaming one s
       onRetry={() => {}}
     />,
   );
-  // The file's name stays on its tile; each failed tile has exactly one retry button, a glyph.
+  // The file's name stays on its tile; each failed tile a Retry can make has exactly one retry
+  // button, a glyph, and the refused one has none.
   expect(html).toContain("Screen Recording.mov");
   expect(html.match(/class="acpmux-attachment-retry"/g)?.length).toBe(2);
   expect(html).not.toMatch(/class="acpmux-attachment-retry"[^>]*>Retry</);

@@ -245,6 +245,23 @@
 .acpmux-attachment-file.acpmux-attachment-pending {
   gap: 4px;
 }
+/* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
+   is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
+   (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
+:is(.acpmux-attachment, .acpmux-md-inline-chip) .acpmux-attachment-instant {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  outline: none;
+  pointer-events: none;
+}
+:is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
+  position: relative;
+  z-index: 1;
+}
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */
 .acpmux-attachment-spinner {
