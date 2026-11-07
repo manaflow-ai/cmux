@@ -88,6 +88,23 @@
       "events": [
         "bookmarks-changed"
       ]
+    },
+    "tasks": {
+      "description": "Tasks. Reads the local Tasks owner's mirror (tasks.snapshot); creating, changing, moving, archiving or delegating a task needs the person's gesture (each is one click, drop or Return in the page); it hears tasks-changed, so an open page applies every commit made elsewhere (the CLI, an agent) without a re-read.",
+      "read": [
+        "tasks.snapshot"
+      ],
+      "gesture": [
+        "tasks.create",
+        "tasks.update",
+        "tasks.move",
+        "tasks.archive",
+        "tasks.delegate"
+      ],
+      "confirm": [],
+      "events": [
+        "tasks-changed"
+      ]
     }
   },
   "namespaces": {
@@ -134,6 +151,20 @@
         "bookmarks.apply",
         "bookmarks.import_html",
         "bookmarks.import_source"
+      ]
+    },
+    "tasks": {
+      "owner": "tasks.local",
+      "description": "The local Tasks owner (`cmux-tasks serve`, plans/cmux-next/tasks.md section 5) over its Unix socket; the daemon relays and keeps no copy. `tasks.snapshot {}` answers the owner's subscribe snapshot as the local person sees it; `tasks.<verb>` runs owner op `task.<verb>` with the request's idempotency key and origin user and answers `{result, seq, replay}` (the op result, the owner's committed sequence after it, and whether the key had already applied). Owner events reach the page as `tasks-changed {change}`, and `tasks-changed {lost: true}` when the link ended. A missing owner is operation.failed with extra.code `tasks.owner_unreachable`; an owner refusal carries `tasks.<code>` (not_found, invalid, conflict, ...). Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "tasks.snapshot"
+      ],
+      "mutation": [
+        "tasks.create",
+        "tasks.update",
+        "tasks.move",
+        "tasks.archive",
+        "tasks.delegate"
       ]
     }
   }

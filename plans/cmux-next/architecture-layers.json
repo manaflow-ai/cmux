@@ -72,7 +72,7 @@
     "CmuxNextHistory": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextHistoryDaemon": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextBookmarks": {"layer": "ui", "mixes": ["domain", "service"]},
-    "CmuxNextTasks": {"layer": "ui", "mixes": ["domain"]},
+    "CmuxNextChecklist": {"layer": "ui", "note": "the workspace checklist strings only (CmuxNextTasks before)"},
     "CmuxNextFeed": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextApps": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextAgentActivity": {"layer": "ui", "mixes": ["domain"]},
