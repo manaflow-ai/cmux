@@ -40,6 +40,8 @@
 
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
+#[cfg(unix)]
+pub mod carrier_keyset;
 pub mod carrier_ticket;
 pub mod client;
 pub mod clone_mark;
