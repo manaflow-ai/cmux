@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42392070750",
+  "recorded_at": "2026-11-07T16:49:03Z",
+  "reason": "cmux-tui 438de23a97d2 changes the image's cmux-tui (pinned 65f7f01d9eaf)",
+  "dry_run": false,
+  "cmux_tui": "438de23a97d218ad66c57d34e145a7bbad2a01e8",
+  "fixes": [
+    {
+      "sha": "438de23a97d218ad66c57d34e145a7bbad2a01e8",
+      "mergedAt": "2026-11-07T08:21:22-08:00",
+      "subject": "cmux-tui: dial-tcp's setup SIGTERM test waits for the client's workspace stream (#37929)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T16:49:03Z",
+    "snapshot_id": "sh-8664adbcd5eb4da0b9048a403af3589b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42392070750): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2d73bac424e6399d8a441a4d9c242c3896840fb5",
+    "image": "cloud-native-auto-438de23a-42392070750-1",
+    "revision": "ci-42392070750-1",
+    "at": "2026-11-07T16:49:03Z"
+  },
+  "rolled_back": false
+}
