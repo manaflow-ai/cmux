@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type CSSProperties } from "react";
 import { setPopupInsetTop } from "../../../ui/popupInset";
 
 /// The pane's tab row the chat header's tools may sit in (CmuxNextAgentPane AgentPaneTabRow; Leo
@@ -68,6 +68,28 @@ export function tabRowStyle(row: TabRow): CSSProperties | undefined {
     "--acpmux-tab-row-height": `${row.height}px`,
     "--acpmux-tab-row-inset": `${row.trailingInset}px`,
   } as CSSProperties;
+}
+
+/// The document root's mark that a chat shell sits in the tab row (header.css, src/styles.css: the page's own
+/// background stays clear in the row). An attribute the shell sets, not `html:has(.acpmux-shell[data-tab-row])`:
+/// a `:has()` on the root is checked again for every node a streamed chunk inserts into the transcript, and
+/// each check restyles the composer (test/agent-pane-stream-composer-still.test.ts).
+export const TAB_ROW_ROOT_ATTRIBUTE = "data-acpmux-tab-row";
+const tabRowShells = new WeakMap<Document, number>();
+
+/// Marks `shell`'s document root while `shell` is mounted in the tab row; the mark leaves with the last such shell.
+export function useTabRowRoot(shell: HTMLElement | null, inTabRow: boolean): void {
+  useLayoutEffect(() => {
+    if (!shell || !inTabRow) return;
+    const document = shell.ownerDocument;
+    tabRowShells.set(document, (tabRowShells.get(document) ?? 0) + 1);
+    document.documentElement.setAttribute(TAB_ROW_ROOT_ATTRIBUTE, "");
+    return () => {
+      const left = (tabRowShells.get(document) ?? 1) - 1;
+      tabRowShells.set(document, left);
+      if (left === 0) document.documentElement.removeAttribute(TAB_ROW_ROOT_ATTRIBUTE);
+    };
+  }, [shell, inTabRow]);
 }
 
 /// While in an offered `row`, reports the width of the tools the returned ref names (plus ``TAB_ROW_GAP``) each
