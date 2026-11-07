@@ -319,7 +319,8 @@ impl Mux {
                 let placed = surface
                     .and_then(|surface| state.pane_of(surface))
                     .and_then(|pane| state.screen_of(pane))
-                    .map(|(workspace, _)| state.workspaces[workspace].public_id.clone());
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
                 let scope = placed.filter(|_| registry.public_fold_seeded()).map(|placed| {
                     let requested = state
                         .workspace_by_key(workspace_key)
