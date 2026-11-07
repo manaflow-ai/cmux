@@ -1,0 +1,217 @@
+// l10n-allow-file: test fixture markup, not shipped UI.
+// A chat's page after a relaunch draws what it last showed in its document's first frame, before
+// the bundle runs (Leo, 2026-11-07: "we need to make these after-restart things load a lot faster";
+// no split-half reveal). The page writes its visible window (chatSnapshot/capture.ts), the host
+// serves it back as `__snapshot/chat.js`, and the first classic script draws it (boot.ts) in a
+// shadow root under the page's own rules. These hold, in real Chromium:
+// - the copy is on screen when the bundle's first line runs, at the same boxes as the page it was
+//   written from (header, rows, a scrolled transcript, the composer and its text);
+// - the live page takes over in one frame: no frame shows both or neither, and nothing moves;
+// - a copy written for another viewport draws nothing.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
+  setDefaultTimeout(60_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-chat-snapshot: skipping (run `bunx playwright install chromium`)");
+    describe.skip("chat snapshot", () => test("chromium", () => {}));
+    return;
+  }
+  const source = path.resolve(import.meta.dir, "../src/agent-session/acpmux/chatSnapshot");
+  const work = mkdtempSync(path.join(tmpdir(), "chat-snapshot-test-"));
+
+  async function bundle(entry: string, format: "iife" | "esm"): Promise<string> {
+    const built = await Bun.build({ entrypoints: [entry], format, target: "browser" });
+    if (!built.success) throw new Error(built.logs.map(String).join("\n"));
+    return await built.outputs[0]!.text();
+  }
+
+  // The page's rules: `html`, `body` and `:root` selectors, a look attribute and a theme variable
+  // the host sets before page code runs, and an agent variable only the page's theme event sets.
+  const CSS = `
+    :root { --gap: 12px; }
+    html, body { margin: 0; height: 100%; }
+    html[data-look="roomy"] .header { height: 48px; }
+    body .header { background: var(--cmux-surface); }
+    #root { position: relative; height: 100%; font: 14px/20px sans-serif; }
+    .header { height: 30px; padding: 0 var(--gap); }
+    .acpmux-scroll { position: absolute; top: 48px; bottom: 80px; left: 0; right: 0; overflow-y: auto; }
+    .acpmux-spacer { position: relative; height: 4000px; }
+    .acpmux-row { position: absolute; left: var(--agent-indent, 0px); right: 0; height: 40px; }
+    .composer { position: absolute; bottom: 0; left: 0; right: 0; height: 80px; }
+    .composer textarea { width: 300px; height: 40px; }
+    @media (min-width: 1px) { :root .acpmux-row { padding-left: 4px; } }
+  `;
+  const MARKUP = () => {
+    const rows = Array.from(
+      { length: 100 },
+      (_, at) => `<article class="acpmux-row" data-row-id="r${at}" style="top:${at * 40}px">row ${at}</article>`,
+    ).join("");
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><textarea></textarea></div>`;
+  };
+  const HTML_ATTRIBUTES = `data-look="roomy" style="--cmux-surface: rgb(10, 20, 30);"`;
+  const htmlDocument = (body: string) =>
+    `<!doctype html><html ${HTML_ATTRIBUTES}><head><style id="cmux-pane-styles">${CSS}</style></head><body>${body}</body></html>`;
+
+  let browser: Browser;
+  let boot = "";
+  let capture = "";
+  let live = "";
+  beforeAll(async () => {
+    boot = await bundle(path.join(source, "boot.ts"), "iife");
+    const captureEntry = path.join(work, "capture-entry.ts");
+    writeFileSync(
+      captureEntry,
+      `import { captureSnapshot } from ${JSON.stringify(path.join(source, "capture.ts"))};\n(globalThis as any).captureSnapshot = captureSnapshot;\n`,
+    );
+    capture = await bundle(captureEntry, "iife");
+    // The bundle's stand-in: its first line reads what shows, then it renders the same chat under
+    // the copy (as React does) and takes over (App.tsx `swapChatSnapshot`).
+    const liveEntry = path.join(work, "live-entry.ts");
+    writeFileSync(
+      liveEntry,
+      `import { swapChatSnapshot } from ${JSON.stringify(path.join(source, "live.ts"))};
+const w = window as any;
+const host = document.querySelector("cmux-chat-snapshot");
+const box = (el: Element | null | undefined) => { const r = el!.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+const copy = host?.shadowRoot;
+w.atBundle = host && copy ? {
+  shown: true,
+  header: box(copy.querySelector(".header")),
+  row: box(copy.querySelector('[data-row-id="r60"]')),
+  composer: box(copy.querySelector(".composer textarea")),
+  text: (copy.querySelector(".composer textarea") as HTMLTextAreaElement).value,
+  scrollTop: copy.querySelector(".acpmux-scroll")!.scrollTop,
+  rows: copy.querySelectorAll(".acpmux-row").length,
+  headerColor: getComputedStyle(copy.querySelector(".header")!).backgroundColor,
+  indent: getComputedStyle(copy.querySelector('[data-row-id="r60"]')!).left,
+} : { shown: false };
+const root = document.getElementById("root")!;
+root.innerHTML = w.liveMarkup;
+document.documentElement.style.setProperty("--agent-indent", "20px");
+(root.querySelector("textarea") as HTMLTextAreaElement).value = "draft text";
+root.querySelector(".acpmux-scroll")!.scrollTop = 2000;
+w.frames = [];
+const watch = () => {
+  w.frames.push({ host: !!document.querySelector("cmux-chat-snapshot"), opacity: root.style.opacity });
+  if (w.frames.length < 6) requestAnimationFrame(watch);
+};
+requestAnimationFrame(() => {
+  // The swap's frame callback is queued before the watch's, so the watch reads what that frame paints.
+  swapChatSnapshot();
+  watch();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")) };
+  }));
+});
+`,
+    );
+    live = await bundle(liveEntry, "esm");
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  /// The page the chat was written from: the chat scrolled to row 50, a draft in the composer, and
+  /// the agent theme's variable set as the page's theme event sets it.
+  async function written(page: Page): Promise<Record<string, unknown>> {
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    return await page.evaluate(() => {
+      document.documentElement.style.setProperty("--agent-indent", "20px");
+      document.querySelector("textarea")!.value = "draft text";
+      document.querySelector(".acpmux-scroll")!.scrollTop = 2000;
+      const box = (el: Element | null) => {
+        const r = el!.getBoundingClientRect();
+        return [r.x, r.y, r.width, r.height];
+      };
+      return {
+        snapshot: (globalThis as any).captureSnapshot(document),
+        header: box(document.querySelector(".header")),
+        row: box(document.querySelector('[data-row-id="r60"]')),
+        composer: box(document.querySelector(".composer textarea")),
+      };
+    });
+  }
+
+  /// The next launch's document, served the snapshot as the host serves it.
+  async function relaunched(page: Page, snapshot: unknown): Promise<void> {
+    await page.route("http://chat.test/**", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/b.html")
+        return route.fulfill({
+          contentType: "text/html",
+          body: htmlDocument(
+            `<main id="root"></main><script src="/__snapshot/chat.js"></script><script src="/chat-snapshot.js"></script><script type="module" src="/pane.js"></script>`,
+          ),
+        });
+      if (url.pathname === "/__snapshot/chat.js")
+        return route.fulfill({
+          contentType: "text/javascript",
+          body: `self.__cmuxChatSnapshot=${JSON.stringify(snapshot)};self.liveMarkup=${JSON.stringify(MARKUP())};`,
+        });
+      if (url.pathname === "/chat-snapshot.js") return route.fulfill({ contentType: "text/javascript", body: boot });
+      if (url.pathname === "/pane.js") return route.fulfill({ contentType: "text/javascript", body: live });
+      return route.fulfill({ status: 404, body: "" });
+    });
+    await page.goto("http://chat.test/b.html");
+    await page.waitForFunction(
+      () => (window as any).afterSwap !== undefined || (window as any).atBundle?.shown === false,
+    );
+  }
+
+  test("the copy shows before the bundle runs, where the chat was, and the live page takes over in one frame", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const writer = await context.newPage();
+    const before = await written(writer);
+    const snapshot = before.snapshot as { html: string; height: number };
+    expect(snapshot).toBeDefined();
+    // The visible window only: the rows out of view are not in it.
+    expect(snapshot.html).not.toContain('data-row-id="r10"');
+    expect(snapshot.html).not.toContain('data-row-id="r99"');
+    const page = await context.newPage();
+    await relaunched(page, snapshot);
+    const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, unknown>;
+    expect(atBundle.shown).toBe(true);
+    expect(atBundle.header).toEqual(before.header);
+    expect(atBundle.row).toEqual(before.row);
+    expect(atBundle.composer).toEqual(before.composer);
+    expect(atBundle.text).toBe("draft text");
+    expect(atBundle.scrollTop).toBe(2000);
+    expect(atBundle.rows as number).toBeLessThan(20);
+    expect(atBundle.headerColor).toBe("rgb(10, 20, 30)");
+    expect(atBundle.indent).toBe("20px");
+    const frames = (await page.evaluate(() => (window as any).frames)) as { host: boolean; opacity: string }[];
+    // Each frame shows the copy over a clear live root, or the live root alone: never both, never neither.
+    for (const frame of frames) expect(frame.host ? frame.opacity === "0" : frame.opacity === "").toBe(true);
+    expect(frames[0]!.host).toBe(true);
+    expect(frames.findIndex((frame) => !frame.host)).toBe(1);
+    const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, unknown>;
+    expect(afterSwap).toEqual({ header: before.header, row: before.row, composer: before.composer });
+    await context.close();
+  });
+
+  test("a copy written at another size draws nothing", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const other = await browser.newContext({ viewport: { width: 700, height: 600 } });
+    const page = await other.newPage();
+    await relaunched(page, before.snapshot);
+    expect(await page.evaluate(() => (window as any).atBundle.shown)).toBe(false);
+    expect(await page.evaluate(() => document.getElementById("root")!.style.opacity)).toBe("");
+    await context.close();
+    await other.close();
+  });
+});
