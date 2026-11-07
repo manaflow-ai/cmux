@@ -195,15 +195,25 @@ chat with no folder runs in, so its Home chats see your Home chats' files) and `
 - A web-only PR is patched in: the side instance opens and `web-overlay.sh follow` serves the PR's
   web UI to it, with no build. Later pushes and edits hot-reload.
 - A PR that changes only CI, tests or docs is reported as nothing to try.
-- A PR that changes the daemon, Swift, a resource or a manifest needs a new binary: the script says
+- A PR that changes the daemon or CLI (Rust in cmux-tui or acpmux) swaps the PR's daemon into the
+  side instance, with no app build: the copy keeps your app's Swift and web, and its daemon hands
+  off to the PR's build as in [`cmux live start --rust`](#the-daemons-rust-live), terminals kept
+  (`scripts/cmux-next/hot-apply.py apply --branch`). The binary is the one CI published for the PR
+  head's cmux-tui tree (a same-repo PR's push publishes it; 35 of 40 sampled daemon PRs had it),
+  else the `bin/cmux` of the PR's fleet dev build. A PR that also changes web UI gets that patched
+  in too. It takes the dev build instead when the PR changes Rust the app links through FFI, or
+  when your app was built after the PR branched and has Rust the branch lacks.
+- A PR that changes Swift, a resource or a manifest needs a new binary: the script says
   why (a stored property, a changed signature, a new type in an existing file, and so on), requests the fleet dev build
   tagged `pr-<N>`, waits for it and opens that build as the side instance. `--no-build` stops at
   the verdict.
 
-`--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
-build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
-about half of the ones that touch the app changed only web code or nothing in the app, so they
-need no new binary.
+`--here` patches your running app instead (web and daemon PRs; `hot-apply.py rollback` puts your
+daemon back) and, for a rebuild, only says where the build is. The rules are in
+`scripts/cmux-next/live_apply.py`. Of the last 1,000 NEXT PRs (#36100 to #37575), 675 touch the
+app; try-pr puts 42% of those into a nightly with no build (105 web, 181 daemon), up from 16% when
+only web went in live (`scripts/measure/try-pr-live-share.py`). 26 more change Rust the app links,
+79 are Swift a live code build takes, and 284 need the dev build.
 
 A Swift change confined to function bodies can also skip the build when `--from` names a live code build
 ([live-code.md](live-code.md)) and `--live-code` its reload log:
