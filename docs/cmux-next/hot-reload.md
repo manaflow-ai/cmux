@@ -17,6 +17,8 @@ button is at the end of Settings > General.
 
 Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
 code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
+Each save is also linted for the performance mistakes past fixes removed, and a finding shows in the
+page's console ([modding-kit.md](modding-kit.md)).
 
 Done for now?
 
@@ -271,7 +273,10 @@ scripts/cmux-next/web-overlay.sh install-app <app>      # the web bundles of any
 
 Both install the built agent pane, pages and viewers as an overlay in
 `~/Library/Application Support/cmux-next/web-overlay`, and the app reloads when the install
-finishes. `manifest.json` there records the commit they came from.
+finishes. `manifest.json` there records the commit they came from and the page bridge they need
+(`abi`, from `webviews/src/web-abi.json`). The app serves the overlay only when that `abi` is its
+own, the rule it already applies to web updates: an overlay for another bridge would call host ops
+the app lacks, so the app keeps its own pages and `web-overlay.sh status` prints `refused by <app>`.
 
 ### A shared slot
 
@@ -481,6 +486,31 @@ A web update never runs over your own dev server or overlay. A page loads from, 
 Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pages. The plan is in
 [web-ota.md](../../plans/cmux-next/web-ota.md).
 
+## Runtime perf budgets
+
+Every page the dev server serves (`cmux live`, `bun run dev`, the agent pane's own dev server)
+runs a few runtime budgets while you use it. When your change breaks one, the page's console (Web
+Inspector, or Chrome DevTools in Chromium) shows one warning, once per place:
+
+```
+[cmux perf budget] dom-breadth: 1000 children over the budget of 300 children at ul.projects. Fix: render the visible window: VirtualList (src/ui/VirtualList.tsx) or Combobox virtualRows (src/ui/Combobox.tsx); ...
+```
+
+| Class | Fires when | Fix |
+|---|---|---|
+| `layout-shift` | Something moved 8 px or more after it painted with no input, or many small moves add up past a 0.01 shift score in a second (Chromium) | Reserve the final size before the first paint, or move it with a transform |
+| `dom-breadth` | One element has more than 300 element children: a list drawn whole | `ui/VirtualList.tsx`, or `virtualRows` on `ui/Combobox.tsx` |
+| `live-intervals` | More than 20 `setInterval` handles are live; names the call site holding most | The page clock: `subscribePageSecond`, `usePageNow`, `visibleInterval` (`ui/pageClock.ts`) |
+| `long-frame` | A frame takes over 50 ms; names the longest script (Chromium) | Do less per frame: render the visible window, defer off-screen work |
+| `react-commit` | A React root commits more than 120 times in a second, or renders for more than 16 ms in one update | Re-render only what changed: a streamed item reads its own value, batch to one commit a frame |
+
+The page's load and the second after each hot update are not budgeted for shifts, frames and
+commits. Mark an element that must stay wide with `data-perf-budget-allow="<why>"`. Turn the
+budgets off for a page with `?perf-budgets=off` or `localStorage["cmux.perfBudgets"] = "off"`, or
+for the whole server with `CMUX_PERF_BUDGETS=off`. Tests set `window.__cmuxPerfBudgets = { mode:
+"collect" }` (or `"throw"`) before the page loads and read `window.__cmuxPerfBudgetsHandle.violations`.
+Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.ts`.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -491,6 +521,7 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
 | You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
 | Nothing changes, and `status` says the server runs | `cmux settings get updates.liveWebReload` says `true`. The app's commit includes this change (older NIGHTLYs also needed Debug Settings > Pages > Live web reload on). |
+| `status` says `refused by <app>` | The overlay was built for another page bridge (`abi` in its `manifest.json`, from `webviews/src/web-abi.json`) than the app has, so the app serves its own pages instead of calling host ops it lacks. Build the overlay from a tree at the app's ABI (near its `CMUXCommit`), or run a build of that tree. A web update is refused the same way. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).
@@ -508,5 +539,3 @@ None of this has shipped yet. Each step will be its own small PR:
 3. **Reload what Swift can.** A change that only touches what a page reads from its host (strings,
    the settings schema, theme tokens) would reload the pages that use it. Native code still needs
    a build, which would come through the per-user update channel in the plan.
-4. **No bridge skew.** An overlay or web update built for a newer page bridge than the app has would
-   be refused, with the reason in `status`, so a page never calls a host op the app lacks.
