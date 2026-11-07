@@ -5,7 +5,7 @@ public import AppKit
 /// clicks.
 @MainActor
 public final class GlassRimView: NSView {
-    private let gradient = CAGradientLayer()
+    let gradient = CAGradientLayer()
     private let stroke = CAShapeLayer()
 
     /// The continuous corner radius of the surface it outlines.
