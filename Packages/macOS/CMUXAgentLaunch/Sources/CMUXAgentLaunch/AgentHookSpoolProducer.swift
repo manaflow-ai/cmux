@@ -62,6 +62,10 @@ public struct AgentHookSpoolProducer: Sendable {
         LC_ALL=C
         export \#(pidKey)=${\#(pidKey):-$PPID}
         export \#(AgentHookDeliveryPolicy.invokerPIDEnvironmentKey)=$PPID
+        cmux_pg_bin="${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+        if [ -n "$cmux_pg_bin" ] && [ -x "$cmux_pg_bin" ]; then
+          export CMUX_AGENT_HOOK_INVOKER_START="$("$cmux_pg_bin" __process-generation "$PPID" 2>/dev/null)"
+        fi
         cmux_fallback() { { print -rn -- "$cmux_p"; /bin/cat; } | /bin/sh -c "$1" >&3; exit $?; }
         zmodload zsh/system zsh/datetime zsh/files 2>/dev/null || exec /bin/sh -c "$1" >&3
         cmux_p= cmux_c= cmux_e=0

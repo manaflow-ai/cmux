@@ -81,8 +81,9 @@ struct AgentHookDeliveryPolicyTests {
 
     @Test("Without terminal evidence the exported agent PID is kept")
     func missingTerminalEvidenceKeepsExportedPID() {
-        // An exited exported PID, or a hook run without a terminal, gives no
-        // evidence that the exported PID belongs to another pane.
+        // An exported PID that is still alive, or a hook run without a
+        // terminal, gives no evidence that the exported PID belongs to
+        // another pane.
         let terminals: [Int: Int64] = [4_343: 0x1002]
         #expect(policy.hookAgentPID(
             environmentPID: 4_242,
@@ -104,6 +105,70 @@ struct AgentHookDeliveryPolicyTests {
             invocationAgentPID: nil,
             controllingTerminal: { _ in 0x1001 }
         ) == 4_242)
+    }
+
+    @Test("A dead exported agent PID yields to the hook's live agent")
+    func deadExportedPIDYieldsToInvocationAgent() {
+        // A detached background worker inherits the exported PID of the
+        // process that started its session, which exits after `claude --bg`.
+        // Neither PID has a controlling terminal, so only liveness separates
+        // the stale identity from the worker that ran the hook.
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { _ in nil },
+            processIsAlive: { $0 != 4_242 }
+        ) == 4_343)
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: nil,
+            controllingTerminal: { _ in 0x1001 },
+            processIsAlive: { $0 != 4_242 }
+        ) == nil)
+    }
+
+    @Test("An admission snapshot bypasses a stale listed recorded surface")
+    func admissionSnapshotBypassesStaleRecordedSurface() {
+        // An older queued event can rewrite the record back to the launch
+        // pane after a viewer lease is admitted. The snapshot was resolved
+        // from the live worker and viewer, so it wins.
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: true,
+            viewerSnapshot: true
+        ))
+        #expect(policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: true,
+            viewerSnapshot: false
+        ))
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "launcher",
+            recordedSurfaceIsListed: false,
+            viewerSnapshot: false
+        ))
+        #expect(!policy.recordedSurfaceVetoes(
+            invocationSurfaceId: "viewer",
+            recordedSurfaceId: "viewer",
+            recordedSurfaceIsListed: true,
+            viewerSnapshot: false
+        ))
+    }
+
+    @Test("A spool invoker must match the exact kernel generation")
+    func recordedInvokerMustMatchExactGeneration() {
+        #expect(policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: 100, recordedStartMicroseconds: 500_000,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_000))
+        #expect(!policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: 100, recordedStartMicroseconds: 500_000,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_001))
+        #expect(!policy.recordedInvokerGenerationMatches(
+            recordedStartSeconds: nil, recordedStartMicroseconds: nil,
+            liveStartSeconds: 100, liveStartMicroseconds: 500_000))
     }
 
     @Test("Agent names produce stable ASCII PID environment keys")

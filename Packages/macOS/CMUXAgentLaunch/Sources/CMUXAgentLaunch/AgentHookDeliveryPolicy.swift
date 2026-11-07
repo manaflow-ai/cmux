@@ -7,12 +7,29 @@ import Foundation
 /// events remain explicitly scoped to the wrappers that own their contracts.
 public struct AgentHookDeliveryPolicy: Sendable {
     /// Marks local hook routing that was resolved before queue admission.
+    ///
+    /// The value `viewer` additionally records that admission matched the live
+    /// worker to an acknowledged viewer lease. It is the only value that may
+    /// bypass a lagging session-record surface.
     public static let routeSnapshotEnvironmentKey =
         "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"
+
+    /// The route-snapshot value written only after a viewer lease matched.
+    public static let viewerSnapshotValue = "viewer"
+
+    /// Whether a route-snapshot environment value came from a viewer lease.
+    public static func isViewerSnapshot(_ value: String?) -> Bool {
+        value == viewerSnapshotValue
+    }
 
     /// The PID of the process that ran a spooled hook, recorded by the spool
     /// producer so a later forwarder can apply ``hookAgentPID(environmentPID:invocationAgentPID:controllingTerminal:)``.
     public static let invokerPIDEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_PID"
+
+    /// The kernel start generation of the recorded invoker, as
+    /// `<seconds> <microseconds>`. A PID alone can be reused after its process
+    /// exits; the generation must match the live process.
+    public static let invokerStartEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_START"
 
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
@@ -109,6 +126,58 @@ public struct AgentHookDeliveryPolicy: Sendable {
         return Self.auxiliaryQueuedSubcommands[normalizedAgent]?.contains(normalizedSubcommand) == true
     }
 
+    /// Whether a recorded session surface must reject a live invocation
+    /// surface during hook delivery.
+    ///
+    /// The recorded surface can lag behind the pane that a background viewer
+    /// lease already owns: an older queued event may still address the pane
+    /// that launched the agent and rewrite the record after the viewer
+    /// admitted. A surface snapshot produced at queue admission already
+    /// matched the live worker to an admitted viewer and the app-resolved
+    /// pane, so a stale record must not veto it.
+    ///
+    /// - Parameters:
+    ///   - invocationSurfaceId: The surface the current hook invocation names.
+    ///   - recordedSurfaceId: The session record's persisted surface.
+    ///   - recordedSurfaceIsListed: Whether the app still lists the recorded
+    ///     surface in its recorded workspace.
+    ///   - routeWasSnapshotted: Whether admission resolved the route from a
+    ///     live viewer lease and captured it in the environment.
+    /// - Returns: `true` only when the recorded surface differs, is still
+    ///   live, and the invocation is not using an admission-time snapshot.
+    public func recordedSurfaceVetoes(
+        invocationSurfaceId: String?,
+        recordedSurfaceId: String?,
+        recordedSurfaceIsListed: Bool,
+        viewerSnapshot: Bool
+    ) -> Bool {
+        guard let invocationSurfaceId, !invocationSurfaceId.isEmpty,
+              let recordedSurfaceId, !recordedSurfaceId.isEmpty,
+              recordedSurfaceId != invocationSurfaceId else {
+            return false
+        }
+        guard !viewerSnapshot else { return false }
+        return recordedSurfaceIsListed
+    }
+
+    /// Whether a spool-recorded invoker PID still names the exact kernel
+    /// process generation captured at publish time.
+    ///
+    /// A missing or malformed recorded generation fails closed: the caller
+    /// must not route by the recorded PID. A reused PID has a different start
+    /// generation even though it is alive.
+    public func recordedInvokerGenerationMatches(
+        recordedStartSeconds: Int64?,
+        recordedStartMicroseconds: Int64?,
+        liveStartSeconds: UInt64?,
+        liveStartMicroseconds: UInt64?
+    ) -> Bool {
+        guard let recordedStartSeconds, let recordedStartMicroseconds,
+              let liveStartSeconds, let liveStartMicroseconds else { return false }
+        return recordedStartSeconds == Int64(liveStartSeconds)
+            && recordedStartMicroseconds == Int64(liveStartMicroseconds)
+    }
+
     /// Chooses the agent process that owns one hook invocation.
     ///
     /// - Parameters:
@@ -117,6 +186,7 @@ public struct AgentHookDeliveryPolicy: Sendable {
     ///     process, which is the agent that ran the hook.
     ///   - controllingTerminal: Returns a live process's controlling terminal
     ///     device, or `nil` when the process has none or no longer exists.
+    ///   - processIsAlive: Reports whether a PID still names a live process.
     /// - Returns: The PID whose terminal identifies the hook's pane.
     ///
     /// The exported PID is inherited by everything the agent starts, so a
@@ -126,13 +196,23 @@ public struct AgentHookDeliveryPolicy: Sendable {
     /// the hook, it names another pane, and the hook's own agent wins. On the
     /// same terminal, or without terminal evidence, the exported PID is kept:
     /// a launcher shim may export its own PID while the agent runs as its child.
+    ///
+    /// A PID that no longer exists is never kept. A background Claude worker
+    /// inherits the exported PID from the process that started its session and
+    /// outlives it; because a detached worker has no controlling terminal,
+    /// terminal evidence cannot separate the dead inherited PID from the live
+    /// worker, so the agent that ran the hook is the only identity left.
     public func hookAgentPID(
         environmentPID: Int?,
         invocationAgentPID: Int?,
-        controllingTerminal: (Int) -> Int64?
+        controllingTerminal: (Int) -> Int64?,
+        processIsAlive: (Int) -> Bool = { _ in true }
     ) -> Int? {
         let invocationAgentPID = invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
         guard let environmentPID, environmentPID > 0 else {
+            return invocationAgentPID
+        }
+        guard processIsAlive(environmentPID) else {
             return invocationAgentPID
         }
         guard let invocationAgentPID,
