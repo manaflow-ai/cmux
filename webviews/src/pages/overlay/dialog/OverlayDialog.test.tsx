@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { OverlayDialog } from "./OverlayDialog";
+import { layoutBox, OverlayDialog } from "./OverlayDialog";
 import type { DialogState, DialogValue } from "./types";
 
 let dom: JSDOM | undefined;
@@ -307,4 +307,23 @@ test("the card tells the host a frame after it drew, once per dialog", async () 
     });
   }
   expect(painted).toBe(1);
+});
+
+// Review 24 of #37296 (F2): the card reported its drawn rect, which the entrance's opening scale shrinks,
+// and a ResizeObserver never hears the scale end, so the glass kept the opening size. The card reports its
+// layout box, which no transform changes.
+test("the card reports its layout box, not its scaled drawn rect", () => {
+  const document = new JSDOM("<!doctype html><body></body>").window.document;
+  const card = document.createElement("div");
+  card.style.transform = "scale(0.97)";
+  document.body.append(card);
+  Object.defineProperties(card, {
+    offsetLeft: { value: 120 },
+    offsetTop: { value: 80 },
+    offsetWidth: { value: 380 },
+    offsetHeight: { value: 180 },
+    offsetParent: { value: null },
+  });
+  card.getBoundingClientRect = () => ({ left: 125, top: 83, width: 368, height: 174 }) as DOMRect;
+  expect(layoutBox(card)).toEqual({ x: 120, y: 80, w: 380, h: 180 });
 });

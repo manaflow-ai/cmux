@@ -31,19 +31,23 @@ struct OverlayDialogPersonOnlyTests {
         }
     }
 
+    // The provider holds its dialog weakly (the center owns it): each test keeps it alive to its end.
+
     @Test func aPressWithoutThePersonsEventAnswersNothing() async {
-        let (provider, _, pressed) = Self.shown()
+        let (provider, dialog, pressed) = Self.shown()
         #expect(await !Self.press(provider, PageCallContext(page: "cmux.overlay")))
         #expect(pressed().isEmpty)
+        withExtendedLifetime(dialog) {}
     }
 
     @Test func thePersonsEventAnswersOnePress() async {
-        let (provider, _, pressed) = Self.shown()
+        let (provider, dialog, pressed) = Self.shown()
         let click = PageCallContext(page: "cmux.overlay", userGesture: true, gestureEvent: 41)
         #expect(await Self.press(provider, click))
         #expect(pressed() == ["allow"])
         #expect(await !Self.press(provider, click))
         #expect(pressed() == ["allow"])
+        withExtendedLifetime(dialog) {}
     }
 
     @Test func anEditWithoutThePersonsEventChangesNoValue() async {
@@ -53,5 +57,6 @@ struct OverlayDialogPersonOnlyTests {
             _ = try await provider.call("cmux.overlay.dialog.edit", params: edit, context: PageCallContext(page: "cmux.overlay"))
         }
         #expect(dialog.values["note"] == .text(""))
+        withExtendedLifetime(dialog) {}
     }
 }

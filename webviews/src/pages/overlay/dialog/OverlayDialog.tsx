@@ -18,6 +18,17 @@ export interface OverlayDialogProps {
   onPainted?(): void;
 }
 
+/** `node`'s untransformed box in page coordinates (offsets ignore CSS transforms). */
+export function layoutBox(node: HTMLElement): { x: number; y: number; w: number; h: number } {
+  let x = 0;
+  let y = 0;
+  for (let at: HTMLElement | null = node; at; at = at.offsetParent as HTMLElement | null) {
+    x += at.offsetLeft;
+    y += at.offsetTop;
+  }
+  return { x, y, w: node.offsetWidth, h: node.offsetHeight };
+}
+
 export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: OverlayDialogProps) {
   const card = useRef<HTMLDivElement | null>(null);
   // The card mounts in the dialog's portal, after this component's own commit: effects follow the node.
@@ -50,10 +61,9 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
   useLayoutEffect(() => {
     const node = cardNode;
     if (!node) return;
-    const report = () => {
-      const rect = node.getBoundingClientRect();
-      onLayout({ x: rect.left, y: rect.top, w: rect.width, h: rect.height });
-    };
+    // The card's layout box, not its drawn rect: the opening scale of the shared dialog's entrance is a
+    // transform, which a ResizeObserver never reports ending, so the glass would keep the opening size.
+    const report = () => onLayout(layoutBox(node));
     report();
     const observer = new ResizeObserver(report);
     observer.observe(node);
