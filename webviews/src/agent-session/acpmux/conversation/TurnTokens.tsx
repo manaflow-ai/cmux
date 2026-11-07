@@ -30,7 +30,9 @@ export const readTokens = (split: TurnTokenSplit) => split.input + split.cacheRe
 export const hasTokens = (split: TurnTokenSplit | undefined): split is TurnTokenSplit =>
   split !== undefined && split.output + readTokens(split) > 0;
 
-/// The hover: "Output 12.4K · fresh input 1.2K · cache reads 3.8M · cache writes 40K".
+/// The hover, one count per row, in a tooltip as narrow as its widest row (ui/tooltipFit.ts; Leo,
+/// 2026-11-07: "why is this even so wide in the first place?"):
+/// "Output 12.4K", "Fresh input 1.2K", "Cache reads 3.8M", "Cache writes 40K".
 export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
   t("turn.tokens.detail", {
     output: compactTokens(language, split.output),

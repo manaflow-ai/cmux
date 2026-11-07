@@ -931,6 +931,40 @@ const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
 /// The running line starts with its words, with no mark before them. Only the word Thinking may
 /// loop (its shimmer, `shimmers`); nothing else on the line does.
+/** A live Claude turn with its token split (the working-tokens variants). */
+const workingTokensChat = () =>
+  chat(
+    [
+      user(prompt, 5.9),
+      activity(
+        [
+          thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+          tool("Read client.ts", "read", "completed", {
+            locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+          }),
+          tool("Search for parseError", "search", "completed"),
+        ],
+        5.85,
+      ),
+      assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+    ],
+    {
+      isWorking: true,
+      turnTokens: 12_400,
+      turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
+    },
+  );
+
+/** Hovers the running line's tokens: their split shows one count per row (TurnTokens.tsx tokenDetail;
+ * Leo, 2026-11-07: "why is this even so wide in the first place?"). */
+const hoverTokens = async (ctx: PlayContext) => {
+  await ctx.hover({ selector: ".cv-worked__tokens" });
+  await ctx.waitFor(() => {
+    const tip = ctx.document.querySelector<HTMLElement>(".ui-title-tooltip");
+    return tip && !tip.hidden && ctx.document.defaultView?.getComputedStyle(tip).opacity === "1";
+  });
+};
+
 const runningLineStill =
   (label: RegExp, shimmers = false) =>
   async (ctx: PlayContext) => {
@@ -2208,28 +2242,13 @@ export default agentPaneEntry({
     },
     "working-tokens": {
       note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
-      snapshot: chat(
-        [
-          user(prompt, 5.9),
-          activity(
-            [
-              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
-              tool("Read client.ts", "read", "completed", {
-                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
-              }),
-              tool("Search for parseError", "search", "completed"),
-            ],
-            5.85,
-          ),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
-        ],
-        {
-          isWorking: true,
-          turnTokens: 12_400,
-          turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
-        },
-      ),
+      snapshot: workingTokensChat(),
       play: runningLineStill(/^Thinking/, true),
+    },
+    "working-tokens-hover": {
+      note: "The running line's token split on hover: one count per row (Output, Fresh input, Cache reads, Cache writes) in a tooltip as narrow as its widest row, never a wide box with a word or two alone on its last line.",
+      snapshot: workingTokensChat(),
+      play: hoverTokens,
     },
     "working-tokens-total": {
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
