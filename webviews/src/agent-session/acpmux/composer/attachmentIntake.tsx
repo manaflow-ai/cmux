@@ -16,14 +16,17 @@ import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 
-import { SourceBadge, useSourceLabel, withSourceLabel } from "./SourceBadge";
+import { SourceBadge } from "./SourceBadge";
+import { useSourceLabel, withSourceLabel } from "./sourceBadgeModel";
 
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { isVideoAttachment, useVideoReading } from "./videoAttachments";
-import { VideoAttachmentTile, useAttachedVideoPlayer } from "./VideoAttachmentTile";
+import { VideoAttachmentTile } from "./VideoAttachmentTile";
+import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
-import { TextAttachmentCard, pastedSize } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";

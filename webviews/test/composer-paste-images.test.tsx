@@ -380,7 +380,7 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
     },
     "attachment.sourceIcon": () => ({ src: "data:image/png;base64,iVBORw0KGgo=" }),
   };
-  const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
+  const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/sourceBadgeModel");
   resetSourceIcons();
   try {
     const composer = await openComposer();
