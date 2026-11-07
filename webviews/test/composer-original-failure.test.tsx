@@ -305,6 +305,40 @@ test("an image whose original was not saved shows Retry in a local chat too, and
   expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
 });
 
+// Review (Astra) at 69987495: in a chat on this Mac, Retry over an image whose original was not
+// saved runs the same save again: it goes on success and comes back if the save fails again.
+test("a local chat's Retry saves the original again, and shows again only if that fails", async () => {
+  const answers: UploadResult[] = [
+    { error: "The disk is full." },
+    { error: "Still full." },
+    { paths: ["/Users/me/Chat Uploads/shot.png"] },
+  ];
+  const uploads: string[][] = [];
+  const options: AttachmentIntakeOptions = {
+    allowImages: true,
+    pasteTarget: () => undefined,
+    localChat: true,
+    upload: async (files) => {
+      uploads.push(files.map((file) => file.name));
+      return answers.shift();
+    },
+  };
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  const retry = () => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry");
+  await until(() => Boolean(retry()));
+  act(() => retry()!.click());
+  await until(() => uploads.length === 2 && Boolean(retry()));
+  expect(handle.current!.originalFailures[handle.current!.attachments[0]!.id]).toBe("Still full.");
+  act(() => retry()!.click());
+  await until(() => handle.current!.attachments[0]?.originalPath === "/Users/me/Chat Uploads/shot.png");
+  expect(uploads).toEqual([["shot.png"], ["shot.png"], ["shot.png"]]);
+  expect(handle.current!.originalFailures).toEqual({});
+  expect(retry()).toBeNull();
+});
+
 // Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
 // with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
 // cannot show, also when it left with a switch to another chat.
