@@ -2452,7 +2452,10 @@ export class AcpmuxDirectClient {
   /// `chat.select` opens a chat. A chat the daemon does not list is the tab's missing chat, said why
   /// in the pane (chatUnavailable.ts) as a tab whose handshake named it says it, never an empty
   /// chat; an open that fails with nothing drawn says it failed. Its answer is `select`'s.
-  async adoptSession(sessionId: string): Promise<string | undefined> {
+  async adoptSession(asked: string): Promise<string | undefined> {
+    // A tab opened by a chat's name (a sender chip opens before acpmux names the chat) adopts the
+    // one listed chat that goes by it, as a tab whose handshake named it does (`chatNamedBy`).
+    const sessionId = chatNamedBy(asked, this.sessions).session ?? asked;
     this.bindToSession(sessionId);
     const listed = () => this.sessions.some((session) => session.sessionId === sessionId);
     // A chat this page's list lacks (it started after the page connected, or its row is on a page
@@ -2464,6 +2467,8 @@ export class AcpmuxDirectClient {
     try {
       return await this.select(sessionId);
     } catch (error) {
+      // An attach by a name acpmux answers with another chat's detail: select() left it itself.
+      const leftBySelect = this.selectionGeneration === generation + 1 && this.selectedSessionId === undefined;
       // Only a list that was read and lacks the chat says it is missing; a failed read says nothing.
       const relisted = listed() ? false : await this.refreshSessions().catch(() => false);
       if (this.closed) return undefined;
@@ -2476,7 +2481,9 @@ export class AcpmuxDirectClient {
         this.fallback.generation === generation + 1 &&
         this.fallback.generation === this.selectionGeneration &&
         this.selectedSessionId === undefined;
-      if (relisted && !listed() && (stillOpen || leftByRead)) return this.adoptedMissing(sessionId);
+      const stillLeft =
+        leftBySelect && this.selectionGeneration === generation + 1 && this.selectedSessionId === undefined;
+      if (relisted && !listed() && (stillOpen || leftByRead || stillLeft)) return this.adoptedMissing(sessionId);
       // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
       // the open failed here, for the chat this adoption still shows.
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && !this.drewKeptTail)
@@ -2494,6 +2501,9 @@ export class AcpmuxDirectClient {
     this.resetSessionState();
     this.noteMissing(sessionId);
     this.missingReason = "notListedAtOpen";
+    // A name no listed chat goes by (`HOST/NAME` of this Mac's own chat): acpmux's resolver names it.
+    this.missingAmbiguous = chatNamedBy(sessionId, this.sessions).ambiguous;
+    if (!this.missingAmbiguous) this.resolveMissing(sessionId);
     // The machine the chat was on, from what the app host kept of it (another tab read it).
     if (this.missingPeer === undefined) {
       await readHostTail(sessionId).catch(() => undefined);
@@ -4134,11 +4144,18 @@ export class AcpmuxDirectClient {
   /// Reconnect on the unavailable chat: reads the machines and the chat list again now, and opens
   /// the chat when it is listed.
   async recheckMissing(): Promise<void> {
-    if (this.missingSession === undefined || this.selectedSessionId !== undefined) return;
+    const missing = this.missingSession;
+    if (missing === undefined || this.selectedSessionId !== undefined) return;
     await this.refreshPeers().catch(() => undefined);
     await this.refreshSessions().catch(() => undefined);
     // Listed but not open (an earlier open failed): open it now.
-    if (!this.reopenMissing() && !this.closed && !this.snapshotHold) this.emit();
+    if (this.reopenMissing()) return;
+    // A resolver that named nothing (or timed out, or the socket dropped) is asked again.
+    if (this.missingSession === missing && this.missingResolved?.done && this.missingResolved.session === undefined) {
+      this.missingResolved = undefined;
+      if (!this.missingAmbiguous) this.resolveMissing(missing);
+    }
+    if (!this.closed && !this.snapshotHold) this.emit();
   }
 
   /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
