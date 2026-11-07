@@ -24,7 +24,7 @@ struct NewTabPlacementPathsTests {
         var testDescription: String { presses.map(\.rawValue).joined(separator: "+") + (narrow ? " (narrow)" : "") }
     }
 
-    static let scenarios: [Scenario] = [
+    nonisolated static let scenarios: [Scenario] = [
         Scenario(presses: [.plus]), Scenario(presses: [.plusMenu]), Scenario(presses: [.cmdT]), Scenario(presses: [.ctrlBacktick]),
         Scenario(presses: [.cmdT, .cmdT]), Scenario(presses: [.cmdT, .plus]), Scenario(presses: [.plus, .cmdT]),
         Scenario(presses: [.ctrlBacktick, .cmdT]), Scenario(presses: [.cmdT, .cmdT], narrow: true), Scenario(presses: [.cmdT, .plus], narrow: true),

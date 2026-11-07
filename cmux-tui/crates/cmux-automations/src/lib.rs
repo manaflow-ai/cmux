@@ -64,4 +64,4 @@ pub use store::{AutomationState, RunnerLock, Store, StoreError, TOMBSTONE_MS};
 pub use teleport::{
     Destination, ImportHandoff, ImportSpec, Imported, export_spec, parse_destination,
 };
-pub use trigger::{DEFAULT_DEBOUNCE_SECONDS, ScheduleError, Trigger};
+pub use trigger::{DEFAULT_DEBOUNCE_SECONDS, MAX_DEBOUNCE_SECONDS, ScheduleError, Trigger};
