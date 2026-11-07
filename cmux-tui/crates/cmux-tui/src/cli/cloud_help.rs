@@ -430,10 +430,8 @@ QUICK START
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  Then, on that chat (MACHINE_ID and SESSION_ID from the answer):
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  Then, the next prompt to that chat and its reply (SESSION_ID from the answer):
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   Machines:
   cmux cloud list-machines --json
@@ -461,10 +459,8 @@ const INTRO_JA: &str = "\
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:dev --prompt 'Run the tests' --json
 
-  続けて同じチャットに（MACHINE_ID と SESSION_ID は返答から）:
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+  続けて同じチャットに次のプロンプトを送り、返信を表示する（SESSION_ID は返答から）:
+  cmux chat send SESSION_ID 'next prompt' --wait
 
   マシン:
   cmux cloud list-machines --json
@@ -545,10 +541,8 @@ EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
   cmux cloud start-chat --name dev --prompt 'Run the tests' --json
 
-FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp send --no-wait SESSION_ID \"next prompt\"'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
-  cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
+FOLLOW-UPS (SESSION_ID from the answer)
+  cmux chat send SESSION_ID 'next prompt' --wait
 
 Run from an agent chat, it starts at once, as from a terminal: no card asks
 the person. Only when they turned off cloud.agentsStartWithoutAsking does the
