@@ -15,6 +15,9 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
+//! the machine bootstrap, machine config and create retry rules
+//! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
+//! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -40,6 +43,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub mod agent_cursor;
 pub mod close_focus;
 pub mod closing_panes;
+mod cloud_bootstrap;
 mod cloud_config;
 pub mod drag_handle;
 pub mod focus;
@@ -382,6 +386,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
+            operation if cloud_bootstrap::handles(operation) => {
+                cloud_bootstrap::respond(operation, request)?
+            }
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
@@ -484,6 +491,14 @@ mirror_entry!(
 mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
+);
+mirror_entry!(
+    /// The sections a view request's rows draw (`sidebar_doc::project`).
+    cmux_sidebar_mirror_project => project
+);
+mirror_entry!(
+    /// The ops of New Subgroup or of a remote group (`sidebar_doc::plan`).
+    cmux_sidebar_mirror_plan => plan
 );
 
 /// Run one typed mirror call: JSON in, a pointer to a reply the mirror owns
