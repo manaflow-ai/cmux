@@ -66,7 +66,7 @@ const write = (id: string, path: string): Step[] => [
 
 /// Another chat's message steered into the running turn, as acpmux records it (provenance
 /// `agent_message`, `steer: true`).
-const AGENT_TEXT = "gcp-codex-07: the cloud run is green at 4910f9a0.";
+const AGENT_TEXT = "cloud-reviewer: the cloud run is green at 4910f9a0.";
 const agentMessage: Step = [
   "mux",
   "user_message",
@@ -78,14 +78,18 @@ const agentMessage: Step = [
           messageId: "0190a000-0000-7000-8000-00000000aa01",
           receiverId: CHAT,
           recordSenderCopy: false,
-          sender: { label: "gcp-codex-07", name: "gcp-codex-07", sessionId: "0190a000-0000-7000-8000-00000000bb01" },
+          sender: {
+            label: "cloud-reviewer",
+            name: "cloud-reviewer",
+            sessionId: "0190a000-0000-7000-8000-00000000bb01",
+          },
           text: AGENT_TEXT,
         },
       },
       provenance: {
         from: "fromAgent",
         fromHarness: "codex",
-        fromName: "gcp-codex-07",
+        fromName: "cloud-reviewer",
         fromSessionId: "0190a000-0000-7000-8000-00000000bb01",
         kind: "agent_message",
         to: CHAT,

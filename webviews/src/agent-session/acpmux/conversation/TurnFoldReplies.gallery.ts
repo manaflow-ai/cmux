@@ -115,7 +115,7 @@ function aroundNotices(): AcpmuxRow[] {
 /// Another agent's inbox notice, as acpmux steers it into the running turn.
 function agentMessage(minutes: number): AcpmuxRow {
   const text =
-    "[inbox] New messages from other agents in 1 thread.\n- 1 new in #37761 from gcp-codex-07: The cloud run is green.";
+    "[inbox] New messages from other agents in 1 thread.\n- 1 new in #37761 from cloud-reviewer: The cloud run is green.";
   return row("user", minutes, {
     text,
     continues: true,
@@ -125,10 +125,10 @@ function agentMessage(minutes: number): AcpmuxRow {
           kind: "inbox_notice",
           threads: [
             {
-              threadId: "from:gcp-codex-07/pr:37761",
+              threadId: "from:cloud-reviewer/pr:37761",
               label: "#37761",
               new: 1,
-              from: ["gcp-codex-07"],
+              from: ["cloud-reviewer"],
               promptIds: ["gallery-inbox-1"],
               preview: "The cloud run is green.",
             },
@@ -148,7 +148,7 @@ function agentMessageMidTurn(): AcpmuxRow[] {
       "The cloud run is still building: the compile check passed and the gallery shard is halfway through its states, with no failures so far. Next check in about 25 minutes.",
       38,
     ),
-    activity([run("Waited on the cloud run", "glaeda-gh wait run 42 --timeout 1800")], 37),
+    activity([run("Waited on the cloud run", "gh run watch 42 --exit-status")], 37),
     agentMessage(14),
     assistant("I sent the result to the other session: the run is green, so its PR can land.", 12),
     summary(11.8, { status: "completed", durationMs: 1_700_000, toolCount: 2 }),
@@ -161,7 +161,7 @@ function mixedStep(): AcpmuxRow[] {
   const path = "/home/dev/notes/status.md";
   return [
     user("Record the lease state", 40),
-    activity([run("Tried the land", "lane-gh call land manaflow-ai/cmux 37572")], 39),
+    activity([run("Tried the land", "gh pr merge 37572 --squash")], 39),
     assistant(
       "Still refused, and it shows two different leases: the one I hold expired, and the controller's store has another one under a different lane. I'm writing that down in the notes before I retry the land.",
       38,
