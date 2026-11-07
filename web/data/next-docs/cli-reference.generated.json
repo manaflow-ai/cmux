@@ -2039,7 +2039,7 @@
         },
         {
           "command": "cmux home open-chief-dock",
-          "title": "Open Chief Dock",
+          "title": "Show/Hide Chief",
           "id": "home.openChiefDock",
           "mcp": true,
           "mcpTool": "app_home_open_chief_dock"

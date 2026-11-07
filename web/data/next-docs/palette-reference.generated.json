@@ -352,12 +352,6 @@
           "command": "cmux home open-chief"
         },
         {
-          "id": "home.openChiefDock",
-          "title": "Open Chief Dock",
-          "shortcut": "⌘I",
-          "command": "cmux home open-chief-dock"
-        },
-        {
           "id": "history.open",
           "title": "Open History Entry…",
           "shortcut": null,
@@ -578,6 +572,12 @@
           "title": "Show/Hide All Windows",
           "shortcut": "⌃⌥⌘.",
           "command": null
+        },
+        {
+          "id": "home.openChiefDock",
+          "title": "Show/Hide Chief",
+          "shortcut": "⌘I",
+          "command": "cmux home open-chief-dock"
         },
         {
           "id": "window.toggleDock",

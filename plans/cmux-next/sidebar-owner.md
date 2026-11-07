@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-06: the workspace group editor bubble is a React page (webviews/src/pages/group-editor) in one warm native
+  glass panel (`GroupEditorService`, CmuxNextSidebar). Leo, verbatim (all-hands move of NEXT's Swift to React/Rust):
+  "ok we need to go all hands on deck here. don't just do baby steps. we can just... do it". The look is the native
+  bubble's (gallery V1, chosen; V2 and V3 are alternatives); the AppKit panel, swatches and rows are gone. The sidebar
+  keeps the editor's rules (`SidebarGroupEditor`: when it opens, the toggle click, following a re-identified group,
+  No color clears the color, where the card sits: `SidebarGroupEditor.cardFrame`); the page only draws and reports.
+  Instant open (#26400, #27056) holds: the panel stays ordered in with its card transparent and click-through, the page
+  paints the pushed group and answers ready with its height, and the card shows in that one step (no fade or grow in);
+  150 ms without an answer shows it as it is. Cost: one WebKit page process for the editor, kept warm from an idle
+  moment after launch. Regression: `GroupEditorServiceTests`, the page's own tests.
 - 2026-11-06: an incognito window's mark in the sidebar's titlebar row is an icon of the row when the chip does not
   fit. User report (https://github.com/manaflow-ai/cmux/issues/37351), verbatim: "looks not fully set up: glasses glyph
   in a grey pill, off-size and misaligned with other toolbar icons". A sidebar narrower than the "Incognito" chip
