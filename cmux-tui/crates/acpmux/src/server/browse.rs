@@ -16,7 +16,7 @@ use super::{Conn, str_param};
 use crate::hub::{Control, Hub};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -260,9 +260,8 @@ fn expand(asked: &str, home: &Path) -> Result<PathBuf, RpcError> {
     };
     let plain = path.is_absolute()
         && !asked.contains('\0')
-        && path
-            .components()
-            .all(|c| matches!(c, Component::RootDir | Component::Prefix(_) | Component::Normal(_)));
+        // The spelling asked, not `components()`, which drops a `.` inside a path unseen.
+        && !path.to_string_lossy().split(['/', '\\']).any(|part| part == "." || part == "..");
     if !plain {
         return Err(refused("browse.path", "path must be absolute, with no . or .. in it"));
     }
