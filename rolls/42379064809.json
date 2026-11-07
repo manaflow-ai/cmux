@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42379064809",
+  "recorded_at": "2026-11-07T14:03:04Z",
+  "reason": "cmux-tui 15347b3843a3 changes the image's cmux-tui (pinned b39be9238d9c)",
+  "dry_run": false,
+  "cmux_tui": "15347b3843a3e8d29a1d82051c19c95a6564903d",
+  "fixes": [
+    {
+      "sha": "15347b3843a3e8d29a1d82051c19c95a6564903d",
+      "mergedAt": "2026-11-07T05:40:18-08:00",
+      "subject": "acpmux: a relayed message names its sender verified, with plain names and previews in the transcript (#37652)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T14:03:04Z",
+    "snapshot_id": "sh-2222f9e11fbf4faa913ca0301d117d8c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42379064809): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "074affb96bca6145d5ea871a9cea093a7e544c12",
+    "image": "cloud-native-auto-15347b38-42379064809-1",
+    "revision": "ci-42379064809-1",
+    "at": "2026-11-07T14:03:04Z"
+  },
+  "rolled_back": false
+}
