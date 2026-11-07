@@ -28,8 +28,10 @@ import CmuxNextWakeups
 /// waiting grid (the view is hidden, closed or detached from its session).
 ///
 /// Main thread only. It never blocks or sleeps: the window's backstop is the injected clock and its ticks the
-/// injected tick source, so tests drive both by hand. A grid inside a window allocates nothing; a new window
-/// costs the timer's one task.
+/// injected tick source, so tests drive both by hand. A grid inside a window allocates nothing. The backstop is armed
+/// only when none is pending and a refresh does not cancel it, so windows that refreshes end (one per frame while a
+/// pane moves) cost one timer task per ``interval``, not one per frame; a window no refresh reaches waits at most two
+/// intervals.
 @MainActor
 final class TerminalGridReportCoalescer {
     /// The backstop of a window no refresh reaches: Ghostty.app's resize coalescing window (`Thread.zig`, `min_ms`).
@@ -79,11 +81,7 @@ final class TerminalGridReportCoalescer {
         guard grid != lastSent else { return }
         pending = grid
         window &+= 1
-        let window = window
-        // The backstop: a window no refresh reaches (no frames run, frames stepped by hand) ends here.
-        timer.schedule(after: interval) { @MainActor [weak self] in
-            self?.windowEnded(window)
-        }
+        armBackstop()
         ticks()?.tickGridReports(self)
     }
 
@@ -122,13 +120,30 @@ final class TerminalGridReportCoalescer {
         timer.cancel()
     }
 
-    /// The window `ended` is over (its refresh or its timer, whichever came first): its grid goes once; the other
-    /// finds the window closed and sends nothing.
+    /// The backstop of the open window: a window no refresh reaches (no frames run, frames stepped by hand) ends when
+    /// it fires. A pending backstop (armed by an earlier window that a refresh ended) is kept, not reset: it fires for
+    /// its own window only and then arms again for the window open at that time.
+    private func armBackstop() {
+        let armed = window
+        timer.scheduleIfIdle(after: interval) { @MainActor [weak self] in
+            self?.backstopFired(armed)
+        }
+    }
+
+    private func backstopFired(_ armed: UInt64) {
+        if armed == window {
+            windowEnded(armed)
+        } else if pending != nil {
+            armBackstop()
+        }
+    }
+
+    /// The window `ended` is over (its refresh, its backstop or a flush): its grid goes once; a later end of the same
+    /// window finds it closed and sends nothing.
     private func windowEnded(_ ended: UInt64) {
         guard ended == window, let grid = pending else { return }
         pending = nil
         window &+= 1
-        timer.cancel()
         deliver(grid)
     }
 

@@ -14,14 +14,22 @@ final class TerminalGridReporter {
     /// Its window ends at the next refresh of the view's window (T-KEYS B3: that window's presenter ticks it; RESIZE P0 6:
     /// not at 25 ms); its timer stays the backstop.
     private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock, ticks: { [weak self] in
-        self?.view?.window.map(TerminalFramePresenter.forWindow)
+        guard let self else { return nil }
+        if let ticks { return ticks() }
+        return view?.window.map(TerminalFramePresenter.forWindow)
     }) { [weak self] in self?.deliver($0) }
     private let clock: any Clock<Duration>
+    private let ticks: (@MainActor () -> (any TerminalGridReportTicks)?)?
 
-    /// - Parameter clock: The coalescing window's clock; tests pass a manual one, so a drag needs no real sleep.
-    init(view: TerminalSurfaceView, clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameters:
+    ///   - clock: The coalescing window's backstop clock; tests pass a manual one, so a drag needs no real sleep.
+    ///   - ticks: The refreshes that end a window; nil: the view's window presenter. Tests pass refreshes stepped by
+    ///     hand, so no real frame tick ends a window during the test.
+    init(view: TerminalSurfaceView, clock: any Clock<Duration> = ContinuousClock(),
+         ticks: (@MainActor () -> (any TerminalGridReportTicks)?)? = nil) {
         self.view = view
         self.clock = clock
+        self.ticks = ticks
     }
 
     /// Whether a drag's grid waits in the coalescer's window.
