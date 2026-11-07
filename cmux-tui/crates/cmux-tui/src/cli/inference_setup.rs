@@ -106,6 +106,11 @@ pub(super) fn parse(
 ) -> Result<Options, String> {
     let (mut api, mut team, mut machine, mut path, mut token) =
         (None, None, None, PathChoice::Auto, None);
+    let (mut gateway_machine, mut upstream, mut key_file): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = (None, None, None);
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
