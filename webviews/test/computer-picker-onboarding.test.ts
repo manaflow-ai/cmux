@@ -88,7 +88,7 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           const names = await menu.getByRole("option").allTextContents();
           expect(await cloud.count(), names.join(" | ")).toBe(1);
           expect(
-            names.filter((name) => /^Cloud/.test(name)),
+            names.filter((name) => name.startsWith("Cloud")),
             names.join(" | "),
           ).toEqual([]);
           expect(await cloud.isVisible(), names.join(" | ")).toBe(true);
