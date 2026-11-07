@@ -205,7 +205,7 @@ public final class WebBundleServedViews {
     public func behind(_ tree: URL?) -> [WKWebView] {
         let live = webViews.allObjects
         pins.keep(Set(live.map(ObjectIdentifier.init)))
-        return live.filter { $0.url != nil && pins.isBehind(ObjectIdentifier($0), tree) }
+        return live.filter { $0.url != nil && !keepsLoaded.contains($0) && pins.isBehind(ObjectIdentifier($0), tree) }
     }
 
     /// The update trees open pages read now (they stay on disk until those pages reload).

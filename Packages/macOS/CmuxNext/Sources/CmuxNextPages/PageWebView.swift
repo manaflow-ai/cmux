@@ -339,6 +339,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
+        if options.keepsLoadedWeb { WebBundleServedViews.shared.keepLoadedTree(webView) }
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
