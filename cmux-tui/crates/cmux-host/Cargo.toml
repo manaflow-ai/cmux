@@ -20,6 +20,8 @@ cmux-json.workspace = true
 base64.workspace = true
 cmux-link.workspace = true
 url.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.
