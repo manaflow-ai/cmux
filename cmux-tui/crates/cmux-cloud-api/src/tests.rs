@@ -798,9 +798,7 @@ fn the_harness_login_copy_switch_decodes_plain_or_wrapped_and_caps_its_ttl() {
 
 #[test]
 fn the_github_app_status_says_why() {
-    let state = |status: u16, text: &str| {
-        github_app_state(status, serde_json::from_str::<Value>(text).ok().as_ref())
-    };
+    let state = |status: u16, text: &str| github_app_state(status, text.as_bytes());
     assert_eq!(
         state(
             200,
