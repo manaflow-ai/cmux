@@ -69,9 +69,13 @@ export function Palette({
   );
   // Ranked within each group, groups in a fixed order. Until the first answer: the rows in order.
   // Kept as ids and read from the current rows, so a row that changed while an answer was on its
-  // way runs its current action, and a row that left is not shown. `query` is the query they answer.
-  const [ranked, setRanked] = useState<{ query: string; ids: readonly string[] }>(() => ({
+  // way runs its current action, and a row that left is not shown. `query` is the query they answer
+  // and `ask` the request that answered it (0: none yet); `asked` counts the requests sent, so the
+  // list answers the field as it is now only when `ranked.ask === asked.current`.
+  const asked = useRef(0);
+  const [ranked, setRanked] = useState<{ query: string; ask: number; ids: readonly string[] }>(() => ({
     query: "",
+    ask: 0,
     ids: grouped(items, fixtureRank({ entries, query: "", keepsSectionOrder: true })).map((item) => item.id),
   }));
   const results = useMemo(() => {
@@ -88,12 +92,14 @@ export function Palette({
     // Each query or set of rows asks once; the effect's cleanup drops an answer that comes after
     // the next ask (an older query's) or after the palette closed.
     let current = true;
+    asked.current += 1;
+    const ask = asked.current;
     const request = { entries, query, keepsSectionOrder: true };
     // A failed rank (the daemon went away) falls back to the substring filter, never to no rows.
     void rank(request)
       .catch(() => fixtureRank(request))
       .then((reply) => {
-        if (current) setRanked({ query, ids: grouped(items, reply).map((item) => item.id) });
+        if (current) setRanked({ query, ask, ids: grouped(items, reply).map((item) => item.id) });
       });
     return () => {
       current = false;
@@ -106,7 +112,9 @@ export function Palette({
       submitWhenRanked.current = null;
       return;
     }
-    if (ranked.query !== query) return;
+    // Wait for the newest request's answer: an older answer for the same text (typed away and back,
+    // or rows that changed while it was being ranked again) is not the one Enter asked for.
+    if (ranked.ask !== asked.current) return;
     submitWhenRanked.current = null;
     const top = results[0];
     if (!top) return;
@@ -121,9 +129,9 @@ export function Palette({
   const submit = (value: string) => {
     const fromEnter = enterSubmits.current;
     enterSubmits.current = false;
-    // Enter while the list on screen answers an older query: its rows are not what the field now
-    // asks for, so wait for this query's answer. A clicked row runs itself; it is on screen.
-    if (fromEnter && ranked.query !== query) {
+    // Enter while the list on screen answers an older request: its rows may not be what the field
+    // now asks for, so wait for the newest request's answer. A clicked row runs itself; it is on screen.
+    if (fromEnter && ranked.ask !== asked.current) {
       submitWhenRanked.current = query;
       return;
     }
