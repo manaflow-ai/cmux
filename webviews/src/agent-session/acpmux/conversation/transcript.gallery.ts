@@ -450,7 +450,10 @@ const SHOW_LESS_LOG = Array.from(
 const showLessAtEnd = async (ctx: PlayContext) => {
   await openSingleShell(ctx);
   const more = { selector: ".cv-shell .cv-output-more" };
-  await ctx.click(more);
+  // The reader clicks the row's words, at its start. The row is the block's whole width
+  // (ExpandRow.tsx), so its centre sits under Jump to latest, centred over the view's foot.
+  const words = { selector: ".cv-shell .cv-output-more .cv-expand-row__label" };
+  await ctx.click(words);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
   // The opened output lands first: its fold plays and the rows under it place by their drawn
   // heights, so the content stops growing (three frames at one height, nothing animating).
@@ -473,7 +476,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
   const row = ctx.find(more).closest(".acpmux-row")!;
   if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
-  await ctx.click(more);
+  await ctx.click(words);
   const clicked = performance.now();
   // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
@@ -3616,7 +3619,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        await ctx.click({ role: "button", name: "Show all 21 lines" });
+        // The reader clicks the row's words, at its start: the row is the block's whole width
+        // (ExpandRow.tsx), and with the card at the view's foot its centre sits under Jump to latest.
+        ctx.find({ role: "button", name: "Show all 21 lines" });
+        await ctx.click({ selector: ".cv-edit-diff .cv-output-more .cv-expand-row__label" });
         await ctx.waitFor(
           () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
         );

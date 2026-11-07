@@ -34,13 +34,18 @@ class SettingsSourceFromExportTests(unittest.TestCase):
     def test_every_export_row_drafts_into_rows_the_generator_accepts(self):
         drafted = DRAFT.draft(self.rows)
         section = {"source": "draft.json", "swift": "Draft.generated.swift", "type": "DraftSettingsSchema",
-                   "lists": {entry["name"]: ("descriptors%d" % index, "DraftOwner") for index, entry in enumerate(drafted["lists"])}}
+                   "lists": {entry["name"]: ("descriptors%d" % index, "DraftOwner") for index, entry in enumerate(drafted["lists"])},
+                   "joined": "all"}
         GEN.check_section(section, drafted, set(), {row["section"] for row in self.rows}, "draft.json")
         files = GEN.section_swift(section, drafted)
         self.assertGreater(len(files), 1, "the whole export is too big for one file, so this also covers the split")
         for path, text in files.items():
             self.assertLessEqual(text.count("\n"), 400, path)
         swift = "".join(files.values())
+        # The joined var concatenates every list, in order, even when the section splits into files.
+        self.assertIn("        [%s].flatMap { $0 }" % ", ".join(
+            "descriptors%d" % index for index in range(len(drafted["lists"]))), swift)
+        self.assertIn("    static var all: [SettingDescriptor] {", swift)
         self.assertEqual(swift.count("            SettingDescriptor("), len(self.rows))
         for kind in ("choiceOrNumber", "choiceOrURL", "numberList", "orderedChoices", "choiceSet", "timeRange", "soundRules"):
             self.assertIn("." + kind, swift)

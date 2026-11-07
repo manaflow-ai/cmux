@@ -170,6 +170,16 @@ fn projects_daemon_observe_edit_remove_and_sync_over_the_socket() {
     daemon.mutate("project.update", json!({"path": app, "rename": null}), "p-5");
     assert_eq!(find(&daemon.list(json!({})), app)["name"], "app");
 
+    // The project's worktree recipe is saved on its overlay; null clears it.
+    let recipe = json!({"setup": "npm ci", "run": "npm run dev", "include": [".env"]});
+    daemon.mutate("project.update", json!({"path": app, "worktree": recipe}), "p-5w");
+    assert_eq!(find(&daemon.list(json!({})), app)["overlay"]["worktree"], recipe);
+    let unknown_field = json!({"path": app, "worktree": {"setup": "x", "ports": 3}});
+    let refused = daemon.send("project.update", unknown_field, Some("p-5x")).unwrap_err();
+    assert_eq!(refused["code"], "validation.invalid", "{refused}");
+    daemon.mutate("project.update", json!({"path": app, "worktree": null}), "p-5y");
+    assert!(find(&daemon.list(json!({})), app)["overlay"].get("worktree").is_none());
+
     // The home folder and the root are never projects; an unknown path is refused.
     let refused = daemon.send("project.add", json!({"path": "/"}), Some("p-6")).unwrap_err();
     assert_eq!(refused["code"], "validation.invalid", "{refused}");

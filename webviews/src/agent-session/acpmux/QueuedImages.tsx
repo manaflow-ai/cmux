@@ -15,8 +15,7 @@ import type { QueuedPromptImage } from "./model";
 import type { Translate } from "./i18n";
 import { imageLabel } from "./imageLabel";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
-
-import { formatDuration } from "./chips/ReplyMedia";
+import { formatDuration } from "./chips/replyMediaModel";
 import { PlayTriangle } from "./conversation/icons";
 import { QUEUED_TILES_SHOWN, type QueuedTile, type QueuedVideo, queuedTiles } from "./queuedImagesModel";
 import { RemoveGlyph } from "./composer/RemoveGlyph";
