@@ -52,6 +52,32 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Machine::Target("vm-1".into())
     );
     assert_eq!(request(&["--prompt", "-"]).prompt, "from stdin");
+    // After `--`, the prompt is text: an output flag or `-` is what it says.
+    assert_eq!(request(&["--wait", "--", "--json"]).prompt, "--json");
+    assert_eq!(request(&["--", "-"]).prompt, "-");
+}
+
+/// `cmux cloud start-chat -- --json` (cmuxterm-hq#7487 item 4): the global scan and the output
+/// lift leave `-- --json` to the parser, whose prompt it is.
+#[test]
+fn an_output_flag_after_the_separator_is_the_prompt() {
+    for scope in ["cloud", "vm"] {
+        for typed in [&["--"][..], &["--wait", "--"], &["--no-wait", "--"]] {
+            let mut args = vec![scope, "start-chat"];
+            args.extend_from_slice(typed);
+            args.push("--json");
+            let (mut global, command) = super::super::parse_globals(&strings(&args)).ok().unwrap();
+            let words = lift_output(&command[2..], &mut global.output);
+            assert_eq!(global.output, OutputMode::Human, "{args:?}");
+            assert!(
+                matches!(
+                    parse(&words, || Ok(String::new())),
+                    Ok(Parsed::Run(run)) if run.prompt == "--json"
+                ),
+                "{args:?}: {words:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -65,6 +91,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
+        vec!["--prompt", "x", "--", "y"],
+        vec!["--", "two", "words"],
+        vec!["--"],
     ] {
         assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
     }
@@ -222,6 +251,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     }
     assert_eq!(answer["sent"], true);
     assert_eq!(answer["new_machine"], true, "its own new-machine made vm-1");
+    assert_eq!(answer["placement"], "vm:vm-1", "the answer names where it ran");
     assert_eq!(answer["follow_up"]["send"], json!("cmux chat send sess-1 'PROMPT' --wait"));
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
