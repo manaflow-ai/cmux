@@ -29,8 +29,8 @@ pub fn ordinal(number: i64, count: usize, past_end: PastEnd) -> Option<usize> {
     if count == 0 || number < 1 {
         return None;
     }
-    let last = count - 1;
-    let wanted = usize::try_from(number - 1).ok()?;
+    let last = count.checked_sub(1)?;
+    let wanted = usize::try_from(number.checked_sub(1)?).ok()?;
     match past_end {
         PastEnd::Clamp if number >= 9 => Some(last),
         PastEnd::Clamp => Some(wanted.min(last)),
@@ -44,7 +44,7 @@ pub fn ordinal(number: i64, count: usize, past_end: PastEnd) -> Option<usize> {
 pub fn step(index: usize, offset: i64, count: usize) -> Option<usize> {
     let count = i64::try_from(count).ok().filter(|&count| count > 0)?;
     let index = i64::try_from(index).ok()?;
-    usize::try_from((index + offset).rem_euclid(count)).ok()
+    usize::try_from(index.checked_add(offset)?.checked_rem_euclid(count)?).ok()
 }
 
 /// One candidate of a named lookup: its id and its name as the app folds it

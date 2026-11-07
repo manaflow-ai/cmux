@@ -63,8 +63,10 @@ pub fn page_key(item: &ClosedItem) -> Option<(&str, &str)> {
 /// ([`page_key`]) once, at its newest close (Recently Closed, Search Tabs).
 pub fn newest_once(items: &[ClosedItem]) -> Vec<usize> {
     let mut seen = Vec::new();
-    (0..items.len())
-        .filter(|&index| match page_key(&items[index]) {
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| match page_key(item) {
             None => true,
             Some(key) if seen.contains(&key) => false,
             Some(key) => {
@@ -72,6 +74,7 @@ pub fn newest_once(items: &[ClosedItem]) -> Vec<usize> {
                 true
             }
         })
+        .map(|(index, _)| index)
         .collect()
 }
 
@@ -80,7 +83,12 @@ pub fn newest_once(items: &[ClosedItem]) -> Vec<usize> {
 /// target alone.
 pub fn closes(target: usize, items: &[ClosedItem]) -> Vec<usize> {
     let Some(page) = items.get(target).and_then(page_key) else { return vec![target] };
-    (0..items.len()).filter(|&index| page_key(&items[index]) == Some(page)).collect()
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| page_key(item) == Some(page))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 /// Whose an entry is for Cmd-Shift-T (decision 1, reopen-closed.md 4).
@@ -265,9 +273,9 @@ pub fn record(state: &mut UndoState, items: &[RecordedItem]) -> Recorded {
         };
         out.matched.push(position.is_some());
         let Some(position) = position else { continue };
-        let close = &mut state.expected[position];
+        let Some(close) = state.expected.get_mut(position) else { continue };
         close.items.push(item.id.clone());
-        close.recorded += item.tabs.max(1);
+        close.recorded = close.recorded.saturating_add(item.tabs.max(1));
         if close.recorded < close.tabs.len() {
             continue;
         }
@@ -298,7 +306,7 @@ pub enum ToastShow {
 /// toast still showing in the same window, if any; `allowed` the rate limit's answer.
 pub fn toast_show(tabs: usize, shown: Option<usize>, allowed: bool) -> ToastShow {
     match shown {
-        Some(previous) => ToastShow::Join { tabs: tabs + previous },
+        Some(previous) => ToastShow::Join { tabs: tabs.saturating_add(previous) },
         None if allowed => ToastShow::New { tabs },
         None => ToastShow::Drop,
     }

@@ -569,7 +569,9 @@ fn close_undo_reducer_round_trips_its_state() {
     let (_, body) =
         call_json(c"window_close_undo_toast", &json!({"tabs": 1, "shown": 2, "allowed": false}));
     assert_eq!(body, json!({"show": "join", "tabs": 3}));
+}
 
+#[test]
 fn notifications_plan_reads_the_oldest_and_opens_the_next() {
     let (code, body) = call_json(
         c"window_notifications_plan",

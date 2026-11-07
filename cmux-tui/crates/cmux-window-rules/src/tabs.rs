@@ -405,15 +405,18 @@ pub fn tab_by_number(number: i64, count: usize) -> Option<usize> {
     if number >= 9 {
         return Some(last);
     }
-    let index = usize::try_from(number.max(1) - 1).unwrap_or(0);
+    let index = usize::try_from(number.max(1).saturating_sub(1)).unwrap_or(0);
     Some(index.min(last))
 }
 
 /// The pane a focus-by-number picks among `count` panes in Focus Next Pane's
 /// order: 9 is always the last; None for a number with no pane.
 pub fn pane_by_number(number: i64, count: usize) -> Option<usize> {
-    let index =
-        if number >= 9 { count.checked_sub(1)? } else { usize::try_from(number - 1).ok()? };
+    let index = if number >= 9 {
+        count.checked_sub(1)?
+    } else {
+        usize::try_from(number.checked_sub(1)?).ok()?
+    };
     (index < count).then_some(index)
 }
 
