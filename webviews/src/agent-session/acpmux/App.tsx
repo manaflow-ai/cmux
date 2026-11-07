@@ -11220,10 +11220,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                 sideChat: sideChat !== undefined,
                                 // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
                                 // New Chat) and its folder; another machine's only when absolute.
-                                newTab:
-                                  canMove &&
-                                  chatCwd !== undefined &&
-                                  (!remoteChat || chatCwd.startsWith("/")),
+                                newTab: canMove && chatCwd !== undefined && (!remoteChat || chatCwd.startsWith("/")),
                               },
                               make: (kind) => {
                                 if (kind === "terminal") newTerminal();
