@@ -12,7 +12,7 @@
 // rectangles anyway?").
 import { type ReactNode } from "react";
 
-import { formatDuration } from "../chips/ReplyMedia";
+import { formatDuration } from "../chips/replyMediaModel";
 import { PlayTriangle, Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { VideoInfo } from "./videoAttachments";

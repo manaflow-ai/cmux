@@ -726,6 +726,7 @@
         "CmuxNextAgentPane",
         "CmuxNextBridge",
         "CmuxNextCompat",
+        "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",

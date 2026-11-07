@@ -28,6 +28,8 @@ import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
+import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
+import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import {
@@ -95,6 +97,9 @@ export function ChatHeaderTools({
   onRemoveWorktree,
   sessionInfo,
   inbox,
+  inboxRelevant = true,
+  newButton,
+  controls,
   nativeRowTools,
   working = false,
   motion,
@@ -151,6 +156,12 @@ export function ChatHeaderTools({
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
+  /// Whether the inbox has open asks: the three controls draw it only then (headerTrio.ts).
+  inboxRelevant?: boolean;
+  /// The three controls' New button (headerTrio.ts): which kinds the chat can make now, and making one.
+  newButton?: { available: Partial<Record<NewKind, boolean>>; make: (kind: NewKind) => void };
+  /// The layout, when the gallery picks one; else the App's (`agentChat.headerControls`).
+  controls?: HeaderControls;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
   /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
@@ -163,7 +174,7 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, headerMotion } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
   const style = motion ?? headerMotion;
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
@@ -320,11 +331,18 @@ export function ChatHeaderTools({
     browser: browserKey,
     changes: changesKey,
   };
+  // The three controls (headerTrio.ts): "...", the panel toggle and New, on the web row only. The quick
+  // actions wait in "..."; Terminal, Browser and [+] are New's.
+  const trio = (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
-  const webButtons = !native && tabTools && actions.length > 0;
+  const webButtons = !native && !trio && tabTools && actions.length > 0;
   const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
-  live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
+  live.current.overflow = trio
+    ? tools.filter((tool) => tool.id !== "terminal" && tool.id !== "browser" && tool.id !== "newTab")
+    : webButtons && fold > 0
+      ? tools.slice(tools.length - fold)
+      : [];
   const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
   const shownIds = shown.map((tool) => tool.id);
   // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
@@ -389,6 +407,39 @@ export function ChatHeaderTools({
         </button>
       );
     });
+  const chatMenuButton = (
+    <ChatMenu
+      items={rows}
+      disabled={chatRows.length === 0}
+      onOpen={onMenuOpen}
+      nativeOpen={
+        native && chatMenu
+          ? (row) =>
+              nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                id: "chat-menu",
+                ...(row ? { menuItemId: row } : {}),
+              })
+          : undefined
+      }
+      expand={expand}
+      onExpanded={onExpanded}
+    />
+  );
+  if (trio)
+    return (
+      <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
+        {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+        {pullRequest && pullRequestChip !== false && (
+          <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+        )}
+        {/* Needs You only with open asks: an alert, not a fourth control. */}
+        {inboxRelevant && inbox}
+        {chatMenuButton}
+        {sessionInfo}
+        {typeof summary === "function" ? summary(false) : summary}
+        <HeaderNewButton kinds={newKinds(newButton.available)} make={newButton.make} />
+      </div>
+    );
   return (
     <div
       ref={toolsRef}
@@ -435,22 +486,7 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      <ChatMenu
-        items={rows}
-        disabled={chatRows.length === 0}
-        onOpen={onMenuOpen}
-        nativeOpen={
-          native && chatMenu
-            ? (row) =>
-                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
-                  id: "chat-menu",
-                  ...(row ? { menuItemId: row } : {}),
-                })
-            : undefined
-        }
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+      {chatMenuButton}
     </div>
   );
 }
