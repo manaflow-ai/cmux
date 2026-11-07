@@ -29,6 +29,13 @@ const VERBS: &[(&str, &str)] = &[
     ("rename", "rename-machine"),
 ];
 
+/// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
+const API_VERBS: &[&str] = &["ls", "list", "pause", "resume", "rm", "fork"];
+
+/// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
+/// there, app or not.
+const API_OPTIONS: &[&str] = &["--team", "--base-url", "--config", "--limit"];
+
 /// The verbs' flags that take the next word as their value.
 const TAKES_VALUE: &[&str] = &["--target", "--size", "--name", "--minutes"];
 
@@ -46,6 +53,8 @@ pub(super) struct Short {
     pub(super) targeted: bool,
     /// The words after the verb, without `named`.
     pub(super) tail: Vec<String>,
+    /// The VM API has this verb too ([`API_VERBS`]).
+    pub(super) api_verb: bool,
 }
 
 /// `Some` for `vm VERB …` (or `cloud VERB …`) with a short verb, no help flag and at most one
@@ -56,6 +65,14 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
         return None;
     }
     let cloud_verb = VERBS.iter().find(|(short, _)| short == verb).map(|(_, cloud)| *cloud)?;
+    let api_only = |word: &String| {
+        API_OPTIONS.iter().any(|option| {
+            word == option || word.strip_prefix(option).is_some_and(|rest| rest.starts_with('='))
+        })
+    };
+    if rest.iter().take_while(|word| *word != "--").any(api_only) {
+        return None;
+    }
     let mut named = None;
     let mut targeted = false;
     let mut tail = Vec::new();
@@ -85,7 +102,7 @@ pub(super) fn parse(command: &[String]) -> Option<Short> {
         }
         tail.push(word.clone());
     }
-    Some(Short { cloud_verb, named, targeted, tail })
+    Some(Short { cloud_verb, named, targeted, tail, api_verb: API_VERBS.contains(&verb.as_str()) })
 }
 
 /// Which VM a short verb runs on, from the app's `cloud list-machines` answer.
@@ -162,6 +179,23 @@ fn refusal(code: &str, message: &str, next: &str, mut details: Value) -> Value {
            "retryable": false})
 }
 
+/// The app's `cloud list-machines` answer (`read`) when the app can run `short`: it answers only
+/// when it lists your VMs. Else `Err(None)` for a verb the VM API has, which goes there, where an
+/// API token (CMUX_VM_API_KEY, its config) may still reach the VM; `Err(Some(refusal))` for one
+/// it has not.
+pub(super) fn app_list(short: &Short, read: Result<Value, Value>) -> Result<Value, Option<Value>> {
+    match read {
+        Ok(listed) if listed.pointer("/account/signed_in") != Some(&Value::Bool(false)) => {
+            Ok(listed)
+        }
+        _ if short.api_verb => Err(None),
+        Ok(_) => {
+            Err(Some(refusal("cloud.signed_out", "cmux is signed out", "cmux login", json!({}))))
+        }
+        Err(error) => Err(Some(error)),
+    }
+}
+
 /// The app's words for `short` on machine `id`.
 pub(super) fn cloud_words(short: &Short, id: Option<&str>) -> Vec<String> {
     let mut words = Vec::new();
@@ -187,19 +221,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     let action = format!("cloud {}", short.cloud_verb);
-    if short.cloud_verb == "list-machines" || short.targeted {
-        if short.named.is_some() {
-            return Some(usage(&global, "name the VM by position or with --target, not both"));
-        }
-        return Some(run(&global, &action, &cloud_words(&short, None)));
+    if short.named.is_some() && short.targeted {
+        return Some(usage(&global, "name the VM by position or with --target, not both"));
     }
-    let listed = match super::cloud_start_chat::app_machines(&global) {
+    let listed = match app_list(&short, super::cloud_start_chat::app_machines(&global)) {
         Ok(listed) => listed,
-        Err(error) => return Some(super::wire::print_local_error(&error, global.output, 1)),
+        Err(None) => return None,
+        Err(Some(error)) => return Some(super::wire::print_local_error(&error, global.output, 1)),
     };
-    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
-        let refused = refusal("cloud.signed_out", "cmux is signed out", "cmux login", json!({}));
-        return Some(super::wire::print_local_error(&refused, global.output, 1));
+    if short.cloud_verb == "list-machines" || short.targeted {
+        return Some(run(&global, &action, &cloud_words(&short, None)));
     }
     match resolve(short.named.as_deref(), &listed) {
         Resolved::Id(id) => Some(run(&global, &action, &cloud_words(&short, Some(&id)))),

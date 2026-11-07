@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{Resolved, Short, cloud_words, parse, resolve};
+use super::{Resolved, Short, app_list, cloud_words, parse, resolve};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -24,7 +24,8 @@ fn a_short_verb_takes_a_name_by_position() {
             cloud_verb: "pause-machine",
             named: Some("dev".into()),
             targeted: false,
-            tail: vec![]
+            tail: vec![],
+            api_verb: true,
         }
     );
     let resize = parse(&words(&["vm", "resize", "--size", "large", "dev"])).unwrap();
@@ -77,4 +78,32 @@ fn a_name_is_an_id_or_one_title_and_none_is_the_only_vm() {
     let Resolved::Refused(several) = resolve(None, &listed()) else { panic!("refused") };
     assert_eq!(several.pointer("/details/next"), Some(&json!("cmux vm ls")));
     assert_eq!(code(resolve(None, &json!({"machines": []}))), "cloud.no_machines");
+}
+
+/// #37470's review (d3d894e9 F1, F2): the VM API keeps what it alone can do. An option only it
+/// reads takes its route; a verb it has goes there when the app lists no VMs of yours.
+#[test]
+fn the_vm_api_keeps_its_options_and_its_verbs_without_a_signed_in_app() {
+    for typed in [
+        &["vm", "ls", "--team", "t"][..],
+        &["vm", "ls", "--limit=5"],
+        &["vm", "pause", "dev", "--base-url", "https://x"],
+        &["cloud", "rm", "--config=/c", "vm_a1"],
+    ] {
+        assert_eq!(parse(&words(typed)), None, "{typed:?}");
+    }
+    // After `--`, an option is the verb's text, not the VM API's.
+    assert!(parse(&words(&["vm", "rename", "dev", "--", "--team"])).is_some());
+
+    let pause = parse(&words(&["vm", "pause", "vm_abc"])).unwrap();
+    let status = parse(&words(&["vm", "status", "dev"])).unwrap();
+    assert!(pause.api_verb && !status.api_verb);
+    let out = json!({"account": {"signed_in": false}, "machines": []});
+    let gone = json!({"code": "app.unreachable", "message": "no app"});
+    assert_eq!(app_list(&pause, Ok(out.clone())), Err(None));
+    assert_eq!(app_list(&pause, Err(gone.clone())), Err(None));
+    let Err(Some(refused)) = app_list(&status, Ok(out)) else { panic!("refused") };
+    assert_eq!(refused.get("code"), Some(&json!("cloud.signed_out")));
+    assert_eq!(app_list(&status, Err(gone.clone())), Err(Some(gone)));
+    assert_eq!(app_list(&pause, Ok(listed())), Ok(listed()));
 }
