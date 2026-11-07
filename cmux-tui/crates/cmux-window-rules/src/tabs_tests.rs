@@ -18,7 +18,7 @@ fn the_selected_tab_names_the_kind() {
         same_kind(&NewTabFacts { local_browser: true, ..facts() }),
         NewTabKind::Browser { engine: None }
     );
-    assert_eq!(same_kind(&NewTabFacts { agent: true, ..browser.clone() }), NewTabKind::Agent);
+    assert_eq!(same_kind(&NewTabFacts { agent: true, ..browser }), NewTabKind::Agent);
     assert_eq!(
         same_kind(&NewTabFacts { agent: true, new_tab_page: true, ..facts() }),
         NewTabKind::Page
@@ -237,8 +237,13 @@ fn move_to_split_reads_its_direction_and_the_chat_dock() {
         ..Default::default()
     };
     assert_eq!(move_to_split(&chat), MoveToSplit::ColumnAfterDock);
+    // The dock refuses every other split: a lone docked chat, another edge, a tab not a chat.
     let lone = MoveToSplitFacts { tabs_in_pane: 1, ..chat.clone() };
-    assert_eq!(move_to_split(&lone), MoveToSplit::Split { edge: Edge::Right });
+    assert_eq!(move_to_split(&lone), MoveToSplit::Refuse);
+    let left = MoveToSplitFacts { direction: Some("left".into()), ..chat };
+    assert_eq!(move_to_split(&left), MoveToSplit::Refuse);
+    let page = MoveToSplitFacts { chat: false, ..chat.clone() };
+    assert_eq!(move_to_split(&page), MoveToSplit::Refuse);
     let group = MoveToSplitFacts { group: true, ..chat };
     assert_eq!(move_to_split(&group), MoveToSplit::Refuse);
 }

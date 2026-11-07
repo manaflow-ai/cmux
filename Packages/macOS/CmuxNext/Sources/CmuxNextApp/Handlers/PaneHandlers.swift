@@ -209,8 +209,13 @@ enum PaneHandlers {
         let directions: [(ActionID, LayoutDirection)] = [("focusLeft", .left), ("focusRight", .right), ("focusUp", .up), ("focusDown", .down)]
         for (id, direction) in directions {
             registry.bind(id, invoke: { invocation in
+                // The Chief panel is a pane of the window frame: a move from it goes back to the stage, and a
+                // move off the stage's edge goes into it (user 2026-11-06).
+                let window = invocation.target == nil ? ctx.services.windows.active : nil
+                if window?.moveFocusFromChiefPanel(toward: direction) == true { return }
                 guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
+                    if window?.moveFocusIntoChiefPanel(toward: direction) == true { return }
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
                 focusByKey(next, in: content, invocation)

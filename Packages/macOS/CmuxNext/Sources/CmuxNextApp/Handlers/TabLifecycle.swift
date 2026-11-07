@@ -90,8 +90,8 @@ enum TabLifecycle {
     /// options match them, and so does `newTab.ofKind` (New <Kind> Tab,
     /// `followsSetting` false).
     /// `inStrip` (New Horizontal Tab) is kept for its callers; Cmd-T itself always adds a tab now.
-    /// `position` (New Tab After Current Tab, at Start, at End, New Tab to the Right) places the
-    /// tab whatever `tabs.newTabPosition` says (NewTabSlot).
+    /// `position` (New Tab After Current Tab, at Start, at End, New Tab to the Right) places the tab whatever the setting
+    /// says: `tabs.newTabButtonPosition` for the strip's + (its `newTabButton` argument), else `tabs.newTabPosition` (NewTabSlot).
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
                                  inStrip: Bool = false, position: NewTabPosition? = nil) {
         // A named tab or pane that resolves to nothing is refused by the
@@ -143,9 +143,9 @@ enum TabLifecycle {
         // shown pane whose daemon holds agent tabs.
         let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map(ctx.services.agentTabs.isNewTabPage) == true,
                                      user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
-        // The position action's slot, else a person's `tabs.newTabPosition` (right after `tab` by default), else the end (NewTabSlot).
-        let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user,
-                                     setting: ctx.services.settings?.snapshot.newTabPosition)
+        // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
+        let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
+                                     ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonFallback : ctx.services.settings?.snapshot.newTabPosition)
         let kind = WindowRules().newTabKind(facts)?.kind ?? .terminal
         switch kind {
         case .terminal:

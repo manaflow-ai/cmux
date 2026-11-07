@@ -20,6 +20,7 @@ import { useState, type ReactNode } from "react";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { useScrollEdges } from "../summary/scrollEdges";
 import "./outputsEdge.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows shown before Show more. A fold that would hold back one row shows it instead: "Show 1 more"
@@ -188,7 +189,7 @@ export function OutputsSection({
       <div className="acpmux-outputs-edges">
         {/* Unfolded, the list scrolls past about eight rows, its edges faded (outputsEdge.css). */}
         <ul ref={scrollEdges} className="acpmux-session-info-list acpmux-session-info-scroll" data-section="outputs">
-          {folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows}
+          <WindowedRows items={folds && !all ? rows.slice(0, OUTPUTS_SHOWN) : rows} render={(row) => row} />
         </ul>
       </div>
       {folds && (

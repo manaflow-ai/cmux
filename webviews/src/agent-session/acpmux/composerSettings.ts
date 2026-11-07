@@ -25,9 +25,6 @@
 // `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
-// `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
-// AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
-// composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
 // `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
 // quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
@@ -58,7 +55,6 @@ export type ComposerSettings = {
   plainFooter: boolean;
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
-  escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
@@ -75,7 +71,6 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   plainFooter: true,
   harnessPlacement: "symbols",
   harnessSwitch: false,
-  escapeDoublePress: true,
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
@@ -89,7 +84,6 @@ type ComposerFlag =
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
-  | "escapeDoublePress"
   | "showMachineLoadWarnings";
 
 /// The host's value; anything it does not know keeps the default.
@@ -113,7 +107,6 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         ? raw.harnessPlacement
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
-    escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",

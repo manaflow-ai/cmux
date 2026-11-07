@@ -699,6 +699,13 @@ pub struct DispatchArgs {
 
 #[derive(Subcommand)]
 pub enum HarnessCmd {
+    /// Install a coding agent's CLI through its vendor's own installer (claude: Claude Code's
+    /// official installer; codex: the pinned official Codex release), then reload the daemon.
+    /// Runs only when asked; with --json each step is a JSON line, the last one the result.
+    Install {
+        /// claude or codex.
+        id: String,
+    },
     /// Install or inspect cmux's opt-in managed Codex runtime.
     CodexRuntime {
         #[command(subcommand)]

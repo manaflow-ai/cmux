@@ -22,8 +22,8 @@ import Testing
 /// The rule (the refactor owner's decision, 2026-11-03): a resize press changes the model and asks for a frame. It lays
 /// nothing out, presents nothing, announces no rest and sizes no surface in its own turn, and nothing between it and
 /// the next frame tick does (the layout's observation turn included). The first tick syncs the model and presents
-/// once: the panes move in that tick, and each terminal sends its one final grid there (RESIZE KEYS: one grid per
-/// press, now no later than the first tick instead of in the key's turn).
+/// once: the panes move in that tick. Each terminal's grids go to its PTY coalesced from there (FRAME OWNER S4 m18,
+/// #36478: at most one per 25 ms window, ending at the landing's), never in the key's turn.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeKeyTurnSurfaceTests {
@@ -36,8 +36,8 @@ struct KeyResizeKeyTurnSurfaceTests {
     }
 
     /// Ctrl-Shift-H, L, K or J on p2 with a terminal in each pane: the key's turn and the turns after it up to the next
-    /// frame resize no terminal surface and send no grid; the first frame tick sends each terminal's final grid, once;
-    /// after the landing each surface rests at its host's size and sent no other grid.
+    /// frame resize no terminal surface and send no grid; from the first frame tick each terminal's PTY gets its grids
+    /// coalesced and ends at its final grid, nothing after it; after the landing each surface rests at its host's size.
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
     func aKeyPressResizesNoTerminalSurfaceBeforeItsFirstFrame(direction: LayoutDirection) async throws {
         let rig = try OneGrid.Rig(direction == .left || direction == .right ? OneGrid.pair : OneGrid.stack)
@@ -48,6 +48,7 @@ struct KeyResizeKeyTurnSurfaceTests {
         for pane in rig.panes { logs[pane] = OneGrid.SizeLog(try rig.terminal(pane).surface) }
 
         // The key's turn, and the main turns after it before any display frame.
+        let pressed = ContinuousClock.now
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         await Self.drainTurns()
         var beforeFrame: [String] = []
@@ -59,7 +60,7 @@ struct KeyResizeKeyTurnSurfaceTests {
         }
         #expect(beforeFrame.isEmpty, "the key's turn sized terminal surfaces or sent grids before the first frame: \(beforeFrame)")
 
-        // The first frame tick: each terminal hears its rest size and sends its final grid.
+        // The first frame tick: the panes move; each terminal's grid goes coalesced (m18).
         try #require(rig.root.advanceFrame(1.0 / 120), "the press did not spring")
         rig.root.layoutSubtreeIfNeeded()
         var atFirstFrame: [PaneID: [TerminalGridSize]] = [:]
@@ -71,9 +72,10 @@ struct KeyResizeKeyTurnSurfaceTests {
         for pane in rig.panes {
             let terminal = try rig.terminal(pane)
             let final = try #require(terminal.surface.fittedGrid, "\(pane.rawValue)'s terminal fits no grid")
-            #expect(atFirstFrame[pane] == [final],
-                    "\(pane.rawValue): the first frame asked the PTY for \(atFirstFrame[pane] ?? []), not the final grid \(final) once")
-            #expect(try await rig.grids(pane).isEmpty, "\(pane.rawValue): after the first frame the PTY was asked for another grid")
+            let atLanding = try await rig.grids(pane)
+            let issues = OneGrid.coalescingIssues((atFirstFrame[pane] ?? []) + atLanding, final: final, start: nil, since: pressed)
+            #expect(issues.isEmpty,
+                    "\(pane.rawValue): the first frame asked the PTY for \(atFirstFrame[pane] ?? []) and the landing \(atLanding): \(issues)")
             let host = terminal.session.view
             #expect(terminal.surface.frame.size == host.surfaceSize(forHostSize: host.bounds.size),
                     "\(pane.rawValue)'s surface rests at \(terminal.surface.frame.size) in a \(host.bounds.size) host")
