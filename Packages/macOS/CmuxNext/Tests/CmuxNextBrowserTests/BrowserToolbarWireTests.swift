@@ -214,6 +214,29 @@ struct BrowserToolbarWireTests {
         _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.rowClick(0, meta: true, shift: false, alt: false))
     }
 
+    @Test func aSearchEngineChangeReachesAMountedRow() throws {
+        let engine = OmniboxSuggestionEngine()
+        let bar = BrowserToolbarWebView(suggestionEngine: engine)
+        let before = engine.display.configurationRevision
+        let google = try #require(bar.wireState()["omnibar"] as? [String: Any])["searchEngine"] as? NSObject
+        engine.apply(OmniboxConfiguration(searchEngine: .duckDuckGo))
+        // The row's display loop reads the revision, so it pushes the new resolver settings.
+        #expect(engine.display.configurationRevision == before + 1)
+        let duck = try #require(bar.wireState()["omnibar"] as? [String: Any])["searchEngine"] as? NSObject
+        #expect(google != duck)
+    }
+
+    @Test func aTitleChangePushesOnlyWhenTheTitleChanged() {
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.pageTitleChanged("One")
+        #expect(bar.pushScheduled)
+        bar.pushNow()
+        bar.pageTitleChanged("One")
+        #expect(!bar.pushScheduled)
+        bar.pageTitleChanged("Two")
+        #expect(bar.pushScheduled)
+    }
+
     @Test func anOmnibarRowWithNoNavigationYetDrawsReloadOff() throws {
         let row = OmnibarToolbarView(suggestionEngine: OmniboxSuggestionEngine(), navigation: true)
         let navigation = try #require(row.addressBar.wireState()["navigation"] as? [String: Bool])

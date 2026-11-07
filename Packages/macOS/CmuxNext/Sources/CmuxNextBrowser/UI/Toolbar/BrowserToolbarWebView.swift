@@ -87,6 +87,16 @@ public final class BrowserToolbarWebView: NSView {
     var extensionsWire: [String: Any] = ["shows": false, "pinned": [Any]()] { didSet { setNeedsPush() } }
     /// Page Info is open (the chip draws pressed).
     var pageInfoOpen = false { didSet { if pageInfoOpen != oldValue { setNeedsPush() } } }
+    /// The page title last seen (`pageTitleChanged`).
+    private var seenTitle: String?
+    /// The host saw the page's state: a new title pushes (the state carries it for the chip's drag).
+    func pageTitleChanged(_ title: String?) {
+        guard title != seenTitle else { return }
+        seenTitle = title
+        setNeedsPush()
+    }
+    /// `toolbarOpensUpward` at the last layout.
+    private var laidOutUpward = false
     var bookmarkStar = BookmarkStarState.hidden { didSet { if bookmarkStar != oldValue { setNeedsPush() } } }
     var focusModeBadge: String? { didSet { if focusModeBadge != oldValue { setNeedsPush() } } }
     var shownProfileBadge: BrowserProfileBadge?
@@ -119,7 +129,7 @@ public final class BrowserToolbarWebView: NSView {
     // MARK: Pushes and events
 
     private var revision = 0
-    private var pushScheduled = false
+    private(set) var pushScheduled = false
     private var lastPushed: NSDictionary?
     /// Host requests the page has not acked, oldest first (`ToolbarHostEvent`), each with the binding
     /// it was queued under: the page drops a tab-scoped one of an older binding.
@@ -379,7 +389,7 @@ public final class BrowserToolbarWebView: NSView {
     /// passes call this too (this view's, the browser chrome's and the omnibar row's `layout()`).
     func followLayout() {
         guard status.isPopupOpen, popup.isVisible else { return }
-        popup.follow(bar: omnibarRectInScreen, clip: cardClipInScreen)
+        popup.follow(bar: omnibarRectInScreen, clip: cardClipInScreen, upward: toolbarOpensUpward)
     }
 
     /// What the card stays inside, on screen: the pane the row belongs to (the browser chrome or a
@@ -414,8 +424,11 @@ public final class BrowserToolbarWebView: NSView {
 
     public override func layout() {
         super.layout()
-        // The bar's top depends on the row's height at the bottom of a pane.
-        if toolbarOpensUpward { setNeedsPush() }
+        // The bar's top depends on the row's height at the bottom of a pane, and the card's side on
+        // the pane's toolbar edge: a move between top and bottom pushes too.
+        let upward = toolbarOpensUpward
+        if upward || upward != laidOutUpward { setNeedsPush() }
+        laidOutUpward = upward
         followLayout()
     }
 

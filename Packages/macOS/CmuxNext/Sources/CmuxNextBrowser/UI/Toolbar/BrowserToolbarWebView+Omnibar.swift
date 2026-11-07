@@ -186,7 +186,8 @@ extension BrowserToolbarWebView {
         ]
     }
 
-    /// Follows `suggestionEngine.display.showsFullURLs` and the bar's look (cmux.json
+    /// Follows `suggestionEngine.display.showsFullURLs`, the engine's settings (its search engine),
+    /// and the bar's look (cmux.json
     /// `browser.omnibar`: material, opacity, radius, tint, shadow; OmnibarViews followed it live)
     /// into the page and its glass, now and on every change (one loop per engine; a new engine
     /// replaces it). A push of an unchanged state is skipped.
@@ -195,9 +196,12 @@ extension BrowserToolbarWebView {
         displayLoop = ObservationLoop { [weak self] in
             guard let self else { return }
             _ = suggestionEngine.display.showsFullURLs
+            _ = suggestionEngine.display.configurationRevision
             _ = OmnibarGlassAppearance.current.look
             setNeedsPush()
             updateBarGlass()
+            // An open card takes the new look and density too.
+            followLayout()
         }
     }
 

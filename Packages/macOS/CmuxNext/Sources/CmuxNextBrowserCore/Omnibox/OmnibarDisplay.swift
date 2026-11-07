@@ -8,6 +8,9 @@ public final class OmnibarDisplay {
     /// The bar shows the whole address at rest: scheme, `www.` and the
     /// trailing slash kept (Chrome `omnibox.prevent_url_elisions`).
     public package(set) var showsFullURLs = false
+    /// Counts the engine's settings applied (`OmniboxSuggestionEngine.apply`: search engine,
+    /// keywords); a toolbar page reads it to push its resolver's settings again.
+    public package(set) var configurationRevision = 0
 
     /// The right-click menu's toggle: the App writes the setting, which
     /// comes back through `OmniboxSuggestionEngine.apply`. Nil hides the

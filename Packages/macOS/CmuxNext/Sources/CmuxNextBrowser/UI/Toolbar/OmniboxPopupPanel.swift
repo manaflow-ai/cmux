@@ -95,17 +95,32 @@ final class OmniboxPopupPanel {
         return row.detail.isEmpty ? row.title : "\(row.title), \(row.detail)"
     }
 
-    /// Keeps an open card on the bar, inside its pane, after the toolbar or its pane moved or resized.
-    func follow(bar: NSRect?, clip: NSRect?) {
-        guard let bar, isVisible, bar != self.bar || clip != self.clip else { return }
+    /// Keeps an open card on the bar, inside its pane, after the toolbar or its pane moved or
+    /// resized, moved to the other edge, or took another density or look.
+    func follow(bar: NSRect?, clip: NSRect?, upward: Bool) {
+        guard let bar, isVisible else { return }
+        let restyled = !(pushedStyle?.isEqual(to: style()) ?? false)
+        guard restyled || bar != self.bar || clip != self.clip || upward != self.upward else { return }
+        let flipped = upward != self.upward
         self.bar = bar
         self.clip = clip
+        self.upward = upward
         let limit = OmniboxCardPlacement.maxCardHeight(bar: bar, upward: upward, clip: clip)
-        if limit != maxCardHeight {
+        if limit != maxCardHeight || flipped || restyled {
             maxCardHeight = limit
             push()
         }
         place()
+    }
+
+    /// The card's metrics, corner radius and margins as last pushed: a density or look change
+    /// pushes them again.
+    private var pushedStyle: NSDictionary?
+
+    private func style() -> [String: Any] {
+        let m = margin
+        return ["metrics": ToolbarRowMetrics.wire(scale: panel?.backingScaleFactor ?? 2, withButtons: false),
+                "cornerRadius": ToolbarRowMetrics.cornerRadius, "margin": [m.top, m.right, m.bottom, m.left]]
     }
 
     func dismiss() {
@@ -161,18 +176,17 @@ final class OmniboxPopupPanel {
     private func push() {
         guard let content else { return }
         revision += 1
-        let m = margin
+        let style = style()
+        pushedStyle = style as NSDictionary
         let rows = rows.map { row -> [String: Any] in
             var wire: [String: Any] = ["kind": row.kind.wire, "title": row.title, "detail": row.detail]
             if row.kind.showsSiteIcon, let icon = favicons[row.url] { wire["faviconUrl"] = icon }
             return wire
         }
-        content.push([
+        content.push(style.merging([
             "revision": revision, "rows": rows, "highlighted": highlighted.map { $0 as Any } ?? NSNull(), "upward": upward,
-            "metrics": ToolbarRowMetrics.wire(scale: panel?.backingScaleFactor ?? 2, withButtons: false),
-            "cornerRadius": ToolbarRowMetrics.cornerRadius, "margin": [m.top, m.right, m.bottom, m.left],
             "maxHeight": maxCardHeight.map { $0 as Any } ?? NSNull(),
-        ])
+        ]) { $1 })
     }
 
     private func received(_ kind: String, _ params: [String: Any]) {

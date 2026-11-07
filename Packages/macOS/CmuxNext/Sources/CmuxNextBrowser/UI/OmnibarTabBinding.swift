@@ -17,6 +17,7 @@ public final class OmnibarTabBinding {
     private lazy var pageInfo: PageInfoController = {
         let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor })
         controller.onReturnFocus = { [weak self] in self?.tab.setFocused(true) }
+        controller.onShownChange = { [weak self] shown in self?.addressBar.pageInfoOpen = shown }
         return controller
     }()
 
@@ -50,6 +51,8 @@ public final class OmnibarTabBinding {
 
     private func render() {
         let state = tab.state
+        // The title rides in the state (the chip's drag names the page); a title-only change pushes.
+        addressBar.pageTitleChanged(state.title)
         if let http = httpsFallback.observe(state) {
             // task-owner: one load, after this render (never a load inside the observed render).
             Task { @MainActor [weak self] in self?.tab.load(http) }
