@@ -224,6 +224,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         row.addSubview(body)
         showMore.contentHorizontalAlignment = .leading
         showMore.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.rowToggleExpanded($0.id) } }, for: .touchUpInside)
+        showMore.accessibilityIdentifier = "feed.row.showMore"
         row.addSubview(showMore)
 
         answerLabel.numberOfLines = 0

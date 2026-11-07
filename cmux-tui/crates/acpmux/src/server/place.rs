@@ -28,7 +28,8 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     if off_interactive {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
     }
-    crate::placement::place(&candidates, registry.as_ref(), work)
+    let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
+    crate::shadow_admission::with_shadow("place", verdict, &candidates)
 }
 
 /// `candidates` without the machines the registry marks interactive.
@@ -52,6 +53,7 @@ async fn this_machine(hub: &Hub) -> Candidate {
         name: crate::hub::host_label().to_owned(),
         local: true,
         health: super::peer_status::host_health(hub, Origin::Peer).await,
+        health_at: Some(crate::store::now_ms()),
     }
 }
 
@@ -59,7 +61,11 @@ async fn this_machine(hub: &Hub) -> Candidate {
 /// machine and every connected peer `dispatch_hosts` keeps, weighed for `work`.
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     let registry = crate::placement::load_registry();
-    dispatch_place(candidates(hub).await, registry.as_ref(), work)
+    let candidates = candidates(hub).await;
+    // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
+    let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
+    let verdict = dispatch_place(candidates, registry.as_ref(), work);
+    crate::shadow_admission::with_shadow("pick", verdict, &weighed)
 }
 
 /// `placement::place` over the hosts `dispatch_hosts` keeps. With no pick, `why` also names
@@ -106,13 +112,7 @@ async fn candidates(hub: &Hub) -> Vec<Candidate> {
         hub.peers()
             .into_iter()
             .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-            .filter_map(|p| {
-                Some(Candidate {
-                    name: p.get("name")?.as_str()?.to_owned(),
-                    local: false,
-                    health: p.get("health").cloned().unwrap_or(Value::Null),
-                })
-            }),
+            .filter_map(|p| Candidate::peer(&p)),
     );
     candidates
 }
@@ -139,11 +139,9 @@ pub(super) async fn subsession_host(
         ))
         .with_data(json!({"reason": "subsessions.host_unsupported", "host": here})));
     };
-    let verdict = crate::placement::place(
-        &[this_machine(hub).await],
-        crate::placement::load_registry().as_ref(),
-        work,
-    );
+    let here = [this_machine(hub).await];
+    let verdict = crate::placement::place(&here, crate::placement::load_registry().as_ref(), work);
+    let verdict = crate::shadow_admission::with_shadow("subsession", verdict, &here);
     placed_here(&verdict).map(Some)
 }
 
@@ -175,7 +173,8 @@ pub(super) fn role_refusal(host: &str, work: Work) -> Option<String> {
 fn named_refusal(registry: &Value, host: &str, work: Work) -> Option<String> {
     let hosts = crate::placement::lane_hosts(Some(registry))?;
     crate::placement::registry_lanes(&hosts, host)?;
-    let only = [Candidate { name: host.to_owned(), local: false, health: Value::Null }];
+    let only =
+        [Candidate { name: host.to_owned(), local: false, health: Value::Null, health_at: None }];
     let v = crate::placement::place(&only, Some(registry), work);
     if let Some(r) = v.pointer("/hosts/0/refused").and_then(Value::as_str) {
         return Some(format!("{host}: {r}"));
@@ -213,7 +212,7 @@ mod tests {
     use super::*;
 
     fn here(health: Value) -> [Candidate; 1] {
-        [Candidate { name: "box".into(), local: true, health }]
+        [Candidate { name: "box".into(), local: true, health, health_at: None }]
     }
 
     fn health(ram_gb: u64, live: u64) -> Value {
@@ -277,8 +276,12 @@ mod tests {
             "air": {"aliases": ["laptop"], "roles": ["attended"], "lanes": {"max_lanes": 3}},
             "desk": {"interactive": true, "lanes": {}},
             "lane": {"roles": ["session-host"], "lanes": {"max_lanes": 12}}}});
-        let c =
-            |name: &str, local: bool| Candidate { name: name.into(), local, health: Value::Null };
+        let c = |name: &str, local: bool| Candidate {
+            name: name.into(),
+            local,
+            health: Value::Null,
+            health_at: None,
+        };
         let kept = off_interactive_hosts(
             vec![c("mac", true), c("laptop", false), c("desk", false), c("lane", false)],
             Some(&reg),
@@ -308,7 +311,7 @@ mod tests {
     }
 
     fn named(name: &str, local: bool, health: Value) -> Candidate {
-        Candidate { name: name.into(), local, health }
+        Candidate { name: name.into(), local, health, health_at: None }
     }
 
     /// design/agent-dispatch.md: `dispatch --host auto` never starts a new lane on a person's

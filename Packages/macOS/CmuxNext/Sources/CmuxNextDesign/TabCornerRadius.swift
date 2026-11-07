@@ -38,7 +38,8 @@ extension Metrics {
     /// the rounded card the strip sits in (``tabStripCardRadius``, else the one outer
     /// ``cornerRadius`` where the strip's corner is square or outlined), that radius less
     /// ``tabStripCardInset`` (``ConcentricCorners``), at most half the tab's height. The
-    /// defaults (10 pt outer, 2 pt gap) keep Helium's 8 pt tab.
+    /// defaults (8 pt outer, the omnibar's, 2 pt gap) make a 6 pt tab. The sidebar's workspace
+    /// rows read this radius too, so a row is as round as a tab.
     public static var tabCornerRadius: CGFloat {
         let corners = Metrics.corners
         let outer = tabStripCardRadius ?? corners.outer

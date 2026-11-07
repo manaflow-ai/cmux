@@ -102,6 +102,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::stash_store::create_stash_schema(transaction)?;
+    super::conductor_import_store::create_conductor_import_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::workspace_checklist_store::create_checklist_schema(transaction)?;

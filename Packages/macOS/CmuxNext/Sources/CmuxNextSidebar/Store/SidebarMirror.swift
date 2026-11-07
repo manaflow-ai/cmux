@@ -1,17 +1,11 @@
 public import Foundation
-#if CMUX_SIDEBAR_MIRROR_FFI
 import CCmuxLayoutReducerFFI
-#endif
 
 /// The client's copy of the sidebar document, run by the same Rust reducer
 /// the daemon runs (cmux-layout-reducer-ffi `cmux_sidebar_mirror_*`): the
 /// confirmed document plus the pending intents. Swift calls it only on
 /// load, an echoed batch, an intent, a structural view rebuild and a drag's
 /// begin; never per mouse-move and never per status tick (CONTRACT.md).
-///
-/// `make()` is nil while the linked app FFI has no mirror (the build flag
-/// `CMUX_SIDEBAR_MIRROR_FFI` comes with the FFI pin that has it); the
-/// sidebar then keeps its older path.
 @MainActor
 public final class SidebarMirror {
     /// FFI calls this process made, by entry (`load`, `batch`, `intent`,
@@ -24,23 +18,17 @@ public final class SidebarMirror {
         public var code: String
     }
 
-    #if CMUX_SIDEBAR_MIRROR_FFI
     /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.
     // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
-    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer }
+    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer? }
     private let owned: Handle
-    private var handle: OpaquePointer { owned.pointer }
+    /// Never null (`cmux_sidebar_mirror_new` is `Box::into_raw`); every `cmux_sidebar_mirror_*` call answers null for
+    /// a null handle anyway, which each call here reads as no reply.
+    private var handle: OpaquePointer? { owned.pointer }
 
-    private init(handle: OpaquePointer) {
-        owned = Handle(pointer: handle)
-    }
-
-    /// This build links the mirror FFI (rows come from the sidebar document when the daemon serves it).
-    public static let isLinked = true
-
-    public static func make() -> SidebarMirror? {
-        guard let handle = cmux_sidebar_mirror_new() else { return nil }
-        return SidebarMirror(handle: handle)
+    /// A new, empty mirror.
+    public init() {
+        owned = Handle(pointer: cmux_sidebar_mirror_new())
     }
 
     nonisolated deinit {
@@ -123,17 +111,6 @@ public final class SidebarMirror {
         }
         return table
     }
-    #else
-    public static let isLinked = false
-    public static func make() -> SidebarMirror? { nil }
-
-    private func load(raw: Data) -> [String]? { nil }
-    private func applyBatchDropping(raw: Data) -> JSONReply? { nil }
-    private func applyBatch(raw: Data) -> Reply? { nil }
-    private func applyIntent(raw: Data) -> Reply? { nil }
-    private func view(raw: Data) -> [SidebarDocRow]? { nil }
-    private func dragBegin(raw: Data) -> [String: SidebarDocAcceptance]? { nil }
-    #endif
 
     // MARK: Calls
 
@@ -213,7 +190,6 @@ public final class SidebarMirror {
         /// `apply_intent`'s stamped ops (a JSON array), sent on as bytes.
         var ops: Data?
 
-        #if CMUX_SIDEBAR_MIRROR_FFI
         init(_ reply: CmuxSidebarReply) {
             ok = reply.ok != 0 && reply.refetch == 0
             stale = reply.stale != 0
@@ -223,7 +199,6 @@ public final class SidebarMirror {
             revision = reply.has_revision != 0 ? reply.revision : nil
             if reply.ops_len > 0, let bytes = reply.ops { ops = Data(bytes: bytes, count: reply.ops_len) }
         }
-        #endif
     }
 
     /// A JSON reply's fields the typed one lacks a use for: `dropped`, the keys of the pending intents that went.

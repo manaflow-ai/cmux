@@ -168,6 +168,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_DEFAULTS, Run(json!({"family": "fake", "set": {"model": "m1"}}))),
         (method::MUX_PRESETS, Run(json!({"name": "p1", "set": {"harness": "fake"}}))),
         (method::MUX_INFO, Run(json!({"sessionId": "$S"}))),
+        (
+            method::MUX_MACHINE_INFO,
+            Any(json!({"sessionId": "$S"}), "only the chat's own agent or the person reads it"),
+        ),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
         (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
         // The test config has no file (`Config.path` is not read from JSON), so the save writes nothing.
@@ -260,6 +264,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_ROUTE_TEST, Run(json!({"id": "lso-route"}))),
         (method::MUX_ROUTE_DEFAULT_SET, Run(json!({"scope": "global"}))),
         (method::MUX_CHAT_ROUTE_SET, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_ACCOUNTS, Run(json!({}))),
+        (method::MUX_ACCOUNT_SET, Run(json!({"id": "lso-route", "enabled": true}))),
+        (
+            method::MUX_ACCOUNT_USAGE,
+            Skip("starts the account's `codex app-server`, which asks ChatGPT"),
+        ),
         (method::ACP_TRUST_GET, Run(json!({"cwd": "$CWD"}))),
         (method::ACP_TRUST_SET, Run(json!({"cwd": "$CWD", "level": "trusted"}))),
         (

@@ -75,13 +75,29 @@ pub fn placed(verdict: &Value) -> Option<String> {
     Some(format!("placed on {}", verdict.get("why").and_then(Value::as_str).unwrap_or_default()))
 }
 
-/// One host to weigh: its name, whether it is this machine, and its last
-/// health reading (`_acpmux/host_health` fields, or null).
+/// One host to weigh: its name, whether it is this machine, its last
+/// health reading (`_acpmux/host_health` fields, or null), and when that
+/// reading arrived (ms on this machine's clock; `None` when unknown). The
+/// weighing ignores `health_at`; the shadow verdict reads it (`shadow_admission.rs`).
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub name: String,
     pub local: bool,
     pub health: Value,
+    pub health_at: Option<u64>,
+}
+
+impl Candidate {
+    /// A connected peer from its `Hub::peers` row (`peer.rs` `summary`): its
+    /// name, its last reading and `healthAt`. `None` for a row with no name.
+    pub fn peer(row: &Value) -> Option<Self> {
+        Some(Self {
+            name: row.get("name")?.as_str()?.to_owned(),
+            local: false,
+            health: row.get("health").cloned().unwrap_or(Value::Null),
+            health_at: row.get("healthAt").and_then(Value::as_u64),
+        })
+    }
 }
 
 /// A lane host's sizes (`lanes` in fleet-registry.json).

@@ -40,7 +40,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     let emptyLabel = ThemedLabel(wrappingLabelWithString: "")
     /// The list floats over the page: the shared overlay glass, never the solid popup surface
     /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-    let glass = Glass.makeOverlayPanel(cornerRadius: 10, interactive: false)
+    let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: false)
     static let rowHeight: CGFloat = 44
     static let headerHeight: CGFloat = 26
     static let avatarSize: CGFloat = 28
@@ -50,7 +50,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.masksToBounds = true
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]

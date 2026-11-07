@@ -129,6 +129,17 @@ export function newTabScreenActions(deps: {
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
+    // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
+    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInNewProfile: (url, name) =>
+      ignore(
+        callNative("tab.open", {
+          kind: "browser",
+          text: url,
+          newProfile: true,
+          ...(name ? { profileName: name } : {}),
+        }),
+      ),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
@@ -150,11 +161,14 @@ export function newTabScreenActions(deps: {
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    // `inPlace`: it takes this page's tab, never a split (picks still go where links do).
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
-          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+          kind === "terminal"
+            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

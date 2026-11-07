@@ -5,8 +5,8 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::Worker;
-use crate::cloud::wire::AGENT_SOCKET;
+use super::{Backoff, Worker, bind_retry_wait};
+use crate::cloud::wire::{AGENT_SOCKET, DAEMON_INFO_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT};
 use crate::config::Paths;
 
 /// Exercise the real agent socket and client reply routing without starting
@@ -246,4 +246,31 @@ fn a_line_over_max_line_ends_the_stream() {
     assert!(buf.len() <= 2 * super::MAX_LINE + 4096);
     drop(theirs);
     let _ = writer.join();
+}
+
+#[test]
+fn the_desktop_capability_follows_the_images_socket_unit() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path());
+    let recorded = paths.at(DAEMON_INFO_FILE);
+    std::fs::create_dir_all(recorded.parent().unwrap()).unwrap();
+    // A recorded block that claims the desktop does not decide it.
+    std::fs::write(&recorded, r#"{"version":"v","capabilities":["fs-v1","link-desktop-v1"]}"#)
+        .unwrap();
+    let caps = || super::resolve_daemon_info(&paths).unwrap().capabilities;
+    assert_eq!(caps(), ["fs-v1"]);
+    let unit = paths.at(DESKTOP_SOCKET_UNIT);
+    std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+    std::fs::write(&unit, "[Socket]\n").unwrap();
+    assert_eq!(caps(), ["fs-v1", DESKTOP_CAPABILITY]);
+}
+
+#[test]
+fn a_bind_the_network_change_failed_retries_at_once_and_keeps_its_backoff() {
+    let mut backoff = Backoff::new(2_000, 600_000);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    assert_eq!(bind_retry_wait(&mut backoff, true), 0);
+    // The backoff did not grow: the first ordinary failure still waits about its 2 s base.
+    let ordinary = bind_retry_wait(&mut backoff, false);
+    assert!((1_000..=4_000).contains(&ordinary), "first ordinary wait {ordinary} ms");
 }

@@ -74,5 +74,16 @@ export function shortCommand(command: string, max = 60): string {
   return text;
 }
 
+/// The command line shown as activity in a running tray row. Unlike `shortCommand`, this keeps
+/// the command's actual shell text (including later steps such as `; echo t`) and only trims it to
+/// the available single-line width.
+export function trimRawCommand(command: string, max = 60): string {
+  // Keep spaces inside quoted shell arguments intact; only flatten line breaks so the activity fits
+  // one visual line without changing the command a person recognizes.
+  const text = command.trim().replace(/[\r\n]+/g, " ");
+  if (text.length <= max) return text;
+  return `${sliceWhole(text, Math.max(1, max - 1)).trimEnd()}…`;
+}
+
 /// No character cap: the row's CSS ellipsis cuts the line where the row ends.
 export const ROW_WIDTH = Number.POSITIVE_INFINITY;

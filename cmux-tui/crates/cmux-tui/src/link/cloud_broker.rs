@@ -178,9 +178,12 @@ impl ConnectInfoSource for BrokerSource {
     ) -> Result<LinkTokenGrant, ConnectInfoError> {
         if !host_valid(host)
             || services.is_empty()
-            || services.len() > 2
+            || services.len() > 3
             || services.contains(&Service::OwnerSession)
-            || matches!(services, [first, second] if first == second)
+            || services
+                .iter()
+                .enumerate()
+                .any(|(i, s)| services.get(..i).is_some_and(|seen| seen.contains(s)))
         {
             return Err(ConnectInfoError::Forbidden);
         }
@@ -197,7 +200,7 @@ impl Driver {
         loop {
             // No periodic wakeup. EOF ends an idle child too. Any unsolicited
             // byte is a protocol violation, never another call's reply.
-            let mut call = tokio::select! {
+            let call = tokio::select! {
                 biased;
                 incoming = self.stream.read_u8() => return match incoming {
                     Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
@@ -211,16 +214,17 @@ impl Driver {
             id = id.checked_add(1).ok_or_else(invalid)?;
             let text = serde_json::to_vec(&Envelope { version: 1, id, request: &call.request })
                 .map_err(|_| invalid())?;
-            // A cancelled in-flight call ends the channel: a late token can
-            // never be mistaken for the next request's answer.
-            let text = tokio::select! {
-                text = tokio::time::timeout(DIAL_TIMEOUT, async {
-                    self.stream.write_all(&text).await?;
-                    self.stream.write_all(b"\n").await?;
-                    super::lines::read_line(&mut self.stream, MAX_REPLY).await
-                }) => text.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout"))??,
-                () = call.answer.closed() => return Err(invalid()),
-            };
+            // A caller that gives up (its dial was cancelled with its connection)
+            // leaves the channel up: its reply is still read in order and dropped
+            // with the closed answer, so a late token never answers the next
+            // request, and the next dial is not refused as "unavailable".
+            let text = tokio::time::timeout(DIAL_TIMEOUT, async {
+                self.stream.write_all(&text).await?;
+                self.stream.write_all(b"\n").await?;
+                super::lines::read_line(&mut self.stream, MAX_REPLY).await
+            })
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "cloud.broker.timeout"))??;
             let reply: Reply = serde_json::from_str(&text).map_err(|_| invalid())?;
             if reply.version != 1 || reply.id != id {
                 return Err(invalid());

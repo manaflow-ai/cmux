@@ -15,7 +15,9 @@
 //! the app's ssh Add Machine card, as before.
 //!
 //! The platform origin comes from `--platform` (or `CMUX_PLATFORM_URL`) and
-//! defaults to the development platform, the only one where joining is on.
+//! defaults to the production platform, where `acpmux host join` and the served
+//! join.sh redeem by default too (Leo, 2026-11-04: "don't stick it into dev. Put
+//! it into prod").
 //! The caller's cmux credential comes from `--cloud-token-stdin`,
 //! `--cloud-token-file` or `CMUX_CLOUD_ACCESS_TOKEN`, and goes only in the
 //! `Authorization` header. The join token appears only in the printed line
@@ -46,8 +48,9 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 use cmux_json::JsonSet as _;
 
-/// The development platform: joining is on there alone until it is flipped.
-pub(super) const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
+/// so a line minted with no flags is redeemed where it was minted.
+pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
 const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -77,7 +80,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
-  each takes --platform URL (or CMUX_PLATFORM_URL; default the development platform)
+  each takes --platform URL (or CMUX_PLATFORM_URL; default the production platform)
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
@@ -418,7 +421,7 @@ pub(super) fn read_credential(
     Ok(Some(credential))
 }
 
-/// `--platform`, else `CMUX_PLATFORM_URL`, else the development platform; https only.
+/// `--platform`, else `CMUX_PLATFORM_URL`, else the production platform; https only.
 pub(crate) fn platform_origin(
     flag: Option<&str>,
     env: &dyn Fn(&str) -> Option<String>,
@@ -427,7 +430,7 @@ pub(crate) fn platform_origin(
         .map(str::to_owned)
         .or_else(|| env(PLATFORM_ENV))
         .filter(|raw| !raw.trim().is_empty())
-        .unwrap_or_else(|| DEV_ORIGIN.to_owned());
+        .unwrap_or_else(|| DEFAULT_ORIGIN.to_owned());
     super::cloud_client_session::secure_origin(raw.trim())
         .map_err(|message| message.replace("the cmux API", "the cmux platform"))
 }

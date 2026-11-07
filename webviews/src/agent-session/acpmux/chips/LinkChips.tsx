@@ -10,15 +10,15 @@
 // 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
 // live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
 // pull request's title, state, author and checks.
-import { useState, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { isDeniedPath, pathName, textLinks } from "./paths";
+import { foreignFileIds, isDeniedPath, pathName, textLinks } from "./paths";
 import { bareFileNames, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
@@ -26,6 +26,8 @@ import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/SessionRef";
+import { useSessionHover } from "../started/SessionHoverCard";
+import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -158,6 +160,48 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
+  // Once it names one of the reader's listed chats, its card is that chat's (started/SessionHoverCard.tsx),
+  // opening it as the link does, in place of the site's.
+  const subsessions = useContext(SubsessionContext);
+  const session = useSessionHover(agent["data-open-session"] ?? "", subsessions?.openSender ?? subsessions?.open);
+  // Its first hover or focus is what asks acpmux for the chat, so the answer can come in under the
+  // site's card or its rest: the chat's card then takes over in place, in the same frame, with the
+  // pointer or focus still on the link (review of #36360).
+  const [entered, setEntered] = useState<"chat" | "site" | null>(null);
+  const now = session.trigger.onPointerEnter !== undefined ? "chat" : "site";
+  const chat = (entered ?? now) === "chat";
+  const trigger = chat ? session.trigger : hover.trigger;
+  const enter = () => {
+    setEntered(now);
+    return now === "chat" ? session.trigger : hover.trigger;
+  };
+  useLayoutEffect(() => {
+    if (!anchor) return;
+    if (entered === "chat" && now === "site") {
+      // The chat left the list: the link is the site's again, and the site's card picks up a
+      // pointer or focus still on it, with no leaving and coming back (review of #36360, F2).
+      setEntered("site");
+      if (anchor === document.activeElement) {
+        hover.trigger.onFocus({ currentTarget: anchor } as unknown as FocusEvent<HTMLElement>);
+      } else if (anchor.matches(":hover")) {
+        const box = anchor.getBoundingClientRect();
+        hover.trigger.onPointerEnter({
+          currentTarget: anchor,
+          clientX: (box.left + box.right) / 2,
+          clientY: (box.top + box.bottom) / 2,
+        } as unknown as PointerEvent<HTMLElement>);
+      }
+      return;
+    }
+    if (entered !== "site" || now !== "chat") return;
+    setEntered("chat");
+    const here = anchor.matches(":hover") || anchor === document.activeElement;
+    if (!hover.open && !here) return;
+    const shown = hover.open;
+    hover.dismiss();
+    session.takeOver(anchor, shown);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- it runs when the link resolves, not per render.
+  }, [entered, now, anchor]);
   return (
     <>
       <a
@@ -165,30 +209,37 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         data-pr-state={state}
         data-session-ref={agent["data-session-ref"]}
+        // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
+        data-open-session={agent["data-open-session"]}
+        data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
         rel="noreferrer"
-        {...hover.trigger}
+        {...trigger}
         onPointerEnter={(event) => {
           agent.onPointerEnter?.();
-          hover.trigger.onPointerEnter(event);
+          enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
           agent.onFocus?.();
-          hover.trigger.onFocus(event);
+          enter().onFocus?.(event);
         }}
         onClick={agent.onClick}
       >
         {mark}
         <span className="cv-chip__label">{label}</span>
       </a>
-      <LinkHoverCard
-        href={href}
-        anchor={anchor}
-        hover={hover}
-        mark={cardMark}
-        siteTitle={site?.title}
-        pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
-      />
+      {chat ? (
+        session.card
+      ) : (
+        <LinkHoverCard
+          href={href}
+          anchor={anchor}
+          hover={hover}
+          mark={cardMark}
+          siteTitle={site?.title}
+          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+        />
+      )}
     </>
   );
 }
@@ -221,8 +272,48 @@ export function linkedText(text: string, key: string): ReactNode[] {
   return out;
 }
 
+/// A file id only its provider opens (`foreignFileIds`): its id, shortened, and a note that it
+/// cannot be opened here. Never a link, a file chip or an image (Leo, 2026-11-06: "do we not have
+/// a good path for them sending images to you?"); an agent hands over an image with
+/// `acpmux send --attach`.
+export function ForeignFileRef({ id }: { id: string }) {
+  const t = useT();
+  const shown = id.length > 20 ? `${id.slice(0, 16)}…` : id;
+  return (
+    <span className="cv-foreign-file">
+      <Lock size={12} className="cv-foreign-file__icon" />
+      <span className="cv-foreign-file__id">{shown}</span>
+      <span className="cv-foreign-file__note">{t("message.foreignFile")}</span>
+    </span>
+  );
+}
+
+/// `text` with each foreign file id (`foreignFileIds`) as its `ForeignFileRef`, the rest drawn by
+/// `rest`. `ids`: the text's ids when the caller found them already.
+export function withForeignFiles(
+  text: string,
+  key: string,
+  rest: (piece: string, key: string) => ReactNode[],
+  ids = foreignFileIds(text),
+): ReactNode[] {
+  if (!ids.length) return rest(text, key);
+  const out: ReactNode[] = [];
+  let at = 0;
+  ids.forEach((id, index) => {
+    if (id.start > at) out.push(...rest(text.slice(at, id.start), `${key}-${index}-text`));
+    out.push(<ForeignFileRef key={`${key}-${index}-foreign`} id={id.value} />);
+    at = id.end;
+  });
+  if (at < text.length) out.push(...rest(text.slice(at), `${key}-foreign-tail`));
+  return out;
+}
+
 /// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
 function namedText(text: string, key: string): ReactNode[] {
+  return withForeignFiles(text, key, siblingText);
+}
+
+function siblingText(text: string, key: string): ReactNode[] {
   const names = bareFileNames(text);
   if (!names.length) return [text];
   const out: ReactNode[] = [];

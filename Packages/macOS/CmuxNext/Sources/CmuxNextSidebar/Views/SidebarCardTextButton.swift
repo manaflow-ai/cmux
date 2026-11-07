@@ -61,7 +61,7 @@ final class SidebarCardTextButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = Metrics.space1
+        layer?.cornerRadius = Metrics.controlCornerRadius
         label.font = Self.font
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space1, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space1), height: h)

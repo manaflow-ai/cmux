@@ -17,9 +17,8 @@
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
-/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Plain glass keeps the tooltip's frosted glass (desktop.css --tooltip-*), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
+/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Its glass is the popover level, as every hover card's (glass.css GLASS LEVELS), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
-:root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass{--glass-tint:var(--tooltip-tint,var(--surface-popup));--glass-backdrop:var(--tooltip-blur,blur(20px) saturate(1.4))}
 .acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
@@ -71,4 +70,12 @@
 .acpmux-pr-card__added{color:var(--agent-diff-add)}
 .acpmux-pr-card__removed{color:var(--agent-diff-del)}
 .acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+/* A row the host's answer fills, held at its line's height while the host reads
+   (PullRequestCard.tsx Placeholder): static muted bars, no shimmer. */
+.acpmux-pr-card__bar{display:inline-block;width:calc(var(--grid-base) * 16);max-width:100%;height:calc(var(--grid-base) * 2);border-radius:var(--grid-base);background:color-mix(in srgb,var(--agent-muted) 18%,transparent);vertical-align:middle}
+.acpmux-pr-card__bar[data-size=m]{width:calc(var(--grid-base) * 36)}
+.acpmux-pr-card__bar[data-size=l]{width:calc(var(--grid-base) * 56)}
+/* Each held row is one text line tall, as the row it stands for (most rows are flex boxes, where a
+   bar alone would set the height). */
+.acpmux-pr-card__body [data-placeholder]:not(.acpmux-pr-card__changes),.acpmux-pr-card__body [data-placeholder]>div{align-items:center;min-height:var(--text-detail--line-height)}
 .acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}

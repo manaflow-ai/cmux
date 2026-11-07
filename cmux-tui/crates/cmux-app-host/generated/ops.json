@@ -58,6 +58,7 @@
     "calendar.event.create",
     "calendar.event.respond",
     "calendar.events.list",
+    "channel.create",
     "chief.continue",
     "chief.create",
     "chief.engine.get",

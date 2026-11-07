@@ -78,6 +78,13 @@ enum IPhoneHostStrings {
                               defaultValue: "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID.",
                               table: "IPhone", bundle: .module), account)
     }
+    /// The body for another of the person's computers asking (docs/multi-machine-sessions.md): it
+    /// starts with `view` only, so the prompt says that and where to widen it.
+    static func machinePairBody(_ account: String) -> String {
+        String(format: String(localized: "iphone.pair.machineBody",
+                              defaultValue: "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once.",
+                              table: "IPhone", bundle: .module), account)
+    }
     static func pairKey(_ fingerprint: String) -> String {
         String(format: String(localized: "iphone.pair.key", defaultValue: "Device key %@", table: "IPhone", bundle: .module), fingerprint)
     }

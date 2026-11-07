@@ -16,7 +16,7 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 }
 
 /// The scopes `main` runs before the mux's signal handlers, without the
-/// provider credentials: `cmux link …`, `cmux host …` (the supervisor
+/// provider credentials: `cmux link …`, `cmux carrier dial|serve`, `cmux host …` (the supervisor
 /// owns SIGTERM, SIGINT and SIGHUP itself), and the team VM's own
 /// `cmux team restricted-shell|whoami` (crate `cmux-host`; the agent
 /// certificates' force-command, team-vm-plan.md S5). The function takes
@@ -24,12 +24,16 @@ fn applies(raw_args: &[String], surface: Surface) -> bool {
 pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i32> {
     if raw_args.first().is_some_and(|first| first == "link") {
         Some(crate::link::run)
+    } else if raw_args.first().is_some_and(|first| first == "carrier") {
+        Some(crate::carrier::run)
     } else if requested(raw_args) {
         Some(run)
     } else if team_vm_verb(raw_args, Surface::current()) {
         Some(run_team)
     } else if github_requested(raw_args, Surface::current()) {
         Some(run_github)
+    } else if gitlab_requested(raw_args, Surface::current()) {
+        Some(run_gitlab)
     } else {
         None
     }
@@ -53,6 +57,16 @@ fn github_requested(raw_args: &[String], surface: Surface) -> bool {
 
 fn run_github(rest: &[String]) -> i32 {
     i32::from(cmux_host::github_cli::run(rest))
+}
+
+/// `cmux gitlab credential` (crate `cmux-host`): git for GitLab and other
+/// hosts with the token sealed to the machine, on the `cmux` surface only.
+fn gitlab_requested(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "gitlab")
+}
+
+fn run_gitlab(rest: &[String]) -> i32 {
+    i32::from(cmux_host::gitlab_cli::run(rest))
 }
 
 /// Runs `cmux team <rest>` on the team VM and returns its exit code.
@@ -116,5 +130,7 @@ mod tests {
         assert!(github_requested(&args(&["github", "credential", "get"]), Surface::Cmux));
         assert!(!github_requested(&args(&["github", "gh"]), Surface::CmuxTui));
         assert!(!github_requested(&args(&["git", "status"]), Surface::Cmux));
+        assert!(gitlab_requested(&args(&["gitlab", "credential", "get"]), Surface::Cmux));
+        assert!(!gitlab_requested(&args(&["gitlab", "credential"]), Surface::CmuxTui));
     }
 }

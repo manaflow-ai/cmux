@@ -168,6 +168,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   const stubWebkit = {
     messageHandlers: {
       agentSession: {
+        // A stand-in, not the app: the pane's flicker detector (acpmux/flickerLog.ts) stays off.
+        standIn: true,
         postMessage: (message: Message) => {
           const reply = handle(message);
           const delay = state.nativeDelayMs?.[message.method ?? ""];
@@ -197,6 +199,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
+  if (state.sessionInfoOpen)
+    (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
   const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
@@ -206,7 +211,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       ? { snapshot: structuredClone(snapshot), machineName: "This Mac", workflowLabs: state.workflowLabs }
       : undefined;
   if (initialChat) {
-    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
     const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));

@@ -73,7 +73,7 @@ export default agentPaneEntry({
   title: "Jump to latest fisheye lens",
   area: "Agent pane",
   height: 700,
-  covers: ["ui/glass/Fisheye.tsx", "agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["ui/glass/Fisheye.tsx", "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   checks: {
     anchorMovePx: { value: 0, reason: "The lens bends only what the button draws; no row or composer moves." },
   },

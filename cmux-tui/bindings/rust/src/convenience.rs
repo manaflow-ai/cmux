@@ -78,6 +78,7 @@ impl AttachBuilder {
             rows,
             expected_generation: Optional::Missing,
             expected_terminal_id: Optional::Missing,
+            replay_history_rows: Optional::Missing,
             snapshot: Optional::Missing,
             snapshot_images: None,
             snapshot_local_history: None,

@@ -26,6 +26,12 @@ extension CEFEngine {
         set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
+    /// Memory pressure holds the spare page (`CEFSpareWindow.holdPages`): true closes the waiting one
+    /// and makes none; false lets the next idle moment make it again.
+    public func holdSparePages(_ held: Bool) {
+        CEFRuntime.shared.spareWindow.holdPages(held)
+    }
+
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFRuntime.shared.spareWindow.state.rawValue }
 

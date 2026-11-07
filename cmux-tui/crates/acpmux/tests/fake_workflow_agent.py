@@ -26,11 +26,11 @@ def command_text(blocks):
             continue
         source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
         text = block.get("text", "")
-        if source in {"cmux-default", "cmux-user", "cmux-project"}:
+        if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
             continue
         if isinstance(text, str) and text.startswith(("<cmux-default-context>",
                                                        "<cmux-user-context>",
-                                                       "<cmux-project-context>")):
+                                                       "<cmux-project-context>", "<cmux-guidance-context>")):
             continue
         out.append(text)
     return "".join(out)

@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT, type Translate } from "../../i18n";
 import type { AcpmuxRow } from "../../model";
+import { planDone, type SessionInfoPlan } from "../ProgressSection";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
@@ -34,7 +35,12 @@ import { environmentSection } from "./environment";
 import { setNativeSessionInfoActions, setNativeSessionInfoHost } from "./host";
 import { useNativeOperations } from "./useNativeOperations";
 import { useNativeSourceFiles } from "./useNativeSourceFiles";
-import { NativeInfoActions, type NativeInfoSection, type NativeSessionInfo as NativeSessionInfoModel } from "./model";
+import {
+  NativeInfoActions,
+  type NativeInfoRow,
+  type NativeInfoSection,
+  type NativeSessionInfo as NativeSessionInfoModel,
+} from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
 import { panelAction } from "./panelActions";
@@ -46,7 +52,7 @@ import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
-import { machineOf } from "../EnvironmentSection";
+import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
@@ -76,6 +82,8 @@ export type NativeSessionInfoProps = {
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  /// Context's View Prompt (ContextSection.tsx).
+  onViewPrompt?: () => void;
   allSessions?: readonly AcpmuxSessionEntry[];
   onOpenChat?: (id: string) => void;
   onShowUsage?: () => void;
@@ -86,12 +94,16 @@ export type NativeSessionInfoProps = {
   usage?: { used: number; size: number };
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
+  /// The agent's current plan, as the page's Progress draws it (ProgressSection.tsx).
+  plan?: SessionInfoPlan;
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
@@ -203,7 +215,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
-    props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"
+    props.cloudRepositoryAvailable &&
+    chatMachine(summary, props.machineName, props.peerKinds, props.place).kind === "cloud"
       ? summary?.sessionId
       : undefined;
   const cloud = useCloudRepositories(cloudSession, shown);
@@ -268,11 +281,14 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     onSet: setRunningLimit,
   });
   const local = opensProcessTerminal(summary);
+  // A command's row shows its call where its terminal cannot open; a wakeup or cron job's row shows
+  // the call that made it on any chat (tasks.ts `scheduledRow`).
   const showsCalls =
     shown &&
-    !local &&
     !!props.onShowCall &&
-    sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId);
+    ((!local &&
+      sessionInfoLists(props.processes, props.transcriptTasks, props.listed).tasks.some((task) => task.toolCallId)) ||
+      (props.made?.scheduled?.length ?? 0) > 0);
   const calls = useMemo(
     () =>
       showsCalls
@@ -303,6 +319,31 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       }),
     [onReconnectMcp],
   );
+  // The plan keeps its identity while tokens stream (liveProgress.ts): its rows are made once per
+  // checklist change, so other activity does not remap every step on every frame.
+  const progressRows = useMemo<NativeInfoRow[] | undefined>(
+    () =>
+      props.plan?.entries.map((entry, index) => {
+        const working = entry.status === "in_progress" && !props.plan?.ended;
+        // The web list's marks: a filled check when done, the spinner while working, a plain ring
+        // for a step left in progress when the turn ended, a dashed ring while pending.
+        const symbol = working
+          ? undefined
+          : entry.status === "completed"
+            ? "checkmark.circle.fill"
+            : entry.status === "in_progress"
+              ? "circle"
+              : "circle.dashed";
+        return {
+          id: `progress:${index}`,
+          title: entry.content,
+          ...(symbol ? { symbol } : {}),
+          tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
+          working,
+        } satisfies NativeInfoRow;
+      }),
+    [props.plan],
+  );
   const actions = new NativeInfoActions();
   const sections: (NativeInfoSection | undefined)[] = [];
   if (shown) {
@@ -313,6 +354,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           summary,
           machineName: props.machineName,
           peerKinds: props.peerKinds,
+          place: props.place,
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,
@@ -335,6 +377,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
+          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {
@@ -346,6 +389,19 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         actions,
         t,
       ),
+      props.plan && props.plan.entries.length > 0
+        ? {
+            id: "progress",
+            group: "running",
+            title: t("sessionInfo.progress"),
+            meta: t("sessionInfo.progress.count", { done: planDone(props.plan), total: props.plan.entries.length }),
+            meter: planDone(props.plan) / props.plan.entries.length,
+            open: state.sections.progress,
+            foldable: true,
+            reorderable: true,
+            rows: progressRows ?? [],
+          }
+        : undefined,
       connectorsSection(
         {
           servers: summary?.mcpServers ?? [],

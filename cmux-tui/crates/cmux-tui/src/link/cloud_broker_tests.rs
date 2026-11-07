@@ -87,6 +87,7 @@ async fn cloud_broker_refuses_tokens_for_another_host_or_service() {
         (HOST, vec!["daemon"]),
         (HOST, vec!["ssh", "owner_session"]),
         (HOST, vec!["ssh", "ssh"]),
+        (HOST, vec!["ssh", "desktop"]),
     ] {
         let (link, mut parent) = UnixStream::pair().unwrap();
         let (source, driver) = channel(link);
@@ -112,16 +113,35 @@ async fn cloud_broker_refuses_tokens_for_another_host_or_service() {
     }
 }
 
+/// Capture run 42157718918: a dial cancelled when its connection dropped ended the channel, so
+/// every redial of that link said "the Cloud broker is unavailable" until the app restarted it.
 #[tokio::test]
-async fn cloud_broker_cancellation_ends_an_inflight_exchange_and_cannot_reuse_a_late_token() {
+async fn cloud_broker_survives_a_cancelled_call_and_never_reuses_its_late_token() {
+    let token = |id: u64, token: &str| {
+        serde_json::json!({
+            "version": 1, "id": id, "value": {"token": token,
+                "expires_at": 1792430000000_i64, "epoch": 1, "host": HOST, "services": ["ssh"]}
+        })
+    };
     let (link, mut parent) = UnixStream::pair().unwrap();
     let (source, driver) = channel(link);
     let driven = tokio::spawn(driver.run());
-    let call = tokio::spawn(async move { source.mint_token(HOST, &[Service::Ssh]).await });
-    request(&mut parent).await;
+    let abandoned = source.clone();
+    let call = tokio::spawn(async move { abandoned.mint_token(HOST, &[Service::Ssh]).await });
+    assert_eq!(request(&mut parent).await["id"], 1);
     call.abort();
     let _ = call.await;
-    assert!(driven.await.unwrap().is_err());
+    let server = tokio::spawn(async move {
+        reply(&mut parent, token(1, "late-token")).await;
+        assert_eq!(request(&mut parent).await["id"], 2);
+        reply(&mut parent, token(2, "fresh-token")).await;
+        parent
+    });
+    let grant = source.mint_token(HOST, &[Service::Ssh]).await.unwrap();
+    assert_eq!(grant.token, "fresh-token");
+    let mut parent = server.await.unwrap();
+    drop(source);
+    assert!(driven.await.unwrap().is_ok());
     assert_eq!(parent.read_u8().await.unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
 }
 

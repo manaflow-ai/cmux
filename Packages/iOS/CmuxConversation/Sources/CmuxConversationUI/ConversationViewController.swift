@@ -883,7 +883,8 @@ public final class ConversationViewController: UIViewController {
         let probeStart = probeClock()
         defer { probeSection(.rebuild, since: probeStart) }
         rebuildSerial &+= 1
-        if store.hasLoadedNewest, initialSpinner.isAnimating {
+        // Kept messages from an earlier run show at once; the server's page replaces them.
+        if store.hasLoadedNewest || store.isShowingKeptTranscript, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }
@@ -1916,6 +1917,25 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
               activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil,
               !isSelecting, replyOverlay == nil else { return }
         store.trimOlderIfLarge(preserving: selectedRowIDs)
+    }
+
+    /// What a memory warning keeps of the loaded window, for a reader resting at the bottom.
+    static let pressureKeepCount = 200
+
+    /// A memory warning: a reader resting on the newest message keeps only the newest
+    /// `pressureKeepCount` messages loaded; the rest reload as pages from the server when the
+    /// reader scrolls up (`loadOlder`), as after a resting trim. A reader scrolled up keeps
+    /// what they read: their rows are the ones on screen.
+    public override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        relieveMemoryPressure()
+    }
+
+    func relieveMemoryPressure() {
+        guard isPinnedToBottom, !collectionView.isTracking, !collectionView.isDecelerating,
+              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil,
+              !isSelecting, replyOverlay == nil else { return }
+        store.trimOlder(keepingNewest: Self.pressureKeepCount, preserving: selectedRowIDs)
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {

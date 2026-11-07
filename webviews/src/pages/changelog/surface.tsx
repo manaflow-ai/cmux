@@ -167,8 +167,10 @@ export class SpanNotes {
     setTimeout(() => {
       if (this.store === store) this.settle();
     }, SPAN_SETTLE_MS);
+    // The build list the host kept on disk first: after a relaunch the network's answered after the
+    // card had drawn, so the card reported the host's items and then the span's notes (two heights).
     void store
-      .start(span)
+      .start(span, { cachedFirst: true })
       .then(() => store.firstScreen())
       .then(() => {
         if (this.store !== store) return;

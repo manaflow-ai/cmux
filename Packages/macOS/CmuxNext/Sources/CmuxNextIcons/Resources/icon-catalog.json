@@ -1815,6 +1815,13 @@
    "family": "system"
   },
   {
+   "name": "tab.browser",
+   "meaning": "Browser tab without a favicon, at tab size",
+   "sf": "globe",
+   "family": "tab",
+   "alias": false
+  },
+  {
    "name": "tab.close",
    "meaning": "Close tab (drawn X on hover)",
    "sf": "questionmark.square.dashed",
@@ -1825,6 +1832,20 @@
    "meaning": "New tab / new workspace",
    "sf": "plus.square",
    "family": "tab"
+  },
+  {
+   "name": "tab.terminal",
+   "meaning": "Terminal, at tab size (the tab strip and vertical tabs)",
+   "sf": "terminal",
+   "family": "tab",
+   "alias": false
+  },
+  {
+   "name": "tab.terminal.dead",
+   "meaning": "Terminal process exited, at tab size",
+   "sf": "xmark.octagon",
+   "family": "tab.terminal",
+   "alias": false
   },
   {
    "name": "tabgroup.save",
@@ -1980,6 +2001,12 @@
   {
    "name": "tool.shell",
    "meaning": "Transcript tool row: shell command.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.thought",
+   "meaning": "A thought (the agent's reasoning)",
    "sf": "questionmark.square.dashed",
    "family": "tool"
   },

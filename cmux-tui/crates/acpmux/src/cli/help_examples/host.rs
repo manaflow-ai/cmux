@@ -62,6 +62,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     ("machine load", &[("Print this machine's load now as JSON", "acpmux machine load --json")]),
     (
+        "machine verdict",
+        &[("Judge the host readings given as JSON on stdin", "acpmux machine verdict --json")],
+    ),
+    (
         "machine notice",
         &[(
             "Add a muted line to every live chat here",
@@ -148,6 +152,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             "Ask to turn screen consent off; a shell is refused, the cmux app changes it",
             "acpmux machine consent revoke --screen",
         )],
+    ),
+    (
+        "machine leave",
+        &[
+            ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
+            (
+                "Remove the join state after revoking the machine from your Mac",
+                "acpmux machine leave --local-only --json",
+            ),
+        ],
     ),
     (
         "machine vault",
@@ -299,6 +313,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List tailnet machines that could be added", "acpmux machine candidates"),
             ("Also try key-only ssh to each online machine", "acpmux machine candidates --probe"),
+        ],
+    ),
+    (
+        "machine key",
+        &[
+            ("Print the line a new machine adds to authorized_keys", "acpmux machine key"),
+            ("Make an ed25519 key when this machine has none", "acpmux machine key --create"),
+        ],
+    ),
+    (
+        "machine agents",
+        &[
+            (
+                "See whether Claude Code and Codex are ready on mini-3",
+                "acpmux machine agents mini-3",
+            ),
+            ("Install Claude Code there", "acpmux machine agents mini-3 --install claude"),
+            (
+                "Sign Codex in there from this terminal",
+                "acpmux machine agents mini-3 --login codex",
+            ),
         ],
     ),
     (

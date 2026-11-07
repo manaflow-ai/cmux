@@ -154,16 +154,31 @@ fn frames_an_event() {
 }
 
 #[test]
+fn the_backoff_wait_runs_from_the_relay_thread_outside_any_runtime() {
+    // run() waits between dials from its own plain thread, which is in no runtime: a wait that panics there
+    // ends the relay thread, so the machine never dials the relay again after its first socket drops.
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (_tx, mut rx) = watch::channel(false);
+    let (_resume, mut resumes) = watch::channel(0);
+    let started = std::time::Instant::now();
+    let waited =
+        std::thread::spawn(move || pause(&rt, &mut rx, &mut resumes, 0, Duration::from_millis(20)))
+            .join();
+    assert!(waited.is_ok(), "the wait panicked the relay thread");
+    assert!(started.elapsed() >= Duration::from_millis(20), "it waited out the backoff");
+}
+
+#[test]
 fn a_stop_drops_the_socket_at_once() {
-    struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    struct Socket(Arc<AtomicBool>);
     impl Drop for Socket {
         fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            self.0.store(true, Ordering::SeqCst);
         }
     }
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     for gone in [false, true] {
-        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dropped = Arc::new(AtomicBool::new(false));
         let socket = Socket(dropped.clone());
         let (tx, mut rx) = watch::channel(false);
         let serving = async move {
@@ -184,10 +199,7 @@ fn a_stop_drops_the_socket_at_once() {
             tokio::join!(or_stop(&mut rx, serving), stopper).0
         });
         assert_eq!(out, None);
-        assert!(
-            dropped.load(std::sync::atomic::Ordering::SeqCst),
-            "the socket is dropped with its chats"
-        );
+        assert!(dropped.load(Ordering::SeqCst), "the socket is dropped with its chats");
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
     }
 }
@@ -304,4 +316,189 @@ fn a_chats_process_exit_is_seen_with_sigchld_blocked() {
     .join()
     .unwrap();
     assert!(waited.expect("the exit is seen within 10 s").expect("true runs").success());
+}
+
+/// acpmux's `--json` error envelope (`cli/errors.rs` `AppError::envelope`), as its last stderr line.
+fn envelope(code: &str, exit: i32, detail: &str, retryable: bool, extra: Value) -> String {
+    let mut error = json!({"code": code, "exit": exit, "detail": detail, "retryable": retryable,
+        "message": format!("acpmux: {detail}"), "sessionId": null, "promptId": null});
+    if let (Some(o), Some(e)) = (error.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            o.insert(k.clone(), v.clone());
+        }
+    }
+    format!("warn: a line before\n{}\n", json!({"error": error}))
+}
+
+#[test]
+fn an_acpmux_error_keeps_its_type_up_the_relay() {
+    // The prod proof's failure (run 42112686310): the daemon closed while `session/new` waited.
+    let e = final_event(Some(1), "", &envelope("runtime", 1, "daemon_closed", true, json!({})));
+    assert_eq!(e["code"], "chat.failed");
+    assert_eq!(e["detail"], "daemon_closed");
+    assert_eq!(e["acpmux_code"], "runtime");
+    assert_eq!(e["retryable"], true);
+    // The message is acpmux's own sentence, never the envelope's raw JSON.
+    assert_eq!(e["message"], "acpmux: daemon_closed");
+    // A closed daemon's cause goes up with it: a panic is told apart from a restart.
+    let e = final_event(
+        Some(1),
+        "",
+        &envelope(
+            "runtime",
+            1,
+            "daemon_closed",
+            true,
+            json!({"data": {"cause": "panicked", "panic": {"location": "src/a.rs:1:1"}}}),
+        ),
+    );
+    assert_eq!(e["cause"], "panicked");
+    assert!(e.get("panic").is_none(), "{e}");
+    // The exit codes acpmux names keep their relay code, with the detail beside it.
+    let e = final_event(
+        Some(5),
+        "",
+        &envelope("permission_denied", 5, "trust_required", false, json!({})),
+    );
+    assert_eq!(
+        (e["code"].as_str(), e["detail"].as_str()),
+        (Some("chat.permission_denied"), Some("trust_required"))
+    );
+    assert_eq!(e["retryable"], false);
+    let e = final_event(Some(3), "", &envelope("timeout", 3, "turn_timeout", true, json!({})));
+    assert_eq!(
+        (e["code"].as_str(), e["detail"].as_str()),
+        (Some("chat.timeout"), Some("turn_timeout"))
+    );
+    // A typed agent failure (an auth one) names its kind.
+    let e = final_event(
+        Some(1),
+        "",
+        &envelope("runtime", 1, "agent_error", false, json!({"errorKind": "auth.signed_out"})),
+    );
+    assert_eq!(e["error_kind"], "auth.signed_out");
+    // acpmux's recovery sentence goes up, bounded; a permission refusal keeps its detail beside it.
+    let long = format!("Answer Trust for this folder. {}", "y".repeat(1_000));
+    let e = final_event(
+        Some(5),
+        "",
+        &envelope("permission_denied", 5, "trust_required", false, json!({"recovery": long})),
+    );
+    assert_eq!(e["detail"], "trust_required");
+    let recovery = e["recovery"].as_str().unwrap();
+    assert!(recovery.starts_with("Answer Trust") && recovery.chars().count() == 300, "{recovery}");
+    // No exit status (a signal): the envelope's own exit decides the code.
+    let e = final_event(None, "", &envelope("no_session", 4, "no_session", false, json!({})));
+    assert_eq!(e["code"], "chat.no_session");
+}
+
+#[test]
+fn an_error_with_no_envelope_stays_a_plain_failure() {
+    for stderr in [
+        "acpmux: no such harness\n",
+        "{\"error\": 3}\n",
+        "{\"error\": {\"code\": 7}}\n",
+        "{not json\n",
+        "",
+    ] {
+        let e = final_event(Some(1), "", stderr);
+        assert_eq!(e["code"], "chat.failed", "{stderr}");
+        for k in ["detail", "acpmux_code", "retryable", "error_kind"] {
+            assert!(e.get(k).is_none(), "{k} for {stderr:?}: {e}");
+        }
+    }
+}
+
+#[test]
+fn an_envelopes_fields_are_bounded_and_shaped() {
+    let long = "x".repeat(5_000);
+    let e = final_event(
+        Some(1),
+        "",
+        &envelope(
+            "runtime",
+            1,
+            &format!("bad detail {long}"),
+            true,
+            json!({"errorKind": &long, "message": &long}),
+        ),
+    );
+    // A detail or kind that is not a short code is dropped; the message is cut as before.
+    assert!(e.get("detail").is_none(), "{e}");
+    assert!(e.get("error_kind").is_none(), "{e}");
+    assert_eq!(e["message"].as_str().map(|m| m.chars().count()), Some(300));
+    assert_eq!(e["acpmux_code"], "runtime");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_session_create_keeps_its_exit_and_its_type() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("acpmux");
+    // A fake acpmux whose `acp --json new` fails as the prod daemon did, with exit 4 (no session).
+    let err = envelope("no_session", 4, "daemon_closed", true, json!({}));
+    std::fs::write(&bin, format!("#!/bin/sh\ncat >&2 <<'EOF'\n{err}EOF\nexit 4\n")).unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // SAFETY: geteuid and getegid have no preconditions.
+    let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+    let runner = Runner {
+        bin,
+        user: "me".into(),
+        uid,
+        gid,
+        groups: Vec::new(),
+        home: dir.path().to_owned(),
+    };
+    let Down::Chat(chat) = parse_down(&chat_frame(json!({}))) else { panic!("a chat") };
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let frames = rt.block_on(async {
+        let (tx, mut rx) = up_queue();
+        run_chat(chat, runner, tx, Arc::default()).await;
+        let mut frames = Vec::new();
+        while let Ok(f) = rx.try_recv() {
+            frames.push(serde_json::from_str::<Value>(&f).unwrap());
+        }
+        frames
+    });
+    assert_eq!(frames.len(), 1, "{frames:?}");
+    let event = &frames[0]["event"];
+    assert_eq!(event["code"], "chat.no_session", "{event}");
+    assert_eq!(event["detail"], "daemon_closed");
+    assert_eq!(event["retryable"], true);
+}
+
+#[test]
+fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        let running = Running::start(&COUNT);
+        let done = tokio::spawn(async move {
+            let _running = running;
+            let _ = wait.await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        let _ = release.send(());
+        done.await.unwrap();
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+
+        // Aborted before it ever ran: the count still goes back down.
+        let running = Running::start(&COUNT);
+        let aborted = tokio::spawn(async move {
+            let _running = running;
+            std::future::pending::<()>().await;
+        });
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        aborted.abort();
+        let _ = aborted.await;
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn the_ping_is_the_exact_frame_the_platform_answers() {
+    // MachineRelay.ts: setWebSocketAutoResponse matches the text exactly, key order included.
+    assert_eq!(PING, r#"{"v":1,"t":"ping"}"#);
 }

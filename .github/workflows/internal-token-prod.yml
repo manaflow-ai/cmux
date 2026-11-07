@@ -1,0 +1,65 @@
+name: Production INTERNAL_TOKEN
+
+# One-off. cmux-api (production) has no INTERNAL_TOKEN, so server.pair.approve skips minting the box's machine join
+# token on cmux-platform-production (pair-machine-join.ts, no_platform_token) and the Slack bridge is off. The two
+# Workers must hold the same value, and no copy of cmux-platform-production's exists anywhere CI can read (a Worker
+# secret cannot be read back; it was put by hand, cmux-platform README). So this mints one fresh value and puts it on
+# cmux-platform-production first, then on cmux-api: a failed second put leaves cmux-api still without it, so a rerun
+# mints again and puts both. Nothing else in our repos holds the platform's old value; any hand-kept copy goes stale.
+# The value lives only in a shell variable and wrangler's stdin: never printed, written to disk or passed as an
+# argument. It does nothing when cmux-api already has INTERNAL_TOKEN (never rotates a working pair).
+# Runs once on the push that adds or changes this file (which also registers it for dispatch, as
+# pair-machine-join-check.yml does) and on dispatch from feat-cmux-next. pair-machine-join-check.yml then reads the
+# names on both Workers.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/internal-token-prod.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal-token-prod
+  cancel-in-progress: false
+
+jobs:
+  put:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Mint INTERNAL_TOKEN and put it on cmux-platform-production, then cmux-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          set +x
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          WR="npx -y wrangler@4.156.0"
+          # 0 = the Worker has INTERNAL_TOKEN, 1 = it does not; an unreadable list stops the job.
+          has() {
+            local out rc=0
+            out="$($WR secret list --name "$1" --format json)" || { echo "::error::wrangler secret list failed for $1; nothing more put"; exit 1; }
+            printf '%s' "$out" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=JSON.parse(d);if(!Array.isArray(l))process.exit(9);process.exit(l.some(s=>s.name==="INTERNAL_TOKEN")?0:3)})' || rc=$?
+            case "$rc" in 0) return 0 ;; 3) return 1 ;; *) echo "::error::could not read $1's secret list; nothing more put"; exit 1 ;; esac
+          }
+          if has cmux-api; then
+            echo "::notice::cmux-api already has INTERNAL_TOKEN; nothing put"
+            exit 0
+          fi
+          TOKEN="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64url"))')"
+          if [ "${#TOKEN}" -lt 40 ]; then echo "::error::mint failed; nothing put"; exit 1; fi
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | $WR secret put INTERNAL_TOKEN --name cmux-platform-production
+          printf '%s' "$TOKEN" | $WR secret put INTERNAL_TOKEN --name cmux-api
+          unset TOKEN
+          for w in cmux-platform-production cmux-api; do
+            if has "$w"; then echo "$w INTERNAL_TOKEN: present"; else echo "::error::$w INTERNAL_TOKEN: ABSENT after put"; exit 1; fi
+          done

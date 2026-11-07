@@ -10,6 +10,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel(gate: Motion.sidebar)
+    /// A hover asked for the title's marquee: it starts at the end of the row's next `layout()` (WorkspaceRowView+Rendering).
+    var marqueeOnLayout = false
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -76,7 +78,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
     var hiddenWorkspaceName: String?
-    /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
+    /// An idle workspace nobody named: its name reads in the secondary ink (Leo 2026-10-20: such rows clutter the sidebar).
     var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
@@ -175,6 +177,9 @@ final class WorkspaceRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
+    }
+    override var hoverPaintedControls: [NSView] {
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
     }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
@@ -278,7 +283,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
-        isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
+        isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
@@ -290,7 +295,7 @@ final class WorkspaceRowView: SidebarRowView {
             animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
                                placeholder: isShowingPlaceholder || isPlaceholderRow)
         }
-        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { SidebarStyle.titleFont(weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
