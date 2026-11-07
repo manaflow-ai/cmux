@@ -97,6 +97,37 @@ struct SidebarAgentUsageTests {
         #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentUsage)
     }
 
+    @Test func eachPartSettingDropsOnlyItsComponent() {
+        // A reporter tooltip, so dropping the cost must visibly keep it.
+        let claude = SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 10), helpText: "Reporter tooltip")
+        func shown(_ parts: SidebarAgentUsage.Parts) -> SidebarStatusEntry {
+            SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), shownParts: parts)
+                .decorate([claude], usageByStatusKey: ["claude_code": Self.usage])[0]
+        }
+
+        #expect(shown([.context, .cost]).value == "Running · 42% · ~$1.20")
+        #expect(shown([.model, .cost]).value == "Running · Opus 4.8 · ~$1.20")
+        #expect(shown([.model, .context]).value == "Running · Opus 4.8 · 42%")
+        #expect(shown([.model, .context]).helpText == "Reporter tooltip")
+        #expect(shown([.cost]).helpText == SidebarAgentUsageFormatter.costHelpText)
+        #expect(shown([]) == claude)
+    }
+
+    @Test func partSettingsAreOnByDefaultAndEachFollowsItsKey() {
+        let defaults = UserDefaults(suiteName: "SidebarAgentUsageTests.\(UUID().uuidString)")!
+        func parts() -> SidebarAgentUsage.Parts {
+            SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.agentUsageParts
+        }
+        #expect(parts() == .all)
+
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        #expect(parts() == [.context, .cost])
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentCostKey)
+        #expect(parts() == [.context])
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        #expect(parts() == [])
+    }
+
     // MARK: Coordinator
 
     @Test func rowShowsTheMostRecentlyActiveSessionAndPanesDoNotClearEachOther() async throws {
@@ -167,6 +198,53 @@ struct SidebarAgentUsageTests {
         defaults.set(false, forKey: SidebarCatalogSection().showCustomMetadata.userDefaultsKey)
         coordinator.settingsDidChange()
         #expect(metadata.agentUsageByStatusKey.isEmpty)
+    }
+
+    @Test func turningOffEveryPartStopsSampling() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = try Self.claudeTranscript(contextTokens: 200_000, in: directory, name: "a")
+        let workspaceID = UUID()
+        let defaults = Self.makeDefaults(enabled: true)
+        for key in [
+            SidebarWorkspaceDetailDefaults.showAgentModelKey,
+            SidebarWorkspaceDetailDefaults.showAgentContextKey,
+            SidebarWorkspaceDetailDefaults.showAgentCostKey,
+        ] {
+            defaults.set(false, forKey: key)
+        }
+        let metadata = WorkspaceSidebarMetadataModel(limitProvider: UnlimitedSidebarLog())
+        let coordinator = SidebarAgentUsageCoordinator(defaults: defaults, coalesceInterval: .zero) { id in
+            id == workspaceID ? metadata : nil
+        }
+
+        coordinator.noteHookEvent(Self.event(.preToolUse, session: "A", workspace: workspaceID, transcript: path, at: 1))
+        await coordinator.waitUntilIdle()
+        #expect(coordinator.scheduledFlushCount == 0)
+
+        // One part back on resamples without waiting for a hook event.
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        coordinator.settingsDidChange()
+        await coordinator.waitUntilIdle()
+        #expect(metadata.agentUsageByStatusKey["claude_code"]?.contextFraction == 0.2)
+    }
+
+    @Test func snapshotRowLeavesOutADisabledPart() {
+        let defaults = Self.makeDefaults(enabled: true)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        let workspace = Workspace()
+        workspace.statusEntries["claude_code"] = Self.statusEntry(key: "claude_code", value: "Running")
+        workspace.sidebarMetadata.updateAgentUsage(Self.usage, forStatusKey: "claude_code")
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+        ).makeSnapshot()
+        // The percent and currency follow `Locale.current`, so assert the
+        // model is gone and the rest is still appended rather than exact text.
+        let row = snapshot.metadataEntries.first { $0.key == "claude_code" }?.value
+        #expect(row?.hasPrefix("Running" + SidebarAgentUsageFormatter.separator) == true)
+        #expect(row?.contains("Opus 4.8") == false)
     }
 
     @Test func resumingTheSameTranscriptKeepsUsageAndPaddedWorkspaceIdsResolve() async throws {

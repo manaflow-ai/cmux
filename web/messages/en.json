@@ -3518,6 +3518,9 @@
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
           "showAgentUsage": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled.",
+          "showAgentModel": "Include the model name in the agent usage shown by showAgentUsage.",
+          "showAgentContext": "Include the context-window percentage in the agent usage shown by showAgentUsage.",
+          "showAgentCost": "Include the estimated API cost in the agent usage shown by showAgentUsage.",
           "showCloudDeviceIcons": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
           "beta": {
             "conversations": {

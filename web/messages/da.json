@@ -2265,6 +2265,9 @@
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
           "showAgentUsage": "Føjer kodeagentens forbrug til statusposten for Claude Code eller Codex: model og brugt kontekstvindue, og for Claude Code et anslået API-forbrug (hovedtråd og underagenter) til Anthropics offentliggjorte listepriser. Beløbet er et skøn og ikke din abonnementsregning; batch- og prioritetsniveauer, partnerpriser, hurtig tilstand og gebyrer for serverværktøjer er ikke medregnet.",
+          "showAgentModel": "Medtag modelnavnet i agentforbruget, som showAgentUsage viser.",
+          "showAgentContext": "Medtag procentdelen af kontekstvinduet i agentforbruget, som showAgentUsage viser.",
+          "showAgentCost": "Medtag den anslåede API-pris i agentforbruget, som showAgentUsage viser.",
           "showCloudDeviceIcons": "Vis Cloud-maskine- og enhedsikoner ved siden af titler på eksterne arbejdsområder uafhængigt af Git-gren- og katalogdetaljer.",
           "beta": {
             "conversations": {
