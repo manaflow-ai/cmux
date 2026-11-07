@@ -1292,6 +1292,7 @@ export function VirtualTranscript({
     placed: Parameters<typeof visibleLayoutRange>[0],
     shown: readonly AcpmuxRow[],
     below = Number.POSITIVE_INFINITY,
+    moveAtOnce = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -1302,7 +1303,7 @@ export function VirtualTranscript({
     const before = chaseAnchor.current;
     const now = before ? rowTop(before.id) : undefined;
     chase.fit(below);
-    if (before && now !== undefined) chase.shift(thread.current, now - before.top, below);
+    if (before && now !== undefined && !moveAtOnce) chase.shift(thread.current, now - before.top, below);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -2866,8 +2867,13 @@ export function VirtualTranscript({
         // A resize (a window edge dragged, the dock growing) rewraps the rows, and they settle to
         // their drawn heights over the next passes at the same size: those are the resize too, not
         // growth, so nothing glides until the view has held its size for a motion step (cx-sqj3h).
-        // The bottom stack's change (the composer clearing after a send, a queue card leaving) moves
-        // no row's width: the chase moves the rows it shifts with everything else in the pass.
+        // The bottom stack's change (the composer growing a line or clearing after a send, a queue
+        // card leaving) rewraps no row: no resize. The rows move with the stack at once in that pass
+        // (the lift keeps the latest row over a growing card; a queue's room goes as it did), and
+        // the chase goes on from there. The composer clearing as the reader sends is the send's own
+        // move: the rows the send brings and the room it gives back move as one chase.
+        const sendWindow = sends !== seenSends.current || performance.now() < sendRiseUntil.current;
+        const dockMoved = box.dockSpace !== dockSpace && !(sendWindow && dockSpace < box.dockSpace);
         const now = performance.now();
         if (box.height !== height || box.width !== width || (!chasing && box.dockSpace !== dockSpace)) {
           resizedAt.current = now;
@@ -2887,7 +2893,7 @@ export function VirtualTranscript({
           // Only the passes that bring the send's own rows (the prompt, the live line, as `sendRows`
           // below): a reply streaming right after it keeps to the room.
           const sentRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
-          chaseFollow(node, layout, rows, sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX);
+          chaseFollow(node, layout, rows, sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX, dockMoved);
         }
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
