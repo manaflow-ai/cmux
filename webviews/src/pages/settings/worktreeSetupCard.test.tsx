@@ -72,6 +72,29 @@ test("Use Repository's drops the project's script; Clear Saved sends null", asyn
   page.unmount();
 });
 
+test("a project's fields stay locked until its own recipe has been read", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  let answer = () => {};
+  page.provider.worktreeReadHold = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const select = card(page.container).querySelector<HTMLSelectElement>("select")!;
+  await changeValue(select, "/Users/you/src/website");
+  // The first project's draft is still shown: nothing in it can be edited, saved or cleared.
+  expect(field(page.container, "setup").disabled).toBe(true);
+  expect(card(page.container).querySelector<HTMLButtonElement>('[data-worktree="save"]')!.disabled).toBe(true);
+  const clear = card(page.container).querySelector<HTMLButtonElement>('[data-worktree="clear"]');
+  expect(clear === null || clear.disabled).toBe(true);
+  page.provider.worktreeReadHold = null;
+  answer();
+  await settle();
+  expect(field(page.container, "setup").disabled).toBe(false);
+  expect(field(page.container, "setup").value).toBe("pnpm install");
+  expect(ops(page.provider, "cmux.settings.worktree.save")).toEqual([]);
+  page.unmount();
+});
+
 test("a build whose relay cannot reach the projects says so", async () => {
   const page = await renderPage({
     path: "/settings/agents",

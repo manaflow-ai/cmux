@@ -537,28 +537,10 @@ export class MockSettingsProvider {
         });
         return { value: { path }, replayed: false };
       },
-      "cmux.settings.worktree.read": (params) => {
-        const project = this.worktreeProjects.find((row) => row.path === (params as { path: string }).path);
-        const repository = project?.repository ?? {};
-        const saved = project?.saved;
-        const pick = (key: "setup" | "run" | "teardown") => {
-          const value = saved?.[key] ?? repository[key];
-          return value ? value : null;
-        };
-        return {
-          root: project?.path ?? "",
-          recipe: {
-            setup: pick("setup"),
-            run: pick("run"),
-            teardown: pick("teardown"),
-            include: [...(repository.include ?? []), ...(saved?.include ?? [])],
-            repository,
-            ...(saved ? { saved } : {}),
-            files: project?.files ?? [],
-          },
-          run: { state: "none", output: "", output_start: "0", output_end: "0" },
-        };
-      },
+      "cmux.settings.worktree.read": (params) =>
+        this.worktreeReadHold
+          ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
+          : this.readWorktree(params as { path: string }),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -747,6 +729,30 @@ export class MockSettingsProvider {
     };
     return { share_id: id, state: "revoked" };
   }
+  private readWorktree(params: { path: string }) {
+    const project = this.worktreeProjects.find((row) => row.path === params.path);
+    const repository = project?.repository ?? {};
+    const saved = project?.saved;
+    const pick = (key: "setup" | "run" | "teardown") => {
+      const value = saved?.[key] ?? repository[key];
+      return value ? value : null;
+    };
+    return {
+      root: project?.path ?? "",
+      recipe: {
+        setup: pick("setup"),
+        run: pick("run"),
+        teardown: pick("teardown"),
+        include: [...(repository.include ?? []), ...(saved?.include ?? [])],
+        repository,
+        ...(saved ? { saved } : {}),
+        files: project?.files ?? [],
+      },
+      run: { state: "none", output: "", output_start: "0", output_end: "0" },
+    };
+  }
+  /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
+  worktreeReadHold: Promise<void> | null = null;
   /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
   worktreeProjects: MockWorktreeProject[] = [
     {

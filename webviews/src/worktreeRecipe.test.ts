@@ -73,6 +73,15 @@ test("output reads join where the last one ended, and a gap starts over", () => 
   expect(lastOutputLine("one\ntwo\n\n")).toBe("two");
 });
 
+test("the kept output is capped in UTF-8 bytes and never splits a character", () => {
+  const run = (output: string) => ({ state: "running" as const, output, outputStart: "0", outputEnd: "0" });
+  const kept = appendSetupOutput("", "0", run(`a${"é".repeat(SETUP_OUTPUT_CAP)}`));
+  expect(new TextEncoder().encode(kept).length).toBeLessThanOrEqual(SETUP_OUTPUT_CAP);
+  expect(kept).toBe("é".repeat(SETUP_OUTPUT_CAP / 2));
+  const emoji = appendSetupOutput("", "0", run(`x${"😀".repeat(SETUP_OUTPUT_CAP / 4)}`));
+  expect(emoji).toBe("😀".repeat(SETUP_OUTPUT_CAP / 4));
+});
+
 test("an edit becomes the saved override: empty scripts stay (they turn the repository's off), blank lines go", () => {
   expect(savedRecipe({ setup: "", include: ["  .env ", "", " "] })).toEqual({ setup: "", include: [".env"] });
   expect(savedRecipe({ include: [""] })).toBeNull();

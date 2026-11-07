@@ -174,10 +174,18 @@ export function readSetupReply(reply: unknown): WorktreeSetupRead | undefined {
 }
 
 /** The output so far after one more read: a read that starts past what was kept (the host dropped
- *  the middle) starts over from its own start; the kept text never grows past the cap. */
+ *  the middle) starts over from its own start; the kept text never grows past the cap in UTF-8
+ *  bytes, as the host counts it. */
 export function appendSetupOutput(kept: string, keptEnd: string, read: WorktreeSetupRun): string {
   const joined = read.outputStart === keptEnd ? kept + read.output : read.output;
-  return joined.length > SETUP_OUTPUT_CAP ? joined.slice(joined.length - SETUP_OUTPUT_CAP) : joined;
+  // UTF-8 takes at most 3 bytes per UTF-16 unit: a short text is under the cap without encoding it.
+  if (joined.length * 3 <= SETUP_OUTPUT_CAP) return joined;
+  const bytes = new TextEncoder().encode(joined);
+  if (bytes.length <= SETUP_OUTPUT_CAP) return joined;
+  // The last cap's worth of bytes, starting on a character's first byte.
+  let start = bytes.length - SETUP_OUTPUT_CAP;
+  while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start += 1;
+  return new TextDecoder().decode(bytes.subarray(start));
 }
 
 /** The last non-empty line of `output`, for a one-line tail. */

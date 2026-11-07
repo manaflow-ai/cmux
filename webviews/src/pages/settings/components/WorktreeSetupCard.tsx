@@ -55,6 +55,9 @@ export function WorktreeSetupCard() {
   const [includeText, setIncludeText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The path whose recipe read has answered (or failed): until it is the selected one, the fields
+  // show another project's draft, so nothing can be edited or saved.
+  const [loaded, setLoaded] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -86,6 +89,7 @@ export function WorktreeSetupCard() {
       setDraft(saved);
       setIncludeText((saved.include ?? []).join("\n"));
       setError(result.error);
+      setLoaded(folder);
     },
     [store],
   );
@@ -99,6 +103,7 @@ export function WorktreeSetupCard() {
   const edited = useMemo(() => savedRecipe({ ...draft, include: includeText.split(/\r?\n/) }), [draft, includeText]);
   const stored = savedRecipe(recipe?.saved ?? project?.saved ?? {});
   const dirty = !same(edited, stored);
+  const locked = busy || !path || loaded !== path;
 
   const save = async (worktree: WorktreeRecipe | null) => {
     if (!path) return;
@@ -173,7 +178,7 @@ export function WorktreeSetupCard() {
                 placeholder={repository[command.key] ?? command.placeholder}
                 repository={repository[command.key]}
                 value={draft[command.key]}
-                disabled={busy || !path}
+                disabled={locked}
                 onChange={(value) =>
                   setDraft((current) => {
                     const next = { ...current };
@@ -193,7 +198,7 @@ export function WorktreeSetupCard() {
                 rows={3}
                 spellCheck={false}
                 placeholder=".env"
-                disabled={busy || !path}
+                disabled={locked}
                 value={includeText}
                 onChange={(event) => setIncludeText(event.target.value)}
               />
@@ -213,7 +218,7 @@ export function WorktreeSetupCard() {
                 type="button"
                 className="button"
                 data-worktree="clear"
-                disabled={busy}
+                disabled={locked}
                 onClick={() => void save(null)}
               >
                 {t("settingsPage.worktreeSetup.clear")}
@@ -223,7 +228,7 @@ export function WorktreeSetupCard() {
               type="button"
               className="button"
               data-worktree="revert"
-              disabled={busy || !dirty}
+              disabled={locked || !dirty}
               onClick={() => {
                 const saved = recipe?.saved ?? project?.saved ?? {};
                 setDraft(saved);
@@ -237,7 +242,7 @@ export function WorktreeSetupCard() {
               className="button"
               data-worktree="save"
               variant="solid"
-              disabled={busy || !dirty || !path}
+              disabled={locked || !dirty}
               onClick={() => void save(edited)}
             >
               {t("settingsPage.worktreeSetup.save")}
