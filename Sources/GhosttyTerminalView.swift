@@ -7119,6 +7119,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     // Set when interpretKeyEvents asks for deleteBackward: during the current keyDown.
     private var keyRequestedDeleteBackward = false
+    /// Whether AppKit ran key bindings for the key being interpreted, which
+    /// means the input method did not consume the key itself.
+    private var keyReachedKeyBindings = false
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
@@ -7156,6 +7159,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Otherwise empty - prevents system beep on unhandled key commands
         if keyTextAccumulator != nil, selector == #selector(deleteBackward(_:)) {
             keyRequestedDeleteBackward = true
+        }
+        if keyTextAccumulator != nil {
+            keyReachedKeyBindings = true
         }
     }
 
@@ -7604,6 +7610,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
         keyRequestedDeleteBackward = false
+        keyReachedKeyBindings = false
         defer { keyTextAccumulator = nil }
 
         let markedTextBefore = markedText.length > 0
@@ -7702,6 +7709,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.text = nil
             _ = sendGhosttyKey(surface, keyEvent)
+            return
+        }
+
+        // An input method can commit its preedit on a modified key, such as
+        // macSKK confirming a conversion with Ctrl-J. Sent on the key's own
+        // event, the encoder turns the commit into the key's control sequence
+        // and the text is lost. Send the committed text on its own, as Ghostty
+        // does (ghostty-org/ghostty#12547). Then replay the key only when it
+        // is still terminal input: an arrow that ended the composition, which
+        // still moves, or a key the input method left to AppKit's key
+        // bindings, such as Ctrl-C typed while a Hangul syllable is composing.
+        // A key the input method consumed was its own command and is not
+        // encoded.
+        if markedTextBefore, !accumulatedText.isEmpty,
+           !event.modifierFlags.intersection([.control, .option, .command]).isEmpty {
+            for text in accumulatedText where shouldSendText(text) {
+                sendCommittedTextChunk(text)
+            }
+            let isArrow: Bool
+            switch Int(event.keyCode) {
+            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:
+                isArrow = true
+            default:
+                isArrow = false
+            }
+            // An arrow that left part of the preedit marked moved inside the
+            // composition, so it stays out of the terminal.
+            if (isArrow && markedText.length == 0) || keyReachedKeyBindings {
+                keyEvent.composing = false
+                keyEvent.text = nil
+                _ = sendGhosttyKey(surface, keyEvent)
+            } else if !event.modifierFlags.contains(.command) {
+                // AppKit never delivers a Command-modified key-up, so an entry
+                // for one would swallow a later release of the same key.
+                imeConsumedKeyUps.insert(event.keyCode)
+            }
             return
         }
 
