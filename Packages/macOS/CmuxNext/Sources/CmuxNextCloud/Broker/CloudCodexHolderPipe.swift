@@ -148,7 +148,8 @@ actor CloudCodexHolderPipe {
                     let line = Data(buffer[buffer.startIndex..<newline])
                     buffer.removeSubrange(buffer.startIndex...newline)
                     // A holder the app cannot keep up with is ended: what it had not answered fails.
-                    if !line.isEmpty, case .dropped = events.yield(.line(generation: child, line)) { break reading }
+                    // The last slot stays free for that end, so it always reaches the app.
+                    if !line.isEmpty, !Self.room(after: events.yield(.line(generation: child, line))) { break reading }
                 }
                 // A line this long is not the holder's: end the child rather than hold it.
                 if buffer.count > 1 << 20 { break reading }
@@ -164,6 +165,15 @@ actor CloudCodexHolderPipe {
         // Config, availability, then what the last holder knew, before any line the app sends now.
         if let restore = Self.replay(known) { opening.append(restore) }
         return opening.allSatisfy { write($0) }
+    }
+
+    /// Whether a line's yield left more than the one slot kept for the child's end.
+    static func room(after result: AsyncStream<Event>.Continuation.YieldResult) -> Bool {
+        switch result {
+        case .enqueued(let remaining): remaining > 1
+        case .dropped, .terminated: false
+        @unknown default: false
+        }
     }
 
     private func ended(_ child: Int) {

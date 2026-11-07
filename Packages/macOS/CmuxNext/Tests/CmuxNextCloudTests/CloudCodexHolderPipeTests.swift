@@ -52,4 +52,39 @@ struct CloudCodexHolderPipeTests {
         #expect(lines[2]["live"] as? [String] == ["vm_1"])
         #expect(team(lines[3]) == "t2", "the switch comes after it")
     }
+
+    /// A holder that writes faster than the app reads is ended, and that end still reaches the app
+    /// though its lines filled the buffer: the requests it never answered fail, so a sign-out or quit
+    /// never waits forever and a lifecycle request goes again (cmux#37306 review).
+    @Test func aHolderThatOverflowsTheBufferStillReportsItsEnd() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("codex-holder-flood-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let script = folder.appendingPathComponent("holder")
+        try Data("""
+        #!/bin/sh
+        for i in 1 2 3 4 5 6 7 8 9 10; do echo '{"ask":"live","id":1}'; done
+        exec sleep 30
+        """.utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let (events, sink) = AsyncStream<CloudCodexHolderPipe.Event>.makeStream(bufferingPolicy: .bufferingOldest(3))
+        let pipe = CloudCodexHolderPipe(binary: script, config: Data(#"{"op":"config"}"#.utf8), events: sink)
+        let request = try JSONSerialization.data(withJSONObject: ["op": "sign_out", "id": 5])
+        #expect(await pipe.send(.init(data: request, id: 5), acpmux: nil))
+        // Read nothing until the holder is gone, so its lines fill the buffer.
+        while await pipe.isRunning { await Task.yield() }
+        var lines = 0
+        for await event in events {
+            switch event {
+            case .line: lines += 1
+            case .ended(let generation, let unanswered):
+                #expect(generation == 1)
+                #expect(unanswered == [5])
+                #expect(lines == 2, "two lines, then the slot kept for the end")
+                return
+            }
+        }
+        Issue.record("the end never came")
+    }
 }
