@@ -239,12 +239,11 @@ def mark_lists(text: str) -> str:
 
 
 def check(text: str, fix: bool) -> tuple[list[str], str]:
-    problems: list[str] = []
+    # Reported with fix too, as what it repaired (package_deps_heal.py names those in its pull request).
+    problems = [f"{name}: its dependencies list has more than one entry: put one per line, sorted, under the "
+                f"marker `{MARKER}` (run with --fix)" for name, _, _ in unmarked_lists(text)]
     if fix:
         text = mark_lists(text)
-    else:
-        problems += [f"{name}: its dependencies list has more than one entry: put one per line, sorted, under the "
-                     f"marker `{MARKER}` (run with --fix)" for name, _, _ in unmarked_lists(text)]
     lines = text.split("\n")
     marked: set[str] = set()
     out: list[str] = []

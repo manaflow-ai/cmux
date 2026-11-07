@@ -573,7 +573,9 @@ class HealTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.origin))
         package = self.repo / heal.MANIFEST
         package.parent.mkdir(parents=True)
-        package.write_text(FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER), encoding="utf-8")
+        # The base is green: its lists of more than one entry already one per line.
+        package.write_text(lint.check(FIX_MANIFEST.replace("MARKER_PLACEHOLDER", lint.MARKER), fix=True)[1],
+                           encoding="utf-8")
         self.write("Tests/CmuxNextHomeEngineTests/Old.swift", "import CmuxNextHomeEngine\n")
         self.write("Sources/CmuxNextCompat/A.swift", "import Foundation\n")
         self.git("add", "-A")
@@ -636,6 +638,22 @@ class HealTests(unittest.TestCase):
         changed = self.git("diff", "--name-only").split()
         self.assertEqual(changed, [heal.MANIFEST], "only Package.swift changes")
         self.assertEqual(lint.missing_imports(manifest, (self.repo / heal.MANIFEST).parent), [])
+
+    def test_an_import_added_to_a_one_entry_list_is_declared_one_per_line(self):
+        # Review of 930b45df: the entry made an inline `["CmuxNextCompat", "CmuxNextDaemon"]`, which the check after
+        # the repair refused, so no fix pull request was planned.
+        self.write("Sources/CmuxNextHome/A.swift", "import CmuxNextCompat\nimport CmuxNextDaemon\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "home: read the daemon")
+
+        result, _ = self.plan()
+
+        self.assertEqual(result["fixable"], "true", result)
+        manifest = (self.repo / heal.MANIFEST).read_text()
+        self.assertIn(f'dependencies: [ {lint.MARKER}\n                "CmuxNextCompat",\n                "CmuxNextDaemon",\n',
+                      manifest)
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset()):
+            self.assertEqual(lint.check(manifest, fix=False)[0], [])
 
     def test_a_stale_baseline_line_beside_a_fixable_import_opens_nothing(self):
         # Review of 8e00c8ba: the check after the repair counted only "does not declare" problems, so a stale
