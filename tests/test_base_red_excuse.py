@@ -409,6 +409,15 @@ class JobLogEndpoint(unittest.TestCase):
         text = f"2026-10-30T12:00:00.000Z ##[error]No build-fleet verdict for `\t{HEAD}`"
         self.assertIsNotNone(excuse.no_verdict(text))
 
+    def test_a_byte_order_mark_never_hides_a_line(self):
+        # GitHub's job log can start a section with U+FEFF, which str.strip() keeps: a ws-check run's
+        # WS_CHECK_RESULT line came back as "\ufeffWS_CHECK_RESULT=..." and the base red read as unreported
+        # (cmuxterm-hq run 42391652834, 2026-11-07).
+        raw = "2026-11-07T16:38:25.8020289Z ok\n\ufeff2026-11-07T16:38:25.8257495Z WS_CHECK_RESULT={}"
+        self.assertEqual(excuse.lines_of(raw), ["ok", "WS_CHECK_RESULT={}"])
+        cli = "checks\tUNKNOWN STEP\t\ufeff2026-11-07T16:38:25.8257495Z WS_CHECK_RESULT={}"
+        self.assertEqual(excuse.lines_of(cli), ["WS_CHECK_RESULT={}"])
+
     def test_raw_log_tabs_preserve_the_entire_error(self):
         text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
@@ -523,6 +532,9 @@ if mode == "big":
     line = "2026-10-30T12:00:00.000Z " + "x" * 1000 + "\\n"
     sys.stdout.write(line * (41 * 1024 * 1024 // len(line)) + "2026-10-30T12:00:00.000Z tail\\n")
     sys.exit(0)
+if mode == "bom":
+    print("2026-10-30T12:00:00.000Z ok\\n\\ufeff2026-10-30T12:00:01.000Z WS_CHECK_RESULT={}")
+    sys.exit(0)
 print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
 """
 
@@ -555,6 +567,11 @@ class PortableGhLog(unittest.TestCase):
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
+
+    def test_a_byte_order_mark_in_a_job_log_is_dropped_on_read(self):
+        raw = self.read("bom")
+        self.assertNotIn("\ufeff", raw)
+        self.assertEqual(excuse.lines_of(raw), ["ok", "WS_CHECK_RESULT={}"])
 
     def test_old_gh_falls_back_without_the_flag(self):
         self.assertIn("red", self.read("old"))
