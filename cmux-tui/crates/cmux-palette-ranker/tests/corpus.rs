@@ -8,7 +8,8 @@
 
 use cmux_palette_ranker::ffi::{
     CmuxPaletteRanker, ERR_NOT_INSTALLED, OK, cmux_palette_ranker_free,
-    cmux_palette_ranker_install, cmux_palette_ranker_new, cmux_palette_ranker_rank,
+    cmux_palette_ranker_install, cmux_palette_ranker_install_history, cmux_palette_ranker_new,
+    cmux_palette_ranker_rank,
 };
 use serde_json::Value;
 use std::collections::HashSet;
@@ -29,6 +30,15 @@ impl Handle {
         let code =
             unsafe { cmux_palette_ranker_install(self.0, version, bytes.as_ptr(), bytes.len()) };
         if code == OK { Ok(()) } else { Err(format!("install {version} returned {code}")) }
+    }
+
+    fn install_history(&self, revision: i64, history: &Value) -> Result<(), String> {
+        let bytes = serde_json::to_vec(history).map_err(|error| error.to_string())?;
+        // SAFETY: a live handle and a readable buffer.
+        let code = unsafe {
+            cmux_palette_ranker_install_history(self.0, revision, bytes.as_ptr(), bytes.len())
+        };
+        if code == OK { Ok(()) } else { Err(format!("install history {revision} returned {code}")) }
     }
 
     fn rank(&self, request: &Value) -> Result<(i32, Vec<u8>), String> {
@@ -107,6 +117,84 @@ fn every_corpus_request_ranks_like_the_typescript_ranker() -> Result<(), String>
         cases.len(),
         failures.join("\n")
     );
+    Ok(())
+}
+
+/// The app installs the usage history once per revision and each keystroke names the revision
+/// (`historyRevision`) instead of sending the history: every corpus request ranked that way must
+/// answer exactly as it does with its history inline.
+#[test]
+fn every_corpus_request_ranks_the_same_with_an_installed_history() -> Result<(), String> {
+    let corpus = corpus()?;
+    let sets = corpus["sets"].as_object().ok_or("corpus has no sets")?;
+    let cases = corpus["cases"].as_array().ok_or("corpus has no cases")?;
+    let handle = Handle(cmux_palette_ranker_new());
+    let mut installed = None;
+    let mut history: Option<(i64, Value)> = None;
+    let mut revisions = 0i64;
+    let mut with_history = 0;
+    let mut failures = Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or("?");
+        let set = &sets[case["set"].as_str().ok_or("case without set")?];
+        let version = set["version"].as_i64().ok_or("set without version")?;
+        if case["inline"].as_bool() != Some(true) && installed != Some(version) {
+            handle.install(version, &set["entries"])?;
+            installed = Some(version);
+        }
+        let mut request = case["request"].clone();
+        let Some(frecency) = request.as_object_mut().and_then(|object| object.remove("frecency"))
+        else {
+            continue;
+        };
+        with_history += 1;
+        // Same history as the last request: the installed revision serves it without a resend.
+        let revision = match &history {
+            Some((revision, installed)) if *installed == frecency => *revision,
+            _ => {
+                revisions += 1;
+                handle.install_history(revisions, &frecency)?;
+                history = Some((revisions, frecency));
+                revisions
+            }
+        };
+        request["historyRevision"] = Value::from(revision);
+        let (code, body) = handle.rank(&request)?;
+        if code != OK {
+            failures.push(format!("{name}: code {code}: {}", String::from_utf8_lossy(&body)));
+            continue;
+        }
+        let actual: Value =
+            serde_json::from_slice(&body).map_err(|error| format!("{name}: {error}"))?;
+        if actual != case["expected"] {
+            failures
+                .push(format!("{name}:\n  expected {}\n  actual   {}", case["expected"], actual));
+        }
+    }
+    assert!(with_history >= 100, "only {with_history} corpus requests carry a history");
+    assert!(revisions < with_history, "every request had its own history: nothing was reused");
+    assert!(failures.is_empty(), "{} requests differ:\n{}", failures.len(), failures.join("\n"));
+    Ok(())
+}
+
+#[test]
+fn a_request_for_a_history_revision_that_is_not_installed_is_refused() -> Result<(), String> {
+    let handle = Handle(cmux_palette_ranker_new());
+    handle.install(1, &serde_json::json!([{ "title": "Split Right" }]))?;
+    handle.install_history(4, &serde_json::json!({ "entries": {}, "hidden": [] }))?;
+    let request = |revision: i64| {
+        serde_json::json!({
+            "operation": "rank", "version": 1, "query": "split", "historyRevision": revision,
+        })
+    };
+    let (code, body) = handle.rank(&request(5))?;
+    assert_eq!(code, ERR_NOT_INSTALLED);
+    assert_eq!(
+        String::from_utf8_lossy(&body),
+        "palette ranker: no history installed for revision 5"
+    );
+    let (code, _) = handle.rank(&request(4))?;
+    assert_eq!(code, OK);
     Ok(())
 }
 

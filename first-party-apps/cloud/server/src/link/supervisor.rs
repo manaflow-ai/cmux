@@ -319,7 +319,7 @@ impl LinkSupervisor {
                     }
                     // A stream's dial was refused: the link of this
                     // generation ends with the typed refusal.
-                    LinkLine::DialFailed(code) if live => self.refuse(&tag, code),
+                    LinkLine::DialFailed(code, detail) if live => self.refuse(&tag, code, detail),
                     _ => {}
                 }
             }
@@ -371,10 +371,15 @@ impl LinkSupervisor {
     /// A dial of this generation was refused: the generation ends with the
     /// typed refusal. A refusal that ends access (unknown
     /// host, not authorized) also revokes the machine's link.
-    fn refuse(&mut self, tag: &LinkTag, code: DialCode) {
-        let reason = match &code {
-            DialCode::Unavailable(why) => why.clone(),
-            other => format!("cmux link refused the dial: {}", other.as_str()),
+    /// `detail` is the link's `error_detail` (which lookup or handshake
+    /// failed), shown after the code.
+    fn refuse(&mut self, tag: &LinkTag, code: DialCode, detail: Option<String>) {
+        let reason = match (&code, detail) {
+            (DialCode::Unavailable(why), _) => why.clone(),
+            (other, Some(detail)) => {
+                format!("cmux link refused the dial: {} ({detail})", other.as_str())
+            }
+            (other, None) => format!("cmux link refused the dial: {}", other.as_str()),
         };
         let revokes = code.revokes();
         let Some(link) = self.links.get_mut(&tag.machine) else { return };

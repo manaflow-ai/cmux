@@ -70,6 +70,9 @@ final class HostView: NSView {
     /// cmux: room kept clear above the oldest row at rest, in the view's points (Home's pinned
     /// section, ``MessagesLabHomeView/rowsTopClearance``); 0: none.
     var extraRowsTop: CGFloat = 0
+    /// cmux: room kept clear under the newest row, in the view's points (Home's toasts,
+    /// ``MessagesLabHomeView/rowsBottomClearance``); 0: none.
+    private(set) var extraRowsBottom: CGFloat = 0
     /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
     var topFadeStyle: HomeTopFadeStyle?
     /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
@@ -174,6 +177,13 @@ final class HostView: NSView {
         placeNativeViews()
     }
 
+    /// cmux: sets ``extraRowsBottom``; the rows slide to their new place over `duration` seconds (0: at once).
+    func setExtraRowsBottom(_ value: CGFloat, duration: TimeInterval) {
+        extraRowsBottom = value
+        demo?.setRowsBottomInset(value / max(contentZoom, 0.01), duration: duration)
+        placeNativeViews()
+    }
+
     /// AppKit views follow the shared geometry (model values).
     func placeNativeViews() {
         guard let demo else { return }
@@ -190,6 +200,10 @@ final class HostView: NSView {
             if bareTop { demo.topFade = bareRowsTop }
             demo.setNeedsLayout()
         }
+        // cmux: toasts over the chat keep the newest row above them (`setExtraRowsBottom` slides it there;
+        // a zoom change or a new transcript takes it here at once).
+        let rowsBottom = extraRowsBottom / max(contentZoom, 0.01)
+        if demo.rowsBottomInset != rowsBottom { demo.setRowsBottomInset(rowsBottom, duration: 0) }
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
@@ -352,6 +366,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var approvalDecision: ((PartRef, Bool) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
+    /// that agent's chat (its id); nil: the click opens and closes the row as before.
+    var onAgentPill: ((String) -> Void)?
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
@@ -843,7 +860,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
-            // cmux: an agent-message fold or notes row opens or closes (HomeStore.toggleAgentMessages).
+            // cmux: a click on an agent's pill opens its chat in the host's agent pane.
+            if let onAgentPill, case let .custom(custom) = hit.row.part,
+               let peer = HomeAgentFoldRowProvider.peer(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                        width: hit.body.width) {
+                onAgentPill(peer)
+                return
+            }
+            // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
+            // (the user, 2026-11-05: "i want to be able to expand and annotate").
+            if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
+               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width,
+                                body: hit.body.origin) {
+                return
+            }
+            // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
             if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
             // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
             if let url = intents?.feedRowURL(hit.row.ref.messageId) {
@@ -861,6 +892,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
                 } else {
                     intents?.toggleVideo(hit.row.ref, a.id)
                 }
+            // cmux: a picture opens large, to zoom and mark up (opening it in an app is in the context menu).
+            case let .attachment(a) where a.kind == "image": openPictureAttachment(hit.row.ref.messageId, a.id)
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).

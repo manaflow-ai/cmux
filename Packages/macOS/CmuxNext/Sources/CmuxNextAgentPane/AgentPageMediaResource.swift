@@ -4,8 +4,9 @@ import Foundation
 /// The agent page's granted video and audio on the shared page host:
 /// `cmux-page://cmux.agent/__media/<token>.<ext>`, the same files and the same byte ranges the old
 /// pane host serves at `cmux-agent://pane/__media/` (``AgentPaneSchemeHandler/readSlice(of:range:)``),
-/// so a player streams a file of any size. A token the host never granted is a 404. Only WebKit
-/// asks in ranges; a whole-body request (the Chromium page) gets a 404, never a whole file read.
+/// so a player streams a file of any size. A token the host never granted is a 404. WebKit and
+/// Chromium both ask in ranges (the page host passes the `Range` header); a whole-body request
+/// gets a 404, never a whole file read.
 @MainActor
 final class AgentPageMediaResource: PageDynamicResourceSource, PageRangedResourceSource {
     static let shared = AgentPageMediaResource()

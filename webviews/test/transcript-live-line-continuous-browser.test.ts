@@ -6,7 +6,9 @@
 // next call and that one done. Every painted frame is read: the line is one element from start to end
 // (no unmount and remount), its shimmer band is one element whose animation never starts again, the
 // line always draws words (no blank frame between calls), its clock is the turn's and never goes
-// back, and between calls it names the finished step instead of going back to "Thinking".
+// back. Since Leo, 2026-11-07 ("Why don't we just immediately switch to the thinking? I feel like
+// this hangs on for a bit too much"), the line reads "Thinking" the moment a call completes, in the
+// same element, instead of holding the finished step.
 //
 // Before: the line went "Running grep 0s" (a clock that started again at each call) to "Thinking
 // 15s" under the call's own "Ran grep …" row.
@@ -166,23 +168,25 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     // The shimmer never starts again: its animation's time only moves forward.
     for (let index = 1; index < trace.length; index += 1)
       expect(trace[index]!.anim).toBeGreaterThanOrEqual(trace[index - 1]!.anim);
-    // No blank frame: the line always says something, with the turn's time beside it.
+    // No blank frame: the line always says something, with the turn's time beside it (named "turn"
+    // after a dot beside a bare Thinking).
     for (const row of trace) {
       expect(row.text.length).toBeGreaterThan(0);
-      expect(row.time).toMatch(/^\d+s$/);
+      expect(row.time).toMatch(/^(turn )?\d+s$/);
     }
     // The turn's clock, never the call's: it never reads under the 15 s the turn has run, nor goes back.
-    const seconds = trace.map((row) => Number.parseInt(row.time, 10));
+    const seconds = trace.map((row) => Number.parseInt(row.time.replace(/^turn /, ""), 10));
     expect(Math.min(...seconds)).toBeGreaterThanOrEqual(15);
     for (let index = 1; index < seconds.length; index += 1)
       expect(seconds[index]!).toBeGreaterThanOrEqual(seconds[index - 1]!);
-    // Between calls the line holds the finished step, never "Thinking" under its row.
-    const last = (step: string) => trace.filter((row) => row.step === step).at(-1)!.text;
-    expect(last("thinking")).toBe("Thinking");
+    // Between calls the line reads Thinking from the frame the call completes; it never holds the
+    // finished step with its frozen time.
+    const all = (step: string) => trace.filter((row) => row.step === step);
+    const last = (step: string) => all(step).at(-1)!.text;
+    expect(last("thinking")).toStartWith("Thinking");
     expect(last("grep running")).toStartWith("Running grep");
-    expect(last("grep done")).toStartWith("Ran grep");
-    expect(last("thought")).toStartWith("Ran grep");
+    for (const step of ["grep done", "thought", "sed done"])
+      for (const row of all(step)) expect(row.text).toStartWith("Thinking");
     expect(last("sed running")).toStartWith("Running sed");
-    expect(last("sed done")).toStartWith("Ran sed");
   });
 });

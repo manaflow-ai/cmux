@@ -6,7 +6,7 @@ the fix:
 
   workflow    a .github workflow or action file that does not parse as YAML, or a workflow in which
               the local actionlint finds a problem the HEAD version of the file does not have
-  test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.toml entry (CI's registry check
+  test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.d/ entry (CI's registry check
               fails the pull request that adds an unregistered test)
   god-file    a CmuxNext Swift or cmux-tui Rust file that grew in lines against HEAD and that
               scripts/cmux-next/check-no-godfiles.sh, run on that file with CI's 20% warning slack,
@@ -45,7 +45,8 @@ GOD_FILE = re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Sources|Tests)/.+\.swift|
 GOD_FILE_SCRIPT = "scripts/cmux-next/check-no-godfiles.sh"
 # check-no-godfiles.sh lines that are about the base, not this edit.
 GOD_FILE_NOTE = re.compile(r"on the base too|did not grow|now meets the budget|shrank to|is gone|--update-baseline")
-REGISTRY = "tests/test-execution.toml"
+REGISTRY = "tests/test-execution.d"
+LEGACY_REGISTRY = "tests/test-execution.toml"  # the single file before the split, read while present
 # The hooks give this script 15 s; leave room to print.
 DEADLINE_SECONDS = 12.0
 MAX_LINES_SHOWN = 8
@@ -216,12 +217,16 @@ def check_test_registration(root: Path, path: str, budget: Budget) -> list[str]:
     if tracked is None or tracked.returncode == 0:
         return []
     try:
-        registry = (root / REGISTRY).read_text(encoding="utf-8")
+        files = [root / LEGACY_REGISTRY] if (root / LEGACY_REGISTRY).is_file() else []
+        files += sorted((root / REGISTRY).glob("*.toml")) if (root / REGISTRY).is_dir() else []
+        if not files:
+            return []
+        registry = "\n".join(path.read_text(encoding="utf-8") for path in files)
     except OSError:
         return []
     if re.search(r'^\s*path\s*=\s*"' + re.escape(path) + r'"', registry, re.M):
         return []
-    return [f"{path} is a new test with no {REGISTRY} entry; CI fails a pull request that adds one. "
+    return [f"{path} is a new test with no {REGISTRY}/ entry; CI fails a pull request that adds one. "
             f"Run it from a workflow step (ci-guards.yml), then: python3 scripts/ci/validate_test_execution_registry.py "
             f"--write --only {path}"]
 

@@ -613,6 +613,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
+    /// ends it (a harness still working on a loaded machine).
+    pub hold_starts: bool,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
@@ -840,6 +843,24 @@ impl AgentPort for FakeAgents {
     fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {
         self.inner.lock().unwrap().trusted.push(cwd.to_owned());
         Ok(())
+    }
+
+    fn new_session_watching(
+        &self,
+        spec: &SessionSpec,
+        keep_waiting: &mut dyn FnMut(Duration) -> bool,
+    ) -> Result<String, String> {
+        if !self.inner.lock().unwrap().hold_starts {
+            return self.new_session(spec);
+        }
+        let mut waited = Duration::ZERO;
+        loop {
+            waited += Duration::from_secs(10);
+            if !keep_waiting(waited) {
+                return Err("session/new: stopped waiting".to_owned());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
@@ -1406,6 +1427,19 @@ impl Harness {
     pub fn step(&mut self) {
         let input = self.rx.recv_timeout(WAIT).expect("the brain got no input");
         self.brain.step(input);
+    }
+
+    /// Steps the brain's inputs until `n` prompts were sent. A turn sends
+    /// other inputs before `Settled` (the compactor's stuck-line state, a
+    /// progress note), so one `step` does not reach its prompt.
+    pub fn step_to_prompts(&mut self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        while self.agents.inner.lock().unwrap().prompts.len() < n {
+            assert!(std::time::Instant::now() < deadline, "no prompt {n}");
+            if let Ok(input) = self.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                self.brain.step(input);
+            }
+        }
     }
 
     /// The whole memory log: (kind, text).

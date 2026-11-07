@@ -100,8 +100,34 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     static let baselineFrameRate = 60
     /// The most a stream asks for (ProMotion).
     static let maximumFrameRate = 120
-    /// Auto and Smooth Motion's bitrate ceiling at 60 fps: 200 kbit a frame.
+    /// Auto and Smooth Motion's bitrate ceiling at 60 fps for a picture of
+    /// unknown size: 200 kbit a frame.
     static let adaptiveBitrateAtBaseline = 12_000_000
+    /// Auto and Smooth Motion's bitrate ceiling for a known picture: 0.18
+    /// bits per encoded pixel per frame, from Petal
+    /// (https://github.com/kiruna-labs/petal, Apache-2.0,
+    /// `apps/desktop/src-tauri/src/transport/publisher.rs`), which raised it
+    /// from 0.13 after small text read "readable, not crisp" at QP 26: the
+    /// ceiling is the lever on QP. Clamped to
+    /// ``adaptiveBitrateFloor``...``adaptiveBitrateCeiling(frameRate:)``.
+    static let adaptiveBitsPerPixelFrame = 0.18
+    /// The least ceiling a known picture gets (Petal's 4 Mbps).
+    static let adaptiveBitrateFloor = 4_000_000
+    /// The most a known picture asks for: Petal's 16 Mbps, and never less
+    /// than 200 kbit a frame (24 Mbps at 120 fps, as before), so a
+    /// high-rate stream keeps its per-frame budget.
+    static func adaptiveBitrateCeiling(frameRate: Int) -> Int {
+        max(16_000_000, adaptiveBitrateAtBaseline / baselineFrameRate * frameRate)
+    }
+
+    /// Auto and Smooth Motion's bitrate ceiling for a `width`×`height`
+    /// picture as encoded (after ``Settings/scaleDown``) at `frameRate`.
+    /// A picture of unknown size keeps 200 kbit a frame.
+    static func adaptiveBitrate(width: Double, height: Double, frameRate: Int) -> Int {
+        guard width > 0, height > 0 else { return adaptiveBitrateAtBaseline / baselineFrameRate * frameRate }
+        let wanted = Int((adaptiveBitsPerPixelFrame * width * height * Double(frameRate)).rounded())
+        return min(max(wanted, adaptiveBitrateFloor), adaptiveBitrateCeiling(frameRate: frameRate))
+    }
     /// The most pixels a second Auto and Smooth Motion ask the hardware
     /// H.264 encoder for above 60 fps (2160×1396 at 120). VideoToolbox's
     /// H.264 encoder is bound by pixels a second, not by its level or
@@ -129,9 +155,11 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// The sender's encoding for a display `sourceWidth`×`sourceHeight`
     /// pixels (0: unknown) at `frameRate` (from
     /// ``frameRate(hostMaximum:viewerMaximum:)``).
-    /// Auto and Smooth Motion's bitrate ceiling grows with the frame rate so
-    /// each frame keeps its 200 kbit (24 Mbps at 120): at a fixed ceiling
-    /// every frame would get half the bits and text would blur in motion.
+    /// Auto and Smooth Motion's bitrate ceiling follows the encoded pixels
+    /// and the frame rate (``adaptiveBitrate(width:height:frameRate:)``): a
+    /// full Retina display gets 16 Mbps at 60 fps and 24 at 120, a small
+    /// picture less (1280×800 at 60: about 11 Mbps). At a fixed ceiling a
+    /// faster stream would give every frame fewer bits and text would blur in motion.
     /// It is a ceiling, not a target: WebRTC's congestion control still sets
     /// the rate from the network, and a still screen sends next to nothing.
     /// Above 60 fps they also scale the picture down just enough to stay
@@ -140,10 +168,11 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     func settings(sourceWidth: Int = 0, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
         let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
-        let adaptiveBitrate = Self.adaptiveBitrateAtBaseline / Self.baselineFrameRate * fps
         let pixelRate = Double(sourceWidth) * Double(sourceHeight) * Double(fps)
         let fitEncoder = fps > Self.baselineFrameRate && pixelRate > Double(Self.maximumEncodedPixelRate)
             ? (pixelRate / Double(Self.maximumEncodedPixelRate)).squareRoot() : 1
+        let adaptiveBitrate = Self.adaptiveBitrate(width: Double(sourceWidth) / fitEncoder,
+                                                   height: Double(sourceHeight) / fitEncoder, frameRate: fps)
         switch self {
         case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
         case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
@@ -203,6 +232,14 @@ public protocol ScreenBackend: AnyObject, Sendable {
     var maximumFrameRate: Int? { get }
     /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
+    /// Captures at most `pixels` on the picture's long edge (the viewer's
+    /// demand; nil: the display's own size). Only for a source that
+    /// ``scalesToDemand``.
+    func setMaximumLongEdge(_ pixels: Int?)
+    /// Whether ``setMaximumLongEdge(_:)`` scales the picture. A source that
+    /// can't (the Screen Sharing loopback) keeps the full size, and so does
+    /// the encoder's bitrate ceiling.
+    var scalesToDemand: Bool { get }
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -211,6 +248,8 @@ public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
+    func setMaximumLongEdge(_ pixels: Int?) {}
+    var scalesToDemand: Bool { false }
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -241,6 +280,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var frameRate: Int?
         /// Pictures the source delivered since the last encoder log line (idle refreshes not counted).
         var captured = 0
+        /// The size the viewer needs (``ViewerDemand``); full size until it reports one.
+        var demand = ViewerDemand()
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
@@ -511,6 +552,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if applyQuality(session) { sendDisplays(session) }
             return
         }
+        if input.t == ScreenStreamViewer.viewDemandMessage {
+            // The viewer's display, not input: view-only sessions too.
+            applyDemand(input, session: session)
+            return
+        }
         if input.t == ScreenStreamViewer.frameRateMessage {
             // The viewer's display, not input: view-only sessions too.
             guard let fps = Self.reportedFrameRate(input) else { return }
@@ -555,20 +601,51 @@ public final class ScreenStreamHost: @unchecked Sendable {
         _ = session.link.sendText(String(decoding: data, as: UTF8.self))
     }
 
+    /// Takes a viewer's `view` report: once a new size held long enough
+    /// (``ViewerDemand``), the source captures at it and the encoder's
+    /// bitrate follows the smaller picture. The demand follows the viewer
+    /// under a fixed preset too, so going back to Auto starts at its size.
+    private func applyDemand(_ input: ScreenInput, session: Session) {
+        guard let longEdge = input.i, session.backend.scalesToDemand else { return }
+        let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
+        let changed = session.lock.withLock { () -> Int?? in
+            let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+            guard session.demand.report(longEdge: longEdge, displayLongEdge: Int(max(display.width, display.height)),
+                                        pinch: input.d == true, now: now),
+                  session.quality == .auto || session.quality == .smooth else { return nil }
+            return .some(session.demand.cap)
+        }
+        guard let changed else { return }
+        log("viewer demand: \(changed.map { "\($0) px long edge" } ?? "full size")")
+        applyQuality(session)
+    }
+
+    /// The long edge the source captures at and the encoder sizes its
+    /// bitrate for: the viewer's demand, but only under an adaptive quality
+    /// (a fixed preset keeps the full display, its own scale-down) and only
+    /// for a source that scales. A source that can't keeps sending the full
+    /// picture, so the bitrate must not shrink under it.
+    static func captureCap(_ demand: Int?, quality: ScreenQuality, scales: Bool) -> Int? {
+        scales && (quality == .auto || quality == .smooth) ? demand : nil
+    }
+
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
     /// hears it with the next displays message).
     @discardableResult
     private func applyQuality(_ session: Session) -> Bool {
         let hostRate = session.backend.maximumFrameRate
-        let (quality, size, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int, Bool) in
-            let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+        let (quality, size, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int?, Int, Bool) in
+            let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+            let cap = Self.captureCap(session.demand.cap, quality: session.quality, scales: session.backend.scalesToDemand)
+            let size = ViewerDemand.fit(display, cap: cap)
             let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
             defer { session.frameRate = fps }
-            return (session.quality, size, fps, session.frameRate != fps)
+            return (session.quality, size, cap, fps, session.frameRate != fps)
         }
         session.link.applyVideo(quality, source: size, frameRate: fps)
         session.backend.setFrameRate(fps)
+        session.backend.setMaximumLongEdge(cap)
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
     }
@@ -886,6 +963,19 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     static func capabilities(in message: ScreenHostMessage) -> [String]? {
         guard message.t == ScreenHostMessage.capabilitiesType else { return nil }
         return (message.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// The message type that reports how large the viewer shows the stream:
+    /// `i` the long edge in device pixels the whole streamed display takes at
+    /// the viewer's zoom, `d` true when a pinch just ended (``ViewerDemand``).
+    /// An older host ignores it and keeps the full size.
+    static let viewDemandMessage = "view"
+
+    /// Tells the Mac how large this viewer shows the stream (every 2 s, and
+    /// with `pinch` when a zoom ends). Auto and Smooth Motion then capture
+    /// no larger than that needs; the fixed presets ignore it.
+    public func reportView(longEdge: Int, pinch: Bool) {
+        send(ScreenInput(t: Self.viewDemandMessage, d: pinch, i: longEdge))
     }
 
     /// The input message type that reports the viewer's display rate.

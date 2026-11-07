@@ -9,6 +9,7 @@ const Policy = Schema.Struct({
   schemaVersion: Schema.Literal(1), tenantId: NativeTenantId, vmId: NativeVmId, meshId: NativeMeshId,
   ipv4: Schema.NullOr(Schema.String), aclVersion: Millis, checkedAt: Millis, expiresAt: Millis,
   policyDigest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  ownerExpiresAt: Schema.optionalKey(Schema.NullOr(Millis)),
   peers: Schema.Array(Schema.Struct({ deviceId: NativeDeviceId, wgPublicKey: WgPublicKey,
     installPublicKey: Schema.String.check(Schema.isPattern(/^B[A-Za-z0-9+/]{86}=$/)),
     allow: Schema.Array(NetworkAllow).check(Schema.isMaxLength(4096)) })).check(Schema.isMaxLength(128))

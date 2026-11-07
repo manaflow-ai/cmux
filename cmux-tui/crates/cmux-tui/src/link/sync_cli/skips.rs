@@ -36,6 +36,8 @@ pub(super) enum Why {
     Heavy,
     /// The name of the sync record itself.
     Reserved,
+    /// A pull's merge with conflict markers, kept on this Mac.
+    ConflictMerge,
 }
 
 impl Why {
@@ -52,7 +54,7 @@ impl Why {
             Self::Special => "special",
             Self::NameTooLong | Self::NameControl | Self::NameNotUtf8 => "name",
             Self::Heavy => "heavy",
-            Self::Reserved => "reserved",
+            Self::Reserved | Self::ConflictMerge => "reserved",
         }
     }
 
@@ -73,6 +75,7 @@ impl Why {
             Self::NameNotUtf8 => "a name Linux can't hold (not UTF-8)",
             Self::Heavy => "a heavy folder rebuilt on the machine",
             Self::Reserved => "the name of the sync record",
+            Self::ConflictMerge => "a sync conflict's merge, kept on this Mac",
         }
     }
 }

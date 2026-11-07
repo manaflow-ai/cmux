@@ -1,6 +1,5 @@
-// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words,
-// never a raw shell line (Leo 2026-10-25 on a tray line reading "cd /Users/…/checkouts/… && sed -i
-// …": "it's kind of wack"). Only a tool call's title is ever a command: a Claude subagent's action
+// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words.
+// Command rows additionally show their trimmed raw shell line as activity; a subagent's action
 // is its latest call's title, and a chat's doing line (sessionList.ts `doingLine`) is its plan step,
 // prose that is never touched, then its latest call's title (`doingTool`). ACP titles every other
 // call in words that start with a capital ("Read AgentCard.tsx", "Run cargo test"); a shell call's
@@ -54,4 +53,38 @@ export function toolDetail(t: Translate, title: string | undefined, shell = fals
 export function doingDetail(t: Translate, doing: string | undefined, tool: string | undefined): string | undefined {
   if (!doing || !tool || !doing.endsWith(tool)) return doing;
   return doing.slice(0, doing.length - tool.length) + toolDetail(t, tool);
+}
+
+/// The last line of what an agent said that has words in it, Markdown marks taken off the line's
+/// start (`- `, `## `, `> `, `**`), so a report's closing line reads as a sentence.
+export function lastSaidLine(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const lines = text.split("\n");
+  for (let at = lines.length - 1; at >= 0; at -= 1) {
+    const line = lines[at]!.trim()
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|>\s*)+/u, "")
+      .replace(/\*\*|__|`/gu, "")
+      .trim();
+    if (/[\p{L}\p{N}]/u.test(line)) return line;
+  }
+  return undefined;
+}
+
+/// What a running tray line says its agent did last, on its second line (trayLatest.experiment.ts):
+/// for one that stopped to wait on background work of its own, the last line it said; else its
+/// latest step in words (``toolDetail``), else the last line it said. Never its prompt.
+export function latestLine(
+  t: Translate,
+  agent: {
+    action?: string;
+    actionShell?: boolean;
+    lastMessage?: string;
+    result?: string;
+    reaction?: { text?: string };
+  },
+  ownWork: boolean,
+): string | undefined {
+  const said = lastSaidLine(agent.reaction?.text) ?? lastSaidLine(agent.lastMessage ?? agent.result);
+  if (ownWork) return said ?? toolDetail(t, agent.action, agent.actionShell);
+  return toolDetail(t, agent.action, agent.actionShell) ?? said;
 }

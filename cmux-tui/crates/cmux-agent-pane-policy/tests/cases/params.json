@@ -567,7 +567,9 @@
     "beforeSeq": 1,
     "limit": 1,
     "maxBytes": 1,
-    "kinds": 1
+    "kinds": 1,
+    "promptIndex": 1,
+    "subagent": 1
    }
   },
   "mode_fields": null,

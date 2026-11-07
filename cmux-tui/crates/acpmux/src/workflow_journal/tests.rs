@@ -86,6 +86,18 @@ fn native_workflow_journal_has_only_one_resume_owner() {
     assert!(Journal::open(directory.path(), "script", 1).is_ok());
 }
 
+#[cfg(windows)]
+#[test]
+fn native_workflow_journal_files_are_owner_only() {
+    let directory = tempfile::tempdir().unwrap();
+    let _journal = Journal::open(directory.path(), "script", 1).unwrap();
+
+    assert!(crate::owner_only::only_owner_reads(&directory.path().join("resume.lock")).unwrap());
+    assert!(
+        crate::owner_only::only_owner_reads(&directory.path().join("activities.jsonl")).unwrap()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn native_workflow_journal_releases_ownership_with_an_inherited_descriptor() {
@@ -183,6 +195,37 @@ fn native_workflow_journal_recovers_a_cut_tail_but_refuses_corrupt_records() {
     }
     std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"not json\n").unwrap();
     assert!(Journal::open(directory.path(), "script", 1).is_err());
+}
+
+#[test]
+fn native_workflow_journal_repairs_a_garbled_final_record_without_replaying_it() {
+    use std::io::Write;
+    let directory = tempfile::tempdir().unwrap();
+    let id = {
+        let mut journal = Journal::open(directory.path(), "script", 1).unwrap();
+        work(journal.begin("machine", "build", &json!({})).unwrap()).0
+    };
+    let path = directory.path().join("activities.jsonl");
+    let corrupt = [0_u8; 32].into_iter().chain([b'\n']).collect::<Vec<_>>();
+    std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(&corrupt).unwrap();
+
+    let mut journal = Journal::open(directory.path(), "script", 0).unwrap();
+    assert!(journal.begin("machine", "build", &json!({})).is_err());
+    journal.repair_corrupt_tail(&id, Ok(json!({"recovered": true}))).unwrap();
+    assert_eq!(
+        journal.begin("machine", "build", &json!({})).unwrap(),
+        Activity::Replay(Ok(json!({"recovered": true})))
+    );
+    journal.finish().unwrap();
+    assert_eq!(std::fs::read(directory.path().join("activities.jsonl.corrupt")).unwrap(), corrupt);
+    drop(journal);
+
+    let mut resumed = Journal::open(directory.path(), "script", 0).unwrap();
+    assert_eq!(
+        resumed.begin("machine", "build", &json!({})).unwrap(),
+        Activity::Replay(Ok(json!({"recovered": true})))
+    );
+    resumed.finish().unwrap();
 }
 
 #[test]

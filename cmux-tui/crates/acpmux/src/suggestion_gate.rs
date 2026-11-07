@@ -16,6 +16,7 @@
 //! The tallies live in `~/.acpmux/prompt-suggestions.json` (rewritten after each outcome); a
 //! missing or unreadable file starts from the prior.
 
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -202,15 +203,18 @@ pub fn gate_update(gate: &mut Gate, session: &str, harness: &str, update: &mut V
         return;
     }
     let estimate = gate.tally(&key).estimate();
-    update["suggestion"] = Value::Null;
+    update.set("suggestion", Value::Null);
     if !update.get("_meta").is_some_and(Value::is_object) {
-        update["_meta"] = serde_json::json!({});
+        update.set("_meta", serde_json::json!({}));
     }
-    if !update["_meta"].get("acpmux").is_some_and(Value::is_object) {
-        update["_meta"]["acpmux"] = serde_json::json!({});
+    let Some(meta) = update.get_mut("_meta") else { return };
+    if !meta.get("acpmux").is_some_and(Value::is_object) {
+        meta.set("acpmux", serde_json::json!({}));
     }
-    update["_meta"]["acpmux"]["suggestionWithheld"] =
-        serde_json::json!({"source": source, "estimate": estimate});
+    if let Some(acpmux) = meta.get_mut("acpmux") {
+        acpmux
+            .set("suggestionWithheld", serde_json::json!({"source": source, "estimate": estimate}));
+    }
 }
 
 /// A person's prompt in `session`: its text and whether its client marked the shown suggestion

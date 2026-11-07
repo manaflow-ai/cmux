@@ -130,7 +130,7 @@ export default componentEntry<SpacingProps>({
   area: "Agent pane",
   height: 700,
   pane: true,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   load: async () => TranscriptSpacing,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {

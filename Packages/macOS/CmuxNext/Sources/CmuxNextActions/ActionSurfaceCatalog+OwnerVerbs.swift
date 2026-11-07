@@ -11,8 +11,14 @@ nonisolated extension ActionSurfaceCatalog {
     /// `tab close`, `screen new|close`, `pane close` and `browser back|forward`
     /// are its operations and parse before the app fallback; an app
     /// browser tab's history runs as `cmux browser tab_… back|forward`.
+    /// cmux Remote (docs/cmux-remote.md) is the daemon's: `cmux remote-host status|refresh|request|restart|
+    /// share|access` and the `remote_*` MCP tools reach it with the app quit too; these app actions are
+    /// their palette form.
     static let ownerVerbActions: [ActionID] = [
         "space.new", "newTab", "closeWorkspace", "closeTab", "screen.new", "screen.close", "closePane",
         "browserBack", "browserForward",
+        "remote.showStatus", "remote.refreshPermissions", "remote.allowAccessibility", "remote.allowScreenRecording",
+        "remote.restartComputerUse", "remote.restartScreenSharing",
+        "macScreen.shareThisMac", "macScreen.stopSharingThisMac", "macScreen.deviceAccess",
     ]
 }

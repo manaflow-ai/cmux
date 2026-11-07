@@ -57,6 +57,9 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        // The list's motion is off by default (87e2cea19de, msg 20105: its bubbles stand still);
+        // this test is about the pulse Reduce Motion stops, so it turns the list's motion on.
+        home.list.animates = true
         home.list.wantsLayer = true
         let bubble = SidebarTypingLayer()
         home.list.layer?.addSublayer(bubble)

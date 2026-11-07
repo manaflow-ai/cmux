@@ -46,6 +46,17 @@ extension ActionRegistry {
         return caps.joined(separator: isSequence ? " " : "")
     }
 
+    /// The keys of `id`'s shortcut in the order they are pressed: one entry (`⇧⌘P`), or two for a
+    /// chord (`⌘J`, then `S`); nil when it has no shortcut. Text that names a chord shows each key
+    /// apart, as one `⌘J S` reads like a key and a stray letter.
+    public func shortcutSteps(for id: ActionID) -> [String]? {
+        let id = canonicalID(for: id)
+        if let chord = chordOverrides[id] ?? LeaderLayer(registry: self).shownDefaultChord(for: id) {
+            return [chord.first.displayString, shortcutDisplay(chord.second, for: id)]
+        }
+        return shortcutDisplay(for: id).map { [$0] }
+    }
+
     /// How `shortcut` reads as `id`'s shortcut: `⌥⌘1…9` for a numbered
     /// family.
     public func shortcutDisplay(_ shortcut: Shortcut, for id: ActionID) -> String {

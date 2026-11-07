@@ -88,7 +88,7 @@ export const handleSendblueHook = async (request: Request, env: Env, fetcher: ty
   const phone = invites.normalizePhone(message.number)
   if (!invites.isAddress(phone)) return new Response(null, { status: 200 })
   const id = invites.addressId(env.HOME_ADDRESS_KEY, phone)
-  const stub = env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as { textEvent(address: string, m: SendblueMessage): Promise<void>; textInbound(address: string, phone: string, m: SendblueMessage): Promise<string> }
+  const stub = env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id))
   // Texting Chief (text-chief.ts): a fresh inbound text that is not an opt-out goes to the sender's Chief.
   const sent = message.date_sent ? Date.parse(message.date_sent) : NaN
   const fresh = Number.isFinite(sent) && Date.now() - sent <= address.INBOUND_MAX_AGE_MS && sent - Date.now() <= 60_000

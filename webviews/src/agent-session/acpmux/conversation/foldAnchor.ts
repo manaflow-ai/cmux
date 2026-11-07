@@ -5,9 +5,8 @@
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Any disclosure clicked with the view at its very end instead pins the bottom and moves the thread
-// as one stack: what opens pushes the text above it up (Leo 2026-11-02), and what closes pulls it
-// down, leaving no blank room under the rows (App.tsx `beginBottomStackFold`, Leo 2026-11-03: "it's
+// A disclosure closed with the view at its very end instead pins the bottom and moves the thread
+// as one stack: what closes pulls it down, leaving no blank room under the rows (App.tsx `beginBottomStackFold`, Leo 2026-11-03: "it's
 // weird to collapse and get all that empty space at the bottom"). Away from the end a close keeps
 // the clicked line: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as
 // the reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
@@ -37,6 +36,11 @@ const NESTED_CONTROL =
 /// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
 /// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
+
+/// How far up the view a disclosure line sat, as a share of the view's height from its foot, when
+/// opening it at the latest row pinned the bottom. Opening no longer pins it (VirtualTranscript.tsx
+/// `beginBottomStackFold`); only transcript-details-toggle-steady-browser.test.ts still reads it.
+export const BOTTOM_PIN_SHARE = 0.6;
 /// How long a hold outlasts its fold: the last frame's measure, and rows a "Worked for" inserts.
 export const FOLD_SETTLE_MS = 150; // motion-allow: a hold timer after the fold, not an animation
 /// The shortest hold, so a toggle with no fold (Reduce Motion, a body that lays out late) is still

@@ -34,6 +34,8 @@ public protocol AgentShareHost: AnyObject {
     /// Shows the Invite People sheet of one chat over the active window (the owner's own run of
     /// Invite People… with no account named).
     func shareShowInvites(_ model: AgentShareInviteSheetModel)
+    /// Opens Settings on the page `route` (the Share dialog's Manage links…).
+    func shareOpenSettings(route: String)
 }
 
 public extension AgentShareHost {
@@ -41,6 +43,8 @@ public extension AgentShareHost {
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
     /// A host with no sheet shows nothing.
     func shareShowInvites(_ model: AgentShareInviteSheetModel) {}
+    /// A host with no Settings opens nothing.
+    func shareOpenSettings(route: String) {}
 }
 
 /// What the owner is asked before a run they did not start makes a guest link, or invites an account:

@@ -157,14 +157,12 @@ fn a_macs_signature_counts_for_its_one_time_allow_and_every_change_fails() {
 }
 
 #[test]
-fn a_mac_never_allows_a_plan_a_mode_switch_or_a_folder_trust() {
+fn a_mac_never_allows_a_plan_or_a_mode_switch() {
     let once = json!([{"optionId": "yes", "kind": "allow_once"}]);
     let plan = json!({"toolCall": {"toolCallId": "c", "kind": "switch_mode"}, "options": once});
     let exit = json!({"toolCall": {"toolCallId": "c", "kind": "other",
                       "_meta": {"claude": {"tool": "ExitPlanMode"}}}, "options": once});
-    let trust = json!({"toolCall": {"toolCallId": "c", "_meta": {"acpmux": {"trust": {"cwd": "/w"}}}},
-                       "options": once});
-    for request in [plan, exit, trust] {
+    for request in [plan, exit] {
         assert!(!may_allow(&request, "yes", None), "{request}");
     }
     // An option offered twice is no one-time allow.
@@ -175,6 +173,24 @@ fn a_mac_never_allows_a_plan_a_mode_switch_or_a_folder_trust() {
     assert!(may_allow(&tool_ask(), "yes", None));
     // Answers go with a question only.
     assert!(!may_allow(&tool_ask(), "yes", Some(&json!({"q": "A"}))));
+}
+
+/// Leo, 2026-11-04: "it doesnt let me trust on click". The folder-trust card a sub-session's
+/// start raises on another machine (`trust_wait::card`) is answered by the person's click on an
+/// enrolled Mac: its Trust folder counts, with the card's answers or without; Not now needs no
+/// signature, and no other option of the card is a one-time allow.
+#[test]
+fn a_mac_may_trust_the_folder_on_the_trust_card() {
+    let card = super::super::trust_wait::card("/home/me/work", "review-2");
+    assert!(may_allow(&card, "trust", None));
+    assert!(may_allow(&card, "trust", Some(&json!({"q0": "trust"}))));
+    assert!(!may_allow(&card, "not_now", None));
+    // And a valid signature over it counts, once.
+    let k = key();
+    let (set, _) = enrolled(&k, "trust-card");
+    let call = card["toolCall"]["toolCallId"].as_str().unwrap().to_owned();
+    let sig = sign(&k, &parts(&call, "trust", 200, ""));
+    assert!(check(&set, &card, "trust", &sig, 200, None, 100));
 }
 
 #[test]
@@ -421,4 +437,31 @@ fn a_groups_allow_takes_only_macs_and_spends_every_nonce_or_none() {
     }];
     assert!(!gate.macs_prove("s1", &phone_proof));
     assert!(!gate.macs_spend("s1", &phone_proof));
+}
+
+#[test]
+fn a_macs_paired_phone_enrolled_here_allows_one_prompt_and_never_raises_a_policy() {
+    let k = key();
+    let phone = super::super::approvers::peer_phone_id("mac-device-1", "iphone-1").unwrap();
+    assert!(phone.starts_with(super::super::approvers::PEER_PHONE), "{phone}");
+    let path = dir("phone").join(FILE);
+    write(
+        &path,
+        json!([{"id": phone, "publicKey": hex(k.public_key().as_ref()), "name": "iPhone"}]),
+    );
+    let set = MacApprovers::default();
+    set.open(path);
+    let now = 1_000;
+    let ask = tool_ask();
+    let mut signed = parts("call-1", "yes", now + 120, "");
+    signed.mac = &phone;
+    let sig = sign(&k, &signed);
+    let decision = json!({"approver": phone, "expiresAt": now + 120, "signature": sig});
+    assert!(
+        set.verifies_then("inst", "s1", "p1", &ask, "yes", "n1", None, &decision, now, || true)
+    );
+    let raise = policy_message("inst", &phone, "s1", "approve-all", "n1");
+    let sig = hex(k.sign(&ring::rand::SystemRandom::new(), &raise).unwrap().as_ref());
+    let signed = json!({"approver": phone, "signature": sig});
+    assert!(!set.policy_verifies_then("inst", "s1", "approve-all", "n1", &signed, || true));
 }

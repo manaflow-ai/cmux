@@ -203,19 +203,10 @@ try:
         check("quit-setup-program", loop_pid, loop_pid)
     reply = rpc("debug.quit", {"open": True})
     print("quit open:", json.dumps(reply)[:200])
-    # QUIT P0: with a local terminal, Cmd-Q asks how to quit; its default (Keep Sessions) keeps the program running.
-    asked = False
+    # Cmd-Q never asks (Leo 2026-11-05): it quits at once and keeps the program running.
     deadline = time.time() + 20
     while app.poll() is None and time.time() < deadline:
-        q = rpc("debug.quit", timeout=2) or {}
-        if q.get("asking") is True:
-            asked = True
-            rpc("debug.quit", {"press": "keep"}, timeout=5)
-            break
         time.sleep(0.25)
-    while app.poll() is None and time.time() < deadline:
-        time.sleep(0.25)
-    check("quit-asks", asked)
     check("quit-app-exits", app.poll() is not None, app.poll())
     time.sleep(5)  # test harness: past the quit, before the survival read
     check("quit-program-survives", loop_pid and alive(loop_pid), loop_pid)

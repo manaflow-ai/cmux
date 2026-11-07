@@ -97,10 +97,11 @@ final class HangReportsController {
 
     /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
     /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
-    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
-    /// an earlier opted-in period left (read once per launch).
-    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+    /// `firstWindow` resolves, never on `isFirstLaunch` (its first-run steps come first). A managed
+    /// `DisableTelemetry` turns everything off and clears what an earlier opted-in period left.
+    func start(settings: SettingsController, asks: SidebarAsks, isFirstLaunch: Bool = false, firstWindow: @escaping @MainActor () async -> Void) {
         guard service != nil else { return }
+        if isFirstLaunch { askedThisLaunch = [.confirm, .invite] }
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }

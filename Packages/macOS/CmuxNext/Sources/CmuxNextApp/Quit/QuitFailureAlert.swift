@@ -23,8 +23,8 @@ enum QuitFailureContent {
 
 /// "Some sessions did not end" after Quit's end choice, as a cmux dialog
 /// (R96): Retry (default, Return) runs the end again, Quit Anyway (Escape)
-/// quits with what did not end still running. It blocks the window like
-/// `QuitAlert`, else shows app-wide; a closed window or SIGTERM answers
+/// quits with what did not end still running. It blocks the active window,
+/// else shows app-wide; a closed window or SIGTERM answers
 /// Quit Anyway.
 @MainActor
 final class QuitFailureAlert {

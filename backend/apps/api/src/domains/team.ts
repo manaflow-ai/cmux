@@ -34,6 +34,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** A paired server's install -> the cmux-platform join token its approval minted (an id, not a secret; team-servers.ts). */
+  readonly server_machine_joins?: Readonly<Record<string, string>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
   /** Team default monthly AI spending limit per member in USD (team-ai-limit.ts); absent or null = the cmux default. */

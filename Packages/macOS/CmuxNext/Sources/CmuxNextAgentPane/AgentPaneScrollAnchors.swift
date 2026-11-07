@@ -40,6 +40,9 @@ public final class AgentPaneScrollAnchors {
     }
 
     let file: URL?
+    /// The app's state files, which also own the chat tails' disk tier beside this file
+    /// (``AgentPaneTailCache/disk``), so the quit awaits both.
+    let files: AgentPaneStateFiles
     /// Saves leave the main thread: every settled scroll of a chat saves.
     private let store: AgentPaneStateFile?
     /// Oldest first; read from the file on first use.
@@ -48,6 +51,7 @@ public final class AgentPaneScrollAnchors {
     /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
     public init(directory: URL?, files: AgentPaneStateFiles) {
         file = directory?.appending(path: Self.fileName)
+        self.files = files
         store = file.map(files.at)
     }
 

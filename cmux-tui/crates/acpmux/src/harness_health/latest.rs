@@ -25,6 +25,9 @@ impl Sources {
 }
 
 const MAX_BODY_BYTES: usize = 2 << 20;
+// timeout: a registry lookup is optional update metadata; a slow public registry leaves the
+// cached version in place instead of holding an agent wake.
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The URL that answers `install`'s newest version, if its channel has one.
 pub fn url(install: &Install, sources: &Sources) -> Option<String> {
@@ -59,7 +62,7 @@ pub async fn fetch_json(url: &str) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .https_only(!loopback)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(FETCH_TIMEOUT)
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;

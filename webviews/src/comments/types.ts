@@ -33,3 +33,6 @@ export type CommentDraft = {
 export type CommentAnnotationMetadata =
   | { kind: "draft" }
   | { kind: "comment"; comment: DiffCommentRecord; anchor: AnchorResult };
+
+/** Where "Send to agent" is: idle, on its way, or refused (the comments stay). */
+export type CommentsSendState = "idle" | "sending" | "failed";

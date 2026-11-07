@@ -19,14 +19,6 @@ public struct CloudPortNames: Equatable {
 /// next command. Keys live in Resources/CloudPorts.xcstrings with every app locale.
 public struct CloudPortStrings {
     public init() {}
-    /// A machine on the classic link (`/api/vm` and `cmux-tui remote connect`): the Cloud app
-    /// server keeps no forward for it.
-    public static func classicLink(_ names: CloudPortNames) -> String {
-        String(format: String(localized: "cloud.ports.classicLink",
-                              defaultValue: "Machine `%1$@` uses the classic Cloud link, which keeps no port forwards on this Mac. Run `cmux cloud open-browser --target machine:%2$@ --port %3$@` to open the port in a browser tab, or `cmux cloud machine-link --target machine:%2$@ --port %3$@` for its URL.",
-                              table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
-    }
-
     /// `port-close` of a port that has no forward.
     public static func noForward(_ names: CloudPortNames) -> String {
         String(format: String(localized: "cloud.ports.noForward",
@@ -117,5 +109,17 @@ public struct CloudPortStrings {
 
     public static var noPreviews: String {
         String(localized: "cloud.ports.noPreviews", defaultValue: "No live previews are available yet. Try again when the machine's web server is ready.", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var previewLinkCopied: String {
+        String(localized: "cloud.ports.previewLinkCopied", defaultValue: "Preview link copied", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var previewLinkRevoked: String {
+        String(localized: "cloud.ports.previewLinkRevoked", defaultValue: "Preview link revoked", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var previewLinkAlreadyRevoked: String {
+        String(localized: "cloud.ports.previewLinkAlreadyRevoked", defaultValue: "Preview link was already revoked", table: "CloudPorts", bundle: .module)
     }
 }

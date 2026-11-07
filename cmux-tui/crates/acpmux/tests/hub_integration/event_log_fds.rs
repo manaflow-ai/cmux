@@ -77,7 +77,8 @@ fn writing_many_sessions_holds_a_bounded_number_of_logs_open() {
     for n in 0..200 {
         store.append(&format!("session-{n:03}"), &record(1)).unwrap();
     }
-    let open = open_files_under(&dir).len();
+    // The chats' logs only: the event journal's own files under the home stay open by design.
+    let open = open_files_under(&dir.join("sessions")).len();
     assert!(open <= 64, "{open} event logs open after writing 200 sessions");
     // A session whose log was closed keeps appending to the same segment.
     store.append("session-000", &record(2)).unwrap();
