@@ -255,6 +255,17 @@ export const PAGES = {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
   },
+  // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
+  tasks: {
+    out: "webviews/src/pages/tasks/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
+  },
+  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
+  // component in webviews/src/browser-chrome/page-info.
+  "browser-chrome-page-info": {
+    out: "webviews/src/browser-chrome/page-info/generated/strings.json",
+    catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
+  },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
     out: "webviews/src/pages/chief-usage/generated/strings.json",

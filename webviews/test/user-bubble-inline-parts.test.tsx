@@ -60,7 +60,7 @@ const { FindReveal } = await import("../src/agent-session/acpmux/conversation/ch
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { clearImageEntries } = await import("../src/agent-session/acpmux/conversation/imageEntries");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
-const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/SourceBadge");
+const { resetSourceIcons } = await import("../src/agent-session/acpmux/composer/sourceBadgeModel");
 
 const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");

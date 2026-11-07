@@ -8,23 +8,13 @@ import { useEffect, useRef } from "react";
 import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { HeaderPullRequest } from "./headerState";
+import { readyToMerge } from "./pullRequestMergeModel";
 
 export type Merging =
   | { step: "idle" | "confirm" | "merging" | "merged" | "queued" }
   | { step: "failed"; message: string };
 /// What the App's merge answered: merged, or taken into a merge queue.
 export type MergeResult = { queued: boolean };
-
-/// Whether the page offers Merge for `pullRequest`.
-export function readyToMerge(pullRequest: HeaderPullRequest) {
-  return (
-    pullRequest.state === "open" &&
-    pullRequest.mergeable === "mergeable" &&
-    pullRequest.review !== "changes_requested" &&
-    pullRequest.review !== "review_required" &&
-    (pullRequest.checks.state === "passing" || pullRequest.checks.state === "none")
-  );
-}
 
 export function PullRequestMerge({
   pullRequest,

@@ -15,9 +15,9 @@ import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
+  MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
@@ -34,14 +34,16 @@ import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { ArrowUpIcon, BuildIcon, ContextRing, PlanIcon, ReturnIcon, StopIcon } from "./ComposerPickers";
+import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { SendSlotGlyph } from "./composer/SendSlotGlyph";
+import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
-import { Spinner } from "./conversation/icons";
-import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
@@ -113,7 +115,6 @@ import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
-  attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
@@ -145,6 +146,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { noteSendOrigins } from "./conversation/sendMorph";
 import {
   emojiMatches,
   emojiTrigger,
@@ -386,9 +388,8 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; an error for one too large to attach (shown as the
-  /// composer's note); undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// or a window, attached as an image at any size; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -677,6 +678,7 @@ function ComposerFrame({
   const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
+  const slotMemory = useRef<SlotMemory | undefined>(undefined);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
@@ -731,6 +733,7 @@ function ComposerFrame({
     revive,
     originalFailures,
     originalUploads,
+    needsOriginal,
     attachError,
     setAttachError,
     drop,
@@ -738,8 +741,8 @@ function ComposerFrame({
     attach,
     attachLater,
   } = useAttachmentIntake({
-    place: (chips) => {
-      if (!shell) box.current?.place(chips);
+    place: (chips, kind) => {
+      if (!shell) box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -1575,7 +1578,7 @@ function ComposerFrame({
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
-        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
         (gesture) => submitNow.current(force, steer, gesture),
         kept,
       )
@@ -1597,6 +1600,8 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
+    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
+    noteSendOrigins(sent);
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2342,6 +2347,11 @@ function ComposerFrame({
   const stopLabel = t(
     stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
   );
+  // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
+  // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
+  // once, so its glyphs draw at once.
+  slotMemory.current ??= newSlotMemory(sessionId);
+  const morphMemory = onOpenInWindow ? undefined : slotMemory.current;
   const stopButton = running ? (
     <button
       key="stop"
@@ -2356,7 +2366,7 @@ function ComposerFrame({
       onClick={stopTurn}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      {stopping ? <Spinner loading size={14} /> : <StopIcon />}
+      <SendSlotGlyph glyph={stopping ? "stopping" : "stop"} memory={morphMemory} scope={sessionId} />
     </button>
   ) : null;
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
@@ -2399,7 +2409,7 @@ function ComposerFrame({
                     )
         }
       >
-        {quietActions && !shell ? <ReturnIcon /> : <ArrowUpIcon />}
+        <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
       </button>
     ) : null;
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
@@ -2694,8 +2704,11 @@ function ComposerFrame({
                   else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
                     void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                       .then(async (shot) => {
-                        if (shot instanceof File) await attach([shot]);
-                        else if (shot) setAttachError(attachmentErrorText(shot, t));
+                        // One over the image cap goes as a pasted one does: a preview, and its
+                        // original saved to the chat for the agent to read; a send waits for that
+                        // original (its preview is a reduced copy). Never refused for size.
+                        const over = Boolean(shot && shot.size > MAX_IMAGE_BYTES);
+                        if (shot) await attach([shot], over, undefined, over);
                       })
                       .finally(() => {
                         const focused = document.activeElement;
@@ -2729,6 +2742,8 @@ function ComposerFrame({
           showContextUsage && (
             <UsageRingMenu>
               <ContextRing
+                // The chat the reading is of: switching chats shows the new one's at once, uneased.
+                chat={snapshot.summary?.sessionId || sessionId}
                 used={usage?.used}
                 size={usage?.size}
                 setup={usage?.setup}

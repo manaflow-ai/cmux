@@ -242,6 +242,11 @@ public extension PageDescriptor {
     /// in a page already running, never a new tab or a new web page.
     static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
 
+    /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
+    /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
+    /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
+    static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
+
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
     static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"
@@ -256,6 +261,12 @@ public extension PageDescriptor {
     /// opens a file; the only native op copies a path.
     static let files = PageDescriptor(
         id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
+
+    /// The Tasks page (webviews/src/pages/tasks, plans/cmux-next/tasks.md section 14). Its `cmux.tasks.` ops go
+    /// to the daemon, which relays them to the local Tasks owner (cmux-tui/spec/page-router.md, routed namespace
+    /// `tasks`); its only native op writes the pasteboard (Copy Command when no owner runs).
+    static let tasks = PageDescriptor(
+        id: "cmux.tasks", resource: "tasks", namespaces: ["cmux.tasks."], nativeOps: [PageNativeOp.clipboardWrite])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
