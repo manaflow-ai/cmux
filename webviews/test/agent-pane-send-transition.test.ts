@@ -21,7 +21,9 @@ import { warmViteServer } from "./support/warmDevServer";
 
 type Box = { left: number; top: number; width: number; height: number };
 /// One frame of the sent row: its height, the preview's box and the bubble's box, in the viewport.
-type Frame = { at: number; row: number; preview?: Box; hit: boolean; bubble?: Box; loaded: boolean };
+/// `bubble` is in the row's own coordinates: a chat that scrolls to the new prompt moves the row, not
+/// its text within it. `moving`: the preview's copy over the pane draws it (sendMorph.ts).
+type Frame = { at: number; row: number; preview?: Box; moving: boolean; hit: boolean; bubble?: Box; loaded: boolean };
 
 await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -75,6 +77,12 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
           const { left, top, width, height } = element.getBoundingClientRect();
           return { left, top, width, height };
         };
+        const inRow = (row: Element, element: Element | null) => {
+          const inner = box(element);
+          if (!inner) return undefined;
+          const outer = row.getBoundingClientRect();
+          return { ...inner, left: inner.left - outer.left, top: inner.top - outer.top };
+        };
         const start = performance.now();
         // raf-read: the move is the behavior; each frame's boxes are read as that frame is drawn,
         // its animations' current transforms included, so a frame after paint would skip the first.
@@ -98,7 +106,8 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
               row: row.getBoundingClientRect().height,
               preview: drawnBox,
               hit,
-              bubble: box(row.querySelector(".cv-user__bubble")),
+              moving: drawn !== shown,
+              bubble: inRow(row, row.querySelector(".cv-user__bubble")),
               loaded: !!image && image.complete && image.naturalWidth > 0,
             });
           // raf-read: every frame of the move, as it is drawn (above).
@@ -140,11 +149,20 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       expect(frame.row, `${label}: the row's height at ${frame.at} ms`).toBe(first.row);
       if (first.bubble) near(frame.bubble, first.bubble, `${label}: the text beside it at ${frame.at} ms`);
     }
+    // It lands where the preview is: the copy's last frame is the preview's first, no snap, even
+    // while the chat scrolls to the new prompt.
+    const landing = frames.findIndex((frame, index) => frame.moving && frames[index + 1]?.moving === false);
+    expect(landing, `${label}: the move never landed`).toBeGreaterThanOrEqual(0);
+    const [before, after] = [frames[landing]!.preview!, frames[landing + 1]!.preview!];
+    for (const key of ["left", "top", "width", "height"] as const)
+      expect(
+        Math.abs(before[key] - after[key]),
+        `${label}: the landing ${key}: ${JSON.stringify(before)} then ${JSON.stringify(after)}`,
+      ).toBeLessThan(3);
   };
 
-  /// The agent pane with a 1600x1000 screenshot pasted into its composer beside typed text, ready
-  /// to send; answers the chip's box.
-  const paneWithScreenshot = async (page: Page): Promise<Box> => {
+  /// The agent pane's dev entry with its in-page mock agent.
+  const openPane = async (page: Page) => {
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
@@ -152,9 +170,13 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       });
     });
     await page.goto(`http://127.0.0.1:${port(pane)}/`);
-    const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
-    await prompt.waitFor();
-    await prompt.click();
+    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').waitFor();
+  };
+
+  /// A 1600x1000 screenshot pasted into the composer beside typed text, ready to send; answers the
+  /// chip's box.
+  const pasteScreenshot = async (page: Page): Promise<Box> => {
+    await page.locator('.acpmux-composer-prompt [contenteditable="true"]').click();
     await page.evaluate(async () => {
       const canvas = document.createElement("canvas");
       canvas.width = 1600;
@@ -186,6 +208,11 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     return chip;
   };
 
+  const paneWithScreenshot = async (page: Page): Promise<Box> => {
+    await openPane(page);
+    return pasteScreenshot(page);
+  };
+
   test("a pasted screenshot sent with text: its first frame is its chip, then it moves; the row and text never move", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     try {
@@ -193,6 +220,32 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
       expectOneMove(await sentFrames(page), chip, "screenshot");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("sent into a chat that scrolls: the screenshot follows its slot and lands with no snap", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
+    try {
+      await openPane(page);
+      // Prompts and replies before it, so the chat overflows and scrolls to the new prompt.
+      const prompt = page.locator('.acpmux-composer-prompt [contenteditable="true"]');
+      for (const line of ["first question", "second question", "third question"]) {
+        await prompt.click();
+        await page.keyboard.type(line);
+        await page.keyboard.press("Enter");
+        await page.locator(".cv-user__bubble", { hasText: line }).waitFor();
+        const stop = page.getByRole("button", { name: "Stop" });
+        await stop.waitFor({ state: "detached", timeout: 30_000 });
+      }
+      expect(
+        await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight > scroll.clientHeight + 200),
+      ).toBe(true);
+      const chip = await pasteScreenshot(page);
+      await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
+      await page.keyboard.press("Enter");
+      expectOneMove(await sentFrames(page), chip, "overflowing chat");
     } finally {
       await page.close();
     }

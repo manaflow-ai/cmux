@@ -60,18 +60,16 @@ export function takeSendOrigin(key: string, now = performance.now()): DOMRect | 
   return origin && now - origin.at <= ORIGIN_MS ? origin.rect : undefined;
 }
 
-/// The transform that draws a box laid out at `to` over `from` (top-left origin), per style.
-export function morphFrom(from: DOMRect, to: DOMRect, style: SendMorphStyle): string | undefined {
+/// The transform, `progress` of the way (0 to 1), that draws a box of `to`'s size, placed at the
+/// viewport's origin, from `from` to `to`, per style: `move` goes from the chip's place and size,
+/// `grow` stays centered on its slot and scales up from the chip's size.
+export function morphAt(from: DOMRect, to: DOMRect, style: SendMorphStyle, progress: number): string | undefined {
   if (style === "fade" || !(to.width > 0) || !(to.height > 0)) return undefined;
-  const sx = from.width / to.width;
-  const sy = from.height / to.height;
-  if (style === "grow") {
-    // In its slot, from the chip's size, around its own center.
-    const dx = (to.width - from.width) / 2;
-    const dy = (to.height - from.height) / 2;
-    return `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
-  }
-  return `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${sx}, ${sy})`;
+  const width = from.width + (to.width - from.width) * progress;
+  const height = from.height + (to.height - from.height) * progress;
+  const left = style === "grow" ? to.left + (to.width - width) / 2 : from.left + (to.left - from.left) * progress;
+  const top = style === "grow" ? to.top + (to.height - height) / 2 : from.top + (to.top - from.top) * progress;
+  return `translate(${left}px, ${top}px) scale(${width / to.width}, ${height / to.height})`;
 }
 
 /// The host's entrance token (`--agent-motion-in`), 0 when motion is off for this page: the shared
@@ -104,45 +102,65 @@ export function sendMorphRef(key: string | undefined): (element: HTMLElement | n
     // its 4px rise, the thumbnail's own fade) ends at once around it, before the slot is read.
     if (style === "move") finishEntrances(element);
     const to = element.getBoundingClientRect();
-    const transform = morphFrom(from, to, style);
+    const transform = morphAt(from, to, style, 0);
     if (!transform) return;
     const doc = element.ownerDocument;
+    const view = doc.defaultView;
+    if (!view) return;
     const layer = element.closest(".acpmux-shell") ?? doc.body;
-    const ghost = element.cloneNode(true) as HTMLElement;
-    ghost.removeAttribute("id");
+    // The copy sits in the same box the preview's own rules style (conversation.css
+    // .cv-user__inline-image: its corners, outline, backing, a poster's cover, a button's reset), so
+    // it looks the same in flight as before and after it.
+    const ghost = doc.createElement("span");
+    ghost.className = "cv-user__inline-image";
     ghost.setAttribute("aria-hidden", "true");
     ghost.setAttribute("data-send-morph-ghost", "");
-    ghost.classList.remove("cv-enter");
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.removeAttribute("id");
+    copy.classList.remove("cv-enter");
+    ghost.appendChild(copy);
     Object.assign(ghost.style, {
       position: "fixed",
-      left: `${to.left}px`,
-      top: `${to.top}px`,
+      left: "0",
+      top: "0",
       width: `${to.width}px`,
       height: `${to.height}px`,
+      maxWidth: "none",
       margin: "0",
+      display: "block",
       zIndex: "var(--layer-overlay)",
       pointerEvents: "none",
-      boxSizing: "border-box",
+      transformOrigin: "0 0",
+      transform,
     });
     layer.appendChild(ghost);
     const held = element.style.visibility;
     element.style.visibility = "hidden";
+    // The move's clock and easing (the host's ease-out token); each frame reads where the slot is
+    // then, so a transcript that scrolls or glides to the new prompt is followed, not overshot.
+    const clock = ghost.animate([], {
+      duration,
+      easing: getComputedStyle(doc.documentElement).getPropertyValue("--agent-ease-out").trim() || "ease-out",
+    });
+    let frame = 0;
     const land = () => {
+      view.cancelAnimationFrame(frame);
       ghost.remove();
       element.style.visibility = held;
     };
-    const move = ghost.animate(
-      [
-        { transform, transformOrigin: "0 0" },
-        { transform: "none", transformOrigin: "0 0" },
-      ],
-      {
-        duration,
-        easing: getComputedStyle(doc.documentElement).getPropertyValue("--agent-ease-out").trim() || "ease-out",
-      },
-    );
-    move.onfinish = land;
-    move.oncancel = land;
+    // Stops when the preview leaves the page, the clock is cancelled (land), or once the copy has
+    // drawn one frame at the slot after the clock ended: the preview then shows where the copy was.
+    let ended = false;
+    const step = () => {
+      if (!element.isConnected || ended) return land();
+      ended = clock.playState === "finished";
+      const progress = ended ? 1 : (clock.effect?.getComputedTiming().progress ?? 1);
+      const now = morphAt(from, element.getBoundingClientRect(), style, progress);
+      if (now) ghost.style.transform = now;
+      frame = view.requestAnimationFrame(step);
+    };
+    frame = view.requestAnimationFrame(step);
+    clock.oncancel = land;
   };
 }
 
