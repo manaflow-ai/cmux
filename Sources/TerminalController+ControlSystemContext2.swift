@@ -166,11 +166,11 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle)
+            workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle, renameOrigin: "socket")
             return finish(.title(trimmedTitle))
 
         case "clear_name":
-            workspace.setPanelCustomTitle(panelId: panelId, title: nil)
+            workspace.setPanelCustomTitle(panelId: panelId, title: nil, renameOrigin: "socket")
             return finish(.none)
 
         case "pin":
