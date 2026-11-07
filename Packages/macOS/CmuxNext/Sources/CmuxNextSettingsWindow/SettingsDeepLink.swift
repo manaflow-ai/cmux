@@ -23,6 +23,15 @@ public struct SettingsDeepLink: Equatable, Sendable {
         setting = Self.text(invocation["setting"])
     }
 
+    /// Settings > Personalization's page route (Personalization…), on `part` (its jump bar's
+    /// `background`, `theme`, ...) and for `workspace` (Change Background…'s This Workspace) when given.
+    public static func personalizationRoute(part: String? = nil, workspace: String? = nil) -> String {
+        var query: [String] = []
+        if let part { query.append("focus=personalization.\(part)") }
+        if let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("workspace=\(id)") }
+        return "#/settings/personalization" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+    }
+
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }
