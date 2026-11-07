@@ -48,14 +48,34 @@ function useImage(
 }
 
 /** The attachment parts of one message, grouped as they show. */
+/** What a drag that starts on `part` does instead of the page's own drag: the host's drag of the
+ * real file (Home: a Finder promise, HomePageAttachmentDrag.swift). Absent: no drag. */
+export type AttachmentDragOut = (part: HomeAttachment) => void;
+
+/** The drag props of an element that drags `part` out: the page's drag is cancelled at its start
+ * and the host starts its own while the press is held. */
+export function dragOutProps(part: HomeAttachment, onDragOut: AttachmentDragOut | undefined) {
+  if (!onDragOut) return {};
+  return {
+    draggable: true,
+    onDragStart: (event: { preventDefault(): void }) => {
+      event.preventDefault();
+      onDragOut(part);
+    },
+  };
+}
+
 export function MessageAttachments({
   conversation,
   parts,
   strings,
+  onDragOut,
 }: {
   conversation: string;
   parts: readonly HomeAttachment[];
   strings: Strings;
+  /** A drag on an attachment hands it to the host (to Finder, the Desktop, another app). */
+  onDragOut?: AttachmentDragOut;
 }) {
   const images = parts.filter((part) => attachmentClass(part.mimeType) === "image");
   const videos = parts.filter((part) => attachmentClass(part.mimeType) === "video");
@@ -74,15 +94,28 @@ export function MessageAttachments({
               more={index === GRID_TILES - 1 ? images.length - GRID_TILES : 0}
               strings={strings}
               onOpen={() => setOpen(index)}
+              onDragOut={onDragOut}
             />
           ))}
         </div>
       )}
       {videos.map((part, index) => (
-        <VideoPlayer key={`${part.hash}:${index}`} conversation={conversation} part={part} strings={strings} />
+        <VideoPlayer
+          key={`${part.hash}:${index}`}
+          conversation={conversation}
+          part={part}
+          strings={strings}
+          onDragOut={onDragOut}
+        />
       ))}
       {files.map((part, index) => (
-        <FileRow key={`${part.hash}:${index}`} conversation={conversation} part={part} strings={strings} />
+        <FileRow
+          key={`${part.hash}:${index}`}
+          conversation={conversation}
+          part={part}
+          strings={strings}
+          onDragOut={onDragOut}
+        />
       ))}
       {open !== undefined && (
         <Lightbox
@@ -113,6 +146,7 @@ function ImageTile({
   more,
   strings,
   onOpen,
+  onDragOut,
 }: {
   conversation: string;
   part: HomeAttachment;
@@ -120,6 +154,7 @@ function ImageTile({
   more: number;
   strings: Strings;
   onOpen(): void;
+  onDragOut?: AttachmentDragOut | undefined;
 }) {
   const { src, failed } = useImage(conversation, part, "preview");
   const size = single ? frame(part, 360, 280) : undefined;
@@ -133,6 +168,7 @@ function ImageTile({
       title={part.name}
       disabled={failed}
       onClick={onOpen}
+      {...dragOutProps(part, onDragOut)}
     >
       {src && <img src={src} alt={part.name} draggable={false} />}
       {failed && (
@@ -150,10 +186,12 @@ function VideoPlayer({
   conversation,
   part,
   strings,
+  onDragOut,
 }: {
   conversation: string;
   part: HomeAttachment;
   strings: Strings;
+  onDragOut?: AttachmentDragOut | undefined;
 }) {
   const service = useContext(AttachmentContext);
   const [src, setSrc] = useState<string>();
@@ -200,7 +238,10 @@ function VideoPlayer({
         }}
       />
       <figcaption>
-        <span className="hc-att-name">{part.name}</span>
+        {/* The name drags the clip out (the player keeps its own pointer for seeking). */}
+        <span className="hc-att-name" {...dragOutProps(part, onDragOut)}>
+          {part.name}
+        </span>
         <span className="hc-att-meta">
           {[part.durationMs !== undefined ? duration(part.durationMs) : "", formatBytes(part.byteCount)]
             .filter(Boolean)
@@ -239,7 +280,17 @@ function usePoster(conversation: string, part: HomeAttachment): string | undefin
   return src;
 }
 
-function FileRow({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
+function FileRow({
+  conversation,
+  part,
+  strings,
+  onDragOut,
+}: {
+  conversation: string;
+  part: HomeAttachment;
+  strings: Strings;
+  onDragOut?: AttachmentDragOut | undefined;
+}) {
   const service = useContext(AttachmentContext);
   const extension = part.name.includes(".") ? part.name.slice(part.name.lastIndexOf(".") + 1).toUpperCase() : "";
   // The link could not be had (the daemon does not answer, the record is gone): the row says so,
@@ -262,7 +313,7 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
     anchor.click();
   };
   return (
-    <div className="hc-att-file ui-reveal-host">
+    <div className="hc-att-file ui-reveal-host" {...dragOutProps(part, onDragOut)}>
       <span className="hc-att-file-mark" aria-hidden>
         {extension.slice(0, 4) || <HomeIcon name="attach" />}
       </span>

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import { parseConversationLink } from "../../home-channels/model";
 import type { HomeChannelsStore, HomeSnapshot } from "../../home-channels/store";
-import type { HomeConversation, HomeMessage, HomeParticipant } from "../../home-channels/types";
+import type { HomeAttachment, HomeConversation, HomeMessage, HomeParticipant } from "../../home-channels/types";
 import { createStrings, type Strings } from "../../shared/i18n";
 import { pageError, type PageClient } from "../../shared/pageClient";
 import { FirstRunPanel } from "../cards/firstRun/FirstRunPanel";
@@ -37,6 +37,7 @@ import type { MessagesDetailProps } from "../types";
 import {
   chatAppearance,
   DEFAULT_APPEARANCE,
+  attachmentDragParams,
   DetailOps,
   linkPreviewFetch,
   NO_CHIEF_TURN,
@@ -400,6 +401,12 @@ function ConversationView(
         onRetry={(key) => store.retry(key)}
         onDiscard={(key) => store.discard(key)}
         onReact={(message, _part, value) => void store.react(message, value)}
+        {...(host
+          ? {
+              onDragAttachment: (message: HomeMessage, part: HomeAttachment, partIndex: number) =>
+                hostCall(DetailOps.attachmentDrag, attachmentDragParams(message, part, partIndex)),
+            }
+          : {})}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(firstRunShown

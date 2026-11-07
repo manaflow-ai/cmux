@@ -41,6 +41,8 @@ export interface RowActions {
   onCopy?(text: string): void;
   /** Retry Reply on my message in a Chief chat (absent: not offered now, as while the Chief answers). */
   onRetryChief?(message: HomeMessage): void;
+  /** A drag on an attachment: the host drags the file out (`partIndex`: its part in the message). */
+  onDragAttachment?(message: HomeMessage, part: HomeAttachment, partIndex: number): void;
   links?: RowLinks;
 }
 
@@ -200,6 +202,11 @@ function BubbleRow({
       conversation={message.conversation}
       parts={row.parts as readonly HomeAttachment[]}
       strings={strings}
+      {...(actions.onDragAttachment
+        ? {
+            onDragOut: (part: HomeAttachment) => actions.onDragAttachment?.(message, part, message.parts.indexOf(part)),
+          }
+        : {})}
     />
   ) : row.markdown ? (
     <Markdown streaming={row.streaming}>{text}</Markdown>

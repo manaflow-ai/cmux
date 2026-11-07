@@ -21,10 +21,12 @@
 //   needsYou (stream) {title, rows, more?, look} | null: the pinned Needs you section of the shown
 //                      Chief chat (cards/needsYou); needsYou.open {id}, needsYou.answer {id, answer},
 //                      needsYou.showAll {} (each a click only)
+//   attachment.drag {conversation, message, partIndex, attachment}: the host drags the attachment out as
+//                      a Finder file promise while the press is held -> {started}
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
-import type { HomeConversation } from "../../home-channels/types";
+import type { HomeAttachment, HomeConversation } from "../../home-channels/types";
 import { isPageError, type PageClient } from "../../shared/pageClient";
 import type { HeaderPanelState } from "../cards/header/HeaderPanelBar";
 import { HEADER_PANEL_STATE_EVENT, HEADER_PANEL_TOGGLE_OP } from "../cards/header/HeaderPanelBar";
@@ -60,7 +62,18 @@ export const DetailOps = {
   needsYouOpen: "cmux.home.messages.needsYou.open",
   needsYouAnswer: "cmux.home.messages.needsYou.answer",
   needsYouShowAll: "cmux.home.messages.needsYou.showAll",
+  attachmentDrag: "cmux.home.messages.attachment.drag",
 } as const;
+
+/** The `attachment.drag` params of `part`, the `partIndex`th part of `message` (its wire shape). */
+export function attachmentDragParams(
+  message: { id: string; conversation: string },
+  part: HomeAttachment,
+  partIndex: number,
+) {
+  const { type: _type, ...attachment } = part;
+  return { conversation: message.conversation, message: message.id, partIndex, attachment };
+}
 
 // ---------- The Chief's turn ----------
 

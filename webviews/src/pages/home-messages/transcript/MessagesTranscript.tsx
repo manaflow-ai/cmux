@@ -91,6 +91,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   onDiscard?(key: string): void;
   onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
   onCopy?(text: string): void;
+  /** A drag on an attachment: the host drags the file out (to Finder, another app). */
+  onDragAttachment?: RowActions["onDragAttachment"];
   /** The clock for day labels (the gallery's); default: now. */
   now?: number;
   /** A message a link or the host opened at: it scrolls into view, marked. */
@@ -193,9 +195,10 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
       ...(props.onRetryChief ? { onRetryChief: props.onRetryChief } : {}),
+      ...(props.onDragAttachment ? { onDragAttachment: props.onDragAttachment } : {}),
       ...(links ? { links } : {}),
     }),
-    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onRetryChief, links],
+    [props.onRetry, props.onDiscard, props.onReact, props.onCopy, props.onRetryChief, props.onDragAttachment, links],
   );
   useImperativeHandle(props.ref, () => ({
     focusComposer: () => {

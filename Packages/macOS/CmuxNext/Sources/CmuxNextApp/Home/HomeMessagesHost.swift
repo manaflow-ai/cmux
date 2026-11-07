@@ -34,7 +34,7 @@ import MessagesLabHome
 /// - `headerPanels.toggle {id}`: runs that panel's action as the person's own (a click only).
 /// - Clicks: `chief.settings {conversation, anchor}` -> `{shown}` (the settings under the name pill, page points),
 ///   `chief.stop {conversation, all}`, `chief.continue {conversation}`, `chief.retry {conversation, message}`,
-///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`.
+///   `chief.place {conversation, anchor}` (the Teleport menu), `needsYou.open|answer|showAll {id, answer}`, `attachment.drag` (``HomePageAttachmentDrag``).
 /// Streams, sent on subscribe and on every change: `appearance` (bubble look, chat colours), `headerPanels`,
 /// `chiefTurn` (`{conversation, continueAvailable}`), `chiefFace` (`{conversation, picture?, text?}`),
 /// `chiefPlace` (`{conversation, chip}`: ``ChiefTeleportChipFace``, or null), `needsYou` (``FeedNeedsYouRows``), `dictation` (``HomePageDictation``; with its op),
@@ -44,7 +44,7 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation"].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "chiefTurn", "chiefFace", "chiefPlace", "needsYou", "dictation", "attachment."].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
     /// The page's open conversation, as it last said.
@@ -78,6 +78,9 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The files the app hands the page's composer, by token, while it reads them (``HomeComposerHandoff``).
     let composerFiles = HomeComposerFiles()
     let dictation = HomePageDictation()
+    private lazy var attachmentDrag = HomePageAttachmentDrag(window: { [weak self] in self?.window() }, personOnly: RefusalStrings.personOnlyFromPage) { [weak self] ref, place in
+        try? await self?.services?.home.homeStore.fetchAttachment(ref, at: place, variant: .original)
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -191,6 +194,7 @@ final class HomeMessagesHostProvider: PageProvider {
             }
             return .null
         case "dictation": return try dictation.call(params)
+        case "attachment.drag": return try attachmentDrag.call(params, userGesture: context.userGesture)
         case "linkPreview":
             guard let text = fields["url"]?.stringValue, let url = URL(string: text),
                   let kind = fields["kind"]?.stringValue.flatMap(HomeLinkChipKind.init(rawValue:)) else {
