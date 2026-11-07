@@ -1,0 +1,73 @@
+// Leo 2026-11-07, on the sidebar's "Updated to Nightly" card beside the agent composer: "the border
+// styles, the glass intensity is different. For two, it's like the heights never match up with
+// anything". The card wears the composer's material and box from one set of shared tokens
+// (ui/glass/composerMaterial.css). These read the composer's own stylesheets and fail when the shared
+// tokens drift from what the composer draws, or when the card stops using them.
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+const read = (file: string) => readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+const material = read("ui/glass/composerMaterial.css");
+const composerStates = read("agent-session/acpmux/composerStates.css");
+const composerStyles = read("agent-session/acpmux/styles.css");
+const desktop = read("pages/shared/desktop.css");
+const card = read("pages/changelog/updateSurfaces.css");
+
+/** The value of `--name:` in `css` (the first declaration), spaces collapsed. */
+function declaration(css: string, name: string): string {
+  const match = new RegExp(`${name}:\\s*([^;]+);`).exec(css);
+  expect(match, `${name} is declared`).not.toBeNull();
+  return match![1]!.replace(/\s+/g, " ").trim();
+}
+
+/** The percentages a value mixes, in order. */
+const shares = (value: string) => value.match(/\d+(?:\.\d+)?%/g) ?? [];
+
+test("the shared solid surface mixes the composer's shares", () => {
+  expect(shares(declaration(material, "--composer-material-solid"))).toEqual(
+    shares(declaration(composerStates, "--acpmux-composer-solid")),
+  );
+});
+
+test("the shared edge is the composer's edge share, one hairline on every side", () => {
+  expect(shares(declaration(material, "--composer-material-edge"))).toEqual(
+    shares(declaration(composerStyles, "--acpmux-composer-edge")),
+  );
+  expect(declaration(material, "--composer-material-ring")).toContain("inset 0 0 0 var(--cmux-hairline");
+});
+
+test("the shared rim is the composer's top-lit rim", () => {
+  expect(shares(declaration(material, "--composer-material-rim"))).toEqual(
+    shares(declaration(composerStates, "--acpmux-composer-rim")),
+  );
+});
+
+test("the shared tint is the popover level the composer's card takes, clearer over art", () => {
+  expect(composerStates).toMatch(
+    /--glass-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-glass-popover-tint\)/,
+  );
+  expect(composerStates).toMatch(
+    /--glass-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-glass-popover-art-tint\)/,
+  );
+  expect(declaration(material, "--composer-material-tint")).toContain("var(--ds-glass-popover-tint");
+  expect(material).toMatch(/data-cmux-see-through[^{]*\{\s*--composer-material-tint:[^;]*--ds-glass-popover-art-tint/);
+});
+
+test("the shared box is the one-line composer's height and corner (grid.md 5.1)", () => {
+  expect(declaration(material, "--composer-material-height")).toContain("var(--grid-composer-box");
+  expect(declaration(material, "--composer-material-radius")).toContain("var(--grid-composer-radius");
+  expect(declaration(desktop, "--grid-composer-box")).toContain("48px");
+  // The composer's box takes the same corner token.
+  expect(read("agent-session/acpmux/composerLocation.css")).toContain(
+    "--acpmux-composer-radius: var(--grid-composer-radius)",
+  );
+});
+
+test("the Updated card paints the shared material at the composer's height", () => {
+  const surface = /\.wn-card\.wn-updated \{([^}]*)\}/.exec(card)?.[1] ?? "";
+  expect(surface).toContain("background: var(--composer-material-tint)");
+  expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
+  expect(surface).toContain("border-radius: var(--composer-material-radius)");
+  const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
+  expect(rest).toContain("height: var(--composer-material-height)");
+});

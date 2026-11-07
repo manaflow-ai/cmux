@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card is the agent composer's twin, and resting on it opens a scrollable What's New preview.
+  Leo, verbatim: "the border styles, the glass intensity is different. For two, it's like the heights never match up
+  with anything" and "where is the hover for the What's New area? ... you hover over it and you get to, like, scroll
+  through the thing if you want" / "Right in that bottom left of the sidebar area." The card's page paints the
+  composer's material (webviews `ui/glass/composerMaterial.css`), at the composer's one-line height (48) and corner;
+  `SidebarUpdatedCardHost` lays no `CardSurfaceView` under it any more. "Updated to Nightly · What's New ↗" is one
+  line; the button row is gone. The host forwards its pointer to the page (`setPointerInside`), and while the
+  preview is open it grows upward over the list by the page's `overlayHeight`, never moving the list or the slot
+  (`SidebarBottomCardSlot.place`). Gallery: `pages.changelog.update-surfaces` `card` (chosen), `card-whats-new-top-right`,
+  `card-whats-new-button`, `card-beside-composer`, `card-hover-preview`. Regression: `UpdatedCardHoverPreviewTests`,
+  webviews `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
 - 2026-11-06: an incognito window's mark in the sidebar's titlebar row is an icon of the row when the chip does not
   fit. User report (https://github.com/manaflow-ai/cmux/issues/37351), verbatim: "looks not fully set up: glasses glyph
   in a grey pill, off-size and misaligned with other toolbar icons". A sidebar narrower than the "Incognito" chip
