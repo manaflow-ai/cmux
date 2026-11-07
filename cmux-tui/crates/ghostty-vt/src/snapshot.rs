@@ -32,6 +32,9 @@ pub mod tag {
     pub const READY: u16 = 5;
     pub const FINISH: u16 = 6;
     pub const CONTINUATION: u16 = 7;
+    /// The prompt clear a resize put off until the shell's next byte
+    /// (ghostty-next `prompt_redraw.zig`). Optional.
+    pub const PROMPT_REDRAW: u16 = 11;
 }
 
 /// Which part of a snapshot to encode. Matches the surface-side phases of

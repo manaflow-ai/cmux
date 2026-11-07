@@ -40,3 +40,34 @@ fn prompt_clear_a_real_resize_clears_just_before_the_shell_redraw() {
     term.vt_write(PROMPT);
     assert_eq!(term.plain_text().unwrap(), "J>");
 }
+
+fn prompt_redraw_records(snapshot: &[u8]) -> Vec<Vec<u8>> {
+    crate::snapshot::snapshot_records(snapshot)
+        .filter(|record| record.tag == crate::snapshot::tag::PROMPT_REDRAW)
+        .map(|record| record.payload().to_vec())
+        .collect()
+}
+
+#[test]
+fn prompt_clear_a_snapshot_carries_the_waiting_clear_to_a_mirror() {
+    let mut term = at_prompt(34);
+    // At rest no clear waits: the snapshot has no PROMPT_REDRAW record.
+    let rest = term.encode_snapshot(crate::snapshot::SnapshotPhase::Complete).unwrap();
+    assert!(prompt_redraw_records(&rest).is_empty());
+
+    // A real resize the shell has not answered: the READY a viewer gets
+    // now carries the waiting clear (drawn at 34 x 6), and a terminal
+    // restored from it keeps it (its own READY has the same record).
+    term.resize(20, 6, 8, 16).unwrap();
+    let complete = term.encode_snapshot(crate::snapshot::SnapshotPhase::Complete).unwrap();
+    let records = prompt_redraw_records(&complete);
+    assert_eq!(records.len(), 1, "the snapshot dropped the waiting clear");
+    assert_eq!(&records[0][..4], &[34, 0, 6, 0], "the grid the shell drew at");
+    let restored = crate::snapshot::reencode_ready(&complete).unwrap();
+    assert_eq!(prompt_redraw_records(&restored), records, "the restore dropped the waiting clear");
+
+    // The shell's first byte runs the clear; no clear waits after it.
+    term.vt_write(b"\r");
+    let answered = term.encode_snapshot(crate::snapshot::SnapshotPhase::Complete).unwrap();
+    assert!(prompt_redraw_records(&answered).is_empty());
+}
