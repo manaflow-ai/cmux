@@ -102,6 +102,11 @@ parser.add_argument("--strips", help="keep each open's frame strip (strip.png) h
 parser.add_argument("--vdisplay", type=float, default=120,
                     help="a 1920 x 1200 virtual main display at this rate for the whole run (perf-stress-session's), so "
                          "STRESS's 1600 x 1000 pt window fits under the menu bar and Dock; 0 measures on the host's display")
+parser.add_argument("--drag", action="store_true",
+                    help="instead of the opens: the chat's header Terminal, that terminal split down, then --runs drags of the "
+                         "divider between the chat and the right column, one debug.mouse move per display frame (DRAG below)")
+parser.add_argument("--drag-step", type=float, default=4, help="--drag: points per move")
+parser.add_argument("--drag-moves", type=int, default=40, help="--drag: moves of each leg (left, right twice as far, left)")
 parser.add_argument("--tag", default="rpopen")
 parser.add_argument("--json")
 parser.add_argument("--md")
@@ -531,6 +536,178 @@ def measure(run, chat, surface, label, round_index):
 
 
 # ---------------------------------------------------------------------------------------------
+# DRAG (--drag): Leo, 2026-11-07, dragging the divider between a chat and the split opened on its right: "I'm getting
+# this horrendous lag, or, like, I'm not even able to, like, drag it around and stuff. It's not able to move very far,
+# if at all." The chat's header Terminal opens a terminal on its right, that terminal splits down (the right bottom
+# split), and each round presses the divider between the chat and the right column and moves it one debug.mouse event
+# per display frame: --drag-moves left by --drag-step, twice as many right, then left again to the start, and lets go.
+# `debug.motion` traces the divider in every frame and `debug.frames` the frames:
+#
+#   reach        how far the divider went left and right, over how far the pointer went (1.0: all the way)
+#   gap_pt       the divider's distance from the pointer when the pointer turned at the end of the first leg
+#   stall_frames frames between the divider's first and last move in which it did not move (the pointer moved in
+#                every one); longest_stall_ms the longest such run
+#   frames       debug.frames over the round: missed refreshes, p95 and longest frame interval, main-thread p95 / max
+
+def window_layers(run):
+    layers = run.rpc("debug.layers") or {}
+    return ((layers.get("windows") or [{}])[0]) if isinstance(layers, dict) else {}
+
+
+def chat_divider(run):
+    """The divider between the chat and the right column, as (x, y) top-left window points of its middle: the
+    tallest area that is taller than wide (the right column's own split is a row divider)."""
+    window = window_layers(run)
+    height = (window.get("frame") or [0, 0, 0, 1000])[3]
+    areas = [(x + w / 2, height - (y + h / 2), h) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w]
+    if not areas:
+        return None
+    x, y, _ = max(areas, key=lambda a: a[2])
+    return x, y
+
+
+def divider_x(sample):
+    """The x (window points) of the tallest vertical divider in one trace sample, or None."""
+    rows = [r for r in sample.get("dividers") or [] if isinstance(r, list) and len(r) >= 5 and r[4] > r[3]]
+    if not rows:
+        return None
+    row = max(rows, key=lambda r: r[4])
+    return row[1] + row[3] / 2
+
+
+def drag_layout(run, chat):
+    """The chat, a terminal on its right (the header's Terminal) and that terminal split down: three panes."""
+    chat.repane()
+    before = {p.get("id") for p in chat.stress.panes(chat.stress.workspace(chat.workspace))}
+    clicked = run.rpc("debug.agent_pane", {"action": "click", "selector": '[data-quick-action="terminal"]', "pane": chat.pane}) or {}
+    if clicked.get("error"):
+        raise SystemExit(f"right-pane-open: drag: the header's Terminal: {clicked['error']}")
+    right = STRESS.wait(lambda: next((p.get("id") for p in chat.stress.panes(chat.stress.workspace(chat.workspace))
+                                      if p.get("id") not in before), None), 15, step=0.1)
+    if not right:
+        raise SystemExit("right-pane-open: drag: the header's Terminal opened no pane")
+    time.sleep(1.0)  # test script: the open's motion lands
+    chat.stress.action("splitDown", target=f"pane:{right}", focus=False)
+    if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) >= 3, 15, step=0.1):
+        raise SystemExit("right-pane-open: drag: the terminal did not split down")
+    time.sleep(1.5)  # test script: the split's motion lands and the page lays out at its size
+    return right
+
+
+def drag_round(run, label, refresh_s):
+    start = chat_divider(run)
+    if not start:
+        return {"error": "no vertical divider"}
+    x0, y0 = start
+    step, moves = opts.drag_step, opts.drag_moves
+    path = [-step] * moves + [step] * (2 * moves) + [-step] * moves
+    run.rpc("debug.motion", {"action": "trace_start", "targets": ["dividers"]})
+    run.rpc("debug.frames", {"action": "start"})
+    time.sleep(0.15)  # test script: frames at rest before the press
+    run.rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+    x, trips = x0, []
+    next_at = time.monotonic()
+    for delta in path:
+        sent = time.monotonic()
+        run.rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
+                                "press": False, "release": False})
+        trips.append((time.monotonic() - sent) * 1000)
+        x += delta
+        next_at += refresh_s
+        pause = next_at - time.monotonic()
+        if pause > 0:
+            time.sleep(pause)  # bench script: one pointer move per display frame
+    run.rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+    time.sleep(0.8)  # test script: the release's spring lands
+    frames = run.rpc("debug.frames", {"action": "stop"}) or {}
+    trace = run.rpc("debug.motion", {"action": "trace_stop"}) or {}
+    samples = [(float(s.get("t") or 0), divider_x(s)) for s in trace.get("samples") or []]
+    samples = [(t, v) for t, v in samples if v is not None]
+    if not samples:
+        return {"error": "the trace has no divider", "trace_error": trace.get("error")}
+    first = samples[0][1]
+    xs = [v for _, v in samples]
+    travel = step * moves
+    moving = [i for i in range(1, len(samples)) if abs(samples[i][1] - samples[i - 1][1]) > 0.01]
+    stall, longest, run_start = 0, 0.0, None
+    if moving:
+        for i in range(moving[0] + 1, moving[-1] + 1):
+            if abs(samples[i][1] - samples[i - 1][1]) <= 0.01:
+                stall += 1
+                run_start = samples[i - 1][0] if run_start is None else run_start
+                longest = max(longest, samples[i][0] - run_start)
+            else:
+                run_start = None
+    # Where the divider was when the pointer turned: the leftmost it got before it first moved right again.
+    left_index = min(range(len(xs)), key=lambda i: xs[i])
+    record = {
+        "label": label, "x0": round(x0, 1), "pointer_travel_pt": travel,
+        "reach_left": round((first - min(xs)) / travel, 3), "reach_right": round((max(xs) - first) / travel, 3),
+        "gap_pt": round(abs((first - travel) - xs[left_index]), 1), "end_offset_pt": round(xs[-1] - first, 1),
+        "stall_frames": stall, "longest_stall_ms": round(longest, 1), "moving_frames": len(moving), "samples": len(samples),
+        "mouse_rpc_ms": {"p50": pct(trips, 0.5), "p95": pct(trips, 0.95), "max": pct(trips, 1.0)},
+        "frames": {k: frames.get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "max_ms", "missed", "main_p50_ms",
+                                              "main_p95_ms", "main_max_ms", "view_layouts", "view_layouts_max") if k in frames},
+        "trace": [[round(t, 1), round(v, 1)] for t, v in samples],
+    }
+    return record
+
+
+def run_drags(run, chat, condition, results):
+    records = results["raw"].setdefault("drag", {}).setdefault(condition, [])
+    try:
+        drag_layout(run, chat)
+    except (SystemExit, STRESS.StressShapeError) as error:
+        records.append({"error": f"layout: {str(error)[:400]}"})
+        return
+    refresh_s = (float((run.rpc("debug.frames", {"action": "stop"}) or {}).get("refresh_ms") or 8.33)) / 1000
+    for index in range(opts.runs):
+        record = drag_round(run, f"{condition}-drag-{index}", refresh_s)
+        records.append(record)
+        say(f"right-pane-open: {condition} drag {index}: reach {record.get('reach_left')}/{record.get('reach_right')} "
+            f"gap {record.get('gap_pt')} pt stalls {record.get('stall_frames')} (longest {record.get('longest_stall_ms')} ms) "
+            f"frames {json.dumps(record.get('frames'))} mouse rpc {json.dumps(record.get('mouse_rpc_ms'))}"
+            + (f" error={record['error']}" if record.get("error") else ""))
+        time.sleep(0.5)  # test script: the machine settles between rounds
+
+
+def summarize_drags(records):
+    good = [r for r in records if not r.get("error")]
+    out = {"n": len(records), "ok": len(good), "errors": [r.get("error") for r in records if r.get("error")][:4]}
+    for key in ("reach_left", "reach_right", "gap_pt", "stall_frames", "longest_stall_ms"):
+        values = [r.get(key) for r in good]
+        out[key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0), "min": pct(values, 0.0)}
+    for key in ("missed", "p95_ms", "max_ms", "main_p95_ms", "main_max_ms"):
+        values = [(r.get("frames") or {}).get(key) for r in good]
+        out["frames_" + key] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
+    values = [(r.get("mouse_rpc_ms") or {}).get("p95") for r in good]
+    out["mouse_rpc_p95_ms"] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": pct(values, 1.0)}
+    return out
+
+
+def drag_markdown(results):
+    lines = [f"right-pane-open-bench --drag on {results['host']} ({results['model']}, {results['ncpu']} CPUs), app "
+             f"{results.get('app_version')}: a chat, a terminal on its right split down; each round drags the divider "
+             f"between them {opts.drag_moves} x {opts.drag_step:g} pt left, twice that right, back, one debug.mouse move per "
+             "display frame. p50/p95/max over the rounds; reach: min/p50 of how far the divider went over how far the pointer "
+             "went (1 = all the way); gap: pt behind the pointer at the turn; stalls: frames the divider stood still mid-drag.",
+             "", "| condition | n | reach left (min/p50) | reach right (min/p50) | gap pt | stall frames | longest stall ms | "
+             "missed | frame p95 ms | frame max ms | main p95 ms | main max ms | mouse rpc p95 ms |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for condition in CONDITIONS:
+        s = results["surfaces"].get("drag", {}).get(condition)
+        if not s:
+            continue
+        reach = lambda k: f"{(s[k] or {}).get('min')}/{(s[k] or {}).get('p50')}"  # noqa: E731
+        lines.append(f"| {condition} | {s['ok']}/{s['n']} | {reach('reach_left')} | {reach('reach_right')} | {triple(s, 'gap_pt')} | "
+                     f"{triple(s, 'stall_frames')} | {triple(s, 'longest_stall_ms')} | {triple(s, 'frames_missed')} | "
+                     f"{triple(s, 'frames_p95_ms')} | {triple(s, 'frames_max_ms')} | {triple(s, 'frames_main_p95_ms')} | "
+                     f"{triple(s, 'frames_main_max_ms')} | {triple(s, 'mouse_rpc_p95_ms')} |")
+    lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------------------------
 # Summary.
 
 def pct(values, q):
@@ -624,7 +801,7 @@ def markdown(results):
 
 
 def write_results(results):
-    table = markdown(results)
+    table = drag_markdown(results) if opts.drag else markdown(results)
     print("RIGHT-PANE-OPEN-TABLE-BEGIN\n" + table + "\nRIGHT-PANE-OPEN-TABLE-END", flush=True)
     results["table"] = table
     if opts.json:
@@ -696,7 +873,9 @@ def main():
             results["load_avg"] = {**results.get("load_avg", {}), condition: load_average()}
             results["conditions"][condition] = info
             load.stop()
-            for surface in WANTED:
+            if opts.drag:
+                results["surfaces"].setdefault("drag", {})[condition] = summarize_drags(results["raw"].get("drag", {}).get(condition, []))
+            for surface in [] if opts.drag else WANTED:
                 results["surfaces"].setdefault(surface, {})[condition] = summarize(results["raw"].get(surface, {}).get(condition, []))
             time.sleep(3)  # test script: the machine settles between conditions
     finally:
@@ -743,7 +922,9 @@ def run_condition(condition, runs, home, chats, load, results, info):
         chat.show()
         load.start(run.sock)
         time.sleep(opts.settle)  # test script: the load reaches steady state
-    if condition == "restart":
+    if opts.drag:
+        run_drags(run, chat, condition, results)
+    elif condition == "restart":
         for _ in range(opts.restarts):
             run.quit()
             run.launch()
