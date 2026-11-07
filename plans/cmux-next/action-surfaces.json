@@ -53170,86 +53170,752 @@
         {
           "children" : [
             {
-              "enabled_when" : "can_perform",
-              "id" : "newColumn",
-              "kind" : "action",
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.right",
+                      "kind" : "action",
+                      "label" : "to the Right",
+                      "order" : 0,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.left",
+                      "kind" : "action",
+                      "label" : "to the Left",
+                      "order" : 1,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.up",
+                      "kind" : "action",
+                      "label" : "Above",
+                      "order" : 2,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.down",
+                      "kind" : "action",
+                      "label" : "Below",
+                      "order" : 3,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 4
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.columnRight",
+                      "kind" : "action",
+                      "label" : "to New Column Right",
+                      "order" : 5,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.columnLeft",
+                      "kind" : "action",
+                      "label" : "to New Column Left",
+                      "order" : 6,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.row",
+                      "kind" : "action",
+                      "label" : "to New Row",
+                      "order" : 7,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 8
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.tab",
+                      "kind" : "action",
+                      "label" : "to New Tab",
+                      "order" : 9,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.workspace",
+                      "kind" : "action",
+                      "label" : "to New Workspace",
+                      "order" : 10,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.terminal.window",
+                      "kind" : "action",
+                      "label" : "to New Window",
+                      "order" : 11,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    }
+                  ],
+                  "id" : "new.terminal",
+                  "kind" : "submenu",
+                  "order" : 0,
+                  "title_from" : "action",
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "children" : [
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.right",
+                      "kind" : "action",
+                      "label" : "to the Right",
+                      "order" : 0,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.left",
+                      "kind" : "action",
+                      "label" : "to the Left",
+                      "order" : 1,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.up",
+                      "kind" : "action",
+                      "label" : "Above",
+                      "order" : 2,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.down",
+                      "kind" : "action",
+                      "label" : "Below",
+                      "order" : 3,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 4
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.columnRight",
+                      "kind" : "action",
+                      "label" : "to New Column Right",
+                      "order" : 5,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.columnLeft",
+                      "kind" : "action",
+                      "label" : "to New Column Left",
+                      "order" : 6,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.row",
+                      "kind" : "action",
+                      "label" : "to New Row",
+                      "order" : 7,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 8
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.tab",
+                      "kind" : "action",
+                      "label" : "to New Tab",
+                      "order" : 9,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.workspace",
+                      "kind" : "action",
+                      "label" : "to New Workspace",
+                      "order" : 10,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.browser.window",
+                      "kind" : "action",
+                      "label" : "to New Window",
+                      "order" : 11,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    }
+                  ],
+                  "id" : "new.browser",
+                  "kind" : "submenu",
+                  "order" : 1,
+                  "title_from" : "action",
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "children" : [
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.right",
+                      "kind" : "action",
+                      "label" : "to the Right",
+                      "order" : 0,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.left",
+                      "kind" : "action",
+                      "label" : "to the Left",
+                      "order" : 1,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.up",
+                      "kind" : "action",
+                      "label" : "Above",
+                      "order" : 2,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.down",
+                      "kind" : "action",
+                      "label" : "Below",
+                      "order" : 3,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 4
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.columnRight",
+                      "kind" : "action",
+                      "label" : "to New Column Right",
+                      "order" : 5,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.columnLeft",
+                      "kind" : "action",
+                      "label" : "to New Column Left",
+                      "order" : 6,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.row",
+                      "kind" : "action",
+                      "label" : "to New Row",
+                      "order" : 7,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 8
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.tab",
+                      "kind" : "action",
+                      "label" : "to New Tab",
+                      "order" : 9,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.workspace",
+                      "kind" : "action",
+                      "label" : "to New Workspace",
+                      "order" : 10,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.agentChat.window",
+                      "kind" : "action",
+                      "label" : "to New Window",
+                      "order" : 11,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    }
+                  ],
+                  "id" : "new.agentChat",
+                  "kind" : "submenu",
+                  "order" : 2,
+                  "title_from" : "action",
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "children" : [
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.right",
+                      "kind" : "action",
+                      "label" : "to the Right",
+                      "order" : 0,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.left",
+                      "kind" : "action",
+                      "label" : "to the Left",
+                      "order" : 1,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.up",
+                      "kind" : "action",
+                      "label" : "Above",
+                      "order" : 2,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.down",
+                      "kind" : "action",
+                      "label" : "Below",
+                      "order" : 3,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 4
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.columnRight",
+                      "kind" : "action",
+                      "label" : "to New Column Right",
+                      "order" : 5,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.columnLeft",
+                      "kind" : "action",
+                      "label" : "to New Column Left",
+                      "order" : 6,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.row",
+                      "kind" : "action",
+                      "label" : "to New Row",
+                      "order" : 7,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "kind" : "separator",
+                      "order" : 8
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.tab",
+                      "kind" : "action",
+                      "label" : "to New Tab",
+                      "order" : 9,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.workspace",
+                      "kind" : "action",
+                      "label" : "to New Workspace",
+                      "order" : 10,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    },
+                    {
+                      "enabled_when" : "can_perform",
+                      "id" : "new.newTabPage.window",
+                      "kind" : "action",
+                      "label" : "to New Window",
+                      "order" : 11,
+                      "visible_when" : {
+                        "debug_only" : false,
+                        "feature" : null,
+                        "requires" : [
+
+                        ]
+                      }
+                    }
+                  ],
+                  "id" : "new.newTabPage",
+                  "kind" : "submenu",
+                  "order" : 3,
+                  "title_from" : "action",
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "kind" : "separator",
+                  "order" : 4
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "newColumn",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "newColumnLeft",
+                  "kind" : "action",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "newRow",
+                  "kind" : "action",
+                  "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "splitBrowserRight",
+                  "kind" : "action",
+                  "order" : 8,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "splitBrowserDown",
+                  "kind" : "action",
+                  "order" : 9,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "remote.openRemote",
+                  "kind" : "action",
+                  "order" : 10,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "remoteHosts",
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "folder" : "new",
+              "kind" : "folder",
               "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "newColumnLeft",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "newRow",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitBrowserRight",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "splitBrowserDown",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "remote.openRemote",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : "remoteHosts",
-                "requires" : [
-
-                ]
-              }
+              "title" : "New",
+              "title_key" : "menu.folder.new",
+              "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 6
+              "order" : 1
             },
             {
               "choices" : {
@@ -53285,7 +53951,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.setBackground",
               "kind" : "choices",
-              "order" : 7,
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53364,7 +54030,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.setTint",
               "kind" : "choices",
-              "order" : 8,
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53377,7 +54043,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.clearBackground",
               "kind" : "action",
-              "order" : 9,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53388,13 +54054,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 10
+              "order" : 5
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.moveToNewWorkspace",
               "kind" : "action",
-              "order" : 11,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53407,7 +54073,7 @@
               "enabled_when" : "can_perform",
               "id" : "swapPaneLeft",
               "kind" : "action",
-              "order" : 12,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53420,7 +54086,7 @@
               "enabled_when" : "can_perform",
               "id" : "swapPaneRight",
               "kind" : "action",
-              "order" : 13,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53433,7 +54099,7 @@
               "enabled_when" : "can_perform",
               "id" : "swapPaneUp",
               "kind" : "action",
-              "order" : 14,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53446,7 +54112,7 @@
               "enabled_when" : "can_perform",
               "id" : "swapPaneDown",
               "kind" : "action",
-              "order" : 15,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53459,7 +54125,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.moveToNewWindow",
               "kind" : "action",
-              "order" : 16,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53470,13 +54136,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 17
+              "order" : 12
             },
             {
               "enabled_when" : "can_perform",
               "id" : "equalizeSplits",
               "kind" : "action",
-              "order" : 18,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53489,7 +54155,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.toggleTabBar",
               "kind" : "action",
-              "order" : 19,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53500,14 +54166,14 @@
             },
             {
               "kind" : "separator",
-              "order" : 20
+              "order" : 15
             },
             {
               "enabled_when" : "can_perform",
               "id" : "agentPaneZoomIn",
               "kind" : "action",
               "label" : "Chat Zoom In",
-              "order" : 21,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53521,7 +54187,7 @@
               "id" : "agentPaneZoomOut",
               "kind" : "action",
               "label" : "Chat Zoom Out",
-              "order" : 22,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53535,7 +54201,7 @@
               "id" : "agentPaneZoomReset",
               "kind" : "action",
               "label" : "Chat Actual Size",
-              "order" : 23,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53546,13 +54212,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 24
+              "order" : 19
             },
             {
               "enabled_when" : "can_perform",
               "id" : "reconnectPane",
               "kind" : "action",
-              "order" : 25,
+              "order" : 20,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -53563,13 +54229,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 26
+              "order" : 21
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.closeOthers",
               "kind" : "action",
-              "order" : 27,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
