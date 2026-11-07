@@ -133,7 +133,7 @@ for (const fold of [undefined, "runs"] as const)
       await render(read);
       watch.takeRecords().forEach((record) => removed.push(...record.removedNodes));
       watch.disconnect();
-      const after = host.querySelector<HTMLElement>('[data-message-run]')?.closest("article");
+      const after = host.querySelector<HTMLElement>("[data-message-run]")?.closest("article");
       // Compared as a boolean: a failing DOM node prints the whole jsdom window.
       expect(after === before).toBe(true);
       expect(removed.includes(before!)).toBe(false);
@@ -146,7 +146,7 @@ for (const fold of [undefined, "runs"] as const)
       // first row (the run's own id) draws in a frame of its own.
       expanded = new Set([line.id]);
       await render(live(expanded));
-      const open = host.querySelector<HTMLElement>('[data-message-run]')?.closest("article");
+      const open = host.querySelector<HTMLElement>("[data-message-run]")?.closest("article");
       expect(open === before).toBe(true);
       expect(open!.querySelector("[data-message-run]")?.getAttribute("aria-expanded")).toBe("true");
       const member = host.querySelector<HTMLElement>('[data-row-id="activity-1"]');
