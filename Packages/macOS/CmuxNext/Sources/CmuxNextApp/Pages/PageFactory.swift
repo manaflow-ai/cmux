@@ -224,6 +224,8 @@ struct PageFactory {
             let result = await devices.run(run)
             return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
         }
+        provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
+        provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
