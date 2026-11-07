@@ -70,7 +70,7 @@ struct NewTabSuccession {
     }
 
     private mutating func found(_ surface: SurfaceID, claiming: Bool = false) {
-        if claiming, surface != self.surface { claimed = nil } // the open's word wins over a guess
+        if claiming, surface != self.surface, !(claimed.map { ProvisionalTab.isProvisional($0.rawValue) } ?? true) { claimed = nil } // its word beats a guess; a stand-in resolves
         self.surface = surface
         deadline = ContinuousClock.now.advanced(by: Self.orderLimit)
         expire(after: Self.orderLimit)
