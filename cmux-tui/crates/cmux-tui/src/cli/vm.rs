@@ -380,10 +380,16 @@ pub(super) fn device_alias(args: &[String]) -> Option<DeviceRoute> {
         return MACHINE_VERBS.contains(&first.as_str()).then(|| DeviceRoute::Vm(first.clone()));
     }
     let mut rewritten = args.get(..at)?.to_vec();
-    rewritten.extend(output);
+    // `device` takes `-q` (devices/mod.rs); the global options `machine` reads say `--quiet`.
+    rewritten.extend(output.into_iter().map(long_quiet));
     rewritten.push("machine".to_owned());
     rewritten.extend(rest);
     Some(DeviceRoute::Machine(rewritten))
+}
+
+/// `word`, with `-q` spelled `--quiet`.
+fn long_quiet(word: String) -> String {
+    if word == "-q" { "--quiet".to_owned() } else { word }
 }
 
 /// `words` without the global output flags typed after the scope (`--json`, `--jsonl`,
