@@ -1201,15 +1201,8 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
             Cow::Owned(format!("{MACHINE_CATALOG_HELP}\n{}", surface::MACHINE_VM_HELP))
         }
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => {
-            let root = catalog.local_server.cmux_root_help;
-            let cloud = if root.contains("SCOPES") {
-                "  cloud         Run Cloud machine actions (`cmux cloud --help`)\n"
-            } else {
-                "  cloud         Cloud マシンのアクション (`cmux cloud --help`)\n"
-            };
-            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
-        }
+        // The root help lists `vm` itself, with `cloud` as its old name, in each language.
+        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();

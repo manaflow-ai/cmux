@@ -1253,6 +1253,17 @@ fn space_mutations_accept_global_json_without_changing_the_action() {
 /// agents' COMMON TASKS within the first screen (#28414), and lists the person's scopes before
 /// the pane and terminal plumbing.
 #[test]
+fn root_help_lists_vm_and_its_old_name_in_its_own_language() {
+    for (locale, foreign) in [("en_US.UTF-8", "マシン"), ("ja_JP.UTF-8", "Run Cloud machine")] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        assert!(!help.contains(foreign), "{locale}: the other language's text");
+        let vm = help.lines().find(|line| line.starts_with("  vm ")).unwrap_or_default();
+        assert!(vm.contains("`cmux cloud`"), "{locale}: {vm}");
+        assert!(!help.lines().any(|line| line.starts_with("  cloud ")), "{locale}");
+    }
+}
+
+#[test]
 fn root_help_leads_with_person_verbs_and_keeps_the_agents_tasks_near_the_top() {
     for (locale, start, common, person, control) in [
         (
