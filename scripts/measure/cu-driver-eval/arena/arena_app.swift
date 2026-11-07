@@ -44,9 +44,8 @@ var state: [String: Any] = ["mode": mode, "seed": seed, "pid": ProcessInfo.proce
 func save() {
   state["t"] = Date().timeIntervalSince1970
   guard let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys, .prettyPrinted]) else { return }
-  let temp = stateURL.appendingPathExtension("tmp")
-  try? data.write(to: temp)
-  _ = try? FileManager.default.replaceItemAt(stateURL, withItemAt: temp)
+  // Atomic: a temporary file renamed over STATE, which also makes STATE when it is absent.
+  try? data.write(to: stateURL, options: .atomic)
 }
 
 func label(_ text: String, bold: Bool = false) -> NSTextField {

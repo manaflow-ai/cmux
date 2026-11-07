@@ -462,11 +462,12 @@ def start_daemon(arm: str, spec: dict, log_dir: Path) -> subprocess.Popen | None
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
     ready = daemon.get("ready_socket")
     deadline = time.monotonic() + 30
-    while ready and time.monotonic() < deadline:
+    while ready and not Path(ready).exists():
         if proc.poll() is not None:
             raise RuntimeError(f"{arm}: its daemon exited ({proc.returncode})")
-        if Path(ready).exists():
-            break
+        if time.monotonic() > deadline:
+            stop_proc(proc)
+            raise RuntimeError(f"{arm}: its daemon made no {ready} in 30 s")
         time.sleep(0.2)
     time.sleep(1.0)
     return proc
@@ -560,11 +561,16 @@ def cmd_run(args) -> int:
                                         "task": None, "unavailable": spec["unavailable"]}) + "\n")
             print(f"ARENA {arm}: unavailable: {spec['unavailable']}", flush=True)
             continue
-        daemon = None
         try:
             daemon = start_daemon(arm, spec, out)
         except Exception as error:
-            print(f"ARENA {arm}: daemon failed: {error}", flush=True)
+            # An engine that never came up is a row saying so, not a column of ordinary failures.
+            print(f"ARENA {arm}: unavailable: {error}", flush=True)
+            for harness, model in harnesses:
+                with rows_path.open("a") as f:
+                    f.write(json.dumps({"config": f"{arm}|{harness}:{model}", "arm": arm, "harness": harness, "model": model,
+                                        "task": None, "unavailable": f"daemon: {error}"[:300]}) + "\n")
+            continue
         try:
             # Reps outermost, so a slow minute of the VM spreads over every task rather than one.
             for rep in range(args.reps):

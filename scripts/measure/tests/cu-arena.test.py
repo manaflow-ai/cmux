@@ -169,6 +169,26 @@ class Sampling(unittest.TestCase):
         self.assertEqual(arena.parse_cputime("2-00:00:01"), 172801.0)
 
 
+class Daemon(unittest.TestCase):
+    def test_a_daemon_that_never_listens_is_an_error_not_a_ready_arm(self):
+        d = Path(tempfile.mkdtemp())
+        spec = {"daemon": {"argv": [sys.executable, "-c", "import time; time.sleep(60)"], "ready_socket": str(d / "never.sock"), "env": {}}}
+        start = time.monotonic()
+        with self.assertRaises(RuntimeError) as caught:
+            arena.start_daemon("slow", spec, d)
+        self.assertIn("made no", str(caught.exception))
+        self.assertLess(time.monotonic() - start, 40)
+
+    def test_owner_pid_becomes_the_runners(self):
+        d = Path(tempfile.mkdtemp())
+        seen = d / "argv.txt"
+        spec = {"daemon": {"argv": [sys.executable, "-c", f"import sys; open({str(seen)!r}, 'w').write(' '.join(sys.argv[1:])); open({str(d / 'ready')!r}, 'w')",
+                                    "--owner-pid", "1"], "ready_socket": str(d / "ready"), "env": {}}}
+        proc = arena.start_daemon("ok", spec, d)
+        proc.wait(timeout=10)
+        self.assertEqual(seen.read_text(), f"--owner-pid {os.getpid()}")
+
+
 class Summary(unittest.TestCase):
     def test_tables_per_config_and_task_and_unavailable(self):
         out = Path(tempfile.mkdtemp())
