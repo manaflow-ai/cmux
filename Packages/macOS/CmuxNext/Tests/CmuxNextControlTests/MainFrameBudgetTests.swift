@@ -266,7 +266,7 @@ import Testing
         let spare = FrameBatchQueue(owner: "WorkspaceSpare", budgeted: .background, on: scheduler)
         let rows = FrameBatchQueue(owner: "SidebarRows", budgeted: .visible, on: scheduler)
         var steps: [String] = [], shown = 0, time = 10.0
-        func frame(after ms: Double) {
+        @MainActor func frame(after ms: Double) {
             rows.enqueue { shown += 1 }
             clock.advance(ms: ms)
             time += ms / 1000
