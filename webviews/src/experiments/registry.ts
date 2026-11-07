@@ -27,6 +27,7 @@ import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.expe
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
+import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
@@ -62,6 +63,7 @@ import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.e
 import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
+import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -85,12 +87,14 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapMark,
   threadMinimapWave,
   threadMinimapIncoming,
+  threadMinimapCard,
   chatMinimapPlaceholder,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
   timeHoverWording,
+  timeHoverDate,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,

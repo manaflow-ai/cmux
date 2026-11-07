@@ -10544,8 +10544,6 @@ CmuxNextSidebar	struct	WorkspaceHoverCardContent	0	LOGIC	100	0	Packages/macOS/Cm
 CmuxNextSidebar	enum	WorkspaceHoverCardWork	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceHoverCardWork.swift	words for running subagents and commands
 CmuxNextSidebar	struct	WorkspaceRowContent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceRowContent.swift	what a row draws: lines, counts, badges from workspace facts and prefs
 CmuxNextSidebar	struct	WorkspaceTabHoverCardLine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceTabHoverCardLine.swift	detail line and trailing text of a tab row
-CmuxNextSidebar	struct	SidebarDemoMock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/SidebarDemoMock.swift	demo fixture data
-CmuxNextSidebar	struct	SidebarMock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/SidebarMock.swift	demo fixture data
 CmuxNextSidebar	enum	CollapseTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/DropPosition.swift	from struct DropPosition:8: insertion point value type
 CmuxNextSidebar	enum	DropTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/DropPosition.swift	from struct DropPosition:8: insertion point value type
 CmuxNextSidebar	struct	DropPosition	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/DropPosition.swift	insertion point value type
@@ -11375,9 +11373,6 @@ CmuxNextTerminal	extension	GhosttyRuntime	0	LOGIC	100	0	Packages/macOS/CmuxNext/
 CmuxNextTerminal	extension	GhosttyThemeColors	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyThemeColors+Contrast.swift	Theme contrast math (V-31, low priority)
 CmuxNextTerminal	class	GhosttyThemeConfig	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyThemeConfig.swift	from class GhosttyThemeConfig:10: Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	extension	GhosttyRuntime	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyThemeConfig.swift	from class GhosttyThemeConfig:10: Ghostty FFI, config adaption and key translation
-CmuxNextTerminal	class	CStringArray	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift	from class LocalPTYTerminalIO:10: Local PTY TerminalIO adapter; OS process IO
-CmuxNextTerminal	class	LocalPTYTerminalIO	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift	Local PTY TerminalIO adapter; OS process IO
-CmuxNextTerminal	class	PendingInput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/LocalPTYTerminalIO.swift	from class LocalPTYTerminalIO:10: Local PTY TerminalIO adapter; OS process IO
 CmuxNextTerminal	extension	ModuleResourceBundle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/ModuleResourceBundle+Terminal.swift	Ghostty FFI, config adaption and key translation
 CmuxNextTerminal	struct	NewTerminalGrid	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/NewTerminalGrid.swift	Small terminal rule (grid lock, stall, link check, timings)
 CmuxNextTerminal	class	ScriptedTerminalIO	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/ScriptedTerminalIO.swift	TerminalIO seam and test double (thin daemon/PTY client)

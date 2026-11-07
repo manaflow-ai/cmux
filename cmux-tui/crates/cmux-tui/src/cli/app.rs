@@ -1317,6 +1317,55 @@ pub(super) fn exchange(
     read_reply(stream, method, timeout, app_answers_ping)
 }
 
+/// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
+/// that is only busy. For an optional read that must never hold up a command. The write and
+/// every read share the one deadline, so an app that trickles bytes cannot stretch it. Like
+/// every app request, it carries the read barrier ([`with_read_barrier`]), so a value an earlier
+/// `cmux` call wrote through the daemon is the one read; the barrier's round trip is inside the
+/// same deadline.
+pub(super) fn exchange_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let deadline = std::time::Instant::now().checked_add(timeout);
+    let left = || {
+        deadline
+            .and_then(|deadline| deadline.checked_duration_since(std::time::Instant::now()))
+            .filter(|left| !left.is_zero())
+            .ok_or_else(|| wait::timeout_message(timeout))
+    };
+    stream.set_write_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(method, params) });
+    send_line(stream, &line)
+        .map_err(|error| if left().is_err() { wait::timeout_message(timeout) } else { error })?;
+    let mut response = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        stream.set_read_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+        let read = match stream.read(&mut chunk) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(read_error(&error, Some(timeout))),
+        };
+        let got = chunk.get(..read).unwrap_or_default();
+        if let Some(end) = got.iter().position(|byte| *byte == b'\n') {
+            response.extend_from_slice(got.get(..=end).unwrap_or_default());
+            break;
+        }
+        // End of stream: parse what came.
+        if got.is_empty() {
+            break;
+        }
+        response.extend_from_slice(got);
+        if u64::try_from(response.len()).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
+            return Err(format!("{method}: the answer is over {MAX_RESPONSE_BYTES} bytes"));
+        }
+    }
+    parse_response(&String::from_utf8_lossy(&response))
+}
+
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
 /// there, not how long it may take: a loaded app (load 300 on 15 cores, #32724) answers late,
 /// and failing the request then shows the caller a timeout for an app that was only busy. While
