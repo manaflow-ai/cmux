@@ -267,6 +267,11 @@ mod tests {
             std::fs::read_to_string(half.path().join(".ssh/id_ed25519")).unwrap(),
             "private"
         );
+        // Any of the key names counts, not only ed25519: an RSA key whose .pub is gone is still a key.
+        let rsa = home_with(&[("id_rsa", "private")]);
+        let err = create(rsa.path(), "mac.local").unwrap_err().to_string();
+        assert!(err.contains("without its .pub"), "{err}");
+        assert!(!rsa.path().join(".ssh/id_ed25519").exists());
     }
 
     #[test]
