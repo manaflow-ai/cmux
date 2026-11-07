@@ -369,35 +369,31 @@ def outputs():
 
 
 def contact(path):
-    """Every set's thinking and idle rows, then its direction rows, shipped and each variant, 8x."""
-    scale, pad = 8, 8
-    blocks = []
+    """8x, one line per set: thinking, looking left, right, up and down, then idle and the drag
+    left, right, up and down (each row's first frame); then Mochi's line from each variant sheet."""
+    scale, size, gap = 8, 32, 8
+    lines = []
     for name in NAMES:
-        sheets = [build(name)[0]] + [build(name, style)[0] for style in VARIANTS.values()]
-        for at, data in enumerate(sheets):
-            _, _, rows = read_png(data)
-            picked = range(2, 14) if at == 0 else range(6, 14)
-            blocks.append([rows[r * 32:(r + 1) * 32] for r in picked])
-            blocks.append(None)
-    width = max(len(b[0][0]) for b in blocks if b) * scale + pad * 2
-    height = sum((len(b) * 32 * scale if b else pad * 4) for b in blocks) + pad * 2
+        lines.append(build(name)[0])
+    for style in VARIANTS.values():
+        lines.append(build("mochi", style)[0])
+    columns = [2, 6, 7, 8, 9, 0, 10, 11, 12, 13]
+    cell = size * scale + gap
+    width, height = len(columns) * cell + gap, len(lines) * cell + gap
     background = (44, 44, 52, 255)
     canvas = [[background] * width for _ in range(height)]
-    y = pad
-    for block in blocks:
-        if block is None:
-            y += pad * 4
-            continue
-        for band in block:
-            for sy, line in enumerate(band):
-                for sx, pixel in enumerate(line):
+    for line, data in enumerate(lines):
+        _, _, rows = read_png(data)
+        for column, row in enumerate(columns):
+            frame = cut(rows, size, row, 0)
+            for sy, pixels in enumerate(frame):
+                for sx, pixel in enumerate(pixels):
                     if pixel == CLEAR:
                         continue
                     for yy in range(scale):
-                        row = canvas[y + sy * scale + yy]
-                        for xx in range(scale):
-                            row[pad + sx * scale + xx] = pixel
-            y += 32 * scale
+                        target = canvas[gap + line * cell + sy * scale + yy]
+                        at = gap + column * cell + sx * scale
+                        target[at:at + scale] = [pixel] * scale
     path.write_bytes(png_rgba(canvas))
 
 
