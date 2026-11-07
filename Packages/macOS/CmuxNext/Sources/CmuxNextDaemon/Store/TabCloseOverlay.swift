@@ -68,15 +68,14 @@ extension DaemonStore {
     /// slot early (Leo 2026-11-05, the close/create shuffle: Cmd-T after b, close a, the new tab ended first). A close
     /// already sent reaches the daemon before the move, so its tabs do not count.
     public func daemonMoveIndex(_ index: Int, moving surface: SurfaceID, in pane: PaneModel) -> (final: Int, current: Int?) {
-        var order = pane.tabs.map(\.surface)
-        let others = order.filter { $0 != surface }
-        // Each held close's overlay undone, newest first, as `TabCloseOverlay.undo` would.
-        for entry in intentLog.entries.reversed() {
-            guard case .closedTabs(let hidden)? = entry.undo else { continue }
-            for tab in hidden.reversed() where tab.pane == pane.handle && heldTabIDs.contains(tab.tab.id) { order.insert(tab.tab.surface, at: min(tab.index, order.count)) }
+        // Each held close's tabs in this pane, oldest close first, in removal order: cmux-layout-reducer
+        // `daemon_move_index` puts them back as `TabCloseOverlay.undo` would, newest first.
+        let held = intentLog.entries.compactMap { entry -> [OptimisticRules.HeldTab]? in
+            guard case .closedTabs(let hidden)? = entry.undo else { return nil }
+            let tabs = hidden.filter { $0.pane == pane.handle && heldTabIDs.contains($0.tab.id) }
+                .map { OptimisticRules.HeldTab(surface: $0.tab.surface, index: $0.index) }
+            return tabs.isEmpty ? nil : tabs
         }
-        let full = order.filter { $0 != surface }
-        let final = others.dropFirst(index).first.flatMap { full.firstIndex(of: $0) } ?? full.count
-        return (final, order.firstIndex(of: surface))
+        return OptimisticRules.daemonMoveIndex(visible: pane.tabs.map(\.surface), moving: surface, index: index, held: held)
     }
 }

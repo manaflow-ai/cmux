@@ -1531,7 +1531,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextDaemon",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            // CCmuxAppFFI: the optimistic overlay's rules (cmux-layout-reducer optimistic).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

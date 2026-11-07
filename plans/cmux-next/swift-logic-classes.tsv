@@ -6147,7 +6147,9 @@ CmuxNextDaemon	struct	RowHeightValue	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextDaemon	enum	IntentUndo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/IntentLog.swift	intent log and undo records
 CmuxNextDaemon	struct	IntentLog	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/IntentLog.swift	from enum IntentUndo:6: intent log and undo records
 CmuxNextDaemon	struct	PendingIntent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/IntentLog.swift	from enum IntentUndo:6: intent log and undo records
-CmuxNextDaemon	enum	IntentOverlay	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/IntentOverlay.swift	Swift hand copy of the reducer applied to records (incl. move_workspace_to_group placement copy)
+CmuxNextDaemon	enum	IntentOverlay	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/IntentOverlay.swift	writes the overlay into the records and undoes it; placement, move and row-height rules are cmux-layout-reducer optimistic (OptimisticRules)
+CmuxNextDaemon	enum	OptimisticRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/OptimisticRules.swift	rule c: each overlay rule is one cmux-layout-reducer optimistic call (app FFI); encodes the records, decodes the view
+CmuxNextDaemon	extension	OptimisticRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/OptimisticRules.swift	from enum OptimisticRules: the daemon's wire shapes the optimistic call reads
 CmuxNextDaemon	class	PaneModel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/PaneModel.swift	from class PaneModel:5: Swift mirror of daemon tree/state
 CmuxNextDaemon	struct	PersonalRefetch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/PersonalRefetch.swift	personal-changed refetch sequencing rule
 CmuxNextDaemon	class	PersonalStore	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Store/PersonalStore.swift	from class PersonalStore:9: Swift mirror of daemon tree/state

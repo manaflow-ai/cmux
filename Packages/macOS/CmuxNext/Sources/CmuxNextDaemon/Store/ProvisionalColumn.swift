@@ -25,8 +25,5 @@ public struct ProvisionalColumn: Sendable, Hashable {
         self.width = width
         self.left = left
     }
-
-    /// The tree column's handle (a split-tree screen gets two columns at once).
-    var treeHandle: ColumnID { ColumnID(rawValue: handle.rawValue | (1 << 61)) }
 }
 

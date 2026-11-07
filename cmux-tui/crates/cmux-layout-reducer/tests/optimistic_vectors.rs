@@ -13,7 +13,7 @@ fn vectors() -> Vec<Value> {
 #[test]
 fn optimistic_vectors_answer_the_swift_view() {
     let cases = vectors();
-    assert!(cases.len() >= 50, "the vectors lost cases: {}", cases.len());
+    assert!(cases.len() >= 55, "the vectors lost cases: {}", cases.len());
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let request: Request = serde_json::from_value(case["request"].clone())

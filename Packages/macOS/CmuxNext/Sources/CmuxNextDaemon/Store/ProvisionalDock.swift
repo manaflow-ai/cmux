@@ -36,22 +36,19 @@ import Foundation
                       standIn: TabSnapshot?, to store: DaemonStore) -> IntentUndo? {
         guard let column = provisional.column, !ProvisionalSplit.daemonPlaces(provisional, in: store) else { return nil }
         let daemon = ProvisionalSplit.daemonPane(provisional, in: store)
-        // A screen that already has a dock on that edge, or a zoomed one, waits for the daemon's
-        // layout: `reduce_column_dock` there moves the old holder, which this overlay does not show.
-        guard let pane = store.panesByHandle[source], let screen = store.screen(containing: source), screen.zoomedPane == nil,
-              !screen.columns.contains(where: { $0.dock?.edge == dock.edge }),
+        guard let pane = store.panesByHandle[source], let screen = store.screen(containing: source),
               daemon != nil || !store.panesByHandle.keys.contains(provisional.handle) else { return nil }
         let from = pane.tabs.firstIndex { $0.surface == surface }
         guard from != nil || daemon?.tabs.contains(where: { $0.surface == surface }) == true else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        var columns = screen.columns
-        if columns.isEmpty { columns = [ColumnSnapshot(id: column.treeHandle, width: 1, layout: screen.layout)] }
-        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf), dock: dock), at: 0)
+        // The dock column leads the columns (cmux-layout-reducer `optimistic`). A screen that already has a dock on
+        // that edge, or a zoomed one, waits for the daemon's layout: `reduce_column_dock` there moves the old holder,
+        // which this overlay does not show.
+        guard let shown = OptimisticRules.dock(screen, leaf: leaf, column: column, dock: dock) else { return nil }
         var undo = Undo(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                         pane: daemon == nil ? provisional.handle : nil, surface: surface, source: source)
-        // The compat tree the daemon keeps beside its columns: the new leaf on the left.
-        screen.layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(leaf), b: screen.layout)
-        screen.columns = columns
+        screen.layout = shown.layout
+        screen.columns = shown.columns
         let holder: PaneModel
         if let daemon {
             holder = daemon
