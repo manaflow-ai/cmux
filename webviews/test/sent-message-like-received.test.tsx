@@ -49,7 +49,7 @@ let root: Root | undefined;
 
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
-const { AcpmuxSendLine } = await import("../src/agent-session/acpmux/conversation/SentMessageLine");
+const { AcpmuxSendLine, configureSentLook } = await import("../src/agent-session/acpmux/conversation/SentMessageLine");
 const { acpmuxSendCall } = await import("../src/agent-session/acpmux/conversation/acpmuxSends");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
@@ -182,6 +182,26 @@ test("Find opens Raw for a match only in a link's address, which the message doe
   const reveal = { rowId: "row-1", card: false, needle: "example.com/results", repaint: () => undefined };
   await draw(<FindReveal.Provider value={reveal}>{sentLine(linked)}</FindReveal.Provider>);
   expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("a command link to the send call opens its Raw, where the call is", async () => {
+  // A command or deep link names the call by id and carries no words: the call draws only behind
+  // Raw, so a closed Raw left the link pointing at nothing.
+  const reveal = { rowId: "row-1", card: false, needle: "", toolId: leoSend.id, repaint: () => undefined };
+  await draw(<FindReveal.Provider value={reveal}>{sentLine()}</FindReveal.Provider>);
+  expect(host.querySelector(".cv-received__more")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(`.cv-received__details [data-tool-id="${leoSend.id}"]`)).not.toBeNull();
+});
+
+test("the arrow look names the message's first line once", async () => {
+  configureSentLook("arrow");
+  try {
+    await draw(sentLine());
+    const line = host.querySelector(".cv-disclosure__line")!.textContent ?? "";
+    expect(line.split("the old lane").length - 1).toBe(1);
+  } finally {
+    configureSentLook("sentence");
+  }
 });
 
 test("opened, Raw is the call's plain command row, with no Shell card", async () => {

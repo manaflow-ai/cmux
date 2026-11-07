@@ -168,10 +168,15 @@ export function SentMessageLine({
     useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]),
     () => {
       setOpen(true);
-      const needle = find?.toolId === undefined ? (find?.needle ?? "") : "";
-      // The message's words as they draw, not its Markdown source: a link's address is in the
-      // source but not on screen, so a match there opens Raw, where Find can show it.
-      if (!text || (needle && !foldFind(plainText(text)).includes(needle))) setRawShown(true);
+      // A command link names this call: the call is behind Raw, so Raw opens to show it.
+      if (find?.toolId !== undefined) {
+        if (find.toolId === tool.id) setRawShown(true);
+      } else {
+        const needle = find?.needle ?? "";
+        // The message's words as they draw, not its Markdown source: a link's address is in the
+        // source but not on screen, so a match there opens Raw, where Find can show it.
+        if (!text || (needle && !foldFind(plainText(text)).includes(needle))) setRawShown(true);
+      }
       setReveal((value) => value + 1);
     },
   );
@@ -187,13 +192,14 @@ export function SentMessageLine({
   // No words to show, only where they came from: the file's path, as code, after the line.
   const fileShown = !text && file && state !== "failed" ? file : "";
   // Stacked, they take the line under the row instead (`below`); `quiet` shows neither while shut.
-  const trailing = stacked ? "" : shown;
+  const arrowSaysIt = shape === "arrow" && (state === "sending" || state === "sent") && Boolean(preview);
+  // The arrow look's label already carries the preview ("To X: words"); not again after it.
+  const trailing = stacked || arrowSaysIt ? "" : shown;
   const source = stacked ? "" : fileShown;
   const below = stacked && lineLook === "stacked" && !open ? shown || fileShown : "";
-  const label =
-    shape === "arrow" && (state === "sending" || state === "sent") && preview
-      ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
-      : sendLabel(t, state);
+  const label = arrowSaysIt
+    ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
+    : sendLabel(t, state);
   const [before, after = ""] = label.split(MARK);
   // The recipient as a received message's sender draws: its chip (the session link chip when its
   // chat is known), then the machine it runs on, muted, after it.
