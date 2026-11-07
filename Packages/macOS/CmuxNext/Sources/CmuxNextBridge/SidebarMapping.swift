@@ -29,7 +29,7 @@ public struct SidebarMapping {
     /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
     /// hq#1957), and a page's favicon in place of an icon the user never chose.
     /// A daemon default name (`workspace-7`) remains visible until a rename.
-    private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
+    static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
         return workspace.displayName
     }
@@ -444,7 +444,7 @@ public struct SidebarMapping {
         return tab.agentSession == nil ? tabKind(tab.kind) : .agentChat
     }
 
-    private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
+    static func tabKind(_ kind: TabKind) -> SidebarTabKind {
         switch kind {
         case .pty: .terminal
         case .browser: .browser
