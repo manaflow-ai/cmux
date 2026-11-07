@@ -24,13 +24,12 @@ extension AppServices {
         guard let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
               let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth,
                                                     platform: cloud.configuration.relayAPIBaseURL(), team: session.machine.team, stateDirectory: cloud.tuiState) else { return nil }
-        let hello = RemoteRdHello.cloudDesktop()
         return { control in
             let carrier = RemoteRdStreamCarrier {
                 let stream = try await dial.open()
                 return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
-            return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
+            return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(), startKey: UUID().uuidString, control: control)
         }
     }
 
