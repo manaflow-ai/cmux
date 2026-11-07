@@ -13,8 +13,8 @@
 //! `<gemini home>/tmp/<project>/plans/` or `<gemini home>/tmp/<project>/<session>/plans/`, where
 //! `<project>`'s `.project_root` marker (gemini-cli `config/projectRegistry.ts`) names the chat's
 //! folder. The path is resolved (symlinks too) before it is judged, it must be a Markdown file,
-//! and it is stat'ed as a regular file first. Anything else, or a read that fails, leaves the
-//! call as Gemini sent it.
+//! and it is stat'ed as a regular file of at most 256 KiB first. Anything else, or a read that
+//! fails, leaves the call as Gemini sent it.
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -29,6 +29,28 @@ const PROJECT_ROOT_FILE: &str = ".project_root";
 /// The most of a plan file acpmux reads. A plan is a page or two of Markdown; a larger file is
 /// left unread, so the hook never pulls a big file into every client's log.
 const MAX_PLAN_BYTES: u64 = 256 * 1024;
+
+/// The most of a `.project_root` marker acpmux reads: one path.
+const MARKER_MAX_BYTES: u64 = 16 * 1024;
+
+/// `path`'s text when it is a regular file of at most `max` bytes; None otherwise. Stat'ed before
+/// it is opened (opening a FIFO would block), and the read is bounded too, so a file that grows
+/// after the stat is still never read past `max`.
+fn read_capped(path: &Path, max: u64) -> Option<String> {
+    use std::io::Read as _;
+    let before = std::fs::metadata(path).ok()?;
+    if !before.is_file() || before.len() > max {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.len() > max {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(max + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= max).then_some(text)
+}
 
 /// The plan file an `exit_plan_mode` tool call names, from its title.
 fn named_plan(tool: &Value) -> Option<&str> {
@@ -102,13 +124,13 @@ pub(super) fn read_plan(path: &str, cwd: &Path, homes: &[PathBuf]) -> Option<Str
         let planned = (parts.len() >= 3 && plans(1)) || (parts.len() >= 4 && plans(2));
         let Some(project) = parts.first() else { return false };
         planned
-            && std::fs::read_to_string(tmp.join(project).join(PROJECT_ROOT_FILE))
-                .is_ok_and(|marker| names_project(&marker, cwd))
+            && read_capped(&tmp.join(project).join(PROJECT_ROOT_FILE), MARKER_MAX_BYTES)
+                .is_some_and(|marker| names_project(&marker, cwd))
     });
-    if !inside || !std::fs::metadata(&real).ok()?.is_file() {
+    if !inside {
         return None;
     }
-    let text = std::fs::read_to_string(&real).ok()?;
+    let text = read_capped(&real, MAX_PLAN_BYTES)?;
     let text = text.trim();
     (!text.is_empty()).then(|| text.to_owned())
 }
