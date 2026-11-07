@@ -45,7 +45,10 @@ struct ChiefDockAppTests {
             #expect(services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
             #expect(!window.state.docks.isDocked(home.id), "Undock Chief left the Chief docked")
             #expect(window.state.workspaceID == other, "Undock Chief moved the stage")
-            #expect(!services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user)))
+            let again = services.registry.capturingRefusal {
+                _ = services.registry.perform("home.undockChief", invocation: ActionInvocation(origin: .user))
+            }
+            #expect(again == RefusalStrings.chiefNotDocked, "a second Undock Chief: \(again ?? "ran")")
         }
     }
 
