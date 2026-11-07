@@ -5,6 +5,7 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap, type BlockKind } from "./blockWrap";
+import { ExpandRow } from "./ExpandRow";
 import { WrapLines } from "./icons";
 import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
@@ -53,20 +54,17 @@ export function usePreview(lines: number, reveal = 0, overflows = false) {
 
 /// "Show all N lines" under a cut block, "Show less" once it is open. A block that draws only the
 /// end of a long output counts all of its lines, and opened it draws them all (toolOutput.tsx
-/// `previewedOutput`), so N is never the tail's count. Find skips the button's words.
+/// `previewedOutput`), so N is never the tail's count. It is the block's whole bottom row (ExpandRow.tsx).
 export function PreviewMore({ preview }: { preview: ReturnType<typeof usePreview> }) {
   const t = useT();
   if (!preview.long) return null;
   return (
-    <button
-      type="button"
+    <ExpandRow
       className="cv-output-more"
-      aria-expanded={preview.all}
-      data-find-skip=""
-      onClick={preview.toggle}
-    >
-      {preview.all ? t("shell.showLess") : t("transcript.showAllLines", { n: preview.lines })}
-    </button>
+      open={preview.all}
+      onToggle={preview.toggle}
+      label={preview.all ? t("shell.showLess") : t("transcript.showAllLines", { n: preview.lines })}
+    />
   );
 }
 

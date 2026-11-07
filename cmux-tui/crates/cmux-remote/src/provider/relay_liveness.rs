@@ -32,6 +32,12 @@ pub(crate) const CLOCK_JUMP: Duration = Duration::from_secs(2);
 pub(crate) const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 /// The longest wait before registering again.
 pub(crate) const MAX_BACKOFF: Duration = Duration::from_secs(5);
+/// The first wait after a relay credential source (a ticket command) failed.
+pub(crate) const FIRST_CREDENTIAL_BACKOFF: Duration = Duration::from_secs(1);
+/// The longest wait after a relay credential source failed. Each attempt
+/// asks the ticket issuer again, so a source that keeps failing is asked
+/// at most about once a minute.
+pub(crate) const MAX_CREDENTIAL_BACKOFF: Duration = Duration::from_secs(60);
 
 /// What the loop does after a check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,25 +93,36 @@ impl Liveness {
 /// Full-jitter exponential backoff between registrations.
 #[derive(Debug)]
 pub(crate) struct Backoff {
+    first: Duration,
+    maximum: Duration,
     ceiling: Duration,
 }
 
 impl Backoff {
     pub(crate) fn new() -> Self {
-        Self { ceiling: FIRST_BACKOFF }
+        Self::with_bounds(FIRST_BACKOFF, MAX_BACKOFF)
+    }
+
+    /// The backoff after relay credential source failures.
+    pub(crate) fn credential() -> Self {
+        Self::with_bounds(FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF)
+    }
+
+    fn with_bounds(first: Duration, maximum: Duration) -> Self {
+        Self { first, maximum, ceiling: first }
     }
 
     /// The next wait for a random `unit` in `[0, 1)`: a uniform share of the
-    /// ceiling, which then doubles up to [`MAX_BACKOFF`].
+    /// ceiling, which then doubles up to the maximum ([`MAX_BACKOFF`]).
     pub(crate) fn next(&mut self, unit: f64) -> Duration {
         let wait = self.ceiling.mul_f64(unit.clamp(0.0, 1.0));
-        self.ceiling = (self.ceiling * 2).min(MAX_BACKOFF);
+        self.ceiling = (self.ceiling * 2).min(self.maximum);
         wait
     }
 
-    /// A registration became ready: start from [`FIRST_BACKOFF`] again.
+    /// A registration became ready: start from the first wait again.
     pub(crate) fn reset(&mut self) {
-        self.ceiling = FIRST_BACKOFF;
+        self.ceiling = self.first;
     }
 }
 
@@ -204,5 +221,18 @@ mod tests {
         assert_eq!(backoff.next(1.0), FIRST_BACKOFF);
         let unit = random_unit();
         assert!((0.0..1.0).contains(&unit) || unit == 1.0);
+    }
+
+    #[test]
+    fn credential_backoff_doubles_from_1s_to_a_60s_cap() {
+        let mut backoff = Backoff::credential();
+        assert_eq!(backoff.next(1.0), FIRST_CREDENTIAL_BACKOFF);
+        assert_eq!(backoff.next(1.0), Duration::from_secs(2));
+        for _ in 0..20 {
+            backoff.next(0.5);
+        }
+        assert_eq!(backoff.next(1.0), MAX_CREDENTIAL_BACKOFF);
+        backoff.reset();
+        assert_eq!(backoff.next(1.0), FIRST_CREDENTIAL_BACKOFF);
     }
 }

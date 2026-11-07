@@ -85,6 +85,30 @@ fn daemon_restarting_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The turn's failure as `agent_error`. ACP internal (-32603) or parse (-32700) errors with
+/// nothing produced are the only retryable failures.
+fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::errors::AppError {
+    let msg = e.to_string();
+    let retryable = !produced
+        && (msg.contains("-32603")
+            || msg.contains("-32700")
+            || msg.to_lowercase().contains("internal error"));
+    let mut app =
+        crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "agent_error", msg)
+            .with_session(id);
+    if retryable {
+        app = app.retryable();
+    }
+    // A typed failure (`recovery.rs`: `auth.signed_out`, `agent.exited`, ...) keeps its kind
+    // and recovery: the envelope and the Cloud relay's `error_kind` name it, not only the text.
+    if let Some(data) =
+        e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone())
+    {
+        app = app.with_data(data);
+    }
+    app
+}
+
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
     let joined = words.join(" ");
     if !joined.is_empty() && joined != "-" {
@@ -127,6 +151,8 @@ pub(crate) struct PromptId {
     pub attachments: Vec<Value>,
     /// `--notice`: a tool's notice (`_meta.acpmux.notice`, `prompt_provenance::notice_of`).
     pub notice: Option<Value>,
+    /// `--relay`: a relay's `fromRelay` and `fromHarness` (`cli/run/standard.rs` `relay_fields`).
+    pub relay: Option<Value>,
 }
 
 impl PromptId {
@@ -143,6 +169,7 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -155,6 +182,7 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
             },
         }
     }
@@ -192,6 +220,11 @@ impl PromptId {
         }
         if let Some(notice) = &self.notice {
             mux.set("notice", notice.clone());
+        }
+        if let Some(Value::Object(relay)) = &self.relay {
+            for (key, value) in relay {
+                mux.set(key, value.clone());
+            }
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());
@@ -1029,25 +1062,7 @@ async fn collect_once(
         Err(e) if daemon_closed_error(&e) => {
             return Err(prompt.closed(&client, id, "waiting for the turn"));
         }
-        Err(e) => {
-            // ACP internal (-32603) or parse (-32700) errors with nothing
-            // produced are the only retryable failures.
-            let msg = e.to_string();
-            let retryable = !produced
-                && (msg.contains("-32603")
-                    || msg.contains("-32700")
-                    || msg.to_lowercase().contains("internal error"));
-            let mut app = crate::cli::errors::AppError::new(
-                crate::cli::errors::Code::Runtime,
-                "agent_error",
-                msg,
-            )
-            .with_session(id);
-            if retryable {
-                app = app.retryable();
-            }
-            return Err(app.into());
-        }
+        Err(e) => return Err(agent_error(&e, id, produced).into()),
     };
     let mut reply = t
         .items
@@ -1524,4 +1539,24 @@ fn a_restarting_daemons_answer_is_a_restart_not_an_agent_error() {
     // `daemon_closed_error`: the shutdown's answer is a daemon going away there too.
     assert!(daemon_closed_error(&restarting));
     assert!(!daemon_closed_error(&agent));
+}
+
+/// Cloud chaos fault `token-rejected` (run 42346668793): the turn failed typed `auth.signed_out`
+/// with its recovery, and the CLI's `agent_error` dropped both, so the chat error carried no
+/// kind up the relay (`error_kind`), only the text.
+#[test]
+fn an_agent_error_keeps_the_daemons_typed_kind_and_recovery() {
+    let mut typed = crate::rpc::RpcError::internal(
+        "Failed to authenticate. API Error: 401 authentication_error",
+    );
+    typed.data = Some(json!({"errorKind": "auth.signed_out", "recovery": "Sign in to Claude."}));
+    let e: anyhow::Error = crate::client::DaemonError(typed).into();
+    let app = agent_error(&e, "s-1", false);
+    assert_eq!(app.detail, "agent_error");
+    let envelope = app.envelope();
+    assert_eq!(envelope["error"]["data"]["errorKind"], "auth.signed_out", "{envelope}");
+    assert_eq!(envelope["error"]["data"]["recovery"], "Sign in to Claude.", "{envelope}");
+    // An untyped failure stays as it was.
+    let plain: anyhow::Error = anyhow!("agent said no");
+    assert!(agent_error(&plain, "s-1", true).data.is_none());
 }
