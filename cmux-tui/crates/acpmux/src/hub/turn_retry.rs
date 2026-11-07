@@ -120,6 +120,11 @@ impl Hub {
         if !sign_in_refused(retry) || attempt < SIGN_IN_REFUSED_END_ATTEMPT {
             return;
         }
+        // Read first, after the tap counted this retry's line (`heard_now`) and before the turn
+        // and its marker: a new agent for the turn (a failover keeps its id), or the model
+        // answering, at any point after it moves it, and the end is not carried out
+        // (`stalled_gen`, as the stalled end).
+        let generation = session.stalled_gen.load(Ordering::SeqCst);
         let Some(turn) = session.turn() else { return };
         // A turn a Stop ends needs no end of its own.
         if super::cancel::is_stopping(session, &turn.turn_id) {
@@ -134,10 +139,6 @@ impl Hub {
             }
             *scheduled = Some(turn.turn_id.clone());
         }
-        // Read after the tap counted this retry's line (`heard_now`): a new agent for the turn
-        // (a failover keeps its id), or the model answering meanwhile, moves it, and the end is
-        // not carried out (`stalled_gen`, as the stalled end).
-        let generation = session.stalled_gen.load(Ordering::SeqCst);
         tracing::warn!(session = %session.id, turn = %turn.turn_id, attempt, "the model API refused the agent's sign-in: ending its turn");
         let answer = json!({"stopReason": "cancelled", "_meta": {"acpmux": {"signInRefused": {
             "attempt": attempt, "errorStatus": retry.get("errorStatus"), "error": retry.get("error")}}}});
@@ -161,6 +162,14 @@ impl Hub {
             .await;
             if ours(&session) {
                 session.steer_end.send_replace(Some((turn_id, answer)));
+                return;
+            }
+            // Not carried out (a failover keeps the turn's id): the turn's next agent gets its own
+            // end, should its sign-in be refused too.
+            let mut scheduled =
+                session.sign_in_refused_turn.lock().unwrap_or_else(|e| e.into_inner());
+            if scheduled.as_deref() == Some(turn_id.as_str()) {
+                *scheduled = None;
             }
         });
     }
@@ -258,6 +267,15 @@ mod tests {
         Hub::hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
+        // That agent's own refused retries still end the turn.
+        hub.end_sign_in_refused(&session, &refused(3));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let end = session.steer_end.borrow().clone();
+        assert_eq!(
+            end.map(|(turn, _)| turn).as_deref(),
+            Some("turn-1"),
+            "the next agent's refusal ends it"
+        );
     }
 
     #[test]

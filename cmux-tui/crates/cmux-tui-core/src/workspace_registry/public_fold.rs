@@ -220,6 +220,34 @@ impl WorkspaceRegistry {
         }
     }
 
+    /// `deltas` without the projection upserts the journal already states,
+    /// or `None` while the fold is unseeded (nothing to prune against).
+    pub(crate) fn prune_stated_projection_deltas(
+        &mut self,
+        deltas: &Value,
+    ) -> anyhow::Result<Option<Value>> {
+        self.catch_up_public_fold();
+        if self.public_fold.is_none() {
+            return Ok(None);
+        }
+        self.prune_stated_topology_deltas(deltas).map(Some)
+    }
+
+    /// [`Self::record_public_fold`] for a resource patch commit at
+    /// `revision` whose `journaled` changes are a full topology projection's
+    /// (`Mux::commit_resource_mutation_plan`, which does not prune against
+    /// the fold): they seed an empty fold.
+    pub(crate) fn record_full_projection_fold(&mut self, revision: u64, journaled: &Value) {
+        // A seeded fold reads this commit back from the journal; only an
+        // empty one (or one that cannot catch up) is seeded from it.
+        self.catch_up_public_fold();
+        if self.public_fold.as_ref().is_some_and(|fold| fold.revision >= revision) {
+            return;
+        }
+        self.public_fold = None;
+        self.record_public_fold(revision.saturating_sub(1), revision, journaled, true);
+    }
+
     /// Apply every resource record committed since the fold's revision, or
     /// clear the fold when the journal cannot supply them.
     fn catch_up_public_fold(&mut self) {
