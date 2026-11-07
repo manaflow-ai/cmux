@@ -79,6 +79,19 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "workspace.open_url"
     ],
     "confirm": []
+  },
+  "tasks": {
+    "read": [
+      "tasks.snapshot"
+    ],
+    "gesture": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
+    ],
+    "confirm": []
   }
 };
 
@@ -129,6 +142,19 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "bookmarks.apply",
       "bookmarks.import_html",
       "bookmarks.import_source"
+    ]
+  },
+  "tasks": {
+    "owner": "tasks.local",
+    "read": [
+      "tasks.snapshot"
+    ],
+    "mutation": [
+      "tasks.archive",
+      "tasks.create",
+      "tasks.delegate",
+      "tasks.move",
+      "tasks.update"
     ]
   }
 };

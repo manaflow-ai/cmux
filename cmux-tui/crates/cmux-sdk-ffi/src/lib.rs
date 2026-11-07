@@ -36,6 +36,8 @@ pub const CMUX_SDK_ERR_INVALID: i32 = -2;
 /// `cmux_sdk_conversation_rule` was given a rule this build does not know.
 pub const CMUX_SDK_ERR_UNKNOWN_RULE: i32 = -3;
 pub const CMUX_SDK_ERR_PANIC: i32 = -4;
+/// The request could not be sent: the connection is closed or failed.
+pub const CMUX_SDK_ERR_IO: i32 = -5;
 
 pub const CMUX_SDK_KIND_READ: i32 = 0;
 pub const CMUX_SDK_KIND_MUTATION: i32 = 1;
@@ -348,6 +350,8 @@ pub unsafe extern "C" fn cmux_sdk_next(
 
 /// Asks the daemon to end the stream; returns at once and may run while
 /// another thread waits in `cmux_sdk_next`, which then reports the end.
+/// `CMUX_SDK_ERR_IO` when the cancel could not be sent (the stream's
+/// connection is closed); a second cancel of the same stream is a no-op.
 ///
 /// # Safety
 /// `stream` is NULL or a live stream handle.
@@ -356,8 +360,10 @@ pub unsafe extern "C" fn cmux_sdk_cancel(stream: *const CmuxSdkStream) -> i32 {
     guard(|| {
         // SAFETY: the caller passes NULL or a live handle.
         let Some(stream) = (unsafe { stream.as_ref() }) else { return CMUX_SDK_ERR_NULL };
-        let _ = stream.cancellation.cancel();
-        CMUX_SDK_OK
+        match stream.cancellation.cancel() {
+            Ok(()) => CMUX_SDK_OK,
+            Err(_) => CMUX_SDK_ERR_IO,
+        }
     })
 }
 
