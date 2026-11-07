@@ -301,13 +301,25 @@ test("two short words in dense text: each spot measured where it is, never a far
   expect(place).toEqual({ left: 422, top: 197, compact: true });
   const glyph = { left: 422, right: 450, top: 197, bottom: 225 };
   for (const rect of text) expect(hit(glyph, rect)).toBe(false);
-  // A selection narrower than the glyph (400 to 410): the glyph on its own line, at its end,
-  // covering 18 px of the prefix and no other line.
+  // A selection narrower than the glyph (400 to 410): no spot covers only its own words, so the
+  // chip hides rather than cover anyone else's.
   const narrow = [...text.filter((rect) => rect.top !== 200), rest(100, 400), rest(410)];
-  const least = selectionReplyPlace(at(410, 400), SIZE, PANE, probeOf(narrow));
-  expect(least).toEqual({ left: 382, top: 197, compact: true });
-  const small = { left: 382, right: 410, top: 197, bottom: 225 };
-  for (const rect of narrow.filter((rect) => rect.top !== 200)) expect(hit(small, rect)).toBe(false);
+  expect(selectionReplyPlace(at(410, 400), SIZE, PANE, probeOf(narrow))).toBeUndefined();
+});
+
+// Review on #37507 (698288c9): a short prompt right-aligned in its bubble has a column narrower
+// than the chip; the chip ran past the pane.
+test("a column narrower than the chip: the chip is bounded by the pane instead, never past it", () => {
+  const prompt = { ...at(368, 348), left: 368, column: { left: 348, right: 368 } };
+  const place = selectionReplyPlace(prompt, SIZE, { width: 400, height: 700 }, probeOf([]))!;
+  expect(place).toEqual({ left: 400 - 6 - 72, top: 166 });
+});
+
+// Review on #37507 (698288c9): a selection scrolled out of the visible transcript put the chip at
+// its edge, over other text.
+test("a selection whose last line is out of the visible transcript hides the chip", () => {
+  expect(selectionReplyPlace(at(400), SIZE, { width: 1040, height: 700, top: 230 }, probeOf([]))).toBeUndefined();
+  expect(selectionReplyPlace(at(400), SIZE, { width: 1040, height: 190 }, probeOf([]))).toBeUndefined();
 });
 
 test("a backward multi-line drag: spots near its end are measured there, not near where it started", () => {

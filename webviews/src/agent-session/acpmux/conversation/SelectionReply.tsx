@@ -219,98 +219,98 @@ export function unselectedTextProbe(doc: Document, range: Range): TextProbe {
   };
 }
 
-/// Where the chip goes: the first of these spots that is free (`probe` finds no unselected text
-/// under it) and fits (inside the transcript column and the visible transcript, `pane` from its
-/// top to its height). Leo, 2026-11-05, on the chip drawn over a "Sent to" line: "this is a bad
-/// reply"; and 2026-11-07: "if it's ever on the right edge, just make it in line ... Sometimes it
-/// gets a bit strange, I guess. Like at the sides, because it's not aligned".
+/// Where the chip goes, or undefined to hide it. Every candidate goes through one `accept`: it
+/// slides the chip into its bounds, then takes the spot only when it is inside the visible
+/// transcript (`pane`, from its top to its height) and `probe` finds no unselected text under it.
+/// The bounds are the transcript column, or the pane where the column is narrower than the chip
+/// (a short prompt in its bubble). A selection whose last line is not in the visible transcript
+/// hides the chip until it scrolls back. Leo, 2026-11-05, on the chip drawn over a "Sent to" line:
+/// "this is a bad reply"; and 2026-11-07: "if it's ever on the right edge, just make it in line ...
+/// Sometimes it gets a bit strange, I guess. Like at the sides, because it's not aligned".
+/// The candidates, in order:
 ///   1. Over the selection's end, centred on it (as Claude and ChatGPT do): unchanged wherever it
 ///      was free.
-///   2. Inline: just after the selection's last character, centred on that line, when the rest of
-///      the line is empty (the selection ends its line or its paragraph).
+///   2. Inline: just after the selection's last character, centred on that line, when it fits
+///      before the column's edge and the rest of the line is empty.
 ///   3. Just under the selection's last line, centred on its end (a paragraph break, a block's end).
 ///   4. The nearest free spot in the rows just above and just below the last line (`farther`: up
 ///      to three lines further each way).
 ///   5. Over the selection's own last words, centred on its last line: the person's own text
 ///      (`own-end` ends at the selection's end, `own-start` starts at its last line's start).
-///   6. A last line shorter than the chip: the chip as its glyph alone (`compact`, a square the
-///      chip's height) over those words, so it stays on the selection.
-/// Then a free spot up to three lines away; and failing that, the glyph at the selection's end on
-/// its last line.
+///   6. A free spot up to three lines away.
+///   7. The chip's glyph alone (`compact`, a square the chip's height) over the selection's own
+///      last words, for a last line shorter than the chip in dense text.
 export function selectionReplyPlace(
   target: SelectionReplyTarget,
   size: { width: number; height: number },
   pane: { width: number; height: number; top?: number },
   probe: TextProbe,
   wrap: SelectionReplyWrap = "own-end",
-): SelectionReplyPlace {
+): SelectionReplyPlace | undefined {
   const { width, height } = size;
   const gap = PLACE_GAP;
-  const left = Math.max(target.column?.left ?? gap, gap);
-  const right = Math.min(target.column?.right ?? Infinity, pane.width - gap);
-  // The visible transcript's own edges are the bounds: a chip flush with the composer is fine.
-  const top = Math.max(pane.top ?? 0, 0) + EDGE;
-  const bottom = pane.height > 0 ? pane.height - EDGE : Infinity;
-  const clampX = (x: number) => Math.max(left, Math.min(x, right - width));
-  const clampY = (y: number) => Math.max(top, Math.min(y, bottom - height));
-  const boxAt = (x: number, y: number) => ({ left: x, top: y, right: x + width, bottom: y + height });
-  const fits = (x: number, y: number) =>
-    x >= left - 0.5 && x + width <= right + 0.5 && y >= top && y + height <= bottom;
-  const free = (x: number, y: number) => fits(x, y) && probe(boxAt(x, y)).length === 0;
-
-  const centredAbove = Math.max(gap, Math.min(target.left - width / 2, pane.width - width - gap));
-  const above = target.top - height - gap;
-  if (free(centredAbove, above)) return { left: centredAbove, top: above };
-
+  const paneLeft = gap;
+  const paneRight = pane.width - gap;
+  const columnLeft = Math.max(target.column?.left ?? paneLeft, paneLeft);
+  const columnRight = Math.min(target.column?.right ?? paneRight, paneRight);
+  const narrow = columnRight - columnLeft < width;
+  const left = narrow ? paneLeft : columnLeft;
+  const right = narrow ? paneRight : columnRight;
+  const top = Math.max(pane.top ?? 0, 0);
+  const bottom = pane.height > 0 ? pane.height : Infinity;
   const end = target.end ?? { right: target.left, top: target.top, bottom: target.bottom };
-  const line = (end.top + end.bottom - height) / 2;
-  if (free(end.right + gap, line)) return { left: end.right + gap, top: line };
-  const under = end.bottom + gap;
-  const centred = clampX(end.right - width / 2);
-  if (free(centred, under)) return { left: centred, top: under };
+  if (end.top < top || end.bottom > bottom) return undefined;
 
-  // 4: along the rows over and under the last line (`lines` more each way), each row measured
-  // across the column, the free spot nearest the end among those that start or end at a gap's edge.
+  /// The one exit: the spot slid into the bounds, if it is in view and over no one else's text.
+  const accept = (x: number, y: number, w = width): SelectionReplyPlace | undefined => {
+    const cx = Math.max(left, Math.min(x, right - w));
+    const cy = Math.max(top + EDGE, Math.min(y, bottom - EDGE - height));
+    const box = { left: cx, top: cy, right: cx + w, bottom: cy + height };
+    if (box.left < left - 0.5 || box.right > right + 0.5 || box.top < top || box.bottom > bottom) return undefined;
+    if (probe(box).length > 0) return undefined;
+    return w < width ? { left: cx, top: cy, compact: true } : { left: cx, top: cy };
+  };
+
+  const line = (end.top + end.bottom - height) / 2;
+  const under = end.bottom + gap;
   const step = Math.max(end.bottom - end.top, height / 2);
-  const nearest = (lines: number) => {
-    let near: { left: number; top: number; far: number } | undefined;
-    for (let k = 0; k <= lines; k += 1)
+  const ownX = wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - width;
+  /// The rows `from` to `to` lines past those next to the last line, each measured once across the
+  /// bounds: the spots that start or end at a gap's edge and cross no text there, nearest first.
+  const rows = (from: number, to: number): [number, number][] => {
+    const spots: { x: number; y: number; far: number }[] = [];
+    for (let k = from; k <= to; k += 1)
       for (const y of [end.top - height - gap - k * step, under + k * step]) {
-        if (!fits(left, y)) continue;
+        if (y < top || y + height > bottom) continue;
         const band = probe({ left, right, top: y, bottom: y + height });
         const xs = [
           left,
           right - width,
-          centred,
+          end.right - width / 2,
           ...band.flatMap((rect) => [rect.right + gap, rect.left - gap - width]),
         ];
         for (const x of xs) {
-          if (!fits(x, y) || band.some((rect) => crosses(boxAt(x, y), rect))) continue;
-          const far = Math.abs(x + width / 2 - end.right) + Math.abs(y - line);
-          if (!near || far < near.far) near = { left: x, top: y, far };
+          const box = { left: x, top: y, right: x + width, bottom: y + height };
+          if (x < left || x + width > right || band.some((rect) => crosses(box, rect))) continue;
+          spots.push({ x, y, far: Math.abs(x + width / 2 - end.right) + Math.abs(y - line) });
         }
       }
-    return near && { left: near.left, top: near.top };
+    return spots.sort((a, b) => a.far - b.far).map(({ x, y }) => [x, y]);
   };
-  const near = nearest(wrap === "farther" ? FARTHER : 0);
-  if (near) return near;
-
-  // 5: over the selection's own last words.
-  const ownX = clampX(wrap === "own-start" && target.lineStart !== undefined ? target.lineStart : end.right - width);
-  const ownY = clampY(line);
-  if (probe(boxAt(ownX, ownY)).length === 0) return { left: ownX, top: ownY };
-  // 6: the glyph alone over the selection's own last words.
-  const glyph = height;
-  const glyphX = Math.max(left, Math.min(wrap === "own-start" ? ownX : end.right - glyph, right - glyph));
-  const glyphBox = { left: glyphX, top: ownY, right: glyphX + glyph, bottom: ownY + height };
-  if (glyph < width && probe(glyphBox).length === 0) return { left: glyphX, top: ownY, compact: true };
-  // A last line shorter than the chip: a free spot a few lines away before anyone's words.
-  const farther = wrap === "farther" ? undefined : nearest(FARTHER);
-  if (farther) return farther;
-
-  // Nothing free near (a selection narrower than the glyph in dense text): the glyph on the
-  // selection's last line, at its end, where it covers least of anyone else's words.
-  return { left: glyphX, top: ownY, compact: true };
+  function* candidates(): Generator<[number, number, number?]> {
+    yield [target.left - width / 2, target.top - height - gap];
+    if (end.right + gap + width <= right) yield [end.right + gap, line];
+    yield [end.right - width / 2, under];
+    yield* rows(0, wrap === "farther" ? FARTHER : 0);
+    yield [ownX, line];
+    if (wrap !== "farther") yield* rows(1, FARTHER);
+    yield [wrap === "own-start" ? ownX : end.right - height, line, height];
+  }
+  for (const [x, y, w] of candidates()) {
+    const place = accept(x, y, w);
+    if (place) return place;
+  }
+  return undefined;
 }
 
 /// A Reply button for a message's action row (`row` look only), its glyph the row's 16 px
@@ -341,7 +341,8 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const shown = useRef(false);
   shown.current = target !== undefined;
   const chip = useRef<HTMLButtonElement>(null);
-  const [placed, setPlaced] = useState<SelectionReplyPlace>();
+  // Undefined while the chip is measured; null where no spot takes it (it hides).
+  const [placed, setPlaced] = useState<SelectionReplyPlace | null>();
   // The chip's width with its label: a compact chip is narrower, and the next placement (a scroll)
   // must try the full chip first.
   const fullWidth = useRef(0);
@@ -395,7 +396,8 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       top: clip.top,
     };
     setPlaced(
-      selectionReplyPlace(target, size, pane, unselectedTextProbe(doc, range), experimentArm(selectionReplyWrap)),
+      selectionReplyPlace(target, size, pane, unselectedTextProbe(doc, range), experimentArm(selectionReplyWrap)) ??
+        null,
     );
   }, [doc, target]);
 
@@ -414,6 +416,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const label = t("message.quoteReply");
   // Its glyph alone where its label would cover someone else's words (selectionReplyPlace step 6).
   const compact = placed?.compact === true;
+  const hidden = placed === null;
   return createPortal(
     <button
       ref={chip}
@@ -421,9 +424,15 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       className="cv-selection-reply"
       data-look={compact ? "icon" : current}
       data-compact={compact ? "true" : undefined}
+      data-hidden={hidden ? "true" : undefined}
+      aria-hidden={hidden ? true : undefined}
       aria-label={label}
       title={current === "icon" || compact ? label : undefined}
-      style={placed ? { left: placed.left, top: placed.top } : { visibility: "hidden", left: 0, top: 0 }}
+      style={
+        placed
+          ? { left: placed.left, top: placed.top }
+          : { visibility: "hidden", pointerEvents: "none", left: 0, top: 0 }
+      }
       // Pressing the chip keeps the selection it quotes.
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}

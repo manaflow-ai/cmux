@@ -85,7 +85,9 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
         readReply: () => {
           const range = document.getSelection()!.getRangeAt(0);
           const chipElement = chipOf();
-          const chip = chipElement ? box(chipElement.getBoundingClientRect()) : { left: 0, top: 0, right: 0, bottom: 0 };
+          const chip = chipElement
+            ? box(chipElement.getBoundingClientRect())
+            : { left: 0, top: 0, right: 0, bottom: 0 };
           const end = range.endContainer;
           const endElement = end.nodeType === 1 ? (end as Element) : end.parentElement!;
           const wide = Array.from(range.getClientRects()).filter((rect) => rect.width > 0);
@@ -93,7 +95,8 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
           const block = endElement.closest(BLOCK)!.getBoundingClientRect();
           const body = endElement.closest(".cv-md, [data-row-id]")!.getBoundingClientRect();
           let bounds = { left: block.left, top: 0, right: body.right, bottom: innerHeight };
-          if (bounds.right - bounds.left < chip.right - chip.left) bounds = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+          if (bounds.right - bounds.left < chip.right - chip.left)
+            bounds = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
           const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
           const dock = document.querySelector(".acpmux-dock");
           const foot = Math.min(
@@ -144,16 +147,16 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
         if (!/context was destroyed|navigat/i.test(String(error))) throw error;
       }
     }
+    // Placed, or hidden where the stage's selection is out of a short viewport's view.
     await page.waitForFunction(() => {
       const chip = document.querySelector<HTMLElement>(".cv-selection-reply");
-      return chip && chip.style.visibility !== "hidden";
+      return chip && (chip.style.visibility !== "hidden" || chip.dataset.hidden === "true");
     });
     await install(page);
     return page;
   };
   const read = (page: Page) => page.evaluate(() => (window as unknown as { readReply: () => Read }).readReply());
-  const settle = (page: Page) =>
-    page.evaluate(() => (window as unknown as { settled: () => Promise<void> }).settled());
+  const settle = (page: Page) => page.evaluate(() => (window as unknown as { settled: () => Promise<void> }).settled());
   /** Scrolls the transcript by `by` px, as a wheel would. */
   const scroll = async (page: Page, by: number) => {
     await page.evaluate((by) => {
@@ -184,7 +187,9 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   const inline = ({ chip, line }: Read) => {
     expect(chip.left, "inline: after the last character").toBeGreaterThanOrEqual(line.right);
     expect(chip.left - line.right, "inline: just after the last character").toBeLessThanOrEqual(12);
-    expect(Math.abs(centre(chip) - centre(line)), "inline: centred on the selection's last line").toBeLessThanOrEqual(1);
+    expect(Math.abs(centre(chip) - centre(line)), "inline: centred on the selection's last line").toBeLessThanOrEqual(
+      1,
+    );
   };
 
   for (const width of [1040, 400])
@@ -244,8 +249,14 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
   test("a selection scrolled out of view hides the chip; scrolled back, it shows again", async () => {
     const page = await open("chip-short-mid", 1040, 300);
     try {
-      placedWell(await read(page));
+      // The selection's last line in the middle of the visible transcript first.
+      const start = await read(page);
+      await scroll(
+        page,
+        Math.round((start.line.top + start.line.bottom) / 2 - (start.view.top + start.view.bottom) / 2),
+      );
       const before = await read(page);
+      placedWell(before);
       const by = before.line.bottom - before.view.top + 30;
       await scroll(page, by);
       const away = await read(page);
@@ -292,7 +303,10 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
               const a = nodes[from]!;
               const b = nodes[to]!;
               const start = Math.floor(random() * a.length);
-              const end = to === from ? Math.min(a.length, start + 1 + Math.floor(random() * 60)) : 1 + Math.floor(random() * (b.length - 1));
+              const end =
+                to === from
+                  ? Math.min(a.length, start + 1 + Math.floor(random() * 60))
+                  : 1 + Math.floor(random() * (b.length - 1));
               document.getSelection()!.setBaseAndExtent(a, start, b, Math.max(1, end));
               scroller.dispatchEvent(new Event("scroll"));
               document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
@@ -305,10 +319,13 @@ await requireBrowserLane("selection-reply-place.test.ts", async () => {
             const problems: string[] = [];
             const { chip, bounds, view, covered } = result;
             if (chip.left < bounds.left - 0.5 || chip.right > bounds.right + 0.5) problems.push("out of bounds");
-            if (chip.top < view.top - 0.5 || chip.bottom > view.bottom + 0.5) problems.push("out of the visible transcript");
+            if (chip.top < view.top - 0.5 || chip.bottom > view.bottom + 0.5)
+              problems.push("out of the visible transcript");
             if (covered) problems.push(`covers "${covered}"`);
             if (problems.length)
-              failures.push(`${variant} seed ${seed} "${picked}": ${problems.join(", ")} (chip ${JSON.stringify(chip)})`);
+              failures.push(
+                `${variant} seed ${seed} "${picked}": ${problems.join(", ")} (chip ${JSON.stringify(chip)})`,
+              );
           }
         } finally {
           await page.close();
