@@ -6,7 +6,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextMacScreen
-import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs

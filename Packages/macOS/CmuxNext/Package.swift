@@ -720,6 +720,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [
