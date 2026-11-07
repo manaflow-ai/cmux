@@ -112,16 +112,15 @@ fn connect(
     socket: &std::path::Path,
     operation: &str,
 ) -> Result<cmux_tasks::client::Conn, ResourceError> {
-    use std::io::BufReader;
     use std::os::unix::net::UnixStream;
     // No hello: the owner stamps a connection without one as the machine's
     // person (P8: a caller never states its actor).
     let stream = UnixStream::connect(socket).map_err(|_| {
         unreachable(operation, "Tasks is not running. Start it with cmux task serve.")
     })?;
-    let writer = stream.try_clone().map_err(|error| unreachable(operation, error.to_string()))?;
     let _ = stream.set_read_timeout(Some(CALL_DEADLINE));
-    Ok(cmux_tasks::client::Conn::Socket { reader: BufReader::new(stream), writer, next_id: 0 })
+    cmux_tasks::client::Conn::from_socket(stream)
+        .map_err(|error| unreachable(operation, error.to_string()))
 }
 
 #[cfg(unix)]
