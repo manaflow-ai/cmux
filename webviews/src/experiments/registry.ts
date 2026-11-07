@@ -55,6 +55,7 @@ import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experim
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { followMotion } from "../agent-session/acpmux/conversation/followMotion.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -65,6 +66,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   fileKindIcon,
+  followMotion,
   finishedTaskLook,
   claudeTurnFold,
   turnFoldReplies,

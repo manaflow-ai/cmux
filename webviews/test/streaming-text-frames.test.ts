@@ -189,16 +189,25 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     // reported as runner starvation, while their semantic layout movement remains in this metric;
     // only the glide's scheduler gap is normalized. Layout, long-task and work budgets inspect the
     // same frames.
-    expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX / 2);
-    expect(eased.follow.p95).toBeLessThan(LINE_PX / 2);
-    expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap / 2);
+    // Since the follow chase (followChase.ts, Leo 2026-11-07: "what is satisfying at 120 hertz?")
+    // a block taller than the room no longer moves at once: it rises from behind the stack on the
+    // chase, which catches up with what trails past two lines faster than SNAP_PX a 60 Hz frame
+    // (8 px; 4 px at 120 Hz, test/send-stream-motion.test.ts). No frame moves half what stepped's
+    // largest did (CI-like host, 2026-11-07: 16-32 px eased, 96 px stepped), and fewer frames than
+    // stepped's go over SNAP_PX.
+    expect(eased.follow.p50).toBeLessThanOrEqual(SNAP_PX * 0.6);
+    expect(eased.follow.p95).toBeLessThan(LINE_PX / 2 + 2);
+    expect(eased.follow.max).toBeLessThan(stepped.follow.max / 2);
+    expect(eased.follow.overSnap).toBeLessThan(stepped.follow.overSnap * 0.75);
     expect(eased.follow.moving).toBeGreaterThan(0);
     // A measured line lands in the live line's room, over the bottom stack. The frames under the
     // stack are the ones both runs have: a new block (a code card, a paragraph after a table) drawn
     // a frame before its row is measured. Eased, such a frame can sit lower by what the glide still
     // holds back, under one line (CI, 2026-10-31, WebKit: -34.37 stepped, -48.95 eased). The turn's
     // end moves nothing, and the reply never comes back down.
-    expect(eased.runway.min).toBeGreaterThanOrEqual(stepped.runway.min - LINE_PX);
+    // A block the chase lets rise from behind the stack (a code card, a table) lies under it for
+    // a few frames, at most three lines (2026-11-07: -32 px Chromium, -27 px WebKit).
+    expect(eased.runway.min).toBeGreaterThanOrEqual(Math.min(stepped.runway.min - LINE_PX, -3 * LINE_PX));
     expect(eased.settle).toMatchObject({ moves: 0, snaps: 0, reversals: 0 });
     expect(overLayout(eased)).toEqual([]);
   });
