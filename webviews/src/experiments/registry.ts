@@ -11,8 +11,10 @@ import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.ex
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
+import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
+import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -46,6 +48,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
+import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
@@ -82,8 +85,10 @@ export const EXPERIMENTS: readonly Experiment[] = [
   tableActionsPlace,
   backgroundReactionLook,
   cloudStartLook,
+  cloudProgressLook,
   agentStartLook,
   liveLineTokens,
+  backgroundHintRoom,
   trayPanelLook,
   trayRowLook,
   trayStopLook,
@@ -102,6 +107,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   promptSuggestionLook,
   composerDeeplinkLook,
+  pastedAgentLook,
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,

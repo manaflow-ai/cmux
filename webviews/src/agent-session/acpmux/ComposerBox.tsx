@@ -31,7 +31,10 @@ export type ComposerBoxHandle = {
   /// Removes an intake placeholder whose payload was already attached (content dedupe).
   remove(id: string): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
 };
 
 export type ComposerBoxProps = {
@@ -200,9 +203,13 @@ export function ComposerBox({
       },
       place: (chips) => inline.place(chips, "paste"),
       remove: (id) => prompt.current?.removeInline(id),
-      sent: (ids) => inline.sent(ids),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
   const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;

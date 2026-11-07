@@ -37,7 +37,7 @@ const RECHECK: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 const OPEN_TOOL_PERIODS: u64 = 4;
 
 /// How long the stalled end waits for the agent to take the cancel before ending the turn anyway.
-const CANCEL_SEND: std::time::Duration = std::time::Duration::from_secs(5);
+pub(super) const CANCEL_SEND: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Notes in `open` what one `session/update` says of the turn's tool calls: one starts, or ends
 /// (`completed`, `failed`).

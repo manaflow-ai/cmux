@@ -375,9 +375,16 @@ impl Inner {
         let saw = if made { None } else { saw };
         let payload = encode_meta(&meta.id, folder, saw, &image);
         let kept = keep == ShowAfter::Written && !made;
-        let class = if kept { Class::Stream } else { Class::Ack };
-        let append =
-            || self.journal.append(KIND_META, class, &payload).map_err(JournalStore::journal_error);
+        // A kept record is a `Stream` record synced in the journal's idle time, so the next acked
+        // change (a prompt) does not sync a burst of drafts in its own turn.
+        let append = || {
+            if kept {
+                self.journal.append_kept(KIND_META, &payload)
+            } else {
+                self.journal.append(KIND_META, Class::Ack, &payload)
+            }
+            .map_err(JournalStore::journal_error)
+        };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
         let shown = if kept { &self.kept } else { &self.acked };

@@ -6102,6 +6102,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }));
       },
       rowCount: () => rowsRef.current.length,
+      rowIds: () => rowsRef.current.map((row) => row.id),
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
@@ -9521,13 +9522,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ) : (
             trayNode
           ))}
-        {statusCardOpen && (
-          <HarnessStatusCard
-            summary={snapshot.summary}
-            rows={snapshot.rows}
-            onDismiss={() => setStatusCardOpen(false)}
-          />
-        )}
+        {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -10511,7 +10506,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 data-solo-tab={soloUnder ? "" : undefined}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
-                <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
+                {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
+                    (ui/titleTooltips.ts `data-tooltip-covered`). */}
+                <header
+                  className="acpmux-header"
+                  data-tab-row={inTabRow ? "" : undefined}
+                  data-tooltip-covered={inTabRow ? "" : undefined}
+                >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />

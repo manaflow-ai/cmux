@@ -119,6 +119,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { markPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -681,10 +682,11 @@ export function Composer({
   // Whether Esc stops a turn on a double press (escapeStop.ts).
   const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
-  // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
-  // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
+  // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
+  // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
+  // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLook();
-  const quietActions = plainFooter;
+  const quietActions = plainFooter && look !== "codex";
   const usage = compactingUsage(
     snapshot.summary?.usage,
     snapshot.summary?.usageStats,
@@ -1590,8 +1592,11 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = placed.attachments;
-    const taken = onSend(placed.text, sent, steer, kept);
+    // Each paste still in the text as pasted goes as a pasted block, never as typed words
+    // (composer/pasteMarks.ts); a slash command's text stays the command.
+    const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sent = marked.attachments;
+    const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -2360,9 +2365,9 @@ export function Composer({
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // The box draws no Send at rest until there is a draft, the mic alone on the right; its
-      // one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
-      // through a turn, in both looks.
+      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+      // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       <button
         key="send"
         ref={sendButton}

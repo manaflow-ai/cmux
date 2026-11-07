@@ -60,7 +60,9 @@ impl<'a> Fields<'a> {
                     vy: self.float(),
                     vw: self.float(),
                     vh: self.float(),
-                    reserved: [0; 7],
+                    // The corpus names whether the pane scrolls; the C struct whether it is fixed.
+                    fixed: 1 - self.flag(),
+                    reserved: [0; 6],
                 }
             })
             .collect()
@@ -89,6 +91,7 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
             let shown = f.edges();
             let max_gap = f.float();
             let (has_shift, shift) = f.optional();
+            let strip_shift = f.float();
             let panes: Vec<CmuxClosingPane> = (0..f.id())
                 .map(|_| {
                     let (id, edges, scrolls) = (f.id(), f.edges(), f.flag());
@@ -136,6 +139,7 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
                     max_gap,
                     has_shift,
                     shift,
+                    strip_shift,
                 )
             };
             assert!(code == 0 || code == 1, "begin {code}");
@@ -170,6 +174,7 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
         }
         "R" => {
             let (frames, rows) = (f.frames(), f.rows());
+            let (strip, rest_strip) = (f.float(), f.float());
             let mut out = CmuxClosingPlacedList { placed: ptr::null(), count: 0 };
             // SAFETY: as above.
             let code = unsafe {
@@ -179,6 +184,8 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
                     frames.len(),
                     rows.as_ptr(),
                     rows.len(),
+                    strip,
+                    rest_strip,
                     &mut out,
                 )
             };
@@ -217,10 +224,18 @@ fn call(line: &str, closing: *mut CmuxClosingPanes) -> String {
         "X" => {
             let pane = f.id();
             let frames = f.frames();
+            let strip = f.float();
             let mut out = CmuxClosingTaken::default();
             // SAFETY: as above.
             match unsafe {
-                cmux_closing_panes_remove(closing, pane, frames.as_ptr(), frames.len(), &mut out)
+                cmux_closing_panes_remove(
+                    closing,
+                    pane,
+                    frames.as_ptr(),
+                    frames.len(),
+                    strip,
+                    &mut out,
+                )
             } {
                 1 => format!(
                     "{},{}",
@@ -328,8 +343,9 @@ fn the_structs_have_the_header_s_sizes_and_field_offsets() {
             offset_of!(CmuxClosingFrame, vw),
             offset_of!(CmuxClosingFrame, vh),
             offset_of!(CmuxClosingFrame, moving),
+            offset_of!(CmuxClosingFrame, fixed),
         ],
-        [8, 40, 72, 80, 88, 96, 104]
+        [8, 40, 72, 80, 88, 96, 104, 105]
     );
     assert_eq!(size_of::<CmuxClosingRow>(), 24);
     assert_eq!((offset_of!(CmuxClosingRow, now), offset_of!(CmuxClosingRow, target)), (8, 16));
@@ -368,6 +384,7 @@ fn a_null_pointer_or_an_unknown_kind_writes_nothing() {
                 0,
                 9.0,
                 0,
+                0.0,
                 0.0
             ),
             ERR_NULL
@@ -383,6 +400,7 @@ fn a_null_pointer_or_an_unknown_kind_writes_nothing() {
                 0,
                 9.0,
                 0,
+                0.0,
                 0.0
             ),
             ERR_NULL
@@ -398,22 +416,47 @@ fn a_null_pointer_or_an_unknown_kind_writes_nothing() {
                 0,
                 9.0,
                 0,
+                0.0,
                 0.0
             ),
             ERR_NULL
         );
         assert_eq!(
-            cmux_closing_panes_begin(closing, 1, &shown, &pane, 1, &bad, 1, 9.0, 0, 0.0),
+            cmux_closing_panes_begin(closing, 1, &shown, &pane, 1, &bad, 1, 9.0, 0, 0.0, 0.0),
             ERR_INVALID
         );
         assert_eq!(cmux_closing_panes_has_awaiting(closing), 0, "a refused begin starts nothing");
         assert_eq!(
-            cmux_closing_panes_begin(closing, 2, &shown, &pane, 1, ptr::null(), 0, 9.0, 0, 0.0),
+            cmux_closing_panes_begin(
+                closing,
+                2,
+                &shown,
+                &pane,
+                1,
+                ptr::null(),
+                0,
+                9.0,
+                0,
+                0.0,
+                0.0
+            ),
             0,
             "not in the layout"
         );
         assert_eq!(
-            cmux_closing_panes_begin(closing, 1, &shown, &pane, 1, ptr::null(), 0, 9.0, 0, 0.0),
+            cmux_closing_panes_begin(
+                closing,
+                1,
+                &shown,
+                &pane,
+                1,
+                ptr::null(),
+                0,
+                9.0,
+                0,
+                0.0,
+                0.0
+            ),
             1
         );
         assert_eq!(cmux_closing_panes_has_awaiting(closing), 1);
@@ -430,18 +473,27 @@ fn a_null_pointer_or_an_unknown_kind_writes_nothing() {
         );
         let mut list = CmuxClosingPlacedList { placed: ptr::null(), count: 7 };
         assert_eq!(
-            cmux_closing_panes_rects(ptr::null_mut(), ptr::null(), 0, ptr::null(), 0, &mut list),
+            cmux_closing_panes_rects(
+                ptr::null_mut(),
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                0.0,
+                0.0,
+                &mut list
+            ),
             ERR_NULL
         );
         assert_eq!(list.count, 7, "nothing written");
         let mut taken = CmuxClosingTaken::default();
         assert_eq!(
-            cmux_closing_panes_remove(closing, 1, ptr::null(), 0, ptr::null_mut()),
+            cmux_closing_panes_remove(closing, 1, ptr::null(), 0, 0.0, ptr::null_mut()),
             ERR_NULL
         );
-        assert_eq!(cmux_closing_panes_remove(closing, 5, ptr::null(), 0, &mut taken), 0);
+        assert_eq!(cmux_closing_panes_remove(closing, 5, ptr::null(), 0, 0.0, &mut taken), 0);
         assert_eq!(taken, CmuxClosingTaken::default(), "nothing written");
-        assert_eq!(cmux_closing_panes_remove(closing, 1, ptr::null(), 0, &mut taken), 1);
+        assert_eq!(cmux_closing_panes_remove(closing, 1, ptr::null(), 0, 0.0, &mut taken), 1);
         assert_eq!(taken.rect, CmuxClosingRect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 });
         assert_eq!(cmux_closing_panes_carry(ptr::null_mut(), 1.0, 0, 0.0), ERR_NULL);
         assert_eq!(cmux_closing_panes_settle_carried(ptr::null_mut(), 1.0), ERR_NULL);

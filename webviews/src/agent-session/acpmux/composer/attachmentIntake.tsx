@@ -42,6 +42,7 @@ import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from ".
 import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { RemoveGlyph } from "./RemoveGlyph";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -1131,9 +1132,7 @@ function PendingChip({
       aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
       onClick={() => onCancel(chip.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   // A video (a screen recording) is the square its poster will fill, like an image's tile; only
@@ -1314,9 +1313,7 @@ export function AttachmentChip({
       aria-label={t(ATTACHMENT_LABELS.removeAttachment, { name })}
       onClick={() => onRemove(attachment.id)}
     >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <RemoveGlyph />
     </button>
   );
   const remove = (

@@ -226,6 +226,8 @@ class WorkflowRoutingTests(unittest.TestCase):
                            lambda m: repr(pools[m.group(1)]), condition)
         condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
+        # `!x` (an upload retry's `!cancelled()`), never the `!=` operator.
+        condition = re.sub(r"!(?!=)", " not ", condition)
         return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,
                                                       "failure": lambda: False, "cancelled": lambda: False,
                                                       "true": True, "false": False})
@@ -261,12 +263,20 @@ class WorkflowRoutingTests(unittest.TestCase):
         self.assertIn("Build nightly app (Release)", selected)
         self.assertNotIn("Restore the original unsigned nightly inputs", selected)
 
-    def test_resume_keeps_normal_publication_and_forces_past_same_tip_skip(self):
+    def test_a_loop_retry_never_resumes_an_unsigned_run(self):
+        # The loop's retry runs at the head when dispatched, which can be newer than the saved app's commit:
+        # a retry that names an unsigned run would publish that older app for the head, so decide refuses it.
+        result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
+                                      tag_sha=decisions.HEAD_SHA,
+                                      extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1", "LOOP_RETRY": "1"})
+        self.assertIn("failed", result["outputs"])
+        self.assertNotIn("should_build", result["outputs"])
+
+    def test_a_resume_from_outside_the_loop_builds_nothing(self):
         result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
                                       tag_sha=decisions.HEAD_SHA,
                                       extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1"})
-        self.assertEqual(result["outputs"]["should_build"], "true")
-        self.assertEqual(result["outputs"]["should_publish"], "true")
+        self.assertEqual(result["outputs"]["should_build"], "false")
 
     def test_resume_is_rejected_on_wrong_track_or_conflicting_modes(self):
         for ref, extra in (("refs/heads/main", {}), ("refs/heads/nightly-next", {"FAST_BUILD": "true"}),
