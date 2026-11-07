@@ -53,6 +53,8 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
+      - "cmux-tui/crates/cmux-sdk-ffi/**"
+      - "cmux-tui/bindings/rust/**"
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/rust-toolchain.toml"

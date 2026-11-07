@@ -13,6 +13,8 @@
 //! intent, the safe triangle and the row card's placement).
 //! `agent_pane_policy` is the agent pane's relay policy (one check per page
 //! frame, include/cmux_agent_pane_policy.h).
+//! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
+//! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 
 pub mod hover;
 pub mod motion;
@@ -21,3 +23,4 @@ pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;
+pub use cmux_sdk_ffi as sdk;
