@@ -57,7 +57,7 @@ net() {
     [ -n "$fresh" ] && rm -rf "$dir"
   done
   cred=none
-  [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); add a token for $host to this machine"
+  [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); give this machine access to $host first"
   status=needs_github; result
   echo "cmux repo: $url needs access this machine does not have (private, not found, or offline)" >&2
   exit @NEEDS_GITHUB_EXIT@

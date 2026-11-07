@@ -212,11 +212,9 @@ fn the_step_resets_every_other_helper_and_writes_no_token() {
     }
     assert!(step.contains(r#"checkout --quiet --detach "$commit" --"#));
     // Only the code: the comments may say what it guards against.
-    // A `die` message is words for a person ("add a token for $host"), not code.
     let code: Vec<&str> = step
         .lines()
         .filter(|l| !l.trim_start().starts_with('#'))
-        .map(|l| l.find("die \"").map_or(l, |at| &l[..at]))
         .collect();
     let code = code.join("\n");
     for leak in ["token", "GH_TOKEN", "password", "credential.helper=store", "hosts.yml", "gh auth"]
