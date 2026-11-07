@@ -63,6 +63,29 @@ impl OpRouter for MuxRouter {
         answer(op, response)
     }
 
+    fn place_sidebar_sections(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+        automatic: bool,
+    ) -> Result<Value, super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.sidebar.unavailable", "the daemon is stopping")
+        })?;
+        super::sidebar::place(&mux, sections, automatic)
+            .map_err(|error| super::supervisor::ApiError::new("apps.sidebar", error.to_string()))
+    }
+
+    fn initialize_sidebar_placements(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+    ) -> Result<(), super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.sidebar.unavailable", "the daemon is stopping")
+        })?;
+        super::sidebar::initialize(&mux, sections)
+            .map_err(|error| super::supervisor::ApiError::new("apps.sidebar", error.to_string()))
+    }
+
     fn owns(&self, op: &str) -> bool {
         is_daemon_op(op)
     }

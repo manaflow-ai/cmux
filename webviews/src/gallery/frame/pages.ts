@@ -13,6 +13,7 @@ import { CodeRouterOps } from "../../pages/coderouter/types";
 import { MockCodeRouterProvider } from "../../pages/coderouter/mockProvider";
 import { ACTION_RUN as CHANGELOG_ACTION_RUN, ChangelogOps } from "../../pages/changelog/types";
 import { MockChangelogProvider } from "../../pages/changelog/mockProvider";
+import { PAINT_AFTER_NAME } from "../../pages/shared/paintGate";
 import { diffViewerLabelsFor, diffViewerLanguage, loadDiffViewerLabels } from "../../labels";
 import type {
   AppsPageVariant,
@@ -231,6 +232,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           sessionSource: source,
           repoRoot: repo,
           branchBaseRef: source.baseRef,
+          sourceOptions: state.sourceOptions,
           layout: state.layout ?? "split",
           layoutSource: "default",
           appearance: context.appearance,
@@ -259,7 +261,9 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.branchList": () => ({
         type: "branches",
         value: {
-          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] }],
+          groups: state.branchGroups ?? [
+            { id: "suggested", label: "Suggested", rows: [{ ref: "main", label: "main", current: true }] },
+          ],
         },
       }),
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
@@ -391,6 +395,10 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
       }
     }, 320);
   }
+  if (state.action === "ports-shared") {
+    clickLater(".cloud-machine");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-forward-share")?.click(), 320);
+  }
 }
 
 export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context: StageContext): Promise<void> {
@@ -425,7 +433,29 @@ export async function mountChangelogPage(state: ChangelogPageVariant, _context: 
   if (state.route) history.replaceState(null, "", state.route);
   document.documentElement.dataset.cmuxPage = "changelog";
   document.documentElement.dataset.cmuxWebviewKind = "changelog";
-  await import("../../pages/changelog/main");
+  await showAfterPaintHold(() => import("../../pages/changelog/main"));
+}
+
+/**
+ * Mounts a page that holds its first frame (pages/shared/paintGate.ts `holdFirstPaint`) and shows
+ * it once that hold settles, as the app's host does (PagePaintProbe, PanePaintHold): the reader's
+ * first frame is the page with its first screen's data in. Without it the stage painted the
+ * loading placeholders whenever the mock host's replies (a timer each) came after the first
+ * frame, and the days under them moved as the notes arrived: pages.changelog#sheet scored 0 in one
+ * render and 0.248 in the next. Hidden with `display: none` (no boxes, so nothing it lays out
+ * meanwhile counts as a shift; a section sizes nothing, so each day near the viewport, and those
+ * under it, load their notes at once); the page's own 400 ms bound still shows a late page.
+ */
+async function showAfterPaintHold(mount: () => Promise<unknown>): Promise<void> {
+  const root = document.getElementById("root");
+  const display = root?.style.display ?? "";
+  if (root) root.style.display = "none";
+  try {
+    await mount();
+    await (window as unknown as Record<string, unknown>)[PAINT_AFTER_NAME];
+  } finally {
+    if (root) root.style.display = display;
+  }
 }
 
 const never = (): Promise<never> => new Promise(() => undefined);

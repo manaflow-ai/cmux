@@ -35,6 +35,23 @@ extension CloudAuth {
         try await Self.teamErrors { try await coordinator.inviteToTeam(id: id, emails: emails, role: .member) }
     }
 
+    /// Pending invitations addressed to the person's verified emails (Settings > Accounts).
+    public func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        try await Self.teamErrors { try await coordinator.receivedTeamInvitations() }
+    }
+
+    /// Joins the team an invitation names; the joined team becomes the active team, so the
+    /// team's Cloud machines are the ones cmux lists next.
+    @discardableResult
+    public func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        try await Self.teamErrors { try await coordinator.acceptTeamInvitation(id: id) }
+    }
+
+    /// Declines an invitation addressed to the person.
+    public func declineTeamInvitation(id: String) async throws {
+        try await Self.teamErrors { try await coordinator.declineTeamInvitation(id: id) }
+    }
+
     /// Invites one address as a member and says how it went (Home's Invite to Team).
     ///
     /// - Parameters:

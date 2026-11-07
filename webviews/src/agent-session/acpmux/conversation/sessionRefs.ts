@@ -22,7 +22,7 @@ export type SessionRefTarget = {
 
 export type AgentRef =
   /// An agent link: `href` is what a click opens when the session is not the reader's; `query` what
-  /// `_acpmux/resolve` is asked (undefined: a link acpmux cannot resolve, the opaque `?id=` form).
+  /// `_acpmux/resolve` is asked (undefined: a link acpmux cannot resolve).
   | { kind: "link"; href: string; query?: string }
   /// A `HOST/NAME` that may name a session; it is one only if acpmux resolves it.
   | { kind: "name"; query: string };
@@ -39,6 +39,9 @@ const FILE_EXT = /\.[A-Za-z][A-Za-z0-9]{0,11}$/;
 /// A harness's own session id, which a link without a harness is resolved by (acpmux matches a
 /// bare id against `agentSessionId`).
 const SESSION_ID = /^(?!\.+$)[A-Za-z0-9._:-]{1,256}$/;
+/// The opaque id of a public link (`?id=aid-...`), which acpmux reads only where it holds the key
+/// (opaque_agent_id.rs); elsewhere it resolves nothing and the link opens its web page.
+const OPAQUE_ID = /^aid-[0-9a-f]{20}$/;
 
 /// The agent reference `text` (a code span's content) is, or undefined.
 export function agentRef(text: string): AgentRef | undefined {
@@ -52,8 +55,11 @@ export function agentRef(text: string): AgentRef | undefined {
     const harness = params.get("harness");
     const session = params.get("session");
     // A link with its harness is acpmux's to read whole (agent_link.rs); one that names only the
-    // session (`?host=&session=`, as lanes print them) is resolved by the session's id.
-    const query = harness && session ? value : session && SESSION_ID.test(session) ? session : undefined;
+    // session (`?host=&session=`, as lanes print them) is resolved by the session's id. An opaque
+    // `?id=` link goes to acpmux whole too.
+    const id = params.getAll("id");
+    const opaque = id.length === 1 && OPAQUE_ID.test(id[0] ?? "");
+    const query = (harness && session) || opaque ? value : session && SESSION_ID.test(session) ? session : undefined;
     return { kind: "link", href, ...(query && { query }) };
   }
   if (NATIVE_LINK.test(value)) {

@@ -175,7 +175,10 @@ fn quick_start_commands_parse() {
             .lines()
             .map(str::trim)
             .filter(|line| line.starts_with("cmux cloud ") && !line.contains('<'))
+            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
+            // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            .filter(|line| !line.starts_with("cmux cloud env "))
             .collect::<Vec<_>>();
         // Two start-chat lines, three follow-ups and five machine lines; the quick start's
         // create is `cmux machine new`.
@@ -234,6 +237,8 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
     }
     assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    // The start matrix runs its no-name row only on a build whose help names new_machine (cmuxterm-hq#7406).
+    assert!(START_CHAT_USAGE.contains("new_machine: true"));
     let examples = START_CHAT_USAGE
         .lines()
         .map(str::trim)

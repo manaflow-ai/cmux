@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// What a new agent tab inherits from the tab it was opened from (#16620):
@@ -11,6 +12,9 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var draft: String?
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
+    /// The seeded prompt's composer attachments, with any file paths already on its machine.
+    /// JSON preserves their inline ids and content until the page's ordinary send builds ACP blocks.
+    public var promptAttachments: [JSONValue]?
     /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
     /// single-use gesture ticket the prompt needs to go out by itself (cx-k21v gap 4, chief:
     /// person only); a prompt seeded by the CLI, MCP, a script or another client gets none, so
@@ -62,7 +66,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         public var sendsBySelf: Bool { self != .automation }
     }
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptAttachments: [JSONValue]? = nil,
+                promptBy: PromptBy = .automation,
                 adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil, model: String? = nil,
                 host: String? = nil,
                 folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
@@ -73,6 +78,7 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
+        self.promptAttachments = promptAttachments
         self.adopt = adopt
         self.surface = surface
         self.harness = harness
@@ -114,7 +120,8 @@ public final class AgentPaneSeedSource {
     public var holdsOnlyFolder: Bool {
         guard read == nil, sandboxResult == nil else { return false }
         guard let value else { return true }
-        return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
+        return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
+            && value.adopt == nil && value.surface == nil
             && value.harness == nil && value.model == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
     }
 
@@ -132,6 +139,11 @@ public final class AgentPaneSeedSource {
         surface = seed.surface
         sandboxResult = seed.sandboxResult
     }
+
+    /// The seed's folder when it is already known (no read from another tab still to come).
+    public var knownCwd: String? { read == nil ? value?.cwd : nil }
+    /// A read from another tab is still to come: the seed's folder is not known yet.
+    public var pending: Bool { read != nil }
 
     /// The seed without taking its draft or prompt: where a chat on another machine starts
     /// (its folder and harness) before the page's handshake takes the rest.
@@ -159,6 +171,7 @@ public final class AgentPaneSeedSource {
         }
         value?.draft = nil
         value?.prompt = nil
+        value?.promptAttachments = nil
         value?.showsHarnesses = false
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {

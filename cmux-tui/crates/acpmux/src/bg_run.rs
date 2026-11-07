@@ -14,7 +14,8 @@
 //! Output: segment files `<id>.out.<start>`, named by where they start in the task's whole output,
 //! so the files alone say what is kept (a crash never leaves them disagreeing with a record). At
 //! `segment` bytes a new file starts and the one before the previous is deleted: at most two are
-//! kept, the newest 8 MiB by default. A reader opens the files first and reads its descriptors.
+//! kept, the newest 8 MiB by default. Workflow tasks opt into one unrotated file so their
+//! final result retains every byte. A reader opens the files first and reads its descriptors.
 //!
 //! Stop: the folder's generation and a newline written to `<id>.ctl` in one write. A writer's open
 //! fails (ENXIO) unless this runner holds the FIFO open, so a stop never reaches anything but this
@@ -59,10 +60,22 @@ pub struct Spec {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub segment: u64,
+    /// Stable workflow tasks need their complete final result, rather than a bounded tail.
+    #[serde(default)]
+    pub retain_all: bool,
     /// The chat folder's generation (`hub/bg_tasks.rs`): its records carry it, so a runner that
     /// outlived a purge never shows in a later folder of the same name.
     #[serde(default)]
     pub generation: String,
+    /// What the task is for, in a few words (`bg_start`'s `description`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Its chat gets one message when it ends (`hub/bg_tasks.rs` `bg_notify`).
+    #[serde(default)]
+    pub notify: bool,
+    /// Its last output line is its summary once it ended (`run_wait` prints its outcome last).
+    #[serde(default)]
+    pub result_line: bool,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -87,6 +100,15 @@ pub struct Record {
     /// [`Spec::generation`].
     #[serde(default)]
     pub generation: String,
+    /// [`Spec::description`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// [`Spec::notify`].
+    #[serde(default)]
+    pub notify: bool,
+    /// [`Spec::result_line`].
+    #[serde(default)]
+    pub result_line: bool,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -97,6 +119,11 @@ pub fn lock_path(dir: &Path, id: &str) -> PathBuf {
 }
 pub fn ctl_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "ctl")
+}
+/// The mark that the task's end reached its chat (`hub/bg_tasks.rs` `bg_notify`): written once
+/// the chat took the message, so a restarted daemon never sends it again.
+pub fn notified_path(dir: &Path, id: &str) -> PathBuf {
+    file(dir, id, "notified")
 }
 fn segment_path(dir: &Path, id: &str, start: u64) -> PathBuf {
     file(dir, id, &format!("out.{start}"))
@@ -132,11 +159,12 @@ fn segments(dir: &Path, id: &str) -> std::io::Result<Vec<u64>> {
     Ok(starts)
 }
 
-/// The bounded output; [`Spool::write`] starts a new segment at `segment` bytes.
+/// Output retained as either a bounded rotating tail or one complete workflow file.
 pub struct Spool {
     dir: PathBuf,
     id: String,
     segment: u64,
+    retain_all: bool,
     file: std::fs::File,
     prev: Option<u64>,
     start: u64,
@@ -145,13 +173,36 @@ pub struct Spool {
 
 impl Spool {
     pub fn create(dir: &Path, id: &str, segment: u64) -> std::io::Result<Self> {
+        Self::create_with_retention(dir, id, segment, false)
+    }
+
+    pub fn create_with_retention(
+        dir: &Path,
+        id: &str,
+        segment: u64,
+        retain_all: bool,
+    ) -> std::io::Result<Self> {
         let file = std::fs::File::create(segment_path(dir, id, 0))?;
         let (dir, id) = (dir.to_owned(), id.to_owned());
-        Ok(Self { dir, id, segment: segment.max(1), file, prev: None, start: 0, len: 0 })
+        Ok(Self {
+            dir,
+            id,
+            segment: segment.max(1),
+            retain_all,
+            file,
+            prev: None,
+            start: 0,
+            len: 0,
+        })
     }
 
     pub fn write(&mut self, mut data: &[u8]) -> std::io::Result<()> {
         use std::io::Write;
+        if self.retain_all {
+            self.file.write_all(data)?;
+            self.len += data.len() as u64;
+            return Ok(());
+        }
         while !data.is_empty() {
             if self.len >= self.segment {
                 let start = self.start + self.len;
@@ -236,6 +287,71 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
         f.take(seg_end - at).read_to_end(&mut data)?;
     }
     Ok(Output { data, start, total, kept_from })
+}
+
+/// The longest label a summary line shows of a task's description or command, in characters.
+const LABEL_MAX: usize = 120;
+
+/// What a summary line calls a task: its description, else its command, on one line of at most
+/// [`LABEL_MAX`] characters (control and format characters become spaces).
+pub fn label(description: Option<&str>, command: &str) -> String {
+    let raw = description.map(str::trim).filter(|d| !d.is_empty()).unwrap_or(command);
+    let shown: String = raw
+        .chars()
+        .map(|c| {
+            let format = matches!(
+                c,
+                '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+            );
+            if c.is_control() || c.is_whitespace() || format { ' ' } else { c }
+        })
+        .collect();
+    let one = shown.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= LABEL_MAX {
+        return one;
+    }
+    let mut cut: String = one.chars().take(LABEL_MAX - 1).collect();
+    cut.push('…');
+    cut
+}
+
+/// A task's view (`hub/bg_tasks.rs` `bg_view`) as one summary line and a status: `running`,
+/// `ok` (exit 0) or `failed` (any other end). The condensed-tool contract: the line is the first
+/// line of every `bg_*` result and its `summary`, the status its `status`.
+pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
+    use serde_json::Value;
+    let s = |k: &str| view.get(k).and_then(Value::as_str).unwrap_or_default();
+    let int = |k: &str| view.get(k).and_then(Value::as_i64);
+    // A task that prints its own outcome last (`resultLine`) is summed up by that line once
+    // it ended.
+    let last = s("lastLine").trim();
+    if s("state") != "running"
+        && view.get("resultLine") == Some(&Value::Bool(true))
+        && !last.is_empty()
+    {
+        let status = match (s("state"), int("exitCode")) {
+            ("exited", Some(0)) => "ok",
+            _ => "failed",
+        };
+        return (label(Some(last), ""), status);
+    }
+    let label = label(view.get("description").and_then(Value::as_str), s("command"));
+    let (verb, end, status) = match s("state") {
+        "running" => ("running", String::new(), "running"),
+        "stopped" => ("stopped", String::new(), "failed"),
+        "killed" => (
+            "killed",
+            int("signal").map(|n| format!(" (signal {n})")).unwrap_or_default(),
+            "failed",
+        ),
+        "lost" => ("lost", " (its runner ended without recording an exit)".to_owned(), "failed"),
+        _ => match int("exitCode") {
+            Some(0) => ("finished", " (exit 0)".to_owned(), "ok"),
+            Some(n) => ("finished", format!(" (exit {n})"), "failed"),
+            None => ("finished", String::new(), "failed"),
+        },
+    };
+    (format!("Background command {verb}: {label}{end}"), status)
 }
 
 /// The longest stop line a runner reads; a longer one is dropped, never kept growing.
@@ -398,7 +514,7 @@ pub fn main() -> anyhow::Result<()> {
         }
         // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
         let control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
-        let spool = Spool::create(&dir, &id, spec.segment)?;
+        let spool = Spool::create_with_retention(&dir, &id, spec.segment, spec.retain_all)?;
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
@@ -430,6 +546,9 @@ pub fn main() -> anyhow::Result<()> {
             pid,
             started_at: crate::store::now_ms(),
             generation: spec.generation.clone(),
+            description: spec.description.clone(),
+            notify: spec.notify,
+            result_line: spec.result_line,
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
@@ -551,6 +670,54 @@ pub fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_spool_retains_more_than_the_normal_two_segments() {
+        let dir = cmux_unix_socket::short_test_dir("bg-workflow-spool");
+        let mut spool = Spool::create_with_retention(dir.path(), "t", SEGMENT, true).unwrap();
+        let data: Vec<u8> = (0..(2 * SEGMENT + 123) as usize).map(|i| (i % 251) as u8).collect();
+        for chunk in data.chunks(64 << 10) {
+            spool.write(chunk).unwrap();
+        }
+        drop(spool);
+        assert_eq!(segments(dir.path(), "t").unwrap(), [0]);
+        let complete = read_output(dir.path(), "t", Some(0), u64::MAX).unwrap();
+        assert_eq!(complete.kept_from, 0);
+        assert_eq!(complete.total, data.len() as u64);
+        assert_eq!(complete.data, data);
+    }
+
+    #[test]
+    fn legacy_bg_specs_keep_bounded_retention() {
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "dir":"/tmp", "id":"task", "sessionId":"owner", "command":"true",
+            "cwd":"/tmp", "segment":10
+        }))
+        .unwrap();
+        assert!(!spec.retain_all);
+    }
+
+    /// A summary line names the task by its description (else its command) on one line, says
+    /// how it ended, and its status is `ok` only for exit 0.
+    #[test]
+    fn a_tasks_outcome_is_one_line_and_a_status() {
+        use serde_json::json;
+        let view = |v: serde_json::Value| outcome(&v);
+        let ran = view(json!({"state": "running", "command": "make\n  test", "description": " "}));
+        assert_eq!(ran, ("Background command running: make test".to_owned(), "running"));
+        let ok =
+            view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
+        assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
+        let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
+        assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));
+        let killed = view(json!({"state": "killed", "signal": 9, "command": "x"}));
+        assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
+        assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
+        assert_eq!(view(json!({"state": "lost", "command": "x"})).1, "failed");
+        let long = label(None, &"a".repeat(500));
+        assert_eq!(long.chars().count(), LABEL_MAX);
+        assert!(long.ends_with('…'));
+    }
 
     /// Rotation keeps the newest two segments, named by their start, and a read by whole-output
     /// offset crosses them; one before the oldest kept byte starts at it.

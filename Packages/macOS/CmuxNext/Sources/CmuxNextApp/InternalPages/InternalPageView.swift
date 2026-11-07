@@ -80,7 +80,7 @@ final class InternalPageView: NSView {
     /// or the view a native page names (``InternalPageFocusing``).
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
-        if let page = content as? PageWebView { return page.focusView }
+        if let page = PageWebView.shown(in: content) { return page.focusView }
         return (content as? any InternalPageFocusing)?.focusTarget ?? content
     }
 
@@ -104,3 +104,6 @@ final class InternalPageView: NSView {
 }
 
 extension InternalPageView: ToolbarEdgeHosting {}
+
+/// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
+extension InternalPageView: PageHistoryHosting {}

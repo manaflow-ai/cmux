@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -98,8 +99,8 @@ extension AppActions {
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
-        // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground (HomeDebugActions).
-        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff).bind(into: registry)
+        // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
+        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
@@ -257,7 +258,7 @@ extension AppActions {
                 return hidden
             },
             // A terminal that may run a program (and the warning on): the row stays until the person answers.
-            mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
+            mayAsk: { WorkspaceClose.mayAsk([(workspace, daemon)], warn: warn) },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }

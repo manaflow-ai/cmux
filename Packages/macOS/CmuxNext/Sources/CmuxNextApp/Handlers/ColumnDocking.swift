@@ -28,6 +28,7 @@ enum ColumnDocking {
             ctx.design.stripScrollbar = next
             ctx.writeSetting("set strip scrollbar", StripScrollbarSetting.configPath, .string(next.rawValue))
         })
+        ActionTargetTitles.setPaletteState("layout.toggleStripScrollbar", in: registry) { ctx.design.stripScrollbar != .off }
     }
 
     /// cmux.json `layout.dockColumnEdge` when set to an edge; nil for the

@@ -367,7 +367,7 @@ async fn a_mode_refused_at_a_remote_start_says_to_start_without_it_and_that_star
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2", "mode": "yolo"});
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
     assert_eq!(reason(&r), "remote.mode_refused", "{r}");
-    let want = format!("acpmux new --host b -m fake -n lane-2 --cwd {} -d", root.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-2 --cwd {} -d", root.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2"});
@@ -386,7 +386,7 @@ async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion(
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&outside.join("w")))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     let inside = root.join("w");
-    let want = format!("acpmux new --host b -m fake -n lane-4 --cwd {} -d", inside.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-4 --cwd {} -d", inside.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-4"});

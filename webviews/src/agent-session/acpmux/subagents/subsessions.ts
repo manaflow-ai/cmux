@@ -54,10 +54,11 @@ export type SubsessionInfo = {
 /// The user-facing name for a session. Keep the raw id in `session.name` for matching and
 /// diagnostics, but never expose an opaque optchat id as the identity in a row.
 export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
-  return session.name === session.sessionId || /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu.test(session.name)
-    ? t("tray.kind.subagent")
-    : session.name;
+  return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? t("tray.kind.subagent") : session.name;
 }
+
+/// An optchat session id, which names nothing.
+const OPAQUE_ID = /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu;
 
 /// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
 /// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
@@ -65,11 +66,14 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
 /// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A raw id is Claude's
 /// `<session>/<tool call>` or Codex's bare thread UUID; a name equal to any other id is a real
 /// name a record gave it, so it stays.
+/// `child`: the name a sub-session's own chat gives it (`subsessionName`), before "Subagent": a
+/// finished sub-session's fold record often names nothing, while its chat has a title.
 export function subagentDisplayName(
   t: Translate,
   agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+  child?: string,
 ): string {
-  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? t("tray.kind.subagent");
+  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? child ?? t("tray.kind.subagent");
 }
 
 /// A subagent's label on the running tray's line: what it was asked to do (Claude's Agent
@@ -79,8 +83,19 @@ export function subagentDisplayName(
 export function subagentTaskLabel(
   t: Translate,
   agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+  child?: string,
 ): string {
-  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent);
+  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent, child);
+}
+
+/// What a sub-session's own chat calls it: its title, else its name unless that is only its id
+/// (an opaque optchat id names nothing); undefined when neither names it.
+export function subsessionName(
+  session: Pick<SubsessionInfo, "name" | "sessionId" | "title"> | undefined,
+): string | undefined {
+  if (!session) return undefined;
+  if (session.title?.trim()) return session.title.trim();
+  return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? undefined : session.name;
 }
 
 /// `text` when it names the subagent: not empty and not one of its raw ids.
@@ -141,13 +156,16 @@ export function subsessionState(entry: AcpmuxSessionEntry): SubsessionState {
 export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
   const name = entry.shortName || entry.displayTitle || entry.title || entry.sessionId;
-  const title = entry.displayTitle || entry.title;
+  // Its first title that is not only its name or id: sessionEntry's display title is the session's
+  // name (`lead/october-review`) whenever acpmux gave it one, which would hide the real title.
+  const title = [entry.displayTitle, entry.title].find(
+    (candidate) => candidate && candidate !== name && candidate !== entry.name && candidate !== entry.sessionId,
+  );
   return {
     sessionId: entry.sessionId,
     ...(entry.harness ? { harness: entry.harness } : {}),
     name,
-    // A title acpmux only filled in from the session's name or id is no title of its own.
-    ...(title && title !== name && title !== entry.name && title !== entry.sessionId ? { title } : {}),
+    ...(title ? { title } : {}),
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
     ...(entry.queued ? { queued: entry.queued } : {}),
@@ -398,6 +416,9 @@ export type Subsessions = {
   /// Opens the chat that sent this one a message (its received line's chip): any listed chat, not
   /// only this chat's family; `open` when absent.
   openSender?(sessionId: string): void;
+  /// Says the sender a received line's chip names is no chat acpmux lists (App.tsx: a notice line),
+  /// so the click is never a silent no-op.
+  senderMissing?(name: string): void;
 };
 export const SubsessionContext = createContext<Subsessions | null>(null);
 

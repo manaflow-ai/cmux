@@ -271,6 +271,15 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
         ]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{state}: {reply}");
+        // The reply says what failed, not only the code.
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        let detail = value["error_detail"].as_str().unwrap_or_default();
+        assert!(detail.starts_with("connect to "), "{state}: {reply}");
+        assert!(detail.contains("no handshake"), "{state}: {reply}");
+        assert!(
+            detail.ends_with(&format!("(after a fresh connect_info, state {state})")),
+            "{reply}"
+        );
         assert_eq!(*resolver.source.calls.lock().unwrap(), 2, "{state}: one refetch");
         assert_eq!(
             *resolver.source.mints.lock().unwrap(),
@@ -284,14 +293,27 @@ async fn a_failed_handshake_refetches_once_then_reports_paused_or_unreachable() 
 #[tokio::test]
 async fn backend_errors_and_unknown_ids_map_to_dial_errors() {
     let overlay = CloudOverlay::default();
-    for (error, code) in [
-        (ConnectInfoError::NotFound, "unknown_host"),
-        (ConnectInfoError::Forbidden, "not_authorized"),
-        (ConnectInfoError::NotBound, "unreachable"),
+    for (error, code, detail) in [
+        (ConnectInfoError::NotFound, "unknown_host", "connect_info: cloud.machine.not_found"),
+        (ConnectInfoError::Forbidden, "not_authorized", "connect_info: auth.forbidden"),
+        (
+            ConnectInfoError::NotBound,
+            "unreachable",
+            "connect_info: cloud.machine.not_bound: the machine is not bound yet",
+        ),
+        (
+            ConnectInfoError::Unavailable(
+                "the Cloud broker refused: cloud.native.no_ready_attempt".into(),
+            ),
+            "unreachable",
+            "connect_info: the Cloud broker refused: cloud.native.no_ready_attempt",
+        ),
     ] {
         let resolver = CloudResolver::new(FakeSource::with(vec![Err(error)]));
         let (reply, _) = dial(&overlay, &resolver, HOST, "daemon").await;
         assert!(reply.contains(&format!("\"error_code\":\"{code}\"")), "{reply}");
+        let value: serde_json::Value = serde_json::from_str(reply.trim()).unwrap();
+        assert_eq!(value["error_detail"], detail, "{reply}");
     }
     // A token the backend refuses, or one for another host: not authorized.
     for answer in [Err(ConnectInfoError::Forbidden), Ok(grant("t1", "host_other", &["daemon"]))] {

@@ -115,9 +115,10 @@ extension DaemonStore {
         guard !overlayLifted else { return body() }
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
+        let held = holdOverlayPublication()
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
             noteIntentLeft(intent, rejected: false)
         }
@@ -127,6 +128,7 @@ extension DaemonStore {
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
+        publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
         publishTabListChange()
         checkOverlayConservation(confirmed: confirmedTabs)
@@ -146,8 +148,7 @@ extension DaemonStore {
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
-            if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
-            return nil
+            entry.closeWhenCreated ? nil : entry.kind.provisionalPane?.paneID
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
     }

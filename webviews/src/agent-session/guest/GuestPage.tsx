@@ -2,6 +2,8 @@
 // and the ended page. The chat draws with the owner's own transcript (VirtualTranscript) over a
 // client fed by the room's socket (AcpmuxDirectClient.fed), with nothing of the pane around it:
 // no composer pickers, sessions, inspector or permission buttons. A pending ask shows who it waits on.
+// An invite (`/i/<id>`, a person invited by account) joins as the signed-in account, with no name
+// field; a `view` invitee watches with no composer.
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { VirtualTranscript } from "../acpmux/App";
@@ -14,7 +16,7 @@ import { displayName, participant, type Participant } from "../acpmux/multiplaye
 import { GuestComposer, GuestMessages } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
-import { joinName, type Redeem, type RedeemError } from "./redeem";
+import { type Accept, type GuestRole, type JoinedVia, joinName, type Redeem, type RedeemError } from "./redeem";
 import { TypingSignal } from "./typingSignal";
 import {
   type GuestChat,
@@ -58,6 +60,65 @@ export function EndedPage({ reason }: { reason: GuestEnded }) {
   );
 }
 
+/** What a failed join says: invites name the account's problem; else offline, or try again. */
+function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
+  const t = useT();
+  if (error === "share.unauthorized" && signIn)
+    return (
+      <>
+        {t("guest.invite.signIn")}{" "}
+        <a className="guest-card__link" href={signIn}>
+          {t("guest.invite.signInButton")}
+        </a>
+      </>
+    );
+  if (error === "share.not_invited") return <>{t("guest.invite.notInvited")}</>;
+  if (error === "share.unverified") return <>{t("guest.invite.unverified")}</>;
+  if (error === "share.host_offline") return <>{t("guest.join.hostOffline")}</>;
+  return <>{t("guest.join.failed")}</>;
+}
+
+/** An invite's join: the room already signed this visitor in, so no name field, only Join. */
+export function InviteJoinPage({
+  signIn,
+  onJoin,
+}: {
+  /** Where to sign in again when the sign-in lapsed (the invite's own address). */
+  signIn: string;
+  /** Accepts as the signed-in account; resolves to the error to show, or undefined once joined. */
+  onJoin: () => Promise<RedeemError | undefined>;
+}) {
+  const t = useT();
+  const [joining, setJoining] = useState(false);
+  const [error, setError] = useState<RedeemError>();
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (joining) return;
+    setJoining(true);
+    setError(undefined);
+    void onJoin().then((failed) => {
+      setJoining(false);
+      setError(failed);
+    });
+  };
+  return (
+    <main className="guest-card" data-testid="guest-invite">
+      <h1 className="guest-card__title">{t("guest.join.title")}</h1>
+      <p className="guest-card__detail">{t("guest.invite.detail")}</p>
+      <form className="guest-join" onSubmit={submit}>
+        <button className="guest-join__button" type="submit" disabled={joining}>
+          {joining ? t("guest.join.joining") : t("guest.join.button")}
+        </button>
+      </form>
+      {error && (
+        <p className="guest-card__error" role="alert">
+          <JoinError error={error} signIn={signIn} />
+        </p>
+      )}
+    </main>
+  );
+}
+
 export function JoinPage({
   hasSecret,
   onJoin,
@@ -82,13 +143,7 @@ export function JoinPage({
       setError(failed);
     });
   };
-  const message = !hasSecret
-    ? t("guest.join.badLink")
-    : error === "share.host_offline"
-      ? t("guest.join.hostOffline")
-      : error
-        ? t("guest.join.failed")
-        : undefined;
+  const message = !hasSecret ? t("guest.join.badLink") : error ? <JoinError error={error} /> : undefined;
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
@@ -129,6 +184,7 @@ const ownerOf = (participants: GuestParticipant[]): Participant | undefined => {
 export function LiveChat({
   guestId,
   name,
+  role,
   prompts,
   socketUrl,
   openSocket,
@@ -138,6 +194,8 @@ export function LiveChat({
   guestId: string;
   /** The name this guest joined with, for its chip until presence names it. */
   name?: string;
+  /** An invitee's role: `view` watches only, so there is no composer. */
+  role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
   socketUrl: string;
@@ -268,6 +326,8 @@ export function LiveChat({
               onToggleActivity={toggle}
               working={snapshot.isWorking}
               readOnly
+              // The thread rail is the owner's pane chrome; here it drew a lone tick at the page's edge.
+              showMinimap={false}
               canLoadOlder={hasMore}
               historyFrom={snapshot.historyFrom}
               onLoadOlder={loadOlder}
@@ -282,7 +342,11 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
-          <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+          {role === "view" ? (
+            <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
+          ) : (
+            <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+          )}
         </div>
       </div>
     </GuestActionsBoundary>
@@ -296,12 +360,18 @@ export type GuestPageProps = {
   /** The guest id this tab joined as before (the room's cookie is set): open the chat at once. */
   guestId?: string;
   redeem: Redeem;
+  /** An account invite (`/i/<id>`): Join accepts as the signed-in account, with no name or secret. */
+  invite?: boolean;
+  /** The room's accept, for an invite. */
+  accept?: Accept;
   /** This tab's redeem attempt id (redeem.ts attemptId). */
   attempt: () => string;
   /** The name this tab joined with (redeem.ts joinedName). */
   name?: string;
-  /** Called once the redeem worked (redeem.ts rememberJoined). */
-  onJoined?: (guestId: string, name: string) => void;
+  /** The role this tab's invitee joined with (redeem.ts joinedRole). */
+  role?: GuestRole;
+  /** Called once the redeem or accept worked (redeem.ts rememberJoined); an invite has no typed name. */
+  onJoined?: (guestId: string, name: string | undefined, role: GuestRole | undefined, via: JoinedVia) => void;
   /** Where this tab keeps its own messages (sessionStorage in the page). */
   storage: Storage;
   socketUrl: string;
@@ -315,8 +385,11 @@ export function GuestPage({
   secret,
   guestId: joinedAs,
   name: joinedName,
+  role: joinedRole,
   storage,
   redeem,
+  invite = false,
+  accept,
   attempt,
   onJoined,
   socketUrl,
@@ -325,13 +398,14 @@ export function GuestPage({
 }: GuestPageProps) {
   const [guestId, setGuestId] = useState(joinedAs);
   const [name, setName] = useState(joinedName);
+  const [role, setRole] = useState(joinedRole);
   const prompts = useMemo(() => new GuestPrompts(shareId, storage), [shareId, storage]);
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.(result.guestId, name);
+      onJoined?.(result.guestId, name, undefined, "link");
       setName(name);
       setGuestId(result.guestId);
       return undefined;
@@ -340,12 +414,27 @@ export function GuestPage({
     if (final) setEnded(final);
     return result.error;
   };
+  const acceptInvite = async (): Promise<RedeemError | undefined> => {
+    if (!accept) return "failed";
+    const result = await accept(shareId, { attempt_id: attempt() });
+    if (result.ok) {
+      onJoined?.(result.guestId, undefined, result.role, "invite");
+      setRole(result.role);
+      setGuestId(result.guestId);
+      return undefined;
+    }
+    const final = endedBy(result.error);
+    if (final) setEnded(final);
+    return result.error;
+  };
   if (ended) return <EndedPage reason={ended} />;
+  if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
   if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
   return (
     <LiveChat
       guestId={guestId}
       name={name}
+      role={role}
       prompts={prompts}
       socketUrl={socketUrl}
       openSocket={openSocket}

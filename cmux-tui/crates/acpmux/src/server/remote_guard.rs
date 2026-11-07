@@ -179,11 +179,28 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
     // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(crate::prompt_provenance::PERSON_VERIFIED);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(
+            forwarded,
+            serde_json::json!({crate::prompt_provenance::PERSON_VERIFIED: true}),
+        );
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {
@@ -232,6 +249,15 @@ async fn check_inner(
             && control_of(origin, auth, params) == crate::hub::Control::Peer)
     {
         return Err(crate::author::origin_refused());
+    }
+    // So is a tool's notice (`prompt_provenance::notice_of`): no remote text passes as a fire.
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && (crate::prompt_provenance::notice_present(params)
+            || params.get("request").is_some_and(crate::prompt_provenance::notice_present))
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::prompt_provenance::notice_origin_refused());
     }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
@@ -362,9 +388,15 @@ async fn check_inner(
         }
     }
     // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
-    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
-    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
-    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    // may not have. A new chat can name the peer before it has a session. Forwarding strips
+    // that selector, so the peer's own guard checks the folder on its disk. An unknown peer
+    // is refused by the forwarder, never handled as a local folder.
+    // So do the folders the app gives a peer's chat (`_acpmux/set_directories`); a Web
+    // caller's are still checked here, against this machine's roots, whatever chat they name.
+    let named_peer = super::peer_forward::trust_peer(m, params)?.is_some();
+    let peers_folder = (m == method::ACP_TRUST_SET
+        && (named_peer || names_a_peers_session(hub, params)))
+        || (m == method::MUX_SET_DIRECTORIES && !web && names_a_peers_session(hub, params));
     if peers_folder
         && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
         && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
@@ -379,6 +411,7 @@ async fn check_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::ACP_TRUST_SET
+                | method::MUX_SET_DIRECTORIES
         );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp

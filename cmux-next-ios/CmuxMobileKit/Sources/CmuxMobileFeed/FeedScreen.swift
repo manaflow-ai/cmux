@@ -21,6 +21,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
+    @Environment(\.openURL) private var openURL
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -101,6 +102,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     private func open(_ item: FeedItem) {
         store.markRead(item.id)
+        // A Mac Feed request (a PR held for trial) opens its page.
+        if let link = item.link {
+            openURL(link)
+            return
+        }
         // A terminal agent's event opens its terminal tab (Workspaces), not a chat.
         if item.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
             openTerminal(item)
@@ -202,15 +208,19 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @ViewBuilder
     private var newPill: some View {
         let count = list.newAbove + store.unseenNewIDs.count
-        if count > 0, !list.atTop {
+        // The pill stays through its jump: had it gone at the tap, a second tap on the same spot
+        // reached the row moving under it mid-jump. Its count clears (and it goes) near the top.
+        if count > 0, !list.atTop || list.jumpingToTop {
             Button {
                 list.scrollToTop()
-                store.clearUnseen()
             } label: {
                 Label("\(count) new", systemImage: "arrow.up")
                     .font(.footnote.weight(.semibold))
                     .padding(.horizontal, 14)
                     .frame(height: 36)
+                    // The whole capsule takes the tap: a plain button's padding is not hit-testable,
+                    // so a tap on the glass around the text fell through to the row under the pill.
+                    .contentShape(.capsule)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
@@ -263,16 +273,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, _):
-            swipe.demoReveal = id
-            swipe.demoPerform = nil
-            swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):
-            swipe.demoReveal = nil
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedSwipeClose:
-            swipe.openID = nil
         case .feedExpand, .feedReply, .answerQuestion:
             list.demo(command)
         default:

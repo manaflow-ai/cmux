@@ -256,6 +256,8 @@ pub struct DaemonServices {
     workspace: WorkspaceService,
     mux_socket: Option<PathBuf>,
     mux_upload_budget: MuxUploadBudget,
+    /// The Unix sockets [`Service::LocalSocket`] may reach, fixed at start.
+    local_sockets: Arc<[PathBuf]>,
 }
 
 fn validate_renderer_host_hello(
@@ -295,7 +297,26 @@ fn validate_renderer_host_hello(
 
 impl DaemonServices {
     pub fn new(workspace: WorkspaceService, mux_socket: Option<PathBuf>) -> Arc<Self> {
-        Arc::new(Self { workspace, mux_socket, mux_upload_budget: MuxUploadBudget::new() })
+        Self::with_local_sockets(workspace, mux_socket, Vec::new())
+    }
+
+    /// [`DaemonServices::new`], and [`Service::LocalSocket`] may reach
+    /// exactly `local_sockets` (absolute paths; anything else is dropped).
+    /// The client's `path` must equal one entry byte for byte: nothing is
+    /// resolved, so `..` or a symlink spelling never matches.
+    pub fn with_local_sockets(
+        workspace: WorkspaceService,
+        mux_socket: Option<PathBuf>,
+        local_sockets: Vec<PathBuf>,
+    ) -> Arc<Self> {
+        let local_sockets =
+            local_sockets.into_iter().filter(|path| path.is_absolute()).collect::<Vec<_>>();
+        Arc::new(Self {
+            workspace,
+            mux_socket,
+            mux_upload_budget: MuxUploadBudget::new(),
+            local_sockets: local_sockets.into(),
+        })
     }
 
     pub async fn run(self: Arc<Self>, clients: mpsc::Receiver<Arc<ServerConnection>>) {
@@ -471,6 +492,10 @@ impl DaemonServices {
             }
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
+            }
+            Service::LocalSocket => {
+                Self::serve_local_socket(&self.local_sockets, incoming.stream, incoming.metadata)
+                    .await
             }
             Service::MuxControl => {
                 Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
@@ -668,6 +693,61 @@ impl DaemonServices {
         send_opened(&stream, Lane::Tunnel).await?;
         let (reader, writer) = socket.into_split();
         pump_stream(stream, reader, writer).await
+    }
+
+    /// A byte stream to one allowlisted Unix socket. The session already
+    /// holds [`Service::LocalSocket`] (only an owner's grant carries it);
+    /// the path must also be on this daemon's allowlist.
+    async fn serve_local_socket(
+        allowlist: &[PathBuf],
+        stream: ServiceStream,
+        metadata: BTreeMap<String, String>,
+    ) -> Result<(), ServicesError> {
+        if allowlist.is_empty() {
+            stream
+                .reject("unavailable".into(), "this daemon serves no local sockets".into())
+                .await?;
+            return Ok(());
+        }
+        let Some(path) = metadata.get("path") else {
+            stream.reject("invalid-argument".into(), "missing metadata path".into()).await?;
+            return Ok(());
+        };
+        let Some(target) = allowlist.iter().find(|allowed| allowed.as_os_str() == path.as_str())
+        else {
+            stream
+                .reject(
+                    "permission-denied".into(),
+                    "the path is not on this daemon's local socket allowlist".into(),
+                )
+                .await?;
+            return Ok(());
+        };
+        #[cfg(unix)]
+        {
+            let socket = match tokio::net::UnixStream::connect(target).await {
+                Ok(socket) => socket,
+                Err(error) => {
+                    stream
+                        .reject(
+                            "unavailable".into(),
+                            format!("the local socket did not answer: {}", error.kind()),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
+            let stream = Arc::new(stream);
+            send_opened(&stream, Lane::Tunnel).await?;
+            let (reader, writer) = socket.into_split();
+            pump_stream(stream, reader, writer).await
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = target;
+            stream.reject("unsupported".into(), "local sockets need a Unix host".into()).await?;
+            Ok(())
+        }
     }
 
     #[cfg(unix)]
@@ -1130,7 +1210,7 @@ impl MessageStream {
             }
             Service::ProcessStream => Lane::Bulk,
             Service::WorkspaceRpc => Lane::Control,
-            Service::TcpTunnel => Lane::Tunnel,
+            Service::TcpTunnel | Service::LocalSocket => Lane::Tunnel,
         };
         Self::with_lane(stream, lane)
     }
@@ -1734,6 +1814,9 @@ mod tests {
             assert!(!denied.allows(service), "default authority allowed {service:?}");
             assert!(legacy.allows(service), "legacy authority denied {service:?}");
         }
+        // Only an owner's carrier grant reaches a local socket.
+        assert!(!denied.allows(Service::LocalSocket));
+        assert!(!legacy.allows(Service::LocalSocket));
     }
 
     #[tokio::test]

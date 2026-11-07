@@ -22,6 +22,9 @@ export {};
   // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
   const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
   writeFeatureTips({ log: () => {} });
+  // The design scale's Tailwind theme and token list (gen-design-scale.mjs) are build output as well.
+  const { writeDesignScale } = await import("../scripts/pages/gen-design-scale.mjs");
+  writeDesignScale({ log: () => {} });
 }
 
 // react-dom picks the animationend event name once, when it first loads: without

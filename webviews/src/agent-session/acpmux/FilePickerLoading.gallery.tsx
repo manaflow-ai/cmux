@@ -7,7 +7,7 @@ import type { FileSearchSource } from "./fileSearchModel";
 import { MentionMenu, type MentionState } from "./MentionMenu";
 import { mentionItems } from "./mentionItems";
 
-type Props = { surface: "files" | "mentions"; state: "pending" | "loaded" | "empty" | "failed" };
+type Props = { surface: "files" | "mentions"; state: "pending" | "loaded" | "empty" | "failed"; many?: boolean };
 const results = [
   { path: "src/example.ts", matches: [] },
   { path: "src/components/example-card.tsx", matches: [] },
@@ -21,7 +21,7 @@ const searches: Record<Props["state"], FileSearchSource> = {
     throw new Error("unavailable");
   },
 };
-function FilePickerLoadingFixture({ surface, state }: Props) {
+function FilePickerLoadingFixture({ surface, state, many }: Props) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (surface !== "files") return;
@@ -31,7 +31,12 @@ function FilePickerLoadingFixture({ surface, state }: Props) {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "example");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }, [surface, state]);
-  const files = state === "loaded" ? results : [];
+  const files =
+    state === "loaded"
+      ? many
+        ? Array.from({ length: 40 }, (_, index) => ({ path: `src/example-${index}.ts`, matches: [] }))
+        : results
+      : [];
   const mentionState: MentionState =
     state === "pending"
       ? { kind: "searching", results: [] }
@@ -69,6 +74,10 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 520 },
   height: 320,
   variants: {
+    "mentions-overflow": {
+      note: "Forty matching file mentions scroll within the capped picker with soft edges.",
+      props: { surface: "mentions", state: "loaded", many: true },
+    },
     "files-pending": { props: { surface: "files", state: "pending" } },
     "files-loaded": { props: { surface: "files", state: "loaded" } },
     "files-empty": { props: { surface: "files", state: "empty" } },

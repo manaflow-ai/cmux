@@ -6,6 +6,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import {
+  autoSignIn,
   cloudAgentLogin,
   localApiKeyLogin,
   loginFailure,
@@ -124,6 +125,9 @@ function signInFor(
     harness?: string;
     tickets?: (string | undefined)[];
     opened?: string[];
+    /// The host's machine-bound opens; `machine` answers them (none: the host has no such open).
+    onMachine?: string[];
+    machine?: boolean;
     supported?: boolean;
     local?: boolean;
   } = {},
@@ -141,6 +145,12 @@ function signInFor(
       return tickets.shift();
     },
     openURL: (url) => options.opened?.push(url),
+    ...(options.machine !== undefined && {
+      openOnMachine: async (url: string) => {
+        options.onMachine?.push(url);
+        return options.machine!;
+      },
+    }),
     isCurrent: () => true,
     currentClient: () => client as never,
   });
@@ -223,6 +233,8 @@ test("a Cloud sign-in failure leads with Sign in to Claude, then Use an API key"
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
   expect(button("Sign in to Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  // One sign-in button (Leo 2026-11-02): Use an API key beside it is a link, not a second button.
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
   // Without the Mac-token transfer there is no Set up credentials button.
   expect(button("Set up Claude Code credentials")).toBeUndefined();
@@ -245,7 +257,7 @@ test("in DEV the credential transfer stays beside the sign-in", async () => {
   expect(button("Set up Claude Code credentials")).toBeDefined();
 });
 
-test("Claude: start, open the page, paste the code, finish, then send the failed prompt again", async () => {
+test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
   const opened: string[] = [];
   const { client, calls, sent } = mockClient({
     start: () => ({
@@ -262,14 +274,14 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   await flush();
   // Every call names the chat, so the sign-in runs on the chat's machine.
   expect(calls[0]).toEqual(["start", "claude", "chat-1"]);
-  // The Sign in click's gesture went to the start: the page opens on its own click, which leads.
-  expect(opened).toEqual([]);
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
-  expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(false);
-  await act(async () => button("Open sign-in page")!.click());
+  // The one Sign in click opened the page too (the host lets its start open it): no second click.
   expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
+  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
   expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  // Open sign-in page stays, quiet, to open it again.
+  expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Open sign-in page")!.click());
+  expect(opened).toHaveLength(2);
   // Nothing goes again before the code: no gesture taken, nothing sent.
   expect(intents).toEqual([]);
   const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
@@ -290,8 +302,15 @@ test("Claude: start, open the page, paste the code, finish, then send the failed
   expect(host.innerHTML).not.toContain("abc#def");
 });
 
-test("Codex: the device code shows with Copy; after approval Send again takes its own click", async () => {
+test("Codex: one click opens the page with its device code copied; after approval Send again takes its own click", async () => {
   let approve!: (value: unknown) => void;
+  const opened: string[] = [];
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(dom.window.navigator, "clipboard");
+  Object.defineProperty(dom.window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
   const { client, calls, sent } = mockClient({
     start: () => ({
       loginId: "login-2",
@@ -301,12 +320,18 @@ test("Codex: the device code shows with Copy; after approval Send again takes it
     }),
     finish: () => new Promise((resolve) => (approve = resolve)),
   });
-  const { signIn, intents } = signInFor(client, { harness: "codex" });
+  const { signIn, intents } = signInFor(client, { harness: "codex", opened });
   await render({ route: { name: "Codex", harness: "codex", hostKind: "cloud" }, cloudSignIn: signIn });
   await act(async () => button("Sign in to Codex")!.click());
   await flush();
+  await flush();
+  if (clipboard) Object.defineProperty(dom.window.navigator, "clipboard", clipboard);
+  else delete (dom.window.navigator as unknown as Record<string, unknown>).clipboard;
+  expect(opened).toEqual(["https://auth.openai.com/codex/device"]);
   expect(host.querySelector('[data-testid="cloud-signin-code"]')!.textContent).toBe("WXYZ-1234");
-  expect(button("Copy code")).toBeDefined();
+  // The code is on the clipboard already, for the page's field.
+  expect(copied).toEqual(["WXYZ-1234"]);
+  expect(button("Copied")).toBeDefined();
   expect(host.textContent).toContain("Enter this code on the page. Waiting for approval…");
   expect(calls).toContainEqual(["finish", "login-2", "chat-1", undefined]);
   await act(async () => approve({ signedIn: true, restarted: true }));
@@ -596,4 +621,166 @@ test("no Use an API key here on a failure that is not a sign-in", async () => {
   const { signIn } = signInFor(client, { local: true });
   await render({ route: localRoute, apiKeySignIn: signIn, retry: () => undefined }, "API Error: 529 overloaded_error");
   expect(button("Use an API key")).toBeUndefined();
+});
+
+const MANUAL =
+  "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=s";
+const AUTO =
+  "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=s";
+const autoStart = () => ({ loginId: "login-a", url: MANUAL, autoUrl: AUTO, callbackPort: 54545, needsCode: true });
+
+test("Claude's automatic page: an allowed page whose one redirect is the machine's localhost callback", () => {
+  expect(autoSignIn(AUTO)).toEqual({ url: AUTO, port: 54545 });
+  expect(autoSignIn(MANUAL)).toBeUndefined();
+  for (const redirect of [
+    "http://evil.example:54545/callback",
+    "http://localhost.evil.example:54545/callback",
+    "http://127.0.0.1:54545/callback",
+    "https://localhost:54545/callback",
+    "http://localhost:54545/other",
+    "http://localhost/callback",
+    "http://localhost:0/callback",
+    "http://localhost:070/callback",
+    "http://localhost:99999/callback",
+  ])
+    expect(autoSignIn(`https://claude.com/x?redirect_uri=${encodeURIComponent(redirect)}`)).toBeUndefined();
+  expect(
+    autoSignIn(
+      `https://claude.com/x?redirect_uri=${encodeURIComponent("http://localhost:1/callback")}&redirect_uri=${encodeURIComponent("http://localhost:2/callback")}`,
+    ),
+  ).toBeUndefined();
+  expect(autoSignIn(AUTO.replace("https://claude.com", "https://evil.example"))).toBeUndefined();
+});
+
+test("Claude, no paste: one click opens the automatic page on the machine, the approve signs in by itself", async () => {
+  let approve!: (value: unknown) => void;
+  const opened: string[] = [];
+  const onMachine: string[] = [];
+  const { client, calls } = mockClient({
+    start: autoStart,
+    finish: () => new Promise((resolve) => (approve = resolve)),
+  });
+  const { signIn, intents } = signInFor(client, { opened, onMachine, machine: true });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  // The one click opened the automatic page in the machine-bound tab, and nothing else.
+  expect(onMachine).toEqual([AUTO]);
+  expect(opened).toEqual([]);
+  // No code field: the approve finishes it.
+  expect(host.querySelector(".cv-turn-signin__input")).toBeNull();
+  expect(host.textContent).toContain("Approve on the sign-in page; it finishes on its own.");
+  expect(calls).toContainEqual(["finish", "login-a", "chat-1", undefined]);
+  // Paste a code instead is a quiet link, never a second button.
+  expect(button("Paste a code instead")!.classList.contains("cv-turn-error__offer-link")).toBe(true);
+  expect(button("Paste a code instead")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  // Open sign-in page opens the automatic page again, on the machine.
+  await act(async () => button("Open sign-in page")!.click());
+  await flush();
+  expect(onMachine).toEqual([AUTO, AUTO]);
+  await act(async () => approve({ signedIn: true, restarted: true }));
+  await flush();
+  expect(host.textContent).toContain("Signed in.");
+  expect(intents).toEqual([]);
+});
+
+test("Claude, no paste: a host that cannot open the machine-bound tab opens the code page", async () => {
+  const opened: string[] = [];
+  const onMachine: string[] = [];
+  const { client, calls } = mockClient({ start: autoStart });
+  const { signIn } = signInFor(client, { opened, onMachine, machine: false });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  expect(onMachine).toEqual([AUTO]);
+  expect(opened).toEqual([MANUAL]);
+  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
+  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
+  // No wait for an approve that cannot come.
+  expect(calls.filter((call) => call[0] === "finish")).toEqual([]);
+});
+
+test("Claude, no paste: a host without the open (older app) pastes as before", async () => {
+  const opened: string[] = [];
+  const { client } = mockClient({ start: autoStart });
+  const { signIn } = signInFor(client, { opened });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  expect(opened).toEqual([MANUAL]);
+  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
+});
+
+test("Claude, no paste: Paste a code instead opens the code page; the pasted code finishes the same login", async () => {
+  const opened: string[] = [];
+  const finishes: unknown[][] = [];
+  const { client, sent } = mockClient({
+    start: autoStart,
+    finish: (...args: unknown[]) => {
+      finishes.push(args);
+      // The wait for the approve never ends here; the paste does.
+      return args[2] === undefined ? new Promise(() => undefined) : { signedIn: true, restarted: false };
+    },
+  });
+  const { signIn } = signInFor(client, { opened, machine: true });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  await act(async () => button("Paste a code instead")!.click());
+  expect(opened).toEqual([MANUAL]);
+  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  await typeInto(input, "abc#def");
+  await act(async () => button("Continue")!.click());
+  await flush();
+  await flush();
+  expect(finishes).toEqual([
+    ["login-a", "chat-1", undefined],
+    ["login-a", "chat-1", "abc#def"],
+  ]);
+  expect(host.textContent).toContain("Signed in.");
+  expect(sent).toHaveLength(1);
+});
+
+test("Claude, no paste: the approve's wait ending after a pasted code sent again changes nothing", async () => {
+  let approve: (value: unknown) => void = () => undefined;
+  const { client, sent } = mockClient({
+    start: autoStart,
+    finish: (...args: unknown[]) =>
+      args[2] === undefined ? new Promise((resolve) => (approve = resolve)) : { signedIn: true, restarted: false },
+  });
+  const { signIn } = signInFor(client, { opened: [], machine: true });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  await act(async () => button("Paste a code instead")!.click());
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "abc#def");
+  await act(async () => button("Continue")!.click());
+  await flush();
+  await flush();
+  expect(sent).toHaveLength(1);
+  const after = host.textContent;
+  await act(async () => approve({ signedIn: true, restarted: false }));
+  await flush();
+  await flush();
+  expect(host.textContent).toBe(after);
+  expect(button("Send again")).toBeUndefined();
+  expect(sent).toHaveLength(1);
+});
+
+test("an automatic page whose port acpmux did not name is not used", async () => {
+  const opened: string[] = [];
+  const onMachine: string[] = [];
+  const { client } = mockClient({ start: () => ({ ...autoStart(), callbackPort: 1234 }) });
+  const { signIn } = signInFor(client, { opened, onMachine, machine: true });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  expect(onMachine).toEqual([]);
+  expect(opened).toEqual([MANUAL]);
 });

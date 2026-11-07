@@ -333,6 +333,93 @@ function replyReceived(): AcpmuxSnapshot {
   );
 }
 
+/// Leo's 2026-11-03 06:20Z capture ("this feels like too awkward of a gap :("): a finished reply and
+/// its footer, five background tasks' ends noted for calls on a page not loaded (direct.ts
+/// `background_task_update`), six other agents' messages that started a turn ("Received 6
+/// messages"), one more task's end noted in that turn, and the live "Thinking" line under it, which
+/// sits on the 22 pitch like every one-line row (design/transcript-spacing.md rule 3, step-to-live).
+function notesThenLive(): AcpmuxSnapshot {
+  const note = (n: number, command: string, minutes: number, id = `notes-task-${n}`) =>
+    row("backgroundTask", minutes, {
+      id,
+      backgroundTask: { toolCallId: `notes-call-${n}`, command, state: "completed" },
+    });
+  const message = (n: number, text: string) =>
+    user(text, 4 - n * 0.1, {
+      id: `notes-message-${n}`,
+      incoming: {
+        kind: "message",
+        message: { name: `${SPACING_PEER}/row-rhythm`, sessionId: "s-spacing", text, raw: text },
+      },
+      resend: text,
+      untyped: true,
+    });
+  return claudeChat(
+    chat(
+      [
+        user("Land the spacing fixes once their reviews pass.", 12, { id: "notes-prompt" }),
+        assistant("All three are landed; the reviews passed at their heads.", 11, { id: "notes-reply" }),
+        summary(10.9, { id: "notes-footer", status: "completed", durationMs: 52_000, toolCount: 0 }),
+        note(1, "Wait for remote CI run", 9),
+        note(2, "Wait for the webview verdict", 8.5),
+        note(3, "Wait for the nightly build", 8),
+        note(4, "Wait for remote CI run", 7.5),
+        note(5, "Wait for the gallery capture", 7),
+        ...[1, 2, 3, 4, 5, 6].map((n) => message(n, `Review ${n} passed at its head.`)),
+        note(6, "router-review manaflow-ai/cmux 33062", 2, "notes-last"),
+      ],
+      { title: "spacing-coordinator", isWorking: true, sessions: statusSessions() },
+    ),
+  );
+}
+
+/// Leo's 2026-11-03 06:55Z capture ("why is the spacing like this it's weird"): an earlier turn
+/// ending on status rows ("2 background updates", "Subagent finished"), the person's next prompt,
+/// and the first status row of its turn ("Sent to …"). The prompt stays centred, 32 from the
+/// rows on each side (design/transcript-spacing.md rule 5, `step-to-prompt` and `prompt-to-step`).
+function statusPrompt(): AcpmuxSnapshot {
+  const note = (n: number, state: "completed" | "stopped", minutes: number) =>
+    row("backgroundTask", minutes, {
+      id: `sp-task-${n}`,
+      backgroundTask: { toolCallId: `sp-call-${n}`, command: `Wait for run ${n}`, state },
+    });
+  return claudeChat(
+    chat(
+      [
+        user("Check the nightly and the cloud machines.", 50, { id: "sp-first" }),
+        activity([run("Checked the nightly", "gh run list -w nightly -L 1")], 49, { id: "sp-work" }),
+        row(SUBAGENTS, 48.8, {
+          id: "sp-subagents",
+          subagents: [
+            {
+              id: "agent-sp-cloud",
+              parent: null,
+              name: "cloud-check",
+              task: "Check the cloud machines",
+              state: "completed",
+              startedAt: minutesAgo(48),
+              endedAt: minutesAgo(6),
+            },
+          ],
+        }),
+        assistant("The nightly is green; a subagent checks the cloud machines.", 48.5, { id: "sp-reply" }),
+        summary(48.4, { id: "sp-footer", status: "completed", durationMs: 96_000, toolCount: 1 }),
+        note(1, "completed", 7),
+        note(2, "stopped", 6.5),
+        // The background turn the subagent's end started, which said nothing: its footer draws nothing.
+        summary(5.9, { id: "sp-bg-footer", status: "completed", durationMs: 2_000, toolCount: 0 }),
+        user("does this nightly cloud work!?", 3, { id: "sp-prompt" }),
+        // Claude's blank text before its first call.
+        assistant("\n\n", 2.8, { id: "sp-blank" }),
+        activity([send(`${OWNER_PEER}/daemon-owner`, "Don't end turns to wait: check the nightly yourself.")], 2.5, {
+          id: "sp-sent",
+        }),
+      ],
+      { title: "spacing-coordinator", isWorking: true, sessions: statusSessions() },
+    ),
+  );
+}
+
 /// The session chip's looks compared over `reply-received` (the pick, shipped in AgentTag.css: the
 /// row's words on a light wash, 1em + 4px tall, no ring): the 22 bordered chip it replaces, and
 /// Claude Code desktop's underlined name with no wash (reference claude/live/transcript-peer-session-message).
@@ -364,7 +451,7 @@ export default agentPaneEntry({
       snapshot: allKinds(),
     },
     shipped: {
-      note: 'A finished reply and its footer; an inbox row; then a running turn: "Sent 3 messages", a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
+      note: 'A finished reply and its footer; an inbox row; then a running turn: a send, a command and a send, a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
       snapshot: chat(
         [
           user("Where are the three polish lanes?", 14),
@@ -374,8 +461,10 @@ export default agentPaneEntry({
           user("Hand the three polish lanes their briefs.", 6),
           activity(
             [
+              // A command between the sends keeps three one-line rows: two sends in a row would be one
+              // "Sent 2 messages" line (toolGroups.ts `sendGroup`; Leo, 2026-11-04).
               send("grid-lane", "Take the one-line row pitch."),
-              send("picker-lane", "Take the menu polish."),
+              run("Listed the polish lanes", "acpmux ls --json"),
               send("review-box", "Review #2214 at its head."),
             ],
             5.9,
@@ -405,6 +494,14 @@ export default agentPaneEntry({
     "reply-received": {
       note: "The pick (version B). Leo's 2026-11-03 capture after a reply: another machine's lane's message, \"Sent to\" and \"Thinking\" 22 apart, each session chip the row's words on a light wash, no ring.",
       snapshot: replyReceived(),
+    },
+    "notes-live": {
+      note: 'Leo\'s 2026-11-03 06:20Z capture: a reply\'s footer, five "Background task finished" notes, "Received 6 messages", one more note, and "Thinking" 22 under it.',
+      snapshot: notesThenLive(),
+    },
+    "status-prompt": {
+      note: 'Leo\'s 2026-11-03 06:55Z capture: "2 background updates" and "Subagent finished" end a turn, then the next prompt, then "Sent to …": the prompt 32 from the rows on each side.',
+      snapshot: statusPrompt(),
     },
     "reply-received-before": {
       note: "Version A, the replaced look: the 22 bordered chip at the control size, taller than its row's words.",

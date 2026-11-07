@@ -1,7 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextSettings
 
-/// `agentPane.showContextUsage`, `agentPane.showDictation`, `agentPane.spellChecking`,
+/// `agentPane.showContextUsage`, `agentPane.composerRing`, `agentPane.showDictation`, `agentPane.spellChecking`,
 /// `agentPane.attachmentView`, `agentPane.scrollToBottomOnSend` and `agentPane.showMachineLoadWarnings` (``AgentPaneComposerSetting``) reach the page as the `composer`
 /// event, read by the page's composerSettings.ts. The same event carries the Debug Settings
 /// reasoning slider toggle and visual style, `plainFooter`, Debug Settings' plain footer look
@@ -11,7 +11,7 @@ public import CmuxNextSettings
 /// stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of the last
 /// four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
+    /// The composer's settings: `{showContextUsage, composerRing, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValueWithLook)
     }

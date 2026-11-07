@@ -13,16 +13,16 @@ import os
 
 /// Lets hidden agent chat pages go and freezes them (cx-x15rz): the policy and its clocks are
 /// ``HiddenChatPages``; this is the App's side of it. Each chat tab's page is a web view with its own
-/// web content process (about 75 MB), and before this it stayed until the tab closed. A page let go
+/// renderer allocation (WebKit may share a process across pages). A page let go
 /// keeps what ``AgentPaneWakeState`` carries (chips, shell text, scroll) and acpmux's draft, but not an
 /// open menu or popover, the caret, a queued prompt being edited or an IME composition (Leo, 2026-10-26:
 /// "why does cmux-next's browser keep refreshing and reloading?"); its tab keeps its session, so showing
 /// it again builds the page on the same chat (``AgentTabStore/view(for:)``), which acpmux replays with
 /// its draft. Its last frame is drawn under the pane until the new page paints.
 ///
-/// The App keeps a page that is a New Tab page or another machine's chat, or in which a shell command
-/// ran (closing the page ends the command or drops its output), and keeps awake a New Tab page, a Chief
-/// chat and a crashed page.
+/// Another machine's chat and pages with shell runs stay loaded. Untouched local New Tabs use
+/// the warm-page cap and keep their native context; edited New Tabs stay loaded. New Tabs,
+/// Chief chats and crashed pages do not freeze.
 @MainActor
 final class AgentPageHibernation: HiddenChatPagesHost {
     static var minimumHidden: Double { HiddenChatPages<AgentPageHibernation>.minimumHidden }
@@ -42,6 +42,8 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// tab when it lets go; nil when a connected page does not answer (tests set it: their page
     /// never loads).
     var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState(limit: .seconds(3)) }
+    /// A usable first frame is required before an automatic default release.
+    var snapshot: @MainActor (AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? = { await AgentPaneHibernationCapture(view: $0).frame() }
     var isPinned: (String) -> Bool = { _ in false }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }
@@ -56,8 +58,6 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     /// while its tab does not draw (restored or opened in the background) starts its hidden clock at
     /// the next plan, as an adopted browser tab does.
     var isRendering: (String) -> Bool = { _ in true }
-    private var turnObservation: Task<Void, Never>?
-
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
     }
@@ -87,14 +87,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
 
     /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
     /// has no deadline).
-    func followTurns(_ turns: AgentTurnStateStore) {
-        turnObservation?.cancel()
-        turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
-                self?.replan()
-            }
-        }
-    }
+    func followTurns(_ turns: AgentTurnStateStore) { pages.followTurns(turns) }
 
     // The planner's surface, as the App and the tests call it.
     var hasDeadline: Bool { pages.hasDeadline }
@@ -125,15 +118,29 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func setPageWork(_ page: AgentPaneView, _ work: (@MainActor () -> Void)?) { page.model.transport.beforePageWork = work }
     func dropReleasedFrame(_ key: String) { store()?.launchImages.drop(key) }
 
+    func pageIsUntouchedNewTab(_ key: String) -> Bool {
+        guard let tabs = store(), let view = tabs.existingView(key),
+              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
+              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[key] == nil,
+              !view.model.shell.hasRuns, !view.showsCrashNotice,
+              let (record, _) = tabs.lookup(key), record.session == nil,
+              tabs.hostKind(record, listedHere: true) == .local,
+              tabs.daemonForTab(key)?.isLocal != false else { return false }
+        return tabs.remoteSeeds[key] == nil && tabs.remoteCreations[key] == nil && tabs.remoteStarts[key] == nil
+    }
+
     /// A chat of this Mac's acpmux with a session, off screen, not a New Tab page, and no shell
     /// command run in it.
     func pageMayRelease(_ key: String, onScreen: Bool) -> Bool {
         guard let tabs = store() else { return false }
         let key = tabs.resolve(key)
+        if pages.newTabIsExcess(key), pageIsUntouchedNewTab(key), let view = tabs.views[key] {
+            return !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen)
+        }
         // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
-        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && Self.isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
+        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
+              tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
         return (tabs.sessions[key] ?? view.model.sessionId ?? record.session) != nil
             && tabs.remoteSeeds[key] == nil && tabs.remoteCreations[key] == nil && tabs.remoteStarts[key] == nil
@@ -147,14 +154,10 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         if view.showsCrashNotice || view.model.newTab != nil || tabs.newTabPages[stored] != nil { return false }
         // The Chief's own chats stay as they are.
         if let (record, _) = tabs.lookup(stored),
-           AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .chief {
+           tabs.hostKind(record, listedHere: true) == .chief {
             return false
         }
-        return !(onScreen && Self.isOnScreen(view))
-    }
-
-    private static func isOnScreen(_ view: AgentPaneView) -> Bool {
-        view.window != nil && !view.isHiddenOrHasHiddenAncestor
+        return !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen)
     }
 
     /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
@@ -162,22 +165,20 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func releasePage(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), let started = pages.beginRelease(key) else { return }
         let readWake = wakeState
-        let hiddenFor = started.hiddenFor
-        let pressure = pages.pressure
-        let cause = started.forWorkspace ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
+        let takeSnapshot = snapshot
+        let requiresFrame = !started.forWorkspace && !pages.setting.discardsAutomatically
+        let cause = started.cause
         Task { @MainActor [weak self] in
-            let wake = await readWake(view)
-            let frame = await Self.frame(view)
+            let captured = await AgentPaneHibernationCapture(view: view).capture(key: key, images: tabs.launchImages,
+                                                           requiresFrame: requiresFrame, wake: readWake, snapshot: takeSnapshot)
             guard let self else { return }
             pages.endRelease(key)
-            if let reason = AgentPaneWakeState.keepReason(wake, hasHandshake: view.model.hasHandshake) {
+            if let reason = captured.kept {
                 logger.info("agent page \(key, privacy: .public) kept: \(reason, privacy: .public)")
                 return pages.keptForNow(key)
             }
-            // The page may have shown, changed or got busy (a turn started) while it was asked
-            // for its frame or the frame was encoded: then it stays, and the next plan decides.
-            guard pages.isDue(key, page: view) else { return replan() }
-            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
+            let wake = captured.wake
+            // Recheck the exact page, visibility and turn after every capture/encoding await.
             guard pages.isDue(key, page: view) else {
                 tabs.launchImages.drop(key)
                 return replan()
@@ -196,13 +197,4 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         }
     }
 
-    /// The page as last drawn; nil when it does not answer in time (it then shows its loading
-    /// state when it comes back).
-    private static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
-        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
-        let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
-        }
-        return frame.flatMap { $0 }
-    }
 }

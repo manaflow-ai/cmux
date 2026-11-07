@@ -73,7 +73,10 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
       selectors: [
         [
           ".acpmux-agent-line",
-          ".acpmux-agent-line__button .acpmux-lineage__icon svg[data-icon], .acpmux-agent-line__button .acpmux-lineage__icon .cv-spinner",
+          // A running line with its time leads with its harness's mark, not the spinner (Leo,
+          // 2026-11-03: "do we really need a running symbol vs just having the time and a square
+          // stop button?").
+          ".acpmux-agent-line__button .acpmux-lineage__icon svg[data-icon], .acpmux-agent-line__button .acpmux-lineage__icon .agent-mark, .acpmux-agent-line__button .acpmux-lineage__icon .cv-spinner",
           ".acpmux-summary-agent__name",
         ],
       ] as const,

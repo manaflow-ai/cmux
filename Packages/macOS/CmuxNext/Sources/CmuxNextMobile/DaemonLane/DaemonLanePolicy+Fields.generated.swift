@@ -7,7 +7,7 @@ extension DaemonLanePolicy {
     static let commandFields: [String: Set<String>] = [
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
-        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "mode", "replay_history_rows", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
         "browser-forward": ["surface"],
@@ -62,7 +62,7 @@ extension DaemonLanePolicy {
         "move-tab-group-to-column": ["after_column", "group", "pane", "screen", "transaction", "width"],
         "move-tab-group-to-new-workspace": ["group", "index", "transaction", "workspace_group"],
         "move-tab-group-to-split": ["edge", "group", "pane", "ratio", "transaction"],
-        "move-tab-to-column": ["after_column", "dock", "keep_focus", "pane", "screen", "surface", "transaction", "width"],
+        "move-tab-to-column": ["after_column", "dock", "keep_focus", "pane", "pane_id", "screen", "surface", "transaction", "width"],
         "move-tab-to-new-workspace": ["group", "index", "name", "surface", "transaction"],
         "move-tab-to-split": ["edge", "keep_focus", "pane", "ratio", "surface", "transaction"],
         "move-tab-to-workspace": ["surface", "transaction", "workspace"],

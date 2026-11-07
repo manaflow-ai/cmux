@@ -114,8 +114,21 @@ fn serve_with(
                             json!({"sessions": [{"sessionId": "old", "name": "x", "status": "idle"}]}),
                         )),
                         "session/new" => send(reply(json!({"sessionId": "s-1"}))),
-                        // What harness_gate reads before each Chief session.
-                        "_acpmux/harnesses" => send(reply(common::catalog())),
+                        // A selected peer's response names its provenance; old
+                        // daemons answered with the local catalog and no marker.
+                        method @ ("_acpmux/harnesses" | "_acpmux/harness/health") => {
+                            let mut result = if method == "_acpmux/harnesses" {
+                                common::catalog()
+                            } else {
+                                json!({"harnesses": []})
+                            };
+                            match req["params"]["_meta"]["acpmux"]["peer"].as_str() {
+                                Some("mini") => result["peer"] = json!("mini"),
+                                Some("wrong-marker") => result["peer"] = json!("elsewhere"),
+                                _ => {}
+                            }
+                            send(reply(result));
+                        }
                         "_acpmux/presets"
                             if refused_key(&req["params"]["set"], unknown).is_some() =>
                         {
@@ -572,6 +585,61 @@ fn query_harnesses_reads_the_daemons_harness_metadata() {
         *methods.lock().unwrap(),
         vec!["initialize".to_owned(), "_acpmux/harnesses".to_owned()]
     );
+}
+
+#[test]
+fn selected_peer_catalog_and_login_reads_require_the_matching_machine_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
+    let acpmux = Acpmux::new(socket, None, Vec::new());
+    connect(&acpmux);
+
+    for peer in ["missing-marker", "wrong-marker"] {
+        assert!(
+            acpmux.harness_catalog_on(Some(peer)).is_err(),
+            "accepted {peer} catalog"
+        );
+        assert!(
+            acpmux.harness_health_on(Some(peer)).is_err(),
+            "accepted {peer} logins"
+        );
+    }
+    let catalog = acpmux.harness_catalog_on(Some("mini")).unwrap();
+    assert_eq!(catalog["peer"], "mini");
+    assert_eq!(catalog["harnesses"], common::catalog()["harnesses"]);
+    assert_eq!(
+        acpmux.harness_health_on(Some("mini")).unwrap(),
+        json!({"peer": "mini", "harnesses": []})
+    );
+    assert_eq!(acpmux.harness_catalog_on(None).unwrap(), common::catalog());
+    assert_eq!(
+        acpmux.harness_health_on(None).unwrap(),
+        json!({"harnesses": []})
+    );
+
+    let requests = requests.lock().unwrap();
+    for method in ["_acpmux/harnesses", "_acpmux/harness/health"] {
+        let params: Vec<&Value> = requests
+            .iter()
+            .filter(|request| request["method"] == method)
+            .map(|request| &request["params"])
+            .collect();
+        assert_eq!(
+            params,
+            vec![
+                &json!({"_meta": {"acpmux": {"peer": "missing-marker"}}}),
+                &json!({"_meta": {"acpmux": {"peer": "wrong-marker"}}}),
+                &json!({"_meta": {"acpmux": {"peer": "mini"}}}),
+                &json!({}),
+            ]
+        );
+    }
 }
 
 /// Parity items 4 and 7 over the wire: the next turn's session is hinted to

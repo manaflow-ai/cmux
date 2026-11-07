@@ -17,6 +17,7 @@ mod foreign_viewport;
 mod graphics;
 mod host_share;
 mod layout;
+mod live_code;
 mod local_server;
 mod machine_agent;
 mod menu;
@@ -51,6 +52,7 @@ pub(crate) use config::ConfigMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
+pub(crate) use live_code::LiveCodeMessages;
 pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
@@ -162,6 +164,7 @@ pub(crate) struct Catalog {
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
+    pub live_code: LiveCodeMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -184,6 +187,7 @@ static ENGLISH: Catalog = Catalog {
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
+    live_code: live_code::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -220,6 +224,7 @@ static JAPANESE: Catalog = Catalog {
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
+    live_code: live_code::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,

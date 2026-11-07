@@ -57,7 +57,8 @@ impl From<io::Error> for Error {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub node: NodeId,
-    /// Its first error (later ones are not kept, as they are not reported).
+    /// Its latest error; a setup error stays over a later ordinary one.
+    /// Only the first is reported.
     pub error: String,
 }
 
@@ -77,7 +78,8 @@ pub struct Status {
     /// Nodes with a model call running or waiting to retry.
     pub busy: Vec<NodeId>,
     pub failures: Vec<Failure>,
-    /// Failing nodes turns no longer wait for (a repeating request error).
+    /// Failing nodes turns no longer wait for (a setup error, a repeating
+    /// request error, or a transient one past `COMPACT_TRIES`).
     pub stuck: Vec<NodeId>,
     /// Every stuck node was built since the last one got stuck.
     pub recovered: bool,

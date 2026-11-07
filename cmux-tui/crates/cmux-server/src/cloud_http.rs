@@ -86,6 +86,12 @@ impl JsonPoster {
         Ok((status, parsed))
     }
 
+    /// An authenticated POST without a request body. The carrier-ticket
+    /// route distinguishes no body from the JSON object `{}`.
+    pub fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.send("POST", url, None, bearer)
+    }
+
     /// One original budget through authentication, policy and keyset reads.
     /// GETs never carry credentials. Errors contain neither URLs nor bodies.
     pub fn request_with_deadline(
@@ -130,6 +136,17 @@ impl JsonPoster {
             transport.stop();
         }
         result
+    }
+
+    /// Drops the pooled connection, so the next request dials a fresh one. After a pause the pool's connection is
+    /// dead and nothing says so: a request on it would hang to its 20 s bound. A request in flight keeps its
+    /// transport, and drops it itself if it fails.
+    pub fn reset(&self) {
+        if let Ok(mut slot) = self.transport.try_lock()
+            && let Some(transport) = slot.take()
+        {
+            transport.stop();
+        }
     }
 
     /// Compatibility for callers with an active-clock absolute deadline.

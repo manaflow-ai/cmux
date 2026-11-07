@@ -62,7 +62,21 @@ INTERNAL = [
     (re.compile(r"\bR\d{2,3}\b"), "a spec requirement id"),
     (re.compile(r"\b[A-Z][A-Z0-9]+(?:-[A-Z0-9]+){2,}\b"), "a decision codename"),
     (re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum)\b", re.I), "a placeholder"),
+    # Work-tracking codes from PR titles (Leo 2026-11-02, on What's New rows such as "P0 RESIZE
+    # KEYS K4: …", "(REOPEN-F7 part A2)", "(SWITCH FRAMES SF-5 B)" and "part 1 of 2"). The page
+    # strips them from lines already published (readableChange.ts and release-notes.py
+    # WORK_CODES); new copy has none.
+    (re.compile(r"\bP[0-3]\b"), "a priority code"),
+    (re.compile(r"\b(?:[A-Z]{2,}-[A-Z]\d+[A-Z]?|[A-Z]{2}-\d{1,2}[A-Z]?)\b"), "a work-tracking code"),
+    (re.compile(r"\b[A-Z]{3,}\s+[A-Z]{1,2}\d{1,2}[A-Z]?\b|\b[A-Z]{1,2}\d{1,2}[A-Z]?\s+[A-Z]{3,}\b"),
+     "a work-tracking code"),
+    (re.compile(r"\b[A-Z]{4,}(?:\s+[A-Z]{4,})+\b"), "a work-stream name in capitals"),
+    (re.compile(r"\bpart (?:\d+ of \d+|[A-Z]\d+)\b", re.I), "a part of a split change"),
 ]
+# Copy that says nothing (Leo 2026-11-02: "0 information density"). Only the generic entry of a
+# build with nothing user-facing (release-notes.py GENERIC_ENTRY, id fixes-and-improvements) may.
+FILLER = re.compile(r"^(?:this build brings )?(?:minor )?fixes and improvements\b[.!]?", re.I)
+GENERIC_ENTRY_ID = "fixes-and-improvements"
 SENTENCE_END = re.compile(r"[.!?。！？](?=[)'\"”’»]*\s|[)'\"”’»]*$)")
 ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
 # Conductor-quality notes (2026-10-20): text written for people, never a commit subject such as
@@ -210,6 +224,11 @@ def check_entry(problems, index, entry, channel, root, seen, draft=False):
         problems.add(where, f"category must be one of {CATEGORIES}")
     check_localized(problems, f"{where}.title", entry.get("title"), "title", channel, draft)
     check_localized(problems, f"{where}.summary", entry.get("summary"), "summary", channel, draft)
+    if entry_id != GENERIC_ENTRY_ID:
+        for field in ("title", "summary"):
+            text = (entry.get(field) or {}).get("en") if isinstance(entry.get(field), dict) else None
+            if isinstance(text, str) and FILLER.match(text.strip()):
+                problems.add(f"{where}.{field}", f"en is filler ({text!r}); say what changed")
     platforms = entry.get("platforms")
     if not isinstance(platforms, list) or not platforms or any(p not in PLATFORMS for p in platforms) \
             or len(set(platforms)) != len(platforms):

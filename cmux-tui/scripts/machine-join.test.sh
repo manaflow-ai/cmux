@@ -39,7 +39,7 @@ fi
 shims="$root/shims"
 fakes="$root/fakes"
 mkdir -p "$shims" "$fakes"
-for tool in awk basename cat chmod cp grep head hostname id install loginctl \
+for tool in awk basename bash cat chmod cp grep head hostname id install loginctl \
   mkdir mktemp mv rm sed shasum sha256sum tr launchctl systemctl; do
   real="$(command -v "$tool" 2>/dev/null || true)"
   case "$tool" in
@@ -109,6 +109,7 @@ case "\$url" in
   https://files.cmux.com/cmux-tui/tree/*/cmux-tui-acpmux-*) src="\$JT_SERVE/acpmux" ;;
   https://files.cmux.com/cmux-tui/latest/manifest.json) src="\$JT_SERVE/manifest.json" ;;
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
+  https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
 esac
 [ -f "\$src" ] || exit 22
@@ -118,7 +119,10 @@ chmod 755 "$shims/curl"
 
 # The fake acpmux, "downloaded" from the channel. Behaviour from env:
 # JT_CAPS (capability lines), JT_JOIN_EXIT (with JT_JOIN_ERR, its message), JT_STATE (a file; present = joined),
-# JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`).
+# JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`),
+# JT_SVC=fail (`daemon service install` fails), JT_RESTART=fail (`daemon restart` fails),
+# JT_VAULT (what `host vault pull --json` answers: ok, not_granted or fail),
+# JT_CODEX_RT=1 (it has `harness codex-runtime`; install records a ready runtime).
 # Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
 # present = joinIncomplete, a pending proposal on disk; it holds the
 # proposal's hub when a case sets one) with JT_PROBE (what
@@ -133,6 +137,12 @@ refuse() { printf '{"error":{"code":"runtime","exit":%s,"detail":"join.incomplet
 case "\$*" in
   capabilities) printf '%s\n' \$JT_CAPS ;;
   "daemon service --help") [ "\${JT_SERVICE:-0}" = 1 ] || exit 2 ;;
+  "daemon service install")
+    case "\${JT_SVC:-ok}" in
+      fail) echo "launchd did not load com.acpmux.daemon" >&2; exit 1 ;;
+      *) echo "acpmux.service runs" ;;
+    esac ;;
+  "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
   "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
@@ -146,6 +156,22 @@ case "\$*" in
       printf '{\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": false,\n  "joinIncomplete": %s,\n  "revoked": false\n}\n' "\$inc"
     fi ;;
   "host join --status") echo "credential: present" ;;
+  "host vault pull --json")
+    case "\${JT_VAULT:-fail}" in
+      ok) printf '{\n  "state": "ok",\n  "env": ["OPENAI_API_KEY", "GITHUB_TOKEN"],\n  "note": "sk-must-not-print"\n}\n' ;;
+      not_granted) printf '{"state": "not_granted"}\n' ;;
+      off) printf '{"state": "off"}\n' ;;
+      partial) printf '{"state": "partial", "env": ["OPENAI_API_KEY"], "note": "sk-must-not-print"}\n'; exit 1 ;;
+      *) echo "acpmux: vault failed sk-must-not-print" >&2; exit 1 ;;
+    esac ;;
+  "harness codex-runtime --help") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2 ;;
+  "harness codex-runtime install") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2; : >"\$HOME/codex-ready" ;;
+  "harness codex-runtime status")
+    if [ -f "\$HOME/codex-ready" ]; then
+      printf '{\n  "path": "%s",\n  "ready": true\n}\n' "\$JT_SERVE/codex dir/codex"
+    else
+      printf '{"path": "/nowhere", "ready": false}\n'
+    fi ;;
   "host join "*)
     got="\$("$(command -v cat)")"
     [ -z "\$got" ] || printf '%s\n' "\$got" >>"\$JT_LOG/join-stdin"
@@ -206,6 +232,30 @@ serve_dir() { # serve_dir DIR [WRONG_SHA]
 }
 EOF
   printf '#!/bin/sh\necho cmux\n' >"$1/cmux"
+  # Claude Code's installer puts a fake claude in ~/.local/bin; `auth status`
+  # says signed in when ~/claude-in exists. The fake codex reads ~/codex-in.
+  cat >"$1/claude-install.sh" <<EOS
+mkdir -p "\$HOME/.local/bin"
+cat >"\$HOME/.local/bin/claude" <<'EOC'
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "auth status") if [ -f "\$HOME/claude-in" ]; then echo '{"loggedIn": true, "email": "x@example.com"}'; else echo '{"loggedIn": false}'; exit 1; fi ;;
+esac
+EOC
+chmod 755 "\$HOME/.local/bin/claude"
+EOS
+  cat >"$1/codex" <<EOS
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "login status") [ -f "\$HOME/codex-in" ] ;;
+esac
+EOS
+  chmod 755 "$1/codex"
+  # The managed runtime's path has a space in it, as ~/Library/Application Support does.
+  mkdir -p "$1/codex dir"
+  cp "$1/codex" "$1/codex dir/codex"
   c="$(sha "$1/cmux")"
   printf '{"commit": "a6d89d443f5f9ffb66c296d7a9680e307bbe6c58", "cmux-tui-x86_64-unknown-linux-gnu": "%s", "cmux-tui-aarch64-apple-darwin": "%s"}\n' "$c" "$c" >"$1/manifest.json"
 }
@@ -220,6 +270,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok
   : >"$d/log/argv"
 }
 
@@ -232,6 +283,7 @@ run_join() {
     JT_OS="$JT_OS" JT_ARCH="$JT_ARCH" JT_CAPS="$JT_CAPS" JT_JOIN_EXIT="$JT_JOIN_EXIT" \
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
+    JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
     CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
@@ -443,6 +495,27 @@ suite() {
   check "doctor run" grep -q "^acpmux host doctor --here" "$d/log/argv"
   check "doctor lines printed" out_has '"step":"credential"'
 
+  new_case service
+  run_join env
+  check "service: exit 0 (got $rc)" rc_is 0
+  check "service: installed" grep -q "^acpmux daemon service install" "$d/log/argv"
+  check "service: before the daemon starts" eval '[ "$(grep -n "^acpmux daemon service install" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^acpmux daemon start" "$d/log/argv" | head -n 1 | cut -d: -f1)" ]'
+  check "service: says where it stands" out_has "cmux join: acpmux.service runs"
+  check "service: no warning" eval '! grep -q "did not install" "$d/out"'
+
+  new_case service-fails
+  JT_SVC=fail
+  run_join env
+  check "service fails: still joins (got $rc)" rc_is 0
+  check "service fails: warns with acpmux's words" out_has "warning: the acpmux service did not install: launchd did not load com.acpmux.daemon"
+  check "service fails: daemon start" grep -q "^acpmux daemon start" "$d/log/argv"
+
+  new_case restart-fails
+  JT_RESTART=fail
+  run_join env
+  check "restart fails: still joins (got $rc)" rc_is 0
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the join, so it sends no heartbeat yet"
+
   new_case no-service
   JT_SERVICE=0
   run_join env
@@ -555,6 +628,124 @@ suite() {
   check "revoked, no token: exit 3 (got $rc)" rc_is 3
   check "revoked, no token: asks for a new line" out_has "enrollment was revoked or has expired; paste a new line: cmux machine add"
   check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
+
+  # Once joined: Claude Code from its own installer, Codex from acpmux's
+  # runtime (macOS), and a sign-in line for each, through its own flow.
+  new_case harnesses
+  JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
+  run_join env
+  check "harnesses: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "harnesses: claude's own installer fetched" grep -q "^curl .*https://claude.ai/install.sh" "$d/log/argv"
+  check "harnesses: claude installed" test -x "$d/home/.local/bin/claude"
+  check "harnesses: says so" out_has "installed Claude Code"
+  check "harnesses: codex through acpmux's runtime" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
+  check "harnesses: claude sign-in line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here and sign in with its /login"
+  check "harnesses: codex sign-in line" out_has "sign in to Codex: run '$d/serve/codex dir/codex' login here"
+  check "harnesses: no login was run without a terminal" eval '! grep -q "auth login\|^codex login$" "$d/log/argv"'
+  check "harnesses: the sign-in is last" eval '[ "$(tail -n 1 "$d/out")" = "cmux join: sign in to Codex: run '"'"'$d/serve/codex dir/codex'"'"' login here" ]'
+  check "harnesses: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+  check "harnesses: no cmj_ in any argv" no_token_in_argv
+  check "harnesses: no token in output" no_token_in_output
+
+  # Signed in already: said so, nothing offered.
+  new_case harnesses-signed-in
+  JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
+  : >"$d/home/claude-in"
+  : >"$d/home/codex-in"
+  run_join env
+  check "signed in: exit 0 (got $rc)" rc_is 0
+  check "signed in: claude" out_has "Claude Code is signed in"
+  check "signed in: codex" out_has "Codex is signed in"
+  check "signed in: the runtime path with a space was used" grep -q "^codex login status" "$d/log/argv"
+  check "signed in: no sign-in line" eval '! out_has "sign in to"'
+  check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
+
+  new_case harnesses-none
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "none: exit 0 (got $rc)" rc_is 0
+  check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
+  check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'
+  check "none: no sign-in" eval '! out_has "sign in to"'
+
+  new_case harnesses-linux
+  run_join env CMUX_JOIN_HARNESSES=codex
+  check "linux codex: exit 0 (got $rc)" rc_is 0
+  check "linux codex: says how" out_has "Codex is not installed: npm install -g @openai/codex"
+  check "linux codex: no claude" eval '! grep -q "claude.ai" "$d/log/argv"'
+
+  new_case harnesses-bad
+  run_join env CMUX_JOIN_HARNESSES='claude;rm'
+  check "bad harnesses: exit 2 (got $rc)" rc_is 2
+  check "bad harnesses: nothing redeemed" no_redeem
+
+  # A repair run of a machine that never joined installs no harness and pulls nothing.
+  new_case not-joined-repair
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=ok
+  run_join none
+  check "repair: exit 0 (got $rc)" rc_is 0
+  check "repair: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
+  check "repair: no vault pull" eval '! grep -q "host vault pull" "$d/log/argv"'
+
+  # The vault: names and a count, never anything else acpmux says.
+  new_case vault-ok
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=ok
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault ok: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "vault ok: pulled" grep -q "^acpmux host vault pull --json" "$d/log/argv"
+  check "vault ok: names and count" out_has "vault: 2 env vars (OPENAI_API_KEY GITHUB_TOKEN)"
+  check "vault ok: nothing else" eval '! out_has "sk-must-not-print"'
+  check "vault ok: acpmux's answer never reached disk" eval '! grep -rq --exclude=acpmux "sk-must-not-print" "$d/tmp"'
+  check "vault ok: no env leak" no_env_leak
+
+  new_case vault-not-granted
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=not_granted
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault not granted: still exit 0 (got $rc)" rc_is 0
+  check "vault not granted: says how" out_has "vault: not shared with this machine (from your Mac: cmux machine vault grant"
+
+  new_case vault-fail
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=fail
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault fail: still exit 0 (got $rc)" rc_is 0
+  check "vault fail: warns with the exit code only" out_has "the vault pull did not finish (acpmux exit 1)"
+  check "vault fail: acpmux's words are not shown" eval '! out_has "sk-must-not-print"'
+
+  new_case vault-off
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=off
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault off: exit 0 (got $rc)" rc_is 0
+  check "vault off: says nothing of the vault" eval '! grep -q "vault:\|vault pull" "$d/out"'
+
+  new_case vault-partial
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=partial
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault partial: the join still exits 0 (got $rc)" rc_is 0
+  check "vault partial: warns with names" out_has "warning: the vault pull got 1 env vars (OPENAI_API_KEY), not all of them"
+  check "vault partial: nothing else" eval '! out_has "sk-must-not-print"'
+
+  new_case vault-no-capability
+  JT_VAULT=ok
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "no vault capability: no pull" eval '! grep -q "host vault pull" "$d/log/argv"'
+
+  # The sign-in step alone (`machine add USER@HOST` runs it over ssh -t).
+  new_case signin-step
+  HOME="$d/home" sh "$d/serve/claude-install.sh"
+  run_join none CMUX_JOIN_STEP=signin
+  check "signin step: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "signin step: the claude line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here"
+  check "signin step: no download, no join" eval '! grep -q "^curl\|host join" "$d/log/argv"'
+  run_join env CMUX_JOIN_STEP=signin
+  check "signin step with a token: exit 2 (got $rc)" rc_is 2
+  check "signin step with a token: no token in output" no_token_in_output
+  run_join none CMUX_JOIN_STEP=bogus
+  check "unknown step: exit 2 (got $rc)" rc_is 2
 
   new_case unsupported
   JT_OS=FreeBSD

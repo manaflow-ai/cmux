@@ -33,7 +33,8 @@ mod env_refs;
 mod sessions;
 use env_refs::is_reference;
 pub use env_refs::{
-    file_secret, has_env_refs, has_keychain_refs, keychain_lookup, resolve_env_refs,
+    file_secret, has_env_refs, has_keychain_refs, keychain_lookup, parse_security_password,
+    resolve_env_refs,
 };
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,

@@ -1,8 +1,8 @@
 //! Platform deployments shared by the room resolver and credential-bearing environment calls.
 
-pub const DEVELOPMENT: &str = "https://cmux-platform-development.debussy.workers.dev";
-pub const STAGING: &str = "https://cmux-platform-staging.debussy.workers.dev";
-pub const PRODUCTION: &str = "https://cmux-platform-production.debussy.workers.dev";
+pub use cmux_cloud_environment::DEVELOPMENT_PLATFORM as DEVELOPMENT;
+pub use cmux_cloud_environment::PRODUCTION_PLATFORM as PRODUCTION;
+pub use cmux_cloud_environment::STAGING_PLATFORM as STAGING;
 
 /// Only a declared platform deployment or explicit local development may receive an install token.
 pub(crate) fn accepts_environment_origin(base: &url::Url) -> bool {
@@ -23,9 +23,9 @@ pub(crate) fn accepts_environment_origin(base: &url::Url) -> bool {
 /// (a local platform, or one named by `CMUX_SHARE_ROOM_URL` that is not declared here).
 pub fn share_owner_api(room: &str) -> Option<&'static str> {
     match room {
-        DEVELOPMENT => Some("https://cmux-api-development.debussy.workers.dev"),
-        STAGING => Some("https://cloud-api-staging.cmux.dev"),
-        PRODUCTION => Some("https://cloud-api.cmux.dev"),
+        DEVELOPMENT => Some(cmux_cloud_environment::DEVELOPMENT_API),
+        STAGING => Some(cmux_cloud_environment::STAGING_API),
+        PRODUCTION => Some(cmux_cloud_environment::PRODUCTION_API),
         _ => None,
     }
 }

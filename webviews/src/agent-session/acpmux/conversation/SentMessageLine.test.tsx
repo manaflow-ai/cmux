@@ -7,8 +7,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine, configureSentLook } from "./SentMessageLine";
+import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -258,7 +259,7 @@ test("a batch's message names its recipient and the file its words came from; op
     'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s nightly escalate.md; s owner relay.md';
   const tool = bash(command, { output: "queued\nqueued" });
   const groups = toolGroups([{ kind: "tool", text: tool.title, tool }]);
-  const sends = groups.map((group) => (group.type === "send" ? group.send : undefined)!);
+  const sends = sendEntries(groups).map((group) => group.send);
   const container = await render(
     <>
       {sends.map((send) => (
@@ -308,4 +309,22 @@ test("a send of a file the agent wrote with Write opens to that message rendered
   // The command waits behind Raw.
   expect(container.querySelector(".cv-shell")).toBeNull();
   expect(container.querySelector(".cv-subsession__toggle")).not.toBeNull();
+});
+
+test("the default keeps the chip, the count and the first line on one line; stacked is a gallery look", async () => {
+  // Leo, 2026-11-03, on the stacked rows (#33249): "i don't think these subtitles are as good as just
+  // doing it directly in the same line".
+  const tell = bash("acpmux send --no-wait coord-deputy 'Restore base, then report.'", { output: "queued" });
+  const inline = await line(tell);
+  const row = inline.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toBe("Sent to coord-deputy Restore base, then report. queued");
+  expect(inline.querySelector(".cv-sent__below")).toBeNull();
+  configureMessageLineLook("stacked");
+  try {
+    const stacked = await line(tell);
+    expect(stacked.querySelector(".cv-sent")!.textContent).toBe("Sent to coord-deputy queued");
+    expect(stacked.querySelector(".cv-sent__below")?.textContent).toBe("Restore base, then report.");
+  } finally {
+    await act(async () => configureMessageLineLook("single"));
+  }
 });

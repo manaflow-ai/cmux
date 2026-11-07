@@ -27,7 +27,7 @@ enum PersonalSidebar {
                                  newRowsFirst: newRowsFirst(daemon, machines, doc))
         }
         let rows = rows(of: session, personal)
-        let ordered = order(workspaces, rows: rows)
+        let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
         let known = Set(groups.map(\.id))
         let group = { (workspace: WorkspaceModel) in rows[workspace.key?.rawValue ?? workspace.id]?.group }
         var sections = [SidebarSection(group: nil, workspaces: ordered.filter { group($0).map { !known.contains($0) } ?? true })]
@@ -54,7 +54,8 @@ enum PersonalSidebar {
                                  newRowsFirst: newRowsFirst(daemon, machines, doc))
                 .flatMap(\.workspaces).map(\.id)
         }
-        return order(daemon.store.workspaces, rows: rows(of: session, personal)).map(\.id)
+        return order(daemon.store.workspaces, rows: rows(of: session, personal),
+                     orderedRows: personal.workspacesInOrder).map(\.id)
     }
 
     /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui
@@ -69,9 +70,9 @@ enum PersonalSidebar {
     /// Home, newest first, where the row will put them (sidebar-ordering-DESIGN.md).
     static func mixedSections(_ workspaces: [WorkspaceModel], groups: [WorkspaceGroupModel], session: String,
                               personal: PersonalStore, keepsEmptyGroups: Bool, newRowsFirst: Bool = false) -> [SidebarSection] {
-        let all = personal.workspaces.sorted { $0.index < $1.index }
+        let all = personal.workspacesInOrder // sorted once per change of the list, not on every pass
         let rows = rows(of: session, personal)
-        let ordered = order(workspaces, rows: rows)
+        let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
         let known = Set(groups.map(\.id))
         let byKey = Dictionary(ordered.map { (rowKey($0), $0) }, uniquingKeysWith: { first, _ in first })
         // One pass each (O(n + groups)), not a scan of every workspace per group or of every group per row.
@@ -113,7 +114,7 @@ enum PersonalSidebar {
 
     /// The personal order of every qualified workspace, as `session/key`.
     static func globalOrder(_ personal: PersonalStore) -> [String] {
-        personal.workspaces.sorted { $0.index < $1.index }.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
+        personal.workspacesInOrder.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
     }
 
     /// A workspace's key in the personal rows (its stable key, else its id).
@@ -121,9 +122,9 @@ enum PersonalSidebar {
         workspace.key?.rawValue ?? workspace.id
     }
 
+    /// The store's index of `session`'s rows (first row of a key wins), not a filter of every session's rows per pass.
     private static func rows(of session: String, _ personal: PersonalStore) -> [String: PersonalWorkspace] {
-        Dictionary(personal.workspaces.filter { $0.sessionID == session }.map { ($0.workspaceKey.rawValue, $0) },
-                   uniquingKeysWith: { first, _ in first })
+        personal.workspaces(session: session)
     }
 
     /// `workspaces` of `daemon` in personal order; unchanged without personal state. On the sidebar
@@ -135,7 +136,7 @@ enum PersonalSidebar {
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return workspaces }
         let rows = rows(of: session, personal)
-        let ordered = order(workspaces, rows: rows)
+        let ordered = order(workspaces, rows: rows, orderedRows: personal.workspacesInOrder)
         guard newRowsFirst(daemon, machines, doc) else { return ordered }
         let fresh = ordered.filter { rows[rowKey($0)] == nil }
         guard !fresh.isEmpty else { return ordered }
@@ -145,18 +146,23 @@ enum PersonalSidebar {
     }
 
     /// Rowed workspaces by personal position, then the rest in daemon order.
-    /// One rank lookup per workspace, then an integer sort: the comparator
-    /// read each model's tracked `key` twice per comparison (O(n log n)
-    /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
-    private static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
-        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, offset: $0, workspace: $1) }
-        return ranked.sorted { lhs, rhs in
-            switch (lhs.rank, rhs.rank) {
-            case let (l?, r?): return l == r ? lhs.offset < rhs.offset : l < r
-            case (_?, nil): return true
-            case (nil, _?): return false
-            case (nil, nil): return lhs.offset < rhs.offset
-            }
-        }.map(\.workspace)
+    /// `PersonalStore.workspacesInOrder` is sorted once when personal state changes. Walking that
+    /// projection makes each sidebar pass O(n), instead of reading each tracked workspace key in
+    /// an O(n log n) comparator (260-280 ms per reconcile at 1,000 workspaces).
+    static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace],
+                      orderedRows: [PersonalWorkspace]) -> [WorkspaceModel] {
+        guard !workspaces.isEmpty else { return [] }
+        var byKey = Dictionary(workspaces.map { (rowKey($0), $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        var ordered: [WorkspaceModel] = []
+        ordered.reserveCapacity(workspaces.count)
+        for personal in orderedRows {
+            let key = personal.workspaceKey.rawValue
+            guard let row = rows[key], row == personal, seen.insert(key).inserted, let workspace = byKey.removeValue(forKey: key) else { continue }
+            ordered.append(workspace)
+        }
+        // Rows with no personal position retain the daemon's order.
+        ordered.append(contentsOf: workspaces.filter { byKey[rowKey($0)] != nil })
+        return ordered
     }
 }

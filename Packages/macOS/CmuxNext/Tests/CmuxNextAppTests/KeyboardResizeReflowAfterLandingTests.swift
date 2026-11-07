@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
+@testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Testing
 
@@ -52,5 +53,58 @@ struct KeyboardResizeReflowAfterLandingTests {
             #expect(view.sizes.count == 1, "\(pane)'s content laid out \(view.sizes.count) times after the landing")
             #expect(view.frame.size == view.superview?.bounds.size, "\(pane)'s content is not at its rest size: \(view.frame.size) in \(String(describing: view.superview?.bounds.size)) (host \(host.frame.size))")
         }
+    }
+
+    /// The app's pane content with a terminal in each pane (cmux-ad m18: each frame at the pane's size, text re-wrapped
+    /// at it; the PTY's size coalesced, about 25 ms): no grid goes in the key's turn or with the press's first frame
+    /// (m6 sent the final grid there, one per press; a synchronous run of frames is inside one 25 ms window), and the last
+    /// grid each PTY gets is the grid its view rests at; in every frame the containers (the terminal hosts) take their
+    /// pane's area and each surface the size its host shows it at, so its text follows the pane (S3 laid the surface out
+    /// once per press: the text froze, then jumped); at the landing's release each surface rests at its host's size.
+    @Test(arguments: [LayoutDirection.left, .right])
+    func theTerminalFollowsItsPaneInEveryFrameAndItsPTYEndsAtTheLandingsGrid(direction: LayoutDirection) async throws {
+        let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        let panes: [PaneID] = ["p1", "p2"]
+        func sizes() throws -> [PaneID: (host: CGSize, surface: CGSize)] {
+            try Dictionary(uniqueKeysWithValues: panes.map { pane in
+                let session = try #require(rig.provider.sessions[pane]?.session)
+                return (pane, (session.view.frame.size, session.surfaceView.frame.size))
+            })
+        }
+        let reports = TerminalSurfaceView.gridReports
+        let start = try sizes()
+        #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        try #require(rig.frame(), "the press did not spring")
+        let atPress = try sizes()
+        #expect(TerminalSurfaceView.gridReports == reports, "up to its first frame the press sent \(TerminalSurfaceView.gridReports - reports) grids: none goes before its 25 ms")
+        var frames = 1, hostsOff: [String] = [], surfacesOff: [String] = []
+        func check(_ label: String) throws {
+            for pane in panes {
+                let session = try #require(rig.provider.sessions[pane]?.session)
+                let area = try #require(session.view.superview)
+                let host = session.view, surface = session.surfaceView.frame.size
+                if host.frame.size != area.bounds.size { hostsOff.append("\(label): \(pane)'s host \(host.frame.size) in \(area.bounds.size)") }
+                let shown = host.surfaceSize(forHostSize: host.bounds.size)
+                if surface != shown { surfacesOff.append("\(label): \(pane)'s surface \(surface) in a \(shown) area") }
+            }
+        }
+        try check("frame 1")
+        while frames < 240, rig.frame() {
+            frames += 1
+            try check("frame \(frames)")
+        }
+        rig.commit()
+        try check("after the landing")
+        let landed = try sizes()
+        #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        for pane in panes {
+            #expect(atPress[pane]?.surface != start[pane]?.surface, "\(pane)'s surface did not follow its pane in the press's first frame")
+            #expect(landed[pane]?.surface != atPress[pane]?.surface, "\(pane)'s surface stayed at its first frame's size through the spring")
+        }
+        #expect(surfacesOff.isEmpty, "\(surfacesOff.count) frames showed a surface off its pane's size: \(surfacesOff.prefix(3))")
+        #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
+        try await KeyboardResizeContentHoldTests.expectEachPTYEndsAtItsViewsGrid(panes, rig)
     }
 }

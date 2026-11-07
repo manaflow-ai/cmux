@@ -17,11 +17,13 @@ fn item(
         thread: thread.to_owned(),
         from: from.to_owned(),
         from_session: None,
+        sender: Value::Null,
         class,
         report: false,
         at,
         text: text.to_owned(),
         details: None,
+        tool_notice: None,
         noticed: false,
         read: false,
         answer: None,
@@ -41,6 +43,68 @@ fn a_thread_is_the_senders_pr_or_topic_else_the_pr_its_first_line_names_else_the
     assert_eq!(thread_key(None, "lane-a", "合并 #42 完成"), "from:lane-a/pr:42");
     assert_eq!(thread_key(None, "lane-a", "見て pull/7"), "from:lane-a/pr:7");
     assert_eq!(thread_key(None, "lane-a", "末尾#"), "from:lane-a");
+}
+
+#[test]
+fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
+    let provenance = crate::prompt_provenance::named_sender("dot", "target");
+    assert_eq!(thread_sender(Some(&provenance), "dot"), "declared:dot");
+    assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
+    let sender = crate::prompt_provenance::sender_record(Some(&provenance), None, None);
+    assert_eq!(display_sender(&sender, "dot"), "dot (self-declared, unauthenticated)");
+    assert_eq!(label("declared:dot"), "dot (self-declared, unauthenticated)");
+    assert_eq!(legacy_thread_key(Some(&provenance), "dot", "from:dot".into()), "declared:dot");
+    assert_eq!(
+        legacy_thread_key(Some(&provenance), "dot", "from:dot/pr:7".into()),
+        "declared:dot/pr:7"
+    );
+    let mut old = item("old", "declared:dot", "dot", PromptClass::Result, 1, "hello");
+    assert!(thread_matches(&old, "from:dot", true));
+    old.thread = "from:other".into();
+    assert!(!thread_matches(&old, "from:dot", true));
+    let authenticated = crate::prompt_provenance::stamp_declared(
+        crate::prompt_provenance::stamp_sender(
+            crate::prompt_provenance::session_message("dot", "dot", "target"),
+            Some(&crate::prompt_provenance::BoundSender {
+                session_id: Some("dot".into()),
+                harness: Some("codex".into()),
+            }),
+        ),
+        Some("other"),
+    );
+    assert_eq!(thread_sender(Some(&authenticated), "dot"), "dot");
+    assert_eq!(thread_key(None, "dot", "hello"), "from:dot");
+}
+
+#[test]
+fn an_authenticated_session_named_declared_does_not_collide_with_a_declared_label() {
+    assert_eq!(thread_key(None, "declared:dot", "hello"), "declared:dot");
+    assert_eq!(thread_key(None, "session:declared:dot", "hello"), "from:declared:dot");
+    assert_eq!(thread_key(None, &thread_sender(None, "session:dot"), "hello"), "from:session:dot");
+}
+
+#[test]
+fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
+    let authenticated = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::session_message("dot-session", "dot", "target"),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: Some("dot-session".into()),
+            harness: Some("codex".into()),
+        }),
+    );
+    let sender = thread_sender(Some(&authenticated), "dot");
+    let incoming = thread_key(None, &sender, "hello");
+    assert_eq!(incoming, "from:dot");
+    // `inbox_reply` uses this key for the message placed in the original sender's inbox.
+    assert_eq!(reply_thread_key(&incoming, "target"), "from:target");
+    assert_eq!(thread_key(None, "target", "reply"), "from:target");
+}
+
+#[test]
+fn an_old_from_key_falls_back_only_when_no_exact_session_thread_exists() {
+    let declared = item("declared", "declared:dot", "dot", PromptClass::Result, 1, "old");
+    assert!(thread_matches(&declared, "from:dot", true));
+    assert!(!thread_matches(&declared, "from:dot", false));
 }
 
 #[test]
@@ -220,6 +284,38 @@ fn a_whole_notice_keeps_every_message_as_it_was_sent() {
     let items = [item("c1", "pr:9", "lane-a", PromptClass::Result, 1, &padded)];
     let refs: Vec<&Item> = items.iter().collect();
     assert!(render(&refs).1[0].get("messages").is_none());
+}
+
+/// A tool's notice in the inbox (`prompt_provenance::notice`) keeps its structure in the notice's
+/// thread parts, and a thread says its loudest severity, so a fold never hides a fire.
+#[test]
+fn a_tools_notice_keeps_its_structure_in_the_inbox_notice() {
+    let notice =
+        |severity: &str| json!({"sender": "base-red-watch", "severity": severity, "title": "t"});
+    let mut warn = item("n1", "from:base-red-watch", "base-red-watch", PromptClass::Result, 1, "w");
+    warn.tool_notice = Some(notice("warn"));
+    let mut fire = item("n2", "from:base-red-watch", "base-red-watch", PromptClass::Result, 2, "f");
+    fire.tool_notice = Some(notice("fire"));
+    let plain = item("m1", "from:lane-a", "lane-a", PromptClass::Result, 3, "merged");
+    let items = [warn, fire, plain];
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let thread =
+        |key: &str| parts.as_array().unwrap().iter().find(|p| p["threadId"] == key).unwrap();
+    let notices = thread("from:base-red-watch");
+    assert_eq!(notices["severity"], "fire", "{notices}");
+    assert_eq!(notices["messages"][0]["notice"], notice("warn"));
+    assert_eq!(notices["messages"][1]["notice"], notice("fire"));
+    let messages = thread("from:lane-a");
+    assert!(messages.get("severity").is_none(), "{messages}");
+    assert!(messages["messages"][0].get("notice").is_none(), "{messages}");
+    // A notice's provenance is a plain message from another agent: it joins the inbox.
+    assert!(plain_kind(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))));
+    assert_eq!(
+        tool_notice_of(Some(&crate::prompt_provenance::notice(&notice("info"), "s"))),
+        Some(notice("info"))
+    );
+    assert_eq!(tool_notice_of(Some(&json!({"kind": "agent_message", "notice": {}}))), None);
 }
 
 #[test]

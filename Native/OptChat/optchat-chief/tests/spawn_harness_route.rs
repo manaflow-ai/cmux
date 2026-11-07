@@ -130,3 +130,101 @@ fn spawn_harness_routes_the_subagents_and_the_setting_turns_it_off() {
     assert!(refused.contains("chief.autoRouteSubagents"), "{refused}");
     assert_eq!(sub_harnesses(&h).len(), 2);
 }
+
+#[test]
+fn pinned_harness_controls_machine_login_selection_and_cached_auth_fallback() {
+    for cached_signed_out in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = settings(dir.path());
+        // Host startup supplies the catalog's families to the brain.
+        settings.families = [
+            ("claude-sr".into(), optchat_chief::acpmux::Family::Claude),
+            ("claude".into(), optchat_chief::acpmux::Family::Claude),
+            ("codex".into(), optchat_chief::acpmux::Family::Codex),
+        ]
+        .into();
+        let mut h = Harness::configured(
+            dir,
+            default_script(),
+            Arc::new(std::sync::Mutex::new(Owner {
+                summary: Some(summary()),
+                ..Owner::default()
+            })),
+            settings,
+            Arc::new(|_| {}),
+        );
+        h.agents.hold(true);
+        {
+            let mut agents = h.agents.inner.lock().unwrap();
+            agents.machine_status = Some(json!({
+                "here": {"os": "macos", "pressure": {"ok": true}},
+                "peers": [{"name": "mini", "connected": true,
+                    "health": {"os": "macos", "pressure": {"ok": true}}}]
+            }));
+            agents.peer_catalogs.insert("mini".into(), catalog());
+            agents.harness_health.insert(
+                "mini".into(),
+                json!({"harnesses": [
+                    {"id": "claude", "auth": "signedIn"}
+                ]}),
+            );
+            if cached_signed_out {
+                agents.harness_health.insert(
+                    "here".into(),
+                    json!({"harnesses": [
+                        {"id": "codex", "auth": "signedOut"}
+                    ]}),
+                );
+            }
+        }
+        let engine = h.dir.path().join("engine.json");
+        optchat_chief::engine::save(
+            &engine,
+            &optchat_chief::engine::EngineChoice {
+                subagent_harness: Some("claude".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let sp = Arc::new(
+            Spawner::new(
+                h.chat.clone(),
+                h.agents.clone(),
+                SubagentSettings {
+                    harness: "codex".into(),
+                    policy: "approve-all".into(),
+                    model: None,
+                    effort: None,
+                    preset: None,
+                    cwd: h.dir.path().join("subagent"),
+                    prefix: "optchat-sub-h0me".into(),
+                    parent: optchat_chief::brain::PARENT.into(),
+                    claude_md: None,
+                },
+                h.tx.clone(),
+                Arc::new(|_: &str| {}),
+            )
+            .with_pinned_harness(true)
+            .with_engine_file(Some(engine)),
+        );
+        let answer = run(&mut h, move || {
+            sp.spawn(vec!["build a hello web page".into()], None)
+        })
+        .unwrap();
+        let agents = h.agents.inner.lock().unwrap();
+        let specs: Vec<_> = agents
+            .specs
+            .iter()
+            .filter(|s| s.tags.contains_key("optchat.subagent"))
+            .collect();
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(
+            specs[0].harness, "codex",
+            "the pin wins over the engine and cached auth: {answer}"
+        );
+        assert_eq!(
+            specs[0].peer, None,
+            "the paired Mac has no Codex login: {answer}"
+        );
+    }
+}

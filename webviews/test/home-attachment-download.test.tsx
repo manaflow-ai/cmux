@@ -77,3 +77,17 @@ test("a download whose link cannot be had says so, and asking again clears it", 
   expect(meta()?.getAttribute("role")).toBeNull();
   expect(meta()?.textContent).not.toBe(strings.t("attachment.downloadFailed"));
 });
+
+// The download button appears on its card's hover or focus through the shared reveal (ui/motion
+// .ui-reveal: in over micro, out over quick, still with motion off), not a fade of its own.
+test("a file's download button is its card's shared hover reveal", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const button = host.querySelector<HTMLButtonElement>(".hc-att-download")!;
+  expect(button.classList.contains("ui-reveal")).toBe(true);
+  expect(button.closest(".hc-att-file")!.classList.contains("ui-reveal-host")).toBe(true);
+  // Home's own sheet no longer hides it or times its fade, so the primitive's timing is the one.
+  const ledger = readFileSync(join(import.meta.dir, "../src/pages/home-channels/ledger.css"), "utf8");
+  const own = ledger.match(/\.hc-att-download\s*\{[^}]*\}/)![0];
+  expect(own).not.toMatch(/opacity|transition/);
+});

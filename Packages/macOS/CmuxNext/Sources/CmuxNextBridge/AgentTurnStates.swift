@@ -138,6 +138,32 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     }
 }
 
+/// The acpmux peer a watch row came from (`peer`, a peer's session on this Mac's acpmux) and
+/// whether that row went stale (the peer dropped: its state is the last one seen).
+public nonisolated struct AgentPeerRow: Hashable, Sendable {
+    public var name: String
+    public var stale: Bool
+
+    public init(name: String, stale: Bool) {
+        self.name = name
+        self.stale = stale
+    }
+
+    /// The peer row of a session summary; nil for this Mac's own session.
+    public static func of(summary: [String: Any]) -> AgentPeerRow? {
+        (summary["peer"] as? String).map { AgentPeerRow(name: $0, stale: summary["stale"] as? Bool == true) }
+    }
+
+    /// The peer row of every peer session of a watch result, by session id.
+    public static func rows(_ result: [String: Any]) -> [String: AgentPeerRow] {
+        var rows: [String: AgentPeerRow] = [:]
+        for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+            if let id = summary["sessionId"] as? String, let row = of(summary: summary) { rows[id] = row }
+        }
+        return rows
+    }
+}
+
 /// Every local acpmux session's turn state, reduced from one `_acpmux/watch`
 /// result and its `_acpmux/session_changed` pushes (no poll). Pure.
 public nonisolated struct AgentTurnStates: Hashable, Sendable {
@@ -175,8 +201,29 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// session name (`optchat-sub-2e448bc2-a345`). A title or prompt reads as its gist
     /// (``promptGist(_:)``): a Chief subagent's `<chat>` view never names its tab. The latest
     /// prompt only stands in while acpmux reports no title at all. Nil when the chat has none yet.
+    /// A name that reads as an id or a counter (`cloud-item-14`, ``isOpaqueName(_:)``) yields to
+    /// the title or prompt, and stands in only while the chat has neither.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
-        if includingPrompt, let name = sessionName(summary) { return name }
+        guard includingPrompt, let name = sessionName(summary) else { return chatTitle(summary, includingPrompt: includingPrompt) }
+        return isOpaqueName(name) ? chatTitle(summary, includingPrompt: true) ?? name : name
+    }
+
+    /// Whether a session name reads as an id or a counter rather than its task (acpmux
+    /// `session_name::opaque_reason`, sessionList.ts `isOpaqueName`): its last `/` segment ends in
+    /// a counter (`cloud-item-14`) or has a hex run of 6 or more with a digit
+    /// (`dispatch-019a3f2e`). Leo 2026-11-02: "that's the agents naming them like that".
+    public static func isOpaqueName(_ name: String) -> Bool {
+        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
+        let parts = bare.split(whereSeparator: { "-_.".contains($0) })
+        let digits = { (part: Substring) in part.allSatisfy { ("0"..."9").contains($0) } }
+        if parts.count > 1, let last = parts.last, digits(last) { return true }
+        return parts.contains { part in
+            part.count >= 6 && part.allSatisfy(\.isHexDigit) && part.contains { ("0"..."9").contains($0) }
+        }
+    }
+
+    /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
+    private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
             // acpmux publishes the first prompt as `title` before its title
             // request completes. Only a source that names a real chat title
@@ -296,6 +343,8 @@ public final class AgentTurnStateStore {
     @Observable @MainActor
     final class Session {
         var state: AgentTurnState?
+        /// The acpmux peer whose row this is (a chat of another machine), nil for this Mac's.
+        var peer: AgentPeerRow?
         /// The last message (expanded sidebar rows, cx-13w3.1).
         var lastMessage: String?
         var muted = false
@@ -340,6 +389,9 @@ public final class AgentTurnStateStore {
     /// end). The app rings the chat's pane until the person goes into it, as a terminal agent's
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
+    /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
+    /// viewer precomputes that repository's diff before anyone clicks (DiffPageRuntime+Warm.swift).
+    @ObservationIgnored public var turnEndedObservers: [(_ session: String, _ folder: String?) -> Void] = []
 
     public init() {}
 
@@ -375,10 +427,13 @@ public final class AgentTurnStateStore {
     /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
     public func apply(session: String, sessionName: String? = nil, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
                       generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
-                      source: String = AgentTurnStateStore.localSource) {
+                      source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil) {
         let held = record(session)
         held.source = source
-        if recordsTimeline, held.state == .working, state != .working { onTurnEnded?(session) }
+        if recordsTimeline, held.state == .working, state != .working {
+            onTurnEnded?(session)
+            for observer in turnEndedObservers { observer(session, (detail ?? held.detail)?.cwd) }
+        }
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
             for event in AgentTimeline.chatEvents(from: held.state, held.detail, to: state, detail, nowMs: nowMs) {
@@ -393,19 +448,20 @@ public final class AgentTurnStateStore {
         if record.generatedTitle != generatedTitle { record.generatedTitle = generatedTitle }
         if record.sessionName != sessionName { record.sessionName = sessionName }
         if record.detail != detail { record.detail = detail }
+        if record.peer != peer { record.peer = peer }
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
     /// Sessions another watch wrote stay as they are.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
-                        source: String = AgentTurnStateStore.localSource) {
+                        source: String = AgentTurnStateStore.localSource, peers: [String: AgentPeerRow] = [:]) {
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let ids = Set(own).union(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys)
         for id in ids {
             apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
-                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source, peer: peers[id])
         }
     }
 
@@ -433,6 +489,17 @@ public final class AgentTurnStateStore {
 
     /// The turn state of the session an agent chat tab shows.
     public func state(for ref: AgentSessionRef) -> AgentTurnState? { local(ref)?.state }
+
+    /// Whether the chat `ref` shows runs a turn now: by this Mac's (or a mirrored acpmux's) state, else, for a chat of
+    /// another machine, by the row this Mac's acpmux has of it from an acpmux peer, when `isChatMachine` says that peer
+    /// is the chat's machine and the row is live (a stale row's state is only the last one seen).
+    public func isWorking(_ ref: AgentSessionRef, isChatMachine: (_ peer: String) -> Bool) -> Bool {
+        if let record = local(ref) { return record.state == .working }
+        guard let session = ref.session else { return false }
+        let record = record(session)
+        guard let peer = record.peer, !peer.stale, record.state == .working else { return false }
+        return isChatMachine(peer.name)
+    }
 
     /// The last message of the session an agent chat tab shows.
     public func lastMessage(for ref: AgentSessionRef) -> String? { local(ref)?.lastMessage }

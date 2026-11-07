@@ -416,7 +416,8 @@ impl Hub {
     /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
     /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
     /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
-    /// acpmux's own withdraw notices.
+    /// acpmux's own withdraw notices. A tool's notice (`notice`) sent from inside a session here
+    /// is that session's, by the `fromSessionId` the daemon bound.
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
         let kind = p.get("kind").and_then(Value::as_str);
@@ -427,6 +428,7 @@ impl Hub {
                     | "session_message"
                     | super::subsessions::PROVENANCE_KIND
                     | super::lane_reports::KIND
+                    | crate::prompt_provenance::NOTICE_KIND
             )
         ) {
             return None;
@@ -434,7 +436,14 @@ impl Hub {
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {
             return None;
         }
-        let from = p.get("from").and_then(Value::as_str)?;
+        // A tool's notice names its sender only by name (`from` is `fromAgent`): the session that
+        // sent it is the one the daemon bound (`fromSessionId`, its proven caller), so a pause or
+        // a take-over holds a notice as it holds that session's other messages.
+        let from = if kind == Some(crate::prompt_provenance::NOTICE_KIND) {
+            p.get(crate::prompt_provenance::FROM_SESSION_ID).and_then(Value::as_str)?
+        } else {
+            p.get("from").and_then(Value::as_str)?
+        };
         let from = from.strip_prefix("acp:").unwrap_or(from);
         if from == PERSON_SENDER {
             return None;
@@ -796,6 +805,55 @@ impl Hub {
             }
         }
         state.restored_drains.extend(drains);
+    }
+
+    /// A copied machine's first start (`clone_boot.rs`), after `restore_agent_pairs` read
+    /// `session`'s log: the messages its pairs held for it were the first machine's to deliver.
+    /// Each is dropped (`agent_pair_dropped`, `reason: clone_boot`, in its log, so no later start
+    /// holds it again), and a pair left holding nothing is forgotten, so neither a restored
+    /// resume (`resume_agent_pair_drains`) nor a later one delivers it here.
+    pub(super) fn drop_cloned_pair_holds(&self, session: &Arc<Session>, from: &str) {
+        let dropped: Vec<Held> = {
+            let mut state = self.pairs_state();
+            let mut dropped = Vec::new();
+            let mut emptied = HashSet::new();
+            for (key, pair) in &mut state.pairs {
+                let Some(paused) = pair.paused.as_mut() else { continue };
+                let before = paused.held.len();
+                let (gone, kept): (Vec<Held>, Vec<Held>) =
+                    std::mem::take(&mut paused.held).into_iter().partition(|h| h.to == session.id);
+                paused.held = kept.into();
+                if before > 0 && paused.held.is_empty() {
+                    emptied.insert(key.clone());
+                }
+                dropped.extend(gone);
+            }
+            state.pairs.retain(|key, _| !emptied.contains(key));
+            state.restored_drains.retain(|key| !emptied.contains(key));
+            dropped
+        };
+        for h in dropped {
+            self.append(
+                session,
+                "mux",
+                "agent_pair_dropped",
+                json!({"promptId": h.prompt_id, "peer": h.from, "reason": "clone_boot", "cloneOf": from}),
+            );
+        }
+    }
+
+    /// Tests: the messages the pairs hold for `session`, and the restored resumes still to run.
+    #[cfg(test)]
+    pub(super) fn pair_holds_for(&self, session: &str) -> (usize, usize) {
+        let state = self.pairs_state();
+        let held = state
+            .pairs
+            .values()
+            .filter_map(|p| p.paused.as_ref())
+            .flat_map(|p| p.held.iter())
+            .filter(|h| h.to == session)
+            .count();
+        (held, state.restored_drains.len())
     }
 
     /// Delivers what the pairs `restore_agent_pairs` found mid-resume still hold (`queue.rs`

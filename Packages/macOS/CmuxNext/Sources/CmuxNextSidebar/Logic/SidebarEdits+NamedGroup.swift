@@ -20,11 +20,17 @@ public extension SidebarEdits {
     /// either organization; nil when none may. Only the first group of that name was tried before, so a
     /// row it could not hold got a new group of that name each time (nine "GUI push · lanes", 2026-10-22).
     /// A group of exactly that name wins; only when none is listed, one whose name is the same label (`sameGroupName`).
-    static func group(named name: String, accepting id: WorkspaceID, in sections: [SidebarSection]) -> GroupID? {
+    /// `machine`: the workspace's machine, for a workspace `sections` leaves out (a new one held until it lists in its
+    /// group, ``GroupJoinHold``): a group whose section may hold that machine's workspaces takes it.
+    static func group(named name: String, accepting id: WorkspaceID, in sections: [SidebarSection], machine: MachineID? = nil) -> GroupID? {
+        let unlisted: SidebarWorkspace? = if let machine, workspace(id, in: sections) == nil {
+            SidebarWorkspace(id: id, machineID: machine, title: "")
+        } else { nil }
         let groups = { (exact: Bool) -> GroupID? in
             for section in sections {
                 for case let .group(group) in section.nodes where exact ? group.name == name : sameGroupName(group.name, name) {
-                    if canMove([id], toGroup: group.id, in: sections) { return group.id }
+                    let accepts = unlisted.map { canPlace($0, in: section) } ?? canMove([id], toGroup: group.id, in: sections)
+                    if accepts { return group.id }
                 }
             }
             return nil
@@ -78,6 +84,27 @@ public extension SidebarEdits {
                     return false
                 }
             }
+        }
+    }
+
+    /// `sections` without the workspace rows `ids`: rows another row stands in for (a pending create's, at its slot), or
+    /// held out of the list (``GroupJoinHold``).
+    static func removing(_ ids: Set<String>, from sections: [SidebarSection]) -> [SidebarSection] {
+        guard !ids.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return ids.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { ids.contains($0.id.rawValue) }
+                    return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
         }
     }
 }

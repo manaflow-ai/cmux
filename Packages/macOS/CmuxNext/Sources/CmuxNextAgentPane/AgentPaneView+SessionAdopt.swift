@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextSettings
 
 /// A prewarmed New Tab page opens an existing chat (a sidebar click, Open in Tab, a subagent's
 /// pane): the page is loaded, mounted and connected to acpmux already, so it switches to the
@@ -24,17 +25,40 @@ extension AgentPaneView {
     public func adoptSession(_ session: String, revealTurn: String? = nil, moved: (@MainActor () -> Void)? = nil) -> Bool {
         guard model.adoptSpareSession(session) else { return false }
         holdPageAway(moved: moved)
-        beginLoadingState()
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
+        // On before the loading state begins: that is where the chat-open trace binds and takes its
+        // first sample, which would otherwise read the New Tab page's hidden cover as the chat's saved
+        // frame and count the cover that follows in the same turn as a flash (cmux#32448).
         showsLoadingState = true
+        beginLoadingState()
         // The chat's surface (R55), not the New Tab page's; the loading state takes its color.
         applyTheme()
-        var detail: [String: Any] = ["sessionId": session]
-        if let revealTurn { detail["revealTurn"] = revealTurn }
-        guard let data = try? JSONSerialization.data(withJSONObject: detail, options: [.withoutEscapingSlashes]),
-              let json = String(data: data, encoding: .utf8) else { return true }
+        // The chat's kept tail rides on the event: the page draws it in the event's own render,
+        // where asking for it (`chat.tail.get`) cost a round trip a busy main thread lost to its
+        // 250 ms race, leaving the pane empty until acpmux's attach answered.
+        let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
+    }
+
+    /// The adopt event's detail as JSON text (newtab/adoption.ts `sessionAdoption` reads it): the chat,
+    /// the turn its open asks to show, and the chat's tail the host keeps (``AgentPaneTailCache``), in
+    /// the page's own shape, when it holds one. Linear in the tail's size, which the cache bounds.
+    nonisolated static func adoptEventDetail(session: String, revealTurn: String?, tail: JSONValue?) -> String {
+        var detail: [String: JSONValue] = ["sessionId": .string(session)]
+        if let revealTurn { detail["revealTurn"] = .string(revealTurn) }
+        if let tail { detail["tail"] = tail }
+        return JSONValue.object(detail).compactText
+    }
+
+    /// Tells the page the tab it now is (``AgentPaneModel/tabKey``, on each change), for a page a tab
+    /// adopted after its handshake (a prewarmed spare): it keeps its Session Info by that tab from here
+    /// (`acpmux-pane-tab`, sessionInfoState.ts). A page with no handshake yet gets it with its handshake.
+    func announceTab() {
+        guard model.hasHandshake, let tab = model.tabKey(),
+              let data = try? JSONSerialization.data(withJSONObject: ["tab": tab], options: [.withoutEscapingSlashes]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-pane-tab', {detail: \(json)}))")
     }
 
     /// Lays the page outside the window now, before the pane shows this view, and back in place in

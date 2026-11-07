@@ -12,8 +12,10 @@ extension ChiefConversationOwner {
     /// and the harness of its own environment (no MCP command: acpmux gives
     /// each agent chat its own cmux MCP server). The default
     /// Chief's brain stays with Home (ChiefBrainKeeper), unchanged.
-    static func brainsValue(home: ChiefHome, process: [String: String], bundle: Bundle) -> String? {
-        let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+    /// `resources` is the app bundle's `Contents/Resources`. Off the main actor: it resolves acpmux,
+    /// whose signature check reads the whole executable (``ownerEnvironment(home:process:resources:)``).
+    nonisolated static func brainsValue(home: ChiefHome, process: [String: String], resources: URL?) -> String? {
+        let bin = resources?.appendingPathComponent("bin", isDirectory: true)
         guard let host = HomeBrainHost.resolve(daemonSocket: "", controlSocket: "", home: home, environment: process,
                                                bundledBinDirectory: bin) else {
             return nil

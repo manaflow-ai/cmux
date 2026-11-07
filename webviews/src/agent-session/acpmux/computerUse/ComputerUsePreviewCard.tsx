@@ -12,13 +12,16 @@
 // its own room there.
 // While it runs, the agent's cursor shows where the helper draws it on screen (the window stream
 // has no cursor of its own): the helper's own cursor, drawn the same (cursorArt.tsx) and at the
-// window's scale, gliding as it does, with a ripple on each click.
+// window's scale, gliding as it does, with a ripple on each click. The person's pointer over the
+// same window shows as a second telepointer (PersonPointerArt): a neutral arrow labelled "You",
+// hidden while it is outside the window and dimmed once it stays still. Both are metadata from the
+// host, drawn over the frame; neither is in the frame's pixels.
 import { useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
 import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
-import { AgentCursorArt, cursorStyle } from "./cursorArt";
+import { AgentCursorArt, cursorStyle, PersonPointerArt, personPointerStyle } from "./cursorArt";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
 import "./computerUsePreview.css";
 
@@ -40,6 +43,15 @@ export function ComputerUsePreviewCard({
   // The app's name is in the label only; with no name and no window title, the label names none
   // (never "Unknown app").
   const title = computerUsePreviewTitle(shown);
+  // The agent's cursor: the host's pointer (with its click and window width), else its telepointer
+  // when that is all a host sends (no click to play then).
+  const agentTele = shown.telepointers?.agent;
+  const agent = shown.pointer ?? (agentTele?.visible ? { x: agentTele.x, y: agentTele.y, click: 0 } : undefined);
+  const person = shown.telepointers?.person;
+  const frameStyle = {
+    ...(agent ? cursorStyle(agent) : {}),
+    ...(person ? personPointerStyle(person) : {}),
+  } as CSSProperties;
   const label = title
     ? t(shown.done ? "computerUse.preview.doneLabel" : "computerUse.preview.runningLabel", { app: title })
     : t(shown.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
@@ -57,14 +69,14 @@ export function ComputerUsePreviewCard({
         aria-label={label}
         onClick={() => onOpen(shown.session)}
       >
-        <span
-          className="acpmux-cu-preview__frame"
-          style={shown.pointer ? (cursorStyle(shown.pointer) as CSSProperties) : undefined}
-        >
+        <span className="acpmux-cu-preview__frame" style={agent || person ? frameStyle : undefined}>
           <img src={frame} alt="" draggable={false} />
-          {shown.pointer && (
+          {person && <PersonPointerArt pointer={person} label={t("computerUse.preview.you")} />}
+          {agent && (
             <>
-              <span key={shown.pointer.click} className="acpmux-cu-preview__ripple" aria-hidden="true" />
+              {shown.pointer && (
+                <span key={shown.pointer.click} className="acpmux-cu-preview__ripple" aria-hidden="true" />
+              )}
               <AgentCursorArt />
             </>
           )}
@@ -73,7 +85,7 @@ export function ComputerUsePreviewCard({
               <span className="acpmux-cu-preview__mark" data-icon={shown.icon ? "" : undefined}>
                 {shown.icon && <img src={shown.icon} alt="" draggable={false} />}
                 <span className="acpmux-cu-preview__check">
-                  <Check size={shown.icon ? 10 : 12} strokeWidth={2.5} />
+                  <Check size={shown.icon ? 10 : 12} />
                 </span>
               </span>
             </span>

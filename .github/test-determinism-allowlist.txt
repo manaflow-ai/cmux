@@ -223,3 +223,22 @@ webviews/test/composer-upload-first-send.test.tsx	sleep-then-assert	fixed sleep 
 webviews/test/reply-image-shared-load.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #27677
 webviews/test/session-info-changes.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in #29921
 webviews/test/transcript-older-history-at-top.test.tsx	sleep-then-assert	fixed sleep before assert; needs a webview-suite run to determinize safely (follow-up); test added in PR unknown
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabSidebarTests/ChiefAvatarMotionTests.swift	assert-on-duration	debt from #33395 (landed while this step was red on the base); compare to the declared constant, not a measured bound
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/AgentSessionWorkspaceChatOnlyTests.swift	sleep-then-assert	debt from #28068 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BrowserTabCloseLeavesAtOnceTests.swift	sleep-then-assert	debt from #32876 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAskDialogsTests.swift	sleep-then-assert	debt from #32734 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LaunchRestoreTrackerPileTests.swift	assert-on-duration	debt from #33237 (landed while this step was red on the base); count work instead of timing it
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NativeNewTabSpareTests.swift	assert-on-duration	debt from #33076 (landed while this step was red on the base); count work instead of timing it
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabOpenFramesTests.swift	assert-on-duration	debt from #32979 (landed while this step was red on the base); count work instead of timing it
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabOpenFramesTests.swift	sleep-then-assert	debt from #32979 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/NewTabRapidPairTests.swift	sleep-then-assert	debt from #33136 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TerminalLaunchFrameKeeperTests.swift	sleep-then-assert	debt from #32384 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/ChiefOwnerEnvironmentLazyTests.swift	sleep-then-assert	debt from #33231 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/TerminalAttachVisibilityWireTests.swift	sleep-then-assert	debt from #32518 (landed while this step was red on the base); replace the fixed sleep with event-driven readiness
+tests/test_ci_fast_checks_runner.py	assert-on-duration	debt from #33652 (landed while this step was red on the base); assert the overlap by events, not elapsed time
+tests/test_scroll_measurement_metrics.py	assert-on-duration	debt from #33471 (landed while this step was red on the base); a fixture metric, not a wall-clock bound, but the rule cannot tell
+webviews/test/inbox-sender-mark.test.tsx	sleep-then-assert	debt from #32892 (landed while this step was red on the base); await the render, not a zero-delay timer
+webviews/test/sent-video-tile.test.tsx	sleep-then-assert	debt from #32697 (landed while this step was red on the base); await the render, not a zero-delay timer
+webviews/test/session-info-no-flicker.test.tsx	sleep-then-assert	debt from #33203 (landed while this step was red on the base); use fake timers instead of a 50 ms wait
+webviews/test/thread-rail-bookmark-every-row.test.tsx	sleep-then-assert	debt from #32880 (landed while this step was red on the base); await the render, not a zero-delay timer
+webviews/test/agent-pane-idle-probe.test.ts	sleep-then-assert	the timeouts are the probe's input: the test counts setTimeout calls, it never sleeps to wait for state

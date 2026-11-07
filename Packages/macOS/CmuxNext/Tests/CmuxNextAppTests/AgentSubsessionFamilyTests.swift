@@ -32,7 +32,7 @@ struct AgentSubsessionFamilyTests {
     @Test func theFeedReadsStartedByFromItsPageAndItsChanges() {
         func message(_ json: String) -> AgentTurnStateFeed.Message? { AgentTurnStateFeed.Message(line: Data(json.utf8)) }
         let page = message(#"{"id":2,"result":{"sessions":[{"sessionId":"c1","startedBy":"root"},{"sessionId":"root"}]}}"#)
-        guard case .page(_, _, _, _, _, _, _, let links, _) = page else { Issue.record("not a page: \(String(describing: page))"); return }
+        guard case .page(_, _, _, _, _, _, _, let links, _, _) = page else { Issue.record("not a page: \(String(describing: page))"); return }
         #expect(links == ["c1": "root"])
         let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
         guard case .change(let session, _, _, _, _, _, _, _, let parent, _, _, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }

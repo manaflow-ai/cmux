@@ -1,7 +1,7 @@
-// While a turn runs, the empty prompt teaches both keys, as Claude's composer does. An agent that
-// steers takes Return into the running turn (it reads the prompt when its current step ends) and
-// ⌘Return queues it for after the turn: "↵ steer · ⌘↵ queue" (Leo 2026-10-20). The Quick Composer,
-// whose ⌘Return opens the window, says "Steer this turn…". Nothing sent stops the turn: an agent
+// An agent that steers takes Return into the running turn (it reads the prompt when its current
+// step ends) and ⌘Return queues it for after the turn (Leo 2026-10-20). Its empty prompt keeps
+// Claude desktop's "Type / for commands" and the Send button's tooltip names "↵ steer · ⌘↵ queue"
+// (Leo 2026-11-03). The Quick Composer, whose ⌘Return opens the window, says "Steer this turn…". Nothing sent stops the turn: an agent
 // that cannot take a prompt mid-turn queues on both keys and says "Queue a follow-up". An idle
 // chat, and a running one whose composer cannot send (blocked), keep the usual placeholder.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -93,6 +93,7 @@ async function render(
   extra: {
     blockSend?: boolean;
     authBlock?: string;
+    authChecking?: boolean;
     onOpenInWindow?: () => void;
     handle?: React.Ref<ComposerHandle>;
     onSend?: (text: string, attachments?: unknown, steer?: boolean) => boolean;
@@ -138,9 +139,14 @@ const steering = (fields: Partial<AcpmuxSnapshot> = {}) => {
   return { ...snapshot, summary: { ...snapshot.summary!, steering: true } };
 };
 
-test("a running turn teaches its two keys: Return steers, ⌘Return queues", async () => {
-  await render(steering({ isWorking: true }));
-  expect(shown()).toBe("↵ steer · ⌘↵ queue");
+const sendTitle = () => host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")?.title;
+
+test("a running turn says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue", async () => {
+  let handle: ComposerHandle | null = null;
+  await render(steering({ isWorking: true }), undefined, { handle: (value) => void (handle = value) });
+  expect(shown()).toBe("Type / for commands");
+  await act(async () => handle!.restore("Use the cache", []));
+  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
 });
 
 /** Types `text` and presses Return (⌘Return with `command`); returns each send's steer flag. */
@@ -301,7 +307,8 @@ test("with only an attachment staged, Return steers it and ⌘Return queues it",
     text: "notes",
   };
   await act(async () => handle!.restore("", [note]));
-  expect(shown()).toBe("↵ steer · ⌘↵ queue");
+  expect(shown()).toBe("Type / for commands");
+  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
   for (const metaKey of [false, true]) {
     await act(async () => handle!.restore("", [note]));
@@ -323,7 +330,7 @@ test("an idle chat keeps the usual placeholder", async () => {
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
   expect(shown()).toBe("Type / for commands");
   await render(steering({ isWorking: true }));
-  expect(shown()).toBe("↵ steer · ⌘↵ queue");
+  expect(shown()).toBe("Type / for commands");
   // The turn ended: back to the idle placeholder.
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
   expect(shown()).toBe("Type / for commands");
@@ -366,8 +373,11 @@ for (const method of ["click", "return"] as const) {
 }
 
 test("a trust read keeps the running turn's steer and queue choices", async () => {
-  await render(steering({ isWorking: true }), {});
-  expect(shown()).toBe("↵ steer · ⌘↵ queue");
+  let handle: ComposerHandle | null = null;
+  await render(steering({ isWorking: true }), {}, { handle: (value) => void (handle = value) });
+  expect(shown()).toBe("Type / for commands");
+  await act(async () => handle!.restore("Use the cache", []));
+  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
 });
 
 test("a concrete trust block keeps the draft for click and Return", async () => {
@@ -423,36 +433,40 @@ test("a pending folder choice is a hard stop even for a trust-resend handle", as
   expect(host.querySelector("[role=combobox]")!.textContent).toContain("Choose a folder first");
 });
 
-test("an auth refusal blocks a trust-read draft and the trust-resend handle", async () => {
-  const sent: string[] = [];
-  let handle: ComposerHandle | null = null;
-  await render(
-    started(),
-    {},
-    {
-      authBlock: "Sign in to send",
-      handle: (value) => void (handle = value),
-      onSend: (text) => {
-        sent.push(text);
-        return true;
+for (const authChecking of [false, true])
+  test(`auth ${authChecking ? "preflight" : "refusal"} blocks sends without a transient notice`, async () => {
+    const sent: string[] = [];
+    let handle: ComposerHandle | null = null;
+    await render(
+      started(),
+      {},
+      {
+        authBlock: authChecking ? "Checking…" : "Sign in to send",
+        authChecking,
+        handle: (value) => void (handle = value),
+        onSend: (text) => {
+          sent.push(text);
+          return true;
+        },
       },
-    },
-  );
-  await act(async () => handle!.restore("Keep this draft", []));
-  const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
-  expect(send.disabled).toBe(true);
-  let accepted: boolean | undefined;
-  await act(async () => {
-    send.click();
-    host
-      .querySelector<HTMLElement>("[role=combobox]")!
-      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    accepted = handle!.send();
+    );
+    await act(async () => handle!.restore("Keep this draft", []));
+    const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe(authChecking ? "Checking…" : "Sign in to send");
+    expect(host.querySelector(".acpmux-composer-trust-note") !== null).toBe(!authChecking);
+    let accepted: boolean | undefined;
+    await act(async () => {
+      send.click();
+      host
+        .querySelector<HTMLElement>("[role=combobox]")!
+        .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      accepted = handle!.send();
+    });
+    expect(accepted).toBe(false);
+    expect(sent).toEqual([]);
+    expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
   });
-  expect(accepted).toBe(false);
-  expect(sent).toEqual([]);
-  expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
-});
 
 // Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and
 // Return added a line instead of sending. macOS Dictation (like an IME) ends its text with the
@@ -505,8 +519,8 @@ test("a Return the input method passed on as a new paragraph sends, never adds a
   });
 });
 
-// Leo, 2026-10-29: "the fucking rendering is stupid as hell": a running composer ("↵ steer · ⌘↵
-// queue") drawn with an idle one ("Type / for commands") over it, at another width. The page draws
+// Leo, 2026-10-29: "the fucking rendering is stupid as hell": a running composer drawn with an idle
+// one over it, at another width. The page draws
 // exactly one composer: the same form and field through running↔idle and a pane resize, never a
 // kept copy beside it.
 test("one composer element, the same one, through running↔idle switches and a pane resize", async () => {
@@ -525,6 +539,6 @@ test("one composer element, the same one, through running↔idle switches and a 
     expect(host.querySelector(".acpmux-composer")).toBe(form);
     expect(host.querySelector(".acpmux-composer-prompt")).toBe(field);
     expect(host.querySelectorAll(".acpmux-md-placeholder")).toHaveLength(1);
-    expect(shown()).toBe(working ? "↵ steer · ⌘↵ queue" : "Type / for commands");
+    expect(shown()).toBe("Type / for commands");
   }
 });

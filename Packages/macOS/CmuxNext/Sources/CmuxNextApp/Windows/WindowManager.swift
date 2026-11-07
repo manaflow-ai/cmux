@@ -204,7 +204,7 @@ final class WindowManager {
     /// The window's state, created on first use.
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
-        let state = WindowState(id: windowID)
+        let state = WindowState(id: windowID, focusInput: services.focusInput)
         states[windowID] = state
         return state
     }
@@ -241,7 +241,7 @@ final class WindowManager {
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
-        registry.provisional = [:]
+        registry.clearProvisional()
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
         guard !Task.isCancelled, !isTerminating else { return }
@@ -274,7 +274,7 @@ final class WindowManager {
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record, focusInput: services.focusInput) }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
@@ -317,7 +317,12 @@ final class WindowManager {
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
-        Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
+        Task {
+            await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
+            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
+            // One step at a time: Agents, then Bring your history once its window closed.
+            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+        }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
     }
@@ -401,7 +406,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || controller.root.content is CloudMachineProgressView || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
@@ -439,7 +444,7 @@ final class WindowManager {
     }
 
     /// Orders a new window in without taking focus under no-activate.
-    private func present(_ controller: WindowController) {
+    func present(_ controller: WindowController) {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil

@@ -3,9 +3,8 @@
 // PARITY"; 2026-10-28: "the six dots or whatever, to, like, reorder and rearrange things with a nice
 // little drag-and-drop thing").
 //
-// - Blocks: each section keeps the block it belongs to (where it runs, what it made, what it runs),
-//   and a hairline sits wherever two adjacent sections come from different blocks. So the default
-//   order draws the three blocks it always drew, pixel for pixel, and no section is ever a box.
+// - No boxes and no hairlines: the sections stand one gap apart, and the Show more line (an item of
+//   the order, sectionOrder.ts `MORE_LINE`) splits what is in view from what is folded away.
 // - Drag: the six-dot handle (SessionInfoSection's `ReorderHandle`) lifts the section. It follows the
 //   pointer; once its middle passes a neighbour's middle the order changes, and the neighbours slide
 //   out of the way (FLIP on `--cmux-motion-standard`, Web Animations on `transform` only). On release
@@ -19,8 +18,9 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
 import { useT } from "../i18n";
+import { heldPlace } from "./heldPlace";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { moveTo, sectionGroup, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
+import { isAppId, MORE_LINE, moveTo, setSectionOrder, tuckedSections, useSectionOrder } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
 
 type Reorder = {
@@ -49,9 +49,6 @@ type Drag = {
   before: SessionInfoSectionId[];
 };
 
-/// How far below its top the held section looks for its place (at most its middle).
-const PROBE = 24;
-
 function motionOn(): boolean {
   if (isAgentMotionOff()) return false;
   return !(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
@@ -78,39 +75,45 @@ function slideFrom(node: HTMLElement, from: number): Animation | undefined {
 }
 
 /// How the panel keeps its default view short (SessionInfo.gallery.tsx `compact-*` compares them):
-/// - `more`, shipped: Leo's four (the machine, Context, what it runs, Sources) and one whole-row Show
-///   more under them, naming the less-used sections it holds (sectionOrder.ts `tuckedSections`).
+/// - `more`, shipped: the sections above the Show more line in view, the ones under it folded away
+///   behind it (sectionOrder.ts `MORE_LINE`, `tuckedSections`). The line is an item of the order:
+///   a drag across it pins a section into view or tucks it away.
 /// - `all`: every section in view (the less-used ones folded to their head is the gallery's `folded`).
 /// - `capped`: every section in view, each body cut at three rows with a Show more of its own.
 export type SessionInfoCompactLook = "more" | "all" | "capped";
 
 export function SessionInfoSectionList({
   sections,
-  titles = {},
   more = true,
   onMoreChange,
   look = onMoreChange ? "more" : "all",
 }: {
   /// Every section by id; a falsy node is a section not shown.
   sections: Partial<Record<SessionInfoSectionId, ReactNode>>;
-  /// Each section's title, for the Show more row's list of what it holds.
-  titles?: Partial<Record<SessionInfoSectionId, string>>;
   /// The panel's Show more is open (`look` `more`): the less-used sections show.
   more?: boolean;
   onMoreChange?: (more: boolean) => void;
   look?: SessionInfoCompactLook;
 }) {
   const t = useT();
-  const saved = useSectionOrder();
+  const saved = useSectionOrder(Object.keys(sections).filter(isAppId));
+  // The pointer listeners last for the drag, while the catalog/storage can change underneath it.
+  const latestOrder = useRef(saved);
+  latestOrder.current = saved;
   // While a drag runs, the order it shows; saved when the drag ends.
   const [draft, setDraft] = useState<SessionInfoSectionId[]>();
   const [dragging, setDragging] = useState<SessionInfoSectionId>();
   // `capped`: the sections whose own Show more is open.
   const [uncapped, setUncapped] = useState<ReadonlySet<SessionInfoSectionId>>(new Set());
   const base = draft ? [...draft, ...saved.filter((id) => !draft.includes(id))] : saved;
-  const present = base.filter((id) => sections[id]);
+  // The Show more line is an item of the order (sectionOrder.ts `MORE_LINE`); drawn only while a
+  // section is under it, and only in the `more` look.
+  const present = base.filter((id) => (id === MORE_LINE ? look === "more" && !!onMoreChange : sections[id]));
   const tucked = look === "more" ? tuckedSections(present, base) : [];
-  const shown = more ? present : present.filter((id) => !tucked.includes(id));
+  // The held section stays drawn while it is under a closed line: it folds away on the drop.
+  const shown = (more ? present : present.filter((id) => !tucked.includes(id) || id === dragging)).filter(
+    (id) => id !== MORE_LINE || tucked.length > 0,
+  );
   const list = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | undefined>(undefined);
   // Each section's layout top at the last commit, the order then, and the slides running.
@@ -122,7 +125,9 @@ export function SessionInfoSectionList({
   const focus = useRef<SessionInfoSectionId | undefined>(undefined);
 
   const slot = (id: SessionInfoSectionId) =>
-    list.current?.querySelector<HTMLElement>(`:scope > [data-slot="${id}"]`) ?? null;
+    [...(list.current?.children ?? [])].find((node) => (node as HTMLElement).dataset.slot === id) as
+      | HTMLElement
+      | undefined;
 
   /// Draws the dragged section under the pointer, whatever its layout place now is.
   const follow = () => {
@@ -212,7 +217,7 @@ export function SessionInfoSectionList({
       settle.current = { id: held.id, top: node ? node.offsetTop + drawnShift(node) : held.grabTop };
       drag.current = undefined;
       const final = cancel ? held.before : list.current ? shownNow() : held.before;
-      if (!cancel) setSectionOrder(final);
+      if (!cancel) setSectionOrder(final, latestOrder.current);
       setDraft(undefined);
       setDragging(undefined);
     };
@@ -220,8 +225,7 @@ export function SessionInfoSectionList({
       [...list.current!.querySelectorAll<HTMLElement>(":scope > [data-slot]")].map(
         (node) => node.dataset.slot as SessionInfoSectionId,
       );
-    // Where the held section belongs now. It probes near its top, where the handle is, not at its
-    // middle: a section taller than the panel could never carry its middle above the first one.
+    // Where the held section belongs now (heldPlace).
     const place = () => {
       const held = drag.current;
       const root = list.current;
@@ -230,13 +234,18 @@ export function SessionInfoSectionList({
       const node = slot(held.id);
       if (!node) return;
       const scrolled = (held.scroller?.scrollTop ?? 0) - held.startScroll;
-      const probe = held.grabTop + (held.y - held.startY) + scrolled + Math.min(node.offsetHeight / 2, PROBE);
-      const others = shownNow().filter((id) => id !== held.id);
-      const at = others.filter((id) => {
+      const order = shownNow();
+      const boxes = order.map((id) => {
         const other = slot(id)!;
-        return other.offsetTop + other.offsetHeight / 2 < probe;
-      }).length;
-      const next = moveTo(others, held.id, at);
+        return { top: other.offsetTop, height: other.offsetHeight };
+      });
+      const gap = Number.parseFloat(getComputedStyle(root).rowGap) || 0;
+      const at = heldPlace(boxes, order.indexOf(held.id), held.grabTop + (held.y - held.startY) + scrolled, gap);
+      const next = moveTo(
+        order.filter((id) => id !== held.id),
+        held.id,
+        at,
+      );
       setDraft((current) => (current && current.join(" ") === next.join(" ") ? current : next));
     };
     const move = (event: PointerEvent) => {
@@ -299,25 +308,29 @@ export function SessionInfoSectionList({
       // A pointer drag owns the order until it drops or Escape puts it back.
       if (drag.current || at < 0 || to < 0 || to >= shown.length) return;
       focus.current = id;
-      setSectionOrder(moveTo(shown, id, to));
+      setSectionOrder(moveTo(shown, id, to), saved);
     },
   };
 
   return (
     <div ref={list} className="acpmux-session-info-sections" data-dragging={dragging ? "" : undefined}>
       <ReorderContext.Provider value={shown.length > 1 ? reorder : undefined}>
-        {shown.map((id, at) => {
-          const group = sectionGroup(id);
-          const prior = shown[at - 1];
-          const next = shown[at + 1];
-          return (
+        {shown.map((id) =>
+          id === MORE_LINE ? (
+            // The Show more line: its words on the rows' icon column, in the same place open or closed.
+            // Open, it reads Show less with a hairline to the row's end, over the sections it holds.
+            // It has no handle: sections drag across it, into view or under it.
+            <div key={id} className="acpmux-session-info-slot" data-slot={id}>
+              <SessionInfoFold className="acpmux-session-info-more" open={more} onToggle={() => onMoreChange?.(!more)}>
+                <span>{t(more ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}</span>
+                {more && <span className="acpmux-session-info-more__rule" aria-hidden="true" />}
+              </SessionInfoFold>
+            </div>
+          ) : (
             <div
               key={id}
               className="acpmux-session-info-slot"
               data-slot={id}
-              data-group={group}
-              data-run-start={prior && sectionGroup(prior) !== group ? "" : undefined}
-              data-run-end={next && sectionGroup(next) !== group ? "" : undefined}
               data-lifted={dragging === id ? "" : undefined}
               data-capped={look === "capped" && !uncapped.has(id) ? "" : undefined}
             >
@@ -338,19 +351,9 @@ export function SessionInfoSectionList({
                 </SessionInfoFold>
               )}
             </div>
-          );
-        })}
+          ),
+        )}
       </ReorderContext.Provider>
-      {tucked.length > 0 && onMoreChange && (
-        <SessionInfoFold className="acpmux-session-info-more" open={more} onToggle={() => onMoreChange(!more)}>
-          <span>{t(more ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}</span>
-          {!more && (
-            <span className="acpmux-session-info-more__names">
-              {tucked.map((id) => `· ${titles[id] ?? id}`).join(" ")}
-            </span>
-          )}
-        </SessionInfoFold>
-      )}
     </div>
   );
 }

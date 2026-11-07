@@ -183,6 +183,31 @@ grep '^::error title=cmux-next swift test cut short::' <<<"$out" \
   | grep -q 'cut short by the test process ending before its summary (swift test exited 0): 1 tests finished (1 passed, 0 failed, 0 skipped) and 2 started and never finished' \
   || fail "a run that ended before its summary does not count what it got done" "$out"
 
+# A pass line another stream cut into (run 41665450504 shard 14: the runtime's stderr, then the
+# helper killed with the rest of the line unwritten) is that test's pass, not a test that never
+# finished; foo() stays open beside fooBar()'s pass. The run is still incomplete.
+cat > "$TMP/spliced.out" <<'EOF'
+◇ Test run started.
+◇ Test aFailureNothingRetriesShowsAtOnce() started.
+✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for privileged executables.
+◇ Test foo() started.
+◇ Test fooBar() started.
+✔ Test fooBar() passed after 0.001 seconds.
+EOF
+run spliced 143
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+grep -q '2 tests finished (2 passed, 0 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "a spliced pass line is counted as never finished" "$out"
+grep -q 'Never finished: foo()$' <<<"$cut" || fail "the spliced pass closed the wrong test" "$cut"
+# A run's own summary does not close a test named run().
+cat > "$TMP/run-named.out" <<'EOF'
+◇ Test run started.
+◇ Test run() started.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+EOF
+run run-named 0
+[[ "$status" != 0 ]] || fail "a run summary closed a test named run()" "$out"
+
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
 [[ "$status" == 139 ]] || fail "a crashed run exited $status, not 139" "$out"
