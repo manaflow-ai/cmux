@@ -105,10 +105,16 @@ pub(crate) fn create(home: &Path, hostname: &str) -> Result<LocalKey> {
         );
     }
     let dir = home.join(".ssh");
-    let key = dir.join("id_ed25519");
-    if key.exists() {
-        bail!("{} exists without its .pub; nothing was made", key.display());
+    // A private key of any of the names `find` reads, its .pub gone, is still this machine's key.
+    if let Some(private) = KEY_FILES
+        .iter()
+        .filter_map(|name| name.strip_suffix(".pub"))
+        .map(|name| dir.join(name))
+        .find(|path| path.exists())
+    {
+        bail!("{} exists without its .pub; nothing was made", private.display());
     }
+    let key = dir.join("id_ed25519");
     if !dir.is_dir() {
         std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
         #[cfg(unix)]
