@@ -374,4 +374,41 @@ import Testing
         await none.showAgentsAtFirstRun(isFirstRun: true, source: missing, defaults: try defaults())
         #expect(noneShown().isEmpty, "no agent CLI found (only ones to install): nothing opens")
     }
+
+    /// One step at a time: the first-run step after Agents (Bring your history) waits until the
+    /// Agents window closed; with no tool window open it goes at once.
+    @Test func theNextFirstRunStepWaitsForTheAgentsWindowToClose() async throws {
+        @MainActor final class Order { var steps: [String] = [] }
+        // No agent CLI: nothing opens, history follows at once.
+        let none = Order()
+        let empty = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
+                                              activeLook: nil, present: { _ in })
+        await empty.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(), defaults: try #require(UserDefaults(suiteName: "cmux-no-agents-\(UUID().uuidString)"))) {
+            none.steps.append("history")
+        }
+        #expect(none.steps == ["history"])
+
+        let suite = "cmux-agents-then-history-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
+                                                  activeLook: nil, present: { _ in })
+
+        let order = Order()
+        let steps = Task { @MainActor in
+            await presenter.showFirstRunSteps(isFirstRun: true, source: MockAgentSignInSource(agents: Self.listed), defaults: defaults) {
+                order.steps.append("history")
+            }
+        }
+        await Self.until { presenter.controller != nil }
+        order.steps.append("agents")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(presenter.controller?.model.step == .agents)
+        #expect(order.steps == ["agents"], "history waits while the Agents window shows")
+
+        presenter.controller?.close()
+        await steps.value
+        #expect(order.steps == ["agents", "history"])
+        #expect(presenter.controller == nil)
+    }
 }

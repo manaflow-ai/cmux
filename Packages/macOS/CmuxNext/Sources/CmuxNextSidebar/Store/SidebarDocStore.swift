@@ -39,7 +39,7 @@ public final class SidebarDocStore {
     /// `show`, a hop later.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
-    @ObservationIgnored private let mirror: SidebarMirror?
+    @ObservationIgnored private let mirror: SidebarMirror
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
@@ -119,13 +119,13 @@ public final class SidebarDocStore {
     /// The records of the document while the sidebar draws it; nil on the older path.
     public var activeRecords: SidebarDocRecords? { isActive && shown != nil ? records : nil }
 
-    public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
+    public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror = SidebarMirror()) {
         self.remote = remote
         self.mirror = mirror
     }
 
-    /// Whether this build and the daemon can use the document at all.
-    public var isSupported: Bool { mirror != nil && (remote?.isAvailable ?? false) }
+    /// Whether the daemon can use the document at all.
+    public var isSupported: Bool { remote?.isAvailable ?? false }
 
     /// The document shown is the launch snapshot's (`loadProvisional`), not yet the daemon's: the first
     /// `sidebar.get` replaces it.
@@ -138,7 +138,7 @@ public final class SidebarDocStore {
     /// (the remote is not available). False when not used.
     @discardableResult
     public func loadProvisional(_ data: Data) -> Bool {
-        guard !isActive, !loading, let mirror, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
+        guard !isActive, !loading, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
         self.records = records
         groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
         isProvisional = true
@@ -163,7 +163,7 @@ public final class SidebarDocStore {
     /// snapshot, a revision gap).
     public func refresh() {
         if loading { refetchAgain = true; return }
-        guard isSupported, let remote, let mirror else {
+        guard isSupported, let remote else {
             // The launch snapshot's document stays until the daemon is up (`dropProvisional` if it never serves one).
             if isActive, !isSupported, !isProvisional { isActive = false; shown = nil; bump() }
             return
@@ -219,7 +219,7 @@ public final class SidebarDocStore {
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        if loading, mirror != nil {
+        if loading {
             if earlyBatches.count < 512 { earlyBatches.append(data) }
             else { refetchAgain = true } // A fresh snapshot recovers the tail we could not retain.
         }
@@ -228,7 +228,7 @@ public final class SidebarDocStore {
 
     private func applyReceived(batch data: Data) {
         // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
-        guard isActive, !isProvisional, let mirror else { return }
+        guard isActive, !isProvisional else { return }
         // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
         let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
@@ -278,7 +278,7 @@ public final class SidebarDocStore {
 
     /// The rows to draw, in order (one FFI call; only on a structural rebuild).
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
-        isActive ? mirror?.rows(request) : nil
+        isActive ? mirror.rows(request) : nil
     }
 
     /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
@@ -293,7 +293,7 @@ public final class SidebarDocStore {
     /// What a drop of `items` may do beside each row (one FFI call per drag).
     /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? records.keepingPinned(mirror?.acceptance(dragging: items) ?? [:], dragging: items) : [:]
+        isActive ? records.keepingPinned(mirror.acceptance(dragging: items), dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
@@ -412,7 +412,7 @@ public final class SidebarDocStore {
             NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
             return SidebarDocSendRefusal(message: message)
         }
-        guard isActive, let mirror, let remote else { throw refused(SidebarDocStrings.unavailable) }
+        guard isActive, let remote else { throw refused(SidebarDocStrings.unavailable) }
         let stamped: Data?
         do {
             stamped = try mirror.apply(intent: intent)
@@ -497,7 +497,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        let dropped = Set(mirror?.reject(key) ?? []).union([key])
+        let dropped = Set(mirror.reject(key)).union([key])
         settlePendingChief(dropped)
         if dropped.reduce(false, { pendingRecords.remove($1) || $0 }) || redraws { bump() }
     }
