@@ -154,7 +154,9 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         callback_scheme,
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
-        adopts_nightly_session: !inputs.is_debug_build && bundle_id == NEXT_DEV_BUNDLE_ID && production,
+        adopts_nightly_session: !inputs.is_debug_build
+            && bundle_id == NEXT_DEV_BUNDLE_ID
+            && production,
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
@@ -166,7 +168,9 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
 /// the placeholder is scoped.
 fn storage_project(bundle_id: Option<&str>, selection: Option<&Selection>) -> Option<String> {
     match selection {
-        None => (bundle_id == Some(UNAVAILABLE_BUNDLE_ID)).then(|| "bootstrap-unavailable".to_owned()),
+        None => {
+            (bundle_id == Some(UNAVAILABLE_BUNDLE_ID)).then(|| "bootstrap-unavailable".to_owned())
+        }
         Some(selection) if selection.legacy_storage => selection.auth_storage_namespace.clone(),
         Some(selection) => Some(selection.auth_namespace.clone()),
     }
@@ -185,7 +189,8 @@ fn credentials_subpath(bundle_id: Option<&str>) -> Vec<String> {
 pub fn storage_names(bundle_id: Option<&str>, selection: Option<&Selection>) -> StorageNames {
     let bundle_id = bundle_id.filter(|id| !id.is_empty());
     let project = storage_project(bundle_id, selection);
-    let service = bundle_id.map_or_else(|| "com.cmuxterm.app.auth".to_owned(), |id| format!("{id}.auth"));
+    let service =
+        bundle_id.map_or_else(|| "com.cmuxterm.app.auth".to_owned(), |id| format!("{id}.auth"));
     let mut subpath = credentials_subpath(bundle_id);
     subpath.extend(project.clone());
     StorageNames {
@@ -201,7 +206,10 @@ pub fn storage_names(bundle_id: Option<&str>, selection: Option<&Selection>) -> 
 /// The namespaced store an untouched legacy default used before #36384; none for every other
 /// selection, whose own store is already namespaced or project-scoped.
 fn namespaced_legacy_store(bundle_id: &str, selection: &Selection) -> Option<LegacyStore> {
-    if !selection.legacy_storage || selection.auth_storage_namespace.is_some() || bundle_id.is_empty() {
+    if !selection.legacy_storage
+        || selection.auth_storage_namespace.is_some()
+        || bundle_id.is_empty()
+    {
         return None;
     }
     let mut subpath = credentials_subpath(Some(bundle_id));
@@ -221,7 +229,10 @@ pub fn sign_in_url(auth_web_origin: &str, callback_scheme: &str, state: Option<&
     if let Some(state) = state {
         callback = format!("{callback}?cmux_auth_state={}", encode_component(state));
     }
-    let after = format!("{origin}/handler/after-sign-in?native_app_return_to={}", encode_component(&callback));
+    let after = format!(
+        "{origin}/handler/after-sign-in?native_app_return_to={}",
+        encode_component(&callback)
+    );
     format!("{origin}/handler/native-sign-in?after_auth_return_to={}", encode_component(&after))
 }
 

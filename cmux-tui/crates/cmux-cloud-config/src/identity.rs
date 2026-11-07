@@ -19,7 +19,8 @@ pub fn is_team(value: &str) -> bool {
 
 /// The backend's id for a Stack team (the API's `stackTeamIdFor`).
 pub fn backend_team_id(stack_project_id: &str, stack_team_id: &str) -> String {
-    let digest = Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
+    let digest =
+        Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("team_{}", &hex[..20])
 }
@@ -81,13 +82,24 @@ pub struct Claims {
 pub fn claims(token: &str) -> Claims {
     let parts: Vec<&str> = token.split('.').collect();
     let payload = (parts.len() == 3)
-        .then(|| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1].trim_end_matches('=')).ok())
+        .then(|| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(parts[1].trim_end_matches('='))
+                .ok()
+        })
         .flatten()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let Some(payload) = payload else { return Claims::default() };
     Claims {
-        user: payload.get("sub").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_owned),
-        expires_at: payload.get("exp").and_then(serde_json::Value::as_f64).filter(|v| v.is_finite() && *v > 0.0),
+        user: payload
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
+        expires_at: payload
+            .get("exp")
+            .and_then(serde_json::Value::as_f64)
+            .filter(|v| v.is_finite() && *v > 0.0),
     }
 }
 
@@ -123,7 +135,11 @@ pub fn share_origin(url: &str) -> Option<ShareOrigin> {
         None => format!("https://{}", parts.host),
         Some(port) => format!("https://{}:{}", parts.host, port.parse::<u16>().ok()?),
     };
-    Some(ShareOrigin { folder: format!("{SHARE_FOLDER_PREFIX}{}", parts.host), host: parts.host, origin })
+    Some(ShareOrigin {
+        folder: format!("{SHARE_FOLDER_PREFIX}{}", parts.host),
+        host: parts.host,
+        origin,
+    })
 }
 
 /// The API an earlier launch's share install folder was made for; none for any other folder.

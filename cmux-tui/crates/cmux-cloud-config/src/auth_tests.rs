@@ -138,13 +138,22 @@ fn a_managed_device_uses_only_its_team() {
 }
 
 fn build(bundle: Option<&str>, debug: bool, production: bool) -> Build {
-    Build { bundle_id: bundle.map(str::to_owned), is_debug_build: debug, is_production_auth: production }
+    Build {
+        bundle_id: bundle.map(str::to_owned),
+        is_debug_build: debug,
+        is_production_auth: production,
+    }
 }
 
 const FILE: (&str, &str) = ("CMUX_AUTH_CREDENTIALS_FILE", "/Users/me/.secrets/cmuxterm-dev.env");
 
 fn sign_in(dev: bool, auto: bool, replaces: bool, memory: bool) -> LaunchSignIn {
-    LaunchSignIn { dev_auth: dev, auto_login: auto, replaces_session: replaces, memory_only: memory }
+    LaunchSignIn {
+        dev_auth: dev,
+        auto_login: auto,
+        replaces_session: replaces,
+        memory_only: memory,
+    }
 }
 
 /// Ported from the app's CloudAuthLaunchSignInTests.
@@ -161,12 +170,24 @@ fn signed_next_dev_signs_in_from_its_launch_credentials_file() {
 
 #[test]
 fn shipped_builds_never_sign_in_from_the_launch_and_nightly_only_in_memory() {
-    for bundle in [None, Some("com.cmuxterm.app"), Some("com.cmuxterm.app.nightly.cmux-next"), Some("com.cmuxterm.app.rc")] {
-        assert_eq!(launch_sign_in(&build(bundle, false, true), &map(&[FILE])), LaunchSignIn::default(), "{bundle:?}");
+    for bundle in [
+        None,
+        Some("com.cmuxterm.app"),
+        Some("com.cmuxterm.app.nightly.cmux-next"),
+        Some("com.cmuxterm.app.rc"),
+    ] {
+        assert_eq!(
+            launch_sign_in(&build(bundle, false, true), &map(&[FILE])),
+            LaunchSignIn::default(),
+            "{bundle:?}"
+        );
     }
     let nightly = build(Some("com.cmuxterm.app.nightly"), false, true);
     assert_eq!(launch_sign_in(&nightly, &map(&[])), LaunchSignIn::default());
-    assert_eq!(launch_sign_in(&nightly, &map(&[("CMUX_AUTH_CREDENTIALS_FILE", "")])), LaunchSignIn::default());
+    assert_eq!(
+        launch_sign_in(&nightly, &map(&[("CMUX_AUTH_CREDENTIALS_FILE", "")])),
+        LaunchSignIn::default()
+    );
     assert_eq!(launch_sign_in(&nightly, &map(&[FILE])), sign_in(false, true, false, true));
     assert_eq!(
         launch_sign_in(&nightly, &map(&[FILE, ("CMUX_DEV_AUTH_REPLACE_SESSION", "1")])),
@@ -192,11 +213,17 @@ fn the_launch_login_hands_over_only_a_resolved_account() {
     assert!(signed.replace_session && signed.allows_environment_auto_login);
     let refused = Decision {
         credentials: None,
-        refusal: Some(Refusal::AccountMismatch { found: "bob@x.com".to_owned(), declared: "leo@y.com".to_owned() }),
+        refusal: Some(Refusal::AccountMismatch {
+            found: "bob@x.com".to_owned(),
+            declared: "leo@y.com".to_owned(),
+        }),
     };
     let off = launch_login(&sign_in(false, true, true, false), Some(&refused));
     assert!(!off.replace_session && !off.allows_environment_auto_login);
-    assert_eq!(off.refusal_log.as_deref(), Some("dev auto sign-in off: b***@x.com is not the declared l***@y.com"));
+    assert_eq!(
+        off.refusal_log.as_deref(),
+        Some("dev auto sign-in off: b***@x.com is not the declared l***@y.com")
+    );
     // The debug surface signs in from raw launch keys too.
     assert!(launch_login(&sign_in(true, true, false, false), None).allows_environment_auto_login);
 }
@@ -204,7 +231,10 @@ fn the_launch_login_hands_over_only_a_resolved_account() {
 #[test]
 fn automatic_keeps_the_popup_for_safari_only() {
     assert!(!opens_default_browser(SignInWindow::Automatic, Some("com.apple.Safari")));
-    assert!(!opens_default_browser(SignInWindow::Automatic, Some("com.apple.SafariTechnologyPreview")));
+    assert!(!opens_default_browser(
+        SignInWindow::Automatic,
+        Some("com.apple.SafariTechnologyPreview")
+    ));
     assert!(!opens_default_browser(SignInWindow::Automatic, None));
     assert!(opens_default_browser(SignInWindow::Automatic, Some("com.microsoft.edgemac")));
     assert!(!opens_default_browser(SignInWindow::Popup, Some("com.microsoft.edgemac")));
@@ -225,7 +255,11 @@ fn a_waiting_creation_survives_only_its_own_sign_in() {
 
 #[test]
 fn seat_facts_and_invite_answers() {
-    let facts = seat_facts(&SeatInputs { role: Some("admin".to_owned()), members: 3, ..SeatInputs::default() });
+    let facts = seat_facts(&SeatInputs {
+        role: Some("admin".to_owned()),
+        members: 3,
+        ..SeatInputs::default()
+    });
     assert!(facts.can_invite && !facts.has_subscription);
     assert_eq!(facts.member_count, 3);
     let billed = seat_facts(&SeatInputs {

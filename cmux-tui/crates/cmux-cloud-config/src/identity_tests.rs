@@ -31,9 +31,18 @@ fn the_default_is_the_active_team_and_a_managed_device_mints_only_for_its_team()
     assert_eq!(mint_team(Some(TEAM), Some(stack_team), None, project), Ok(Some(TEAM.to_owned())));
     assert_eq!(mint_team(None, Some(stack_team), None, project), Ok(Some(backend.clone())));
     assert_eq!(mint_team(None, None, None, project), Ok(None));
-    assert_eq!(mint_team(None, Some(stack_team), Some(stack_team), project), Ok(Some(backend.clone())));
-    assert_eq!(mint_team(Some(&backend), Some(stack_team), Some(stack_team), project), Ok(Some(backend.clone())));
-    assert_eq!(mint_team(Some(TEAM), Some(stack_team), Some(stack_team), project), Err(MintRefusal::Managed));
+    assert_eq!(
+        mint_team(None, Some(stack_team), Some(stack_team), project),
+        Ok(Some(backend.clone()))
+    );
+    assert_eq!(
+        mint_team(Some(&backend), Some(stack_team), Some(stack_team), project),
+        Ok(Some(backend.clone()))
+    );
+    assert_eq!(
+        mint_team(Some(TEAM), Some(stack_team), Some(stack_team), project),
+        Err(MintRefusal::Managed)
+    );
     assert_eq!(mint_team(None, None, Some(stack_team), project), Err(MintRefusal::Managed));
     assert_eq!(mint_team(None, Some(other), Some(stack_team), project), Err(MintRefusal::Managed));
 }
@@ -53,7 +62,10 @@ fn claims_are_read_from_the_token() {
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(format!(r#"{{"exp":1900000600,"sub":"user_1","team":"{TEAM}"}}"#));
     let token = format!("eyJhbGciOiJFUzI1NiJ9.{payload}.c2ln");
-    assert_eq!(claims(&token), Claims { user: Some("user_1".to_owned()), expires_at: Some(1_900_000_600.0) });
+    assert_eq!(
+        claims(&token),
+        Claims { user: Some("user_1".to_owned()), expires_at: Some(1_900_000_600.0) }
+    );
     assert_eq!(claims("not-a-jwt"), Claims::default());
     let empty = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"","exp":-1}"#);
     assert_eq!(claims(&format!("a.{empty}.c")), Claims::default());
@@ -72,10 +84,16 @@ fn a_share_install_is_kept_by_its_https_origin() {
     let found = share_origin("https://Cloud-API.cmux.dev/v1/x").expect("origin");
     assert_eq!(found.origin, "https://cloud-api.cmux.dev");
     assert_eq!(found.folder, "install-share-cloud-api.cmux.dev");
-    assert_eq!(share_origin("https://h.example:8443").map(|o| o.origin).as_deref(), Some("https://h.example:8443"));
+    assert_eq!(
+        share_origin("https://h.example:8443").map(|o| o.origin).as_deref(),
+        Some("https://h.example:8443")
+    );
     assert_eq!(share_origin("http://cloud-api.cmux.dev"), None);
     assert_eq!(share_origin("https://"), None);
-    assert_eq!(share_folder_api("install-share-cloud-api.cmux.dev").as_deref(), Some("https://cloud-api.cmux.dev"));
+    assert_eq!(
+        share_folder_api("install-share-cloud-api.cmux.dev").as_deref(),
+        Some("https://cloud-api.cmux.dev")
+    );
     assert_eq!(share_folder_api("install-share-a/b"), None);
     assert_eq!(share_folder_api("other"), None);
 }
