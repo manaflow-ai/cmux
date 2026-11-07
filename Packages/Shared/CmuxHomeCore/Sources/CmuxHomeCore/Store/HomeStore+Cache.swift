@@ -36,6 +36,18 @@ extension HomeStore {
         viewCache.setUploadedDraftAttachments(json, for: id)
     }
 
+    /// The conversations with sends a web composer made that the owner has not shown yet.
+    public var pendingWebSendConversations: [ConversationID] { Array(viewCache.pendingWebSends.keys) }
+
+    /// A web composer's unsent sends in `id`, as its JSON text.
+    public func pendingWebSends(for id: ConversationID) -> String? { viewCache.pendingWebSends[id] }
+
+    /// Keeps a web composer's unsent sends (its JSON text, so a relaunch shows them again); nil or
+    /// empty clears them.
+    public func setPendingWebSends(_ json: String?, for id: ConversationID) {
+        viewCache.setPendingWebSends(json, for: id)
+    }
+
     /// The conversations whose compose field kept attachments (prepared here, their files in the blob cache).
     public var draftAttachmentConversations: [ConversationID] { Array(viewCache.draftAttachments.keys) }
 

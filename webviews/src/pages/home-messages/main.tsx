@@ -23,6 +23,7 @@ import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
 import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
 import { noMessagesHost, pageAttachmentKeeper, pageDraftKeeper, pageMessagesHost } from "./host";
+import { KeptPendingCarry, pageOutboxKeeper } from "./outbox";
 import { MessagesNav } from "./nav";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
@@ -64,7 +65,9 @@ export function mountMessagesPage(
   const strings = createStrings(table);
   document.title = strings.t("home.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
-  const carry = new PendingCarry();
+  // The app keeps them across launches too (outbox.ts): a relaunch shows a send it never took.
+  const carry = client ? new KeptPendingCarry(pageOutboxKeeper(client)) : new PendingCarry();
+  if (carry instanceof KeptPendingCarry) void carry.load();
   // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
   const nav = new MessagesNav(
     client ? pageDraftKeeper(client) : undefined,
@@ -120,6 +123,8 @@ function DaemonMessages({
     // In the app the app opens the default conversation (its preferred Chief), on the first load
     // as later; a reconnect reopens what showed.
     if (host) made.pickDefault = (conversations) => nav.restorable(conversations);
+    // Read receipts follow the transcript on screen (New Message hides it), as natively.
+    made.readsOnView = true;
     return made;
   });
   return (

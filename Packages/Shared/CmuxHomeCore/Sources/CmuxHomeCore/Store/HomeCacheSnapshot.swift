@@ -23,6 +23,10 @@ public struct HomeCacheSnapshot: Hashable, Sendable, Codable {
     /// own JSON text (the Messages page's parts, in order): already the owner's blobs, so no
     /// local file. Optional: a cache written before them still decodes.
     public var uploadedDraftAttachments: [ConversationID: String]?
+    /// A web composer's sends the owner has not shown yet, in each conversation, as its own JSON
+    /// text (the Messages page's pending rows, oldest first): a relaunch shows them again as not
+    /// sent, with Retry. Optional: a cache written before them still decodes.
+    public var pendingWebSends: [ConversationID: String]?
     /// On disk only: the conversations whose window is in its own file beside the index
     /// (``HomeCache``), so a write touches only the windows that changed. Nil in a file written
     /// whole (an older build), whose `windows` are inline; nil in every loaded snapshot.

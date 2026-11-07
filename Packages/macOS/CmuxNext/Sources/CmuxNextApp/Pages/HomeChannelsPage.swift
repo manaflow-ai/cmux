@@ -62,9 +62,12 @@ extension PageFactory {
         }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
            personOnlyMessage: RefusalStrings.personOnlyFromPage)
         let host = HomeMessagesHostProvider(services: services)
+        let firstRun = HomeMessagesFirstRunProvider(services: services, shown: { [weak host] in host?.shown })
+        host.firstRun = firstRun
         let actions = PageGestureActionProvider(page: .homeMessages, wrapping: AppPageNativeProvider(services: services, page: .homeMessages))
         let extra = [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route), PageRoute(prefix: PageNativeOp.actionRun, provider: actions)]
             + HomeMessagesHostProvider.prefixes.map { PageRoute(prefix: $0, provider: host) }
+            + [PageRoute(prefix: HomeMessagesFirstRunProvider.prefix, provider: firstRun)]
         guard let page = homeWebPage(.homeMessages, dock: dock, extra: extra) else { return nil }
         host.window = { [weak page] in page?.window }
         services.home.homeDidOpen(asked: true)

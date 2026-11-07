@@ -4,6 +4,7 @@
 // page (Requests, Group Info, New Chief, Invite, Team Invite). The conversation's data is the
 // Channels store's; the app adds only what it knows (detailHost.ts) and runs the sheets' actions
 // (sheets/actions.ts). Nothing here keeps a model of its own beyond the page's view state (nav.ts).
+import { hostPrepareFile, type PrepareFile } from "../transcript/prepareAttachment";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Icon } from "../../../agent-session/acpmux/icons/Icon";
 import { parseConversationLink } from "../../home-channels/model";
@@ -80,6 +81,9 @@ export function MessagesDetail(props: MessagesDetailProps) {
   const panels = useHostStream(host, DetailOps.headerPanels, parseHeaderPanels, NO_HEADER_PANELS);
   const firstRun = useHostStream(host, DetailOps.firstRun, parseFirstRun, NO_FIRST_RUN);
   const dictation = useHostDictation(host);
+  // Photos and videos go through the app's preparation before they upload (location removed
+  // unless Settings > Home keeps it), as the native composer's did. No host (a browser): as they are.
+  const prepareFile = useMemo(() => (host ? hostPrepareFile(host) : undefined), [host]);
   const links = useMemo<RowLinks>(
     () => ({
       fetchPreview: linkPreviewFetch(host),
@@ -175,6 +179,7 @@ export function MessagesDetail(props: MessagesDetailProps) {
     panelItems: (shown: HomeConversation) => toolbar(shown, panels, words.cards),
     onPanel: (id: string) => void host?.call(DetailOps.headerPanelToggle, { id }).catch(() => undefined),
     dictation,
+    prepareFile,
     links,
     transcript,
   };
@@ -295,6 +300,7 @@ interface ConversationViewProps {
   panelItems(conversation: HomeConversation): HeaderPanelItem[];
   onPanel(id: string): void;
   dictation?: DictationCall;
+  prepareFile?: PrepareFile | undefined;
   links: RowLinks;
   transcript: React.RefObject<MessagesTranscriptHandle | null>;
 }
@@ -343,12 +349,14 @@ function ConversationView(
         onDraftChange={(text) => nav.keepDraft(id, text)}
         composerKey={String(nav.draftVersion(id))}
         attachmentDrafts={nav.attachments}
+        {...(props.prepareFile ? { prepareFile: props.prepareFile } : {})}
         onSend={async (text, files) => {
           const sent = await store.send(text, undefined, undefined, files);
           if (sent) props.afterSend?.();
           return sent;
         }}
         onLoadOlder={() => void store.loadOlder()}
+        onRead={(seq) => store.readThrough(id, seq)}
         onRetry={(key) => store.retry(key)}
         onDiscard={(key) => store.discard(key)}
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}

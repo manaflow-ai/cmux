@@ -84,7 +84,37 @@ export interface PendingSend {
 /** Pending sends that outlive one store: the page makes a new store on every reconnect, and a
  * send that failed with the old connection keeps its "Not sent" row and Retry in the new one. */
 export class PendingCarry {
-  entries: readonly PendingSend[] = [];
+  private list: readonly PendingSend[] = [];
+  /** The store that shows these: a restore reaches it. */
+  private showing: ((entries: readonly PendingSend[]) => void) | undefined;
+
+  get entries(): readonly PendingSend[] {
+    return this.list;
+  }
+
+  set entries(entries: readonly PendingSend[]) {
+    if (entries === this.list) return;
+    this.list = entries;
+    this.changed(entries);
+  }
+
+  /** The entries changed (a send, a delivery, a failure, a discard): a durable carry keeps them. */
+  protected changed(_entries: readonly PendingSend[]): void {}
+
+  /** The store showing the entries now (the latest store of the page). */
+  show(store: (entries: readonly PendingSend[]) => void): void {
+    this.showing = store;
+  }
+
+  /** Sends kept from before (a relaunch) go ahead of these, not sent, with Retry: their
+   * idempotency keys came with them, so a retry never sends one twice. */
+  restore(kept: readonly PendingSend[]): void {
+    const known = new Set(this.list.map((entry) => entry.key));
+    const back = kept.filter((entry) => !known.has(entry.key)).map((entry) => ({ ...entry, failed: true }));
+    if (back.length === 0) return;
+    this.entries = [...back, ...this.list];
+    this.showing?.(this.list);
+  }
 }
 
 export interface HomeSnapshot {
@@ -208,6 +238,7 @@ export class HomeChannelsStore {
       inboxState: false,
     };
     carry.entries = this.snapshot.pending;
+    carry.show((pending) => this.set({ pending }));
   }
 
   /** Which conversation a read of the inbox opens when none is open: the Chief DM first, else the
@@ -504,7 +535,7 @@ export class HomeChannelsStore {
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
       void this.loadLive(id);
-      if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
+      if (this.readsItself()) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
       return;
@@ -924,6 +955,21 @@ export class HomeChannelsStore {
   /** The page's hash names the open conversation (false: the gallery, which owns its window hash). */
   routed = true;
 
+  /** The page reads only what its transcript shows (``readThrough``), never by itself: the Messages
+   * page, whose New Message hides the transcript, as the native transcript read only while it
+   * showed its newest message in a focused window. */
+  readsOnView = false;
+
+  private readsItself(): boolean {
+    return this.shown && !this.readsOnView;
+  }
+
+  /** The transcript showed `id`'s messages through `seq` (``readsOnView``): my read cursor moves there. */
+  readThrough(id: string, seq: number): void {
+    const conversation = this.snapshot.conversations.get(id);
+    if (conversation) this.markRead(conversation, seq);
+  }
+
   setShown(shown: boolean): void {
     if (shown === this.shown) return;
     this.shown = shown;
@@ -969,7 +1015,7 @@ export class HomeChannelsStore {
 
   /** Reads the open conversation through its newest loaded message. */
   private readOpen(): void {
-    if (!this.shown) return;
+    if (!this.readsItself()) return;
     const { selected, messages } = this.snapshot;
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
@@ -1079,7 +1125,7 @@ export class HomeChannelsStore {
     if (conversations) this.syncViewing();
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
-      if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+      if (this.readsItself()) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);

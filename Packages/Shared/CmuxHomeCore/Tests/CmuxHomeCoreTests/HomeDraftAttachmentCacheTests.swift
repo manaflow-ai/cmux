@@ -131,6 +131,27 @@ import UniformTypeIdentifiers
         #expect(try #require(HomeCache(url: root.appendingPathComponent("home.json")).load()).uploadedDraftAttachments == nil)
     }
 
+    /// The Messages page's unsent sends (its pending rows' JSON) survive a relaunch, and clearing
+    /// them takes them out (review of cmux#37736, round 4 F2).
+    @Test func aWebComposersUnsentSendsComeBackAfterARelaunch() async throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rows = #"[{"conversation":"austin","createdAt":1,"failed":false,"key":"k1","text":"hi"}]"#
+        let store = Self.store(root)
+        store.start()
+        store.setPendingWebSends(rows, for: Self.austin)
+        store.stop()
+        await store.flushCache()
+        let next = Self.store(root)
+        next.start()
+        #expect(next.pendingWebSends(for: Self.austin) == rows)
+        #expect(next.pendingWebSendConversations == [Self.austin])
+        next.setPendingWebSends(nil, for: Self.austin)
+        next.stop()
+        await next.flushCache()
+        #expect(try #require(HomeCache(url: root.appendingPathComponent("home.json")).load()).pendingWebSends == nil)
+    }
+
     /// A cache written before drafts kept attachments still decodes, with its text draft.
     @Test func aCacheWithoutDraftAttachmentsStillLoads() throws {
         let root = Self.root()

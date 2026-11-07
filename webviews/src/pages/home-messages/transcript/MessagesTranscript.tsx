@@ -11,6 +11,7 @@
 // viewport render (useTimelineWindow), so a chat of 10,000 messages opens as one of 10 does. A send
 // moves the rows above it together: the stack is moved by the new row's height in the same frame
 // the window scrolls, then eases back to rest, so nothing jumps and nothing pops in after.
+import type { PrepareFile } from "./prepareAttachment";
 import {
   useEffect,
   useImperativeHandle,
@@ -64,6 +65,8 @@ export interface MessagesTranscriptProps extends TranscriptData {
   pinned?: ReactNode;
   /** The page's attachment service: images draw, files attach. Absent: named rows only, no +. */
   attachments?: AttachmentService;
+  /** What each attached file goes through before it uploads (the app's location removal). */
+  prepareFile?: PrepareFile;
   dictation?: DictationCall;
   /** The page's files per conversation (they outlive this conversation's composer); absent: the composer's own. */
   attachmentDrafts?: AttachmentDrafts;
@@ -340,7 +343,15 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
           strings={strings}
           sendEnabled={connection === "online"}
           onSend={props.onSend}
-          attachments={attachments ? { service: attachments, conversation: conversation.id } : undefined}
+          attachments={
+            attachments
+              ? {
+                  service: attachments,
+                  conversation: conversation.id,
+                  ...(props.prepareFile ? { prepare: props.prepareFile } : {}),
+                }
+              : undefined
+          }
           history={history}
           dictation={props.dictation}
           initialText={props.initialDraft}

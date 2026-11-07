@@ -427,3 +427,137 @@ test("round 3 F6: a tapback goes to its part, with its kind", async () => {
   const react = calls.find((call) => call.op === HomeOps.react)!;
   expect(react.params).toMatchObject({ partIndex: 2, tapback: "love", value: "❤️", remove: false });
 });
+
+// Review round 4 (BLOCK at 530a1236).
+const { hostPrepareFile, mayCarryLocation } = await import("../src/pages/home-messages/transcript/prepareAttachment");
+const { KeptPendingCarry, parseOutbox } = await import("../src/pages/home-messages/outbox");
+type PendingSend = import("../src/pages/home-channels/store").PendingSend;
+
+test("round 4 F1: a photo uploads the bytes the app prepared, location removed", async () => {
+  const container = installDom();
+  // The tray's local picture is not under test.
+  saved.set("FileReader", scope.FileReader);
+  scope.FileReader = class {
+    readAsDataURL() {}
+  };
+  const uploaded: string[] = [];
+  const service = {
+    upload: async (_conversation: string, file: File) => {
+      uploaded.push(`${file.name}:${await file.text()}`);
+      return part("h1", file.name);
+    },
+  };
+  const prepare = async (file: File) => new File(["no gps"], file.name, { type: file.type });
+  let handle: import("../src/pages/home-messages/transcript/MessageComposer").MessageComposerHandle | null = null;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <MessageComposer
+        strings={strings}
+        sendEnabled
+        onSend={async () => true}
+        attachments={{ service: service as never, conversation: "a", prepare }}
+        drafts={new AttachmentDrafts()}
+        ref={(value) => void (handle = value)}
+      />,
+    );
+  });
+  await act(async () => handle!.addFiles([new File(["gps bytes"], "photo.jpg", { type: "image/jpeg" })]));
+  await settle();
+  expect(uploaded).toEqual(["photo.jpg:no gps"]);
+});
+
+test("round 4 F1: the host preparation moves a photo's bytes there and back; other files go as they are", async () => {
+  const calls: string[] = [];
+  let received = "";
+  const client = {
+    call: async (op: string, params: Record<string, unknown>) => {
+      const name = op.replace("cmux.home.messages.attachments.prepare.", "");
+      calls.push(name);
+      if (name === "begin") return { id: "s1" };
+      if (name === "chunk") received += atob(params.data as string);
+      if (name === "finish") return { changed: true, name: "photo.jpg", mimeType: "image/jpeg", byteCount: 5 };
+      if (name === "read") return { data: btoa("clean") };
+      return null;
+    },
+  };
+  const prepare = hostPrepareFile(client as never);
+  const signal = new AbortController().signal;
+  const photo = await prepare(new File(["gps bytes"], "photo.jpg", { type: "image/jpeg" }), signal);
+  expect(received).toBe("gps bytes");
+  expect(await photo.text()).toBe("clean");
+  expect(calls).toEqual(["begin", "chunk", "finish", "read", "end"]);
+  const notes = new File(["notes"], "notes.txt", { type: "text/plain" });
+  calls.length = 0;
+  expect(await prepare(notes, signal)).toBe(notes);
+  expect(calls).toEqual([]);
+  expect(mayCarryLocation(new File(["x"], "clip.mov", { type: "video/quicktime" }))).toBe(true);
+  // The setting keeps location: the original goes, and no byte moves.
+  const keeping = hostPrepareFile({ call: async () => ({ keep: true }) } as never);
+  const original = new File(["gps bytes"], "photo.jpg", { type: "image/jpeg" });
+  expect(await keeping(original, signal)).toBe(original);
+});
+
+function sendRow(key: string, conversation = "a"): PendingSend {
+  return { key, conversation, text: `hello ${key}`, createdAt: 1, failed: false };
+}
+
+test("round 4 F2: an unsent send is kept by the app and shows again, not sent, on a new page", async () => {
+  const kept: Record<string, PendingSend[]> = {};
+  const keeper = {
+    load: async () => parseOutbox({ pending: structuredClone(kept) }),
+    save: (conversation: string, pending: readonly PendingSend[]) => {
+      if (pending.length) kept[conversation] = [...pending];
+      else delete kept[conversation];
+    },
+  };
+  const carry = new KeptPendingCarry(keeper);
+  await carry.load();
+  carry.entries = [sendRow("k1")];
+  expect(kept.a?.map((entry) => entry.key)).toEqual(["k1"]);
+
+  // A relaunch: the new page's store shows it as not sent, with its key.
+  const next = new KeptPendingCarry(keeper);
+  const store = new HomeChannelsStore(null, next);
+  expect(store.getSnapshot().pending).toEqual([]);
+  await next.load();
+  expect(store.getSnapshot().pending.map((entry) => [entry.key, entry.failed])).toEqual([["k1", true]]);
+  // Discarded (or delivered): the app lets go of it.
+  store.discard("k1");
+  expect(kept).toEqual({});
+  expect(parseOutbox({ pending: { a: [{ key: 1 }], b: [sendRow("k2", "other")] } })).toEqual([]);
+});
+
+function readingClient(reads: unknown[]) {
+  const dm = conversation("dm", { lastSeq: 5, unread: 2 });
+  const message = { id: "m5", conversation: "dm", seq: 5, author: "ada", createdAt: 1, parts: [], reactions: [] };
+  return {
+    call: async (op: string, params: unknown) => {
+      if (op === HomeOps.read) reads.push(params);
+      if (op === HomeOps.inbox)
+        return { me: { id: "me", kind: "human", name: "Me", chief: false }, conversations: [dm], rev: 1 };
+      if (op === HomeOps.page) return { conversation: dm, messages: [message], hasOlder: false };
+      return {};
+    },
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+}
+
+test("round 4 F3: the Messages page reads only what its transcript shows", async () => {
+  const reads: unknown[] = [];
+  const store = new HomeChannelsStore(readingClient(reads) as never);
+  store.readsOnView = true;
+  await store.reloadInbox();
+  await store.select("dm");
+  expect(reads).toEqual([]);
+  store.readThrough("dm", 5);
+  expect(reads).toMatchObject([{ conversation: "dm", seq: 5 }]);
+
+  // The Channels page still reads by itself (so the test above fails for its own reason).
+  const channelReads: unknown[] = [];
+  const channels = new HomeChannelsStore(readingClient(channelReads) as never);
+  await channels.reloadInbox();
+  await channels.select("dm");
+  expect(channelReads).toHaveLength(1);
+});

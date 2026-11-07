@@ -25,7 +25,11 @@ import MessagesLabHome
 /// - `drafts.load {}` -> `{drafts}`; `drafts.save {conversation, text}`: the composer drafts, kept in
 ///   HomeStore's draft cache (as the native composer kept them) across reconnects and launches.
 /// - `attachments.load {}` -> `{attachments, legacy}`; `attachments.save {conversation, parts, migrated}`:
-///   the staged attachments, kept the same way (``HomeMessagesAttachmentDrafts``).
+///   the staged attachments, kept the same way (``HomeMessagesAttachmentDrafts``);
+///   `attachments.prepare.*`: a photo's or video's bytes through the host's preparation before they
+///   upload, location removed unless kept (``HomeAttachmentPreparer``).
+/// - `outbox.load {}` -> `{pending}`; `outbox.save {conversation, pending}`: the unsent sends, kept the
+///   same way (``HomeMessagesOutbox``).
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
 /// - `contacts {}` -> `{contacts, inviteTeam}`.
@@ -40,7 +44,7 @@ import MessagesLabHome
 final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
-    static let prefixes = ["selected", "drafts.", "attachments.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
+    static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
                            "linkPreview", "openLink", "headerPanels", "appearance"].map { HomeMessagesPageRoute.prefix + $0 }
 
     private weak var services: AppServices?
@@ -52,9 +56,10 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
     var hidden: @MainActor () -> [ConversationID: Seq] = { [:] }
     private var hiddenListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
-    static let maxDraftLength = 200_000
     private var previewProvider: HomeLinkPreviewProvider?
+    private var keeping: HomeMessagesKept?
+    /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
+    var firstRun: HomeMessagesFirstRunProvider?
     private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var panelListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     /// The observation of what the streams read; runs only while one has a listener.
@@ -77,30 +82,11 @@ final class HomeMessagesHostProvider: PageProvider {
         let home = services.home
         let fields = params.objectValue ?? [:]
         let name = op.hasPrefix(HomeMessagesPageRoute.prefix) ? String(op.dropFirst(HomeMessagesPageRoute.prefix.count)) : op
+        if let answer = try await kept(home).call(name, fields) { return answer }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
             reportShown(id, composing: id == nil && fields["composing"]?.boolValue == true)
-            return .null
-        case "drafts.load":
-            let store = home.homeStore
-            let drafts = store.rows.reduce(into: [String: JSONValue]()) { out, row in
-                if let text = store.draft(for: row.id), !text.isEmpty { out[row.id.rawValue] = .string(text) }
-            }
-            return .object(["drafts": .object(drafts)])
-        case "drafts.save":
-            let id = try conversation(fields)
-            let text = fields["text"]?.stringValue ?? ""
-            guard text.count <= Self.maxDraftLength else { throw PageError.invalidParams("text is longer than a draft keeps") }
-            home.homeStore.setDraft(text, for: id)
-            return .null
-        case "attachments.load":
-            return await HomeMessagesAttachmentDrafts(store: home.homeStore).load()
-        case "attachments.save":
-            let id = try conversation(fields)
-            let parts = fields["parts"]?.arrayValue ?? []
-            let migrated = Set((fields["migrated"]?.arrayValue ?? []).compactMap(\.stringValue))
-            HomeMessagesAttachmentDrafts(store: home.homeStore).save(parts, migrated: migrated, for: id)
             return .null
         case "requests.list":
             await home.requests.reload()
@@ -225,7 +211,7 @@ final class HomeMessagesHostProvider: PageProvider {
     func reportShown(_ id: ConversationID?, composing: Bool) {
         guard let moved = page.report(id, composing: composing) else { return }
         onShown?(page.conversation, composing)
-        if moved { restartPanels() }
+        if moved { restartPanels(); firstRun?.restart() }
     }
 
     // MARK: New Message's first send
@@ -322,6 +308,14 @@ final class HomeMessagesHostProvider: PageProvider {
                 for listener in panelListeners.values { listener(value) }
             }
         }
+    }
+
+    /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
+    private func kept(_ home: HomeService) -> HomeMessagesKept {
+        if let keeping { return keeping }
+        let made = HomeMessagesKept(store: home.homeStore, keepLocation: { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false })
+        keeping = made
+        return made
     }
 
     // MARK: Wire

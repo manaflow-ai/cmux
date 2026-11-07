@@ -27,6 +27,7 @@ final class HomeClientViewCache {
     private(set) var drafts: [ConversationID: String] = [:]
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     private(set) var uploadedDraftAttachments: [ConversationID: String] = [:]
+    private(set) var pendingWebSends: [ConversationID: String] = [:]
     private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
     private var pendingWrite: Task<Void, Never>?
     /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
@@ -65,6 +66,14 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+    /// Keeps a web composer's unsent sends (its JSON text); nil or empty clears them.
+    func setPendingWebSends(_ json: String?, for id: ConversationID) {
+        let value = json?.isEmpty == false ? json : nil
+        guard pendingWebSends[id] != value else { return }
+        pendingWebSends[id] = value
+        scheduleWrite()
+    }
+
     /// Keeps a web composer's uploaded attachments (its JSON text); nil or empty clears them.
     func setUploadedDraftAttachments(_ json: String?, for id: ConversationID) {
         let value = json?.isEmpty == false ? json : nil
@@ -88,6 +97,7 @@ final class HomeClientViewCache {
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
         uploadedDraftAttachments = snapshot.uploadedDraftAttachments ?? [:]
+        pendingWebSends = snapshot.pendingWebSends ?? [:]
         scrollAnchors = snapshot.scroll
         body()
     }
@@ -160,6 +170,7 @@ final class HomeClientViewCache {
         state.drafts = drafts
         state.draftAttachments = draftAttachments
         state.uploadedDraftAttachments = uploadedDraftAttachments
+        state.pendingWebSends = pendingWebSends
         state.scroll = scrollAnchors
         sequence &+= 1
         return (state, sequence)

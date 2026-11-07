@@ -14,6 +14,7 @@ struct HomeCacheState: Sendable {
     var drafts: [ConversationID: String] = [:]
     var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     var uploadedDraftAttachments: [ConversationID: String] = [:]
+    var pendingWebSends: [ConversationID: String] = [:]
     var scroll: [ConversationID: HomeScrollAnchor] = [:]
 
     init() {}
@@ -27,6 +28,7 @@ struct HomeCacheState: Sendable {
         drafts = snapshot.drafts
         draftAttachments = snapshot.draftAttachments ?? [:]
         uploadedDraftAttachments = snapshot.uploadedDraftAttachments ?? [:]
+        pendingWebSends = snapshot.pendingWebSends ?? [:]
         scroll = snapshot.scroll
     }
 
@@ -40,6 +42,7 @@ struct HomeCacheState: Sendable {
         snapshot.drafts = drafts
         snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
         snapshot.uploadedDraftAttachments = uploadedDraftAttachments.isEmpty ? nil : uploadedDraftAttachments
+        snapshot.pendingWebSends = pendingWebSends.isEmpty ? nil : pendingWebSends
         snapshot.scroll = scroll
         snapshot.windowIDs = windows.keys.sorted { $0.rawValue < $1.rawValue }
         return snapshot

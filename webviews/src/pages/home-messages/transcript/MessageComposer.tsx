@@ -14,6 +14,7 @@
 //   the data side cannot take is refused before it uploads, with a notice. Send waits for uploads.
 // - The files are the conversation's (attachmentDrafts.ts, kept by the page): another conversation
 //   showing leaves them, uploads and all, and coming back finds them in the tray.
+import type { PrepareFile } from "./prepareAttachment";
 import { useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { PromptEditor, type PromptEditorHandle } from "../../../agent-session/acpmux/composer/PromptEditor";
 import { DictationButton } from "../../../agent-session/acpmux/DictationButton";
@@ -46,8 +47,9 @@ export interface MessageComposerProps {
   sendEnabled: boolean;
   /** True when the owner took the message (the store logged it); false gives the text back. */
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
-  /** Files upload to this conversation through this service; absent: no + and no file intake. */
-  attachments?: { service: AttachmentService; conversation: string };
+  /** Files upload to this conversation through this service; absent: no + and no file intake.
+   * `prepare`: what each file goes through first (the app's location removal, prepareAttachment.ts). */
+  attachments?: { service: AttachmentService; conversation: string; prepare?: PrepareFile };
   /** The history's entries, newest first (`historyEntries`), read when a browse begins. */
   history?: () => string[];
   /** The host's dictation; absent: no mic (Debug Settings > Home > Mic button). */
@@ -104,7 +106,7 @@ export function MessageComposer({
 
   const addFiles = (list: Iterable<File>) => {
     if (!attachments) return;
-    const { service, conversation } = attachments;
+    const { service, conversation, prepare } = attachments;
     for (const file of list) {
       const problem = intakeProblem(file, t("home.composer.attach.pasted"));
       if (problem) {
@@ -115,7 +117,8 @@ export function MessageComposer({
       const id = drafts.add(
         conversation,
         file,
-        (signal, progress) => service.upload(conversation, file, progress, signal),
+        async (signal, progress) =>
+          service.upload(conversation, prepare ? await prepare(file, signal) : file, progress, signal),
         t("home.composer.attach.failed"),
       );
       // A small local picture while it uploads (a data URL: any page policy).
