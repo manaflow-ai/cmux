@@ -109,7 +109,7 @@ public final class SidebarDocSections {
                         lists: (String) -> Bool) -> (place: NewRowsPlace, newestFirst: Bool) {
         guard case .below(let current) = place else { return (place, true) }
         var seen = currents[session, default: []]
-        if seen.last != current { seen.removeAll { $0 == current }; seen.append(current); currents[session] = seen.suffix(Self.currentsKept) }
+        if seen.last != current { seen.removeAll { $0 == current }; seen.append(current); currents[session] = Array(seen.suffix(Self.currentsKept)) }
         guard fresh.contains(current) else { return (place, true) }
         return (seen.last(where: lists).map(NewRowsPlace.below) ?? .first, false)
     }
