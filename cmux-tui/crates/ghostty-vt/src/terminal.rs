@@ -3209,6 +3209,10 @@ thread_local! {
 #[path = "replay_layout_tests.rs"]
 mod replay_layout_tests;
 
+#[cfg(test)]
+#[path = "prompt_clear_tests.rs"]
+mod prompt_clear_tests;
+
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
