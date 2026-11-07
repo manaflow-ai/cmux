@@ -100,6 +100,8 @@ export function useToastMotion(
   list: RefObject<HTMLElement | null>,
   toasts: readonly ToastState[],
   onSettled: () => void,
+  /** True from a toast's end until its fading copy is drawn: the stack holds its reports meanwhile. */
+  leavingUndrawn: RefObject<boolean>,
 ): ExitingToast[] {
   const drawn = useRef<readonly ToastState[]>([]);
   const places = useRef(new Map<number, Place>());
@@ -130,13 +132,17 @@ export function useToastMotion(
     places.current = after;
 
     // Ends: a fade where the toast was; a dropped one is simply gone.
-    if (mode !== "none") {
-      const leaving = plan.exit.flatMap((toast) => {
-        const place = previous.get(toast.serial);
-        const index = before.indexOf(toast);
-        return place ? [{ toast, place, index }] : [];
-      });
-      if (leaving.length > 0) setExiting((current) => [...current, ...leaving]);
+    const leaving =
+      mode === "none"
+        ? []
+        : plan.exit.flatMap((toast) => {
+            const place = previous.get(toast.serial);
+            const index = before.indexOf(toast);
+            return place ? [{ toast, place, index }] : [];
+          });
+    if (leaving.length > 0) {
+      leavingUndrawn.current = true;
+      setExiting((current) => [...current, ...leaving]);
     }
 
     const move = springSamples(MOTION_SPRINGS.move);
@@ -178,8 +184,9 @@ export function useToastMotion(
         ),
       );
     }
+    // Held while a fading copy is not drawn yet (`leavingUndrawn`): it reports once drawn, below.
     settled.current();
-  }, [list, toasts]);
+  }, [list, toasts, leavingUndrawn]);
 
   // Fading copies: placed where their toast was (in the stack's coordinates, which moved), then faded.
   useLayoutEffect(() => {
@@ -208,8 +215,10 @@ export function useToastMotion(
       fade.onfinish = done;
       fade.oncancel = done;
     }
-    if (exiting.length === 0) settled.current();
-  }, [list, exiting]);
+    // The stack with its fading copies, and without them once they faded (the host then retires the page).
+    leavingUndrawn.current = false;
+    settled.current();
+  }, [list, exiting, leavingUndrawn]);
 
   useLayoutEffect(
     () => () => {

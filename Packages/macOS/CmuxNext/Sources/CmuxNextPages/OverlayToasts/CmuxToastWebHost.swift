@@ -123,7 +123,8 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         let bounds = window.contentView?.bounds ?? .zero
         let width = stack.rects.map(\.width).max() ?? Self.assumedWidth
         let lowest = max(bounds.minY + Self.lift, CmuxToastAvoidance.floor(width: width, in: bounds, window: window))
-        let pageBottom = bounds.minY + Self.inset
+        // Where the overlay placed the page (review 1 of #37289): its bottom, not an assumed inset.
+        let pageBottom = stack.page.window == nil ? bounds.minY + Self.inset : stack.page.convert(stack.page.bounds, to: nil).minY
         return Double(max(0, lowest - pageBottom)) / max(stack.page.pageZoom, 0.01)
     }
 

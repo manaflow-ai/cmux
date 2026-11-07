@@ -44,9 +44,12 @@ const rectOf = (serial: number, place: { x: number; y: number; w: number; h: num
 export function ToastStack({ toasts, floor, words, onAction, onClose, onHover, onLayout }: ToastStackProps) {
   const list = useRef<HTMLDivElement>(null);
   const sent = useRef("");
+  const leavingUndrawn = useRef(false);
   const report = useCallback(() => {
     const root = list.current;
-    if (!root) return;
+    // A toast that ended is not drawn fading yet: reported now, the stack would read as empty and the
+    // host would take the page off before the fade shows (review 1 of #37289).
+    if (!root || leavingUndrawn.current) return;
     const rects: ToastRect[] = [];
     const fading: ToastRect[] = [];
     for (const element of root.querySelectorAll<HTMLElement>("[data-toast-serial]")) {
@@ -58,7 +61,7 @@ export function ToastStack({ toasts, floor, words, onAction, onClose, onHover, o
     sent.current = key;
     onLayout(rects, fading);
   }, [onLayout]);
-  const exiting = useToastMotion(list, toasts, report);
+  const exiting = useToastMotion(list, toasts, report, leavingUndrawn);
 
   // The page resized (the window did) or a toast's text wrapped again: say where they are now.
   useEffect(() => {
