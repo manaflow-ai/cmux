@@ -38,7 +38,13 @@ test("child views preserve call generations, match cold replay and keep old snap
     text("agent_message_chunk", "Read the samples."),
     text("agent_thought_chunk", "Inspect "),
     text("agent_thought_chunk", "every item."),
-    tool("hidden", { title: "ToolSearch", _meta: { claude: { tool: "ToolSearch" } } }),
+    // A real ToolSearch runs no command: one that did would be work (hiddenTools.ts).
+    tool("hidden", {
+      title: "ToolSearch",
+      kind: "other",
+      rawInput: { query: "select:Read" },
+      _meta: { claude: { tool: "ToolSearch" } },
+    }),
     own({ sessionUpdate: "tool_call_update", toolCallId: "hidden", status: "completed" }),
     tool("first", { status: "completed" }),
     tool("second", { status: "in_progress" }),
