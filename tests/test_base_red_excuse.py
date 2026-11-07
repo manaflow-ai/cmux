@@ -4079,6 +4079,18 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 self.refused_with(fake + self.real_target("ffiName"), "has no single plain string literal name")
         self.assertEqual(self.releases, [])
 
+    def test_a_comment_inside_an_interpolation_cannot_end_its_string(self):
+        # Review of hq#7514 at 1339773d (F1, P1): a `)` or a quote in a comment inside `\\(...)` counts for nothing,
+        # so the target after it is still the interpolation's code, inside the string.
+        inline = self.target(self.STEP_B_PIN).replace("let appFFI: Target = ", "").replace("\n", " ").strip()
+        for comment in ('/* ) " */', '/* ) /* " */ ) " */'):
+            with self.subTest(comment=comment):
+                self.refused_with(f'let s = "\\(Target.self{comment}{inline})"\n',
+                                  "Package.swift has 0 CCmuxAppFFI binary targets")
+        self.refused_with('let s = """\n\\(x // ) """\n' + self.target(self.STEP_B_PIN) + ')\n"""\n',
+                          "Package.swift has 0 CCmuxAppFFI binary targets")
+        self.assertEqual(self.releases, [])
+
     def test_an_unterminated_raw_string_hides_everything_after_it(self):
         self.refused_with('let s = ##"never closed"#\n' + self.target(self.STEP_B_PIN),
                           "Package.swift has 0 CCmuxAppFFI binary targets")

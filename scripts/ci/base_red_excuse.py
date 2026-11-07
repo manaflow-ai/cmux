@@ -1065,6 +1065,25 @@ def swift_hashes(text: str, i: int) -> int:
     return j - i
 
 
+def swift_comment_end(text: str, i: int) -> int | None:
+    """Where the Swift comment starting at I ends (`//` at its line's end, `/* */` nested as Swift nests them, the
+    text's end when unterminated), or None when no comment starts at I."""
+    if text.startswith("//", i):
+        j = text.find("\n", i)
+        return len(text) if j < 0 else j
+    if text.startswith("/*", i):
+        depth, j = 1, i + 2
+        while j < len(text) and depth:
+            if text.startswith("/*", j):
+                depth, j = depth + 1, j + 2
+            elif text.startswith("*/", j):
+                depth, j = depth - 1, j + 2
+            else:
+                j += 1
+        return j
+    return None
+
+
 def swift_string_end(text: str, i: int) -> tuple[int, str | None]:
     """Where the Swift string literal starting at I ends (one past its closing delimiter; the line's end for an
     unterminated plain one; the text's end for an unterminated raw or multiline one), and its text when it is one
@@ -1094,6 +1113,10 @@ def swift_string_end(text: str, i: int) -> tuple[int, str | None]:
                         continue
                     if run:  # a `#` run with no quote after it is no string, and no part of it starts one
                         j += run
+                        continue
+                    comment = swift_comment_end(text, j)  # a `)` or a quote in a comment counts for nothing
+                    if comment is not None:
+                        j = comment
                         continue
                     depth += {"(": 1, ")": -1}.get(text[j], 0)
                     j += 1
@@ -1125,20 +1148,8 @@ def swift_code(text: str) -> tuple[str, dict[int, tuple[int, str | None]]]:
             blank(i, end, "_")  # a literal still reads as one value word, never as code
             out[i] = '"'
             i = end
-        elif text.startswith("//", i):
-            j = text.find("\n", i)
-            j = n if j < 0 else j
-            blank(i, j)
-            i = j
-        elif text.startswith("/*", i):
-            depth, j = 1, i + 2
-            while j < n and depth:
-                if text.startswith("/*", j):
-                    depth, j = depth + 1, j + 2
-                elif text.startswith("*/", j):
-                    depth, j = depth - 1, j + 2
-                else:
-                    j += 1
+        elif swift_comment_end(text, i) is not None:
+            j = swift_comment_end(text, i)
             blank(i, j)
             i = j
         else:
