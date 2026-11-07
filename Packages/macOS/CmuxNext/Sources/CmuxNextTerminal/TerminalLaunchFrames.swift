@@ -471,26 +471,30 @@ public final class TerminalLaunchFrames {
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        // Saved frames only, then the cap: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot.
-        let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [])
-            .filter { owner(of: $0) != nil }.sorted().prefix(maximumFiles))
-        var frames: [String: Frame] = [:]
-        for scale in [2, 1, 3] {
-            // A key has one file per scale, except when a keeper write that lost the race to a quit's save landed at the
-            // other extension: the newer file is the one written last, as one name would have kept it.
-            var newest: [String: (name: String, date: Date)] = [:]
-            for ext in fileExtensions {
-                let suffix = "@\(scale)x.\(ext)"
-                for name in names where name.hasSuffix(suffix) {
-                    let key = String(name.dropLast(suffix.count))
-                    let date = (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: name).path))?[.modificationDate] as? Date ?? .distantPast
-                    if let held = newest[key], held.date >= date { continue }
-                    newest[key] = (name, date)
-                }
+        // Saved frames only: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot. One file per key and
+        // scale: a key has one, except when a keeper write that lost the race to a quit's save landed at the other
+        // extension, and then the newer is the one written last, as one name would have kept it. Then the cap, so it
+        // never cuts the newer file of a pair.
+        var chosen: [String: String] = [:]
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: name) != nil {
+            let stem = String(name.dropLast(".png".count))
+            guard let held = chosen[stem] else {
+                chosen[stem] = name
+                continue
             }
-            for (key, file) in newest {
+            func modified(_ file: String) -> Date {
+                (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: file).path))?[.modificationDate] as? Date ?? .distantPast
+            }
+            if modified(name) > modified(held) { chosen[stem] = name }
+        }
+        let names = Set(chosen.values.sorted().prefix(maximumFiles))
+        var frames: [String: Frame] = [:]
+        for (scale, ext) in [2, 1, 3].flatMap({ scale in fileExtensions.map { (scale, $0) } }) {
+            let suffix = "@\(scale)x.\(ext)"
+            for name in names where name.hasSuffix(suffix) {
+                let key = String(name.dropLast(suffix.count))
                 guard frames[key] == nil, isFileSafe(key),
-                      let frame = reader.image(at: directory.appending(path: file.name), maximumBytes: maximumBytes) else { continue }
+                      let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
                 frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
             }
         }
