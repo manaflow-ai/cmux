@@ -56,7 +56,9 @@ public extension WindowOverlayHost {
         if options.kind == .dialog { hideForEntrance([scrim, content].compactMap(\.self)) }
         syncPanel()
         layout(handle)
-        if options.kind == .dialog { animateIn(content, scrim: scrim) }
+        if options.kind == .dialog {
+            if options.holdsEntrance { handle.heldEntrance = (scrim, true) } else { animateIn(content, scrim: scrim) }
+        }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
         updateEscapeMonitor()
@@ -85,7 +87,7 @@ public extension WindowOverlayHost {
     /// one even step instead of a quick dim and then a slow one. Under Reduce Motion only the fades
     /// remain; with animation off it shows in one frame. Presented again while its close still runs,
     /// it continues from what is on screen.
-    private func animateIn(_ content: NSView, scrim: NSView?) {
+    func animateIn(_ content: NSView, scrim: NSView?) {
         content.wantsLayer = true
         if let layer = content.layer {
             let closing = layer.animation(forKey: "sublayerTransform") != nil

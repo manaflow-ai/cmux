@@ -79,19 +79,19 @@ import Testing
             == CmuxDialogOverlayHost.appRegion)
     }
 
-    /// Review 7 of #37296 (F2): the host faded the dialog in while its page was still loading, so an
-    /// early dialog showed an empty card that drew late. The host now waits for its drawing to say the
-    /// card is drawn.
-    @Test func theHostShowsADialogOnlyOnceItsCardIsDrawn() {
-        @MainActor final class LateDrawing: CmuxDialogDrawing {
-            var ready: (() -> Void)?
-            func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? { NSView() }
-            func focus(_ dialog: CmuxDialogPresentation) {}
-            func detach(_ dialog: CmuxDialogPresentation) {}
-            func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) {
-                self.ready = ready
-            }
-        }
+    /// Holds each dialog's entrance until the test says its card drew.
+    @MainActor private final class LateDrawing: CmuxDialogDrawing {
+        var ready: (() -> Void)?
+        func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? { NSView() }
+        func focus(_ dialog: CmuxDialogPresentation) {}
+        func detach(_ dialog: CmuxDialogPresentation) {}
+        func whenDrawn(_ dialog: CmuxDialogPresentation, _ ready: @escaping () -> Void) { self.ready = ready }
+    }
+
+    /// Reviews 7 and 11 of #37296: the host faded a dialog in while its page was still loading, and an app
+    /// dialog with no window to wait in showed before its card painted. Every dialog is now presented at
+    /// its transparent first frame, in its own panel, and fades in once its drawing says the card drew.
+    @Test func aDialogFadesInOnlyOnceItsCardIsDrawn() {
         let drawing = LateDrawing()
         let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true }))
         let (window, _) = Self.window()
@@ -99,37 +99,22 @@ import Testing
         let id = center.present(CmuxDialogSpec(title: "Rename", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
         defer { center.dismiss(id) }
         let view = center.dialog(id)?.view
-        #expect(view != nil)
-        #expect(view?.superview == nil)
+        #expect(view?.window != nil)
+        #expect(view?.layer?.opacity == 0)
         drawing.ready?()
-        #expect(view?.superview != nil)
+        #expect(view?.layer?.opacity == 1)
     }
 
-    /// Review 9 of #37296 (F1): capture exclusion read the dialog's window while its view still waited in
-    /// the source window, so the overlay panel that shows the card stayed capturable.
-    @Test func captureExclusionWaitsForTheOverlaysWindow() {
-        @MainActor final class LateDrawing: CmuxDialogDrawing {
-            var ready: (() -> Void)?
-            var parking: NSView?
-            func attach(_ dialog: CmuxDialogPresentation, in window: NSWindow?) -> NSView? { NSView() }
-            func focus(_ dialog: CmuxDialogPresentation) {}
-            func detach(_ dialog: CmuxDialogPresentation) {}
-            func whenDrawn(_ dialog: CmuxDialogPresentation, in window: NSWindow?, _ ready: @escaping () -> Void) {
-                // As the overlay drawing does: the view waits in the source window.
-                if let view = dialog.view { window?.contentView?.addSubview(view) }
-                self.ready = ready
-            }
-        }
+    /// Review 9 of #37296 (F1): capture exclusion goes on the window the dialog shows in, the overlay's.
+    @Test func captureExclusionCoversTheOverlaysWindow() {
         let drawing = LateDrawing()
         let center = CmuxDialogCenter(host: CmuxDialogCaptureExcludedHost(
             inner: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true })))
         let (window, _) = Self.window()
         defer { window.close() }
         let id = center.present(CmuxDialogSpec(title: "Password", buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
-        #expect(window.sharingType != .none)
-        drawing.ready?()
         let shownIn = center.dialog(id)?.window
-        #expect(shownIn != nil && shownIn !== window)
+        #expect(shownIn != nil)
         #expect(shownIn?.sharingType == NSWindow.SharingType.none)
         center.dismiss(id)
         #expect(shownIn?.sharingType != NSWindow.SharingType.none)

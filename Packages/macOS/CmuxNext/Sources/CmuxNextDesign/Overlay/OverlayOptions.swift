@@ -52,6 +52,9 @@ public struct OverlayOptions: Equatable, Sendable {
     public var modalRegion: NSRect?
     /// Nil: `.modal` for dialogs, `.window` otherwise (`effectiveLayer`).
     public var layer: OverlayLayer?
+    /// A dialog that stays at its transparent first frame until ``OverlayHandle/beginEntrance()``: its
+    /// content draws in the panel first (a web page paints its card), then fades in drawn.
+    public var holdsEntrance = false
 
     public var effectiveLayer: OverlayLayer { layer ?? (kind == .dialog ? .modal : .window) }
 
@@ -87,6 +90,8 @@ public final class OverlayHandle {
     public var onWindowGeometryChange: (() -> Void)?
     public private(set) var isDismissed = false
     weak var host: WindowOverlayHost?
+    /// The scrim of a dialog whose entrance waits (``OverlayOptions/holdsEntrance``); nil once it began.
+    var heldEntrance: (scrim: NSView?, waiting: Bool) = (nil, false)
     let id: Int
     /// The clip of a `.pane` overlay (its pane minus the occluders).
     var clipView: OverlayClipView?
@@ -105,6 +110,14 @@ public final class OverlayHandle {
     }
 
     /// Moves the overlay to a new anchor (window coordinates).
+    /// A held dialog's content has drawn: it fades in now. Nothing for one that did not hold or ended.
+    public func beginEntrance() {
+        guard heldEntrance.waiting, !isDismissed else { return }
+        let scrim = heldEntrance.scrim
+        heldEntrance = (nil, false)
+        host?.animateIn(content, scrim: scrim)
+    }
+
     public func update(anchor: NSRect) {
         options.anchor = anchor
         host?.layout(self)

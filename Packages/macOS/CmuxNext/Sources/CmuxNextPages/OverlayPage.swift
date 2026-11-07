@@ -61,8 +61,10 @@ public final class OverlayPagePool<Provider: PageProvider> {
 
     private func make() -> (view: PageWebView, provider: Provider)? {
         let provider = makeProvider()
+        // WebKit by name: the page is transparent over the window's own glass in the overlay panel, which
+        // a Chromium page (an opaque child window that takes the keys) cannot be.
         guard let view = PageWebView(descriptor: .overlay, routes: [PageRoute(prefix: "cmux.overlay.", provider: provider)],
-                                     route: route) else { return nil }
+                                     route: route, options: PageEngineOptions(requiresWebKit: .transparentOverlay)) else { return nil }
         view.autoresizingMask = []
         return (view, provider)
     }
