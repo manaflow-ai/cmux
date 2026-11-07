@@ -26,7 +26,7 @@ export function AnswerControls({ item, store, snap, strings, density = "inline" 
       </span>
     );
   if (item.kind === "notice") return null;
-  const disabled = isPending(snap, item) || !canChange(snap);
+  const disabled = isPending(snap, item) || !canChange(snap, item);
   const props = { item, store, snap, strings, density, disabled };
   switch (item.kind) {
     case "approve":

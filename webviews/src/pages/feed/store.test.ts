@@ -8,6 +8,7 @@ import generated from "./generated/strings.json";
 import { rejectText } from "./FeedPage";
 import { feedRefusal, MockFeedProvider, sampleFeed } from "./mockProvider";
 import { FeedStore, rejectOf } from "./store";
+import { canChange } from "./context";
 import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams, type ViewItem } from "./types";
 
 const en = (generated as Record<string, Record<string, string>>).en!;
@@ -299,6 +300,20 @@ describe("reports basket", () => {
     expect(store.getSnapshot().reports[0]!.id).toBe("rep_new");
   });
 
+  test("a page that opened on the list and moves to the Inbox reads and follows the basket", async () => {
+    const { provider, store } = setup({}, "#/list?surface=panel");
+    await store.start();
+    expect(store.getSnapshot().reports).toHaveLength(0);
+    store.applyRoute("#/inbox");
+    await settle();
+    expect(store.getSnapshot().reports).toHaveLength(3);
+    provider.report({ id: "rep_late", sender: "mbp:claude", body: "Later", created_at: NOW });
+    await settle();
+    expect(store.getSnapshot().reports[0]!.id).toBe("rep_late");
+    store.stop();
+    expect(provider.subscriberCount).toBe(0);
+  });
+
   test("a mailbox read that fails leaves the basket empty, not the page down", async () => {
     const mock = new MockFeedProvider(sampleFeed(NOW), { now: () => NOW });
     const client: PageClient = {
@@ -327,5 +342,18 @@ describe("refusals", () => {
       message: "bad answer",
     });
     expect(rejectOf(pageError("cmux.operation.failed", "gone"))).toEqual({ kind: "refused", message: "gone" });
+  });
+});
+
+describe("availability", () => {
+  test("with the cloud owner down, a local item stays answerable and a cloud item does not", async () => {
+    const { store } = setup({ connection: { state: "disconnected", reason: "offline" } });
+    await store.start();
+    const snap = store.getSnapshot();
+    const items = snap.view!.groups.flatMap((group) => group.entries.map((entry) => entry.item));
+    const local = items.find((item) => item.home.startsWith("local"))!;
+    const cloud = items.find((item) => item.home === "cloud")!;
+    expect(canChange(snap, local)).toBe(true);
+    expect(canChange(snap, cloud)).toBe(false);
   });
 });

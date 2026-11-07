@@ -16,9 +16,18 @@ export function plain(event: KeyboardEvent): boolean {
   return !event.metaKey && !event.ctrlKey && !event.altKey;
 }
 
-/** The owner is reachable and this page's link is up: answers and triage may be sent. */
-export function canChange(snap: FeedSnapshot): boolean {
-  return snap.link !== "disconnected" && snap.view?.connection.state === "connected";
+/** This page's link is up and the item's owner is reachable: answers and triage may be sent. A local
+ * item (GitHub, an update card) lives in the daemon's own owner, so it stays answerable while the
+ * cloud owner is unreachable; only a cloud item needs the cloud connection. */
+export function canChange(snap: FeedSnapshot, item?: ViewItem): boolean {
+  if (snap.link === "disconnected") return false;
+  if (item && isLocal(item)) return true;
+  return snap.view?.connection.state === "connected";
+}
+
+/** The item's home is this machine's owner (`local:<install>`), not the cloud. */
+export function isLocal(item: ViewItem): boolean {
+  return typeof item.home === "string" && item.home.startsWith("local");
 }
 
 export function isPending(snap: FeedSnapshot, item: ViewItem): boolean {

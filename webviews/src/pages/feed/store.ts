@@ -111,6 +111,8 @@ export class FeedStore {
   private lifetime = 0;
   private starting = false;
   private stops: Array<() => void> = [];
+  /** The Reports basket's change subscription: made the first time the page shows the Inbox. */
+  private reportsWatch: "none" | "starting" | "on" = "none";
   /** The first Inbox read picks GitHub when it is connected, once (FeedInboxView.pickedConnection). */
   private pickedConnection = false;
   /** Each report's last reply that was not sent: sent again, it keeps its id. */
@@ -169,7 +171,7 @@ export class FeedStore {
         }
       };
       await watch(FeedOps.viewChanged, () => void this.reload());
-      if (this.snapshot.route.view === "inbox") await watch(FeedOps.reportsChanged, () => void this.reloadReports());
+      if (this.snapshot.route.view === "inbox") await this.watchReports(lifetime);
       try {
         const stop = await subscribePageStreams(this.client, {
           onConnection: (connected) => {
@@ -195,7 +197,27 @@ export class FeedStore {
     ++this.generation;
     ++this.reportsGeneration;
     this.starting = false;
+    this.reportsWatch = "none";
     for (const stop of this.stops.splice(0)) stop();
+  }
+
+  /** Subscribes to the Reports basket's changes once per start (only the Inbox shows it). */
+  private async watchReports(lifetime: number): Promise<void> {
+    if (!this.client || this.reportsWatch !== "none") return;
+    this.reportsWatch = "starting";
+    try {
+      const stop = await this.client.subscribe(FeedOps.reportsChanged, () => {
+        if (lifetime === this.lifetime) void this.reloadReports();
+      });
+      if (lifetime === this.lifetime) {
+        this.stops.push(stop);
+        this.reportsWatch = "on";
+      } else stop();
+    } catch (error) {
+      if (lifetime !== this.lifetime) return;
+      this.reportsWatch = "none";
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) this.fail(error);
+    }
   }
 
   /** The host moves an open page to another route (`#/list`, `#/needs-you?style=bar`). */
@@ -205,6 +227,11 @@ export class FeedStore {
     if (JSON.stringify(route) === JSON.stringify(before)) return;
     this.set({ route });
     if (route.view !== before.view || route.limit !== before.limit) void this.reload();
+    // A page that opened on the list or Needs you and moves to the Inbox starts the Reports basket.
+    if (route.view === "inbox" && before.view !== "inbox" && this.stops.length) {
+      void this.watchReports(this.lifetime);
+      void this.reloadReports();
+    }
   }
 
   /** The host's link: down shows the banner and refuses changes; back up re-reads. */
