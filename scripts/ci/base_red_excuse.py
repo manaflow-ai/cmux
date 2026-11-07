@@ -297,6 +297,17 @@ HOME_REPO = "manaflow-ai/cmux"
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
 }
+# A called workflow's base verdict, from the workflow that calls it on base pushes (2026-11-07). ci.yml runs on pull
+# requests only; on feat-cmux-next the same ci-web.yml runs from cmux-next-web.yml's `web` job, under the same
+# 'web / ...' check names. ci.yml's newest feat-cmux-next run was a 2026-10-06 dispatch, so every web shard red on a
+# PR was judged against that month-old pass and refused as having no verdict at or after its merge-base (cmux#37667's
+# 'web / Web tests (1/4)', red on the base in cmux-next web run 42358745538). Keyed by (the base branch, the PR run's
+# workflow file, the caller job id whose '<id> / ' prefix the check carries), the value is the workflow file whose job
+# of the same id calls the same reusable workflow on pushes to that base branch, and only that one: a PR into `main`
+# never reads cmux-next web, whose runs on `main` (a dispatch) are no base evidence. tests/test_base_red_excuse.py
+# checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
+# after the merge-base.
+BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
@@ -1040,7 +1051,9 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
 # when both hold: (a) the release its head pins (Package.swift's canonical CCmuxAppFFI block, app_ffi_pin.py: this
-# repository's own cmux-app-ffi-<sha> release download and its checksum; any other shape refuses) is
+# repository's own cmux-app-ffi-<sha> release download and its checksum; any other shape refuses; or, at a head that
+# has app-ffi-pin.json, that file read strictly with Package.swift holding only its one loader block, as cmux#37645
+# moves the pin, so this base classifier can judge that PR) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at). The pin in Package.swift at the head is the pin that compile built with: SwiftPM
@@ -1051,6 +1064,8 @@ FFI_PIN_CHECK = "Check the app FFI pin"
 FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
 FFI_PIN_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves the pin
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh")
 FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
@@ -1063,14 +1078,29 @@ app_ffi_pin = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(app_ffi_pin)
 
 
-def ffi_binary_target(manifest: str, repo: str) -> tuple[str | None, str | None, str]:
-    """(source sha, checksum, "") of MANIFEST's (Package.swift's text) canonical CCmuxAppFFI pin (app_ffi_pin.read:
-    REPO's own cmux-app-ffi-<sha> release download and a 64-hex checksum); else (None, None, why)."""
+def ffi_binary_target(manifest: str, repo: str, pin_file: str | None = None) -> tuple[str | None, str | None, str]:
+    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text,
+    None when the head has none) it is that file's pin (app_ffi_pin.read_pin_file) and MANIFEST (Package.swift's text)
+    must hold only its loader block (app_ffi_pin.check_loader); without it, MANIFEST's canonical CCmuxAppFFI pin
+    (app_ffi_pin.read). Either way REPO's own cmux-app-ffi-<sha> release download and a 64-hex checksum."""
     try:
-        sha, checksum, _ = app_ffi_pin.read(manifest, repo)
+        if pin_file is not None:
+            sha, checksum = app_ffi_pin.read_pin_file(pin_file, repo)
+            app_ffi_pin.check_loader(manifest, checksum)
+        else:
+            sha, checksum, _ = app_ffi_pin.read(manifest, repo)
     except app_ffi_pin.NotCanonical as why:
         return None, None, str(why)
     return sha, checksum, ""
+
+
+def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
+    """app-ffi-pin.json's text at SHA, or None when GitHub serves none there (the head is in the template form). A head
+    whose file is unread is read in the template form, which refuses a JSON-era Package.swift: never a looser read."""
+    try:
+        return source_text(repo, sha, FFI_PIN_FILE, github)
+    except Refused:
+        return None
 
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
@@ -1094,7 +1124,8 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
     built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
     (the published base pin rule above); else (None, the part of that rule that does not hold)."""
-    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo)
+    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_MANIFEST, github), repo,
+                                           ffi_pin_file_at(repo, sha, github))
     if pin is None:
         return None, why
     tag = f"cmux-app-ffi-{pin}"
@@ -1130,8 +1161,8 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: set[str], e
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None
     number, paths = pr_paths(repo, base, sha, github)
-    if FFI_PIN_MANIFEST in paths:
-        why = (f"#{number} changes {FFI_PIN_MANIFEST}: a PR that moves the pin must pin a release built from its own "
+    if moved := [path for path in FFI_PIN_PATHS if path in paths]:
+        why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
                "sources")
     elif swift := [path for path in paths if path.endswith(".swift")]:
         why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
@@ -2507,15 +2538,43 @@ def ws_check(repo: str, base: str, sha: str, github) -> list[str]:
             f"{tested}{via})"] + lines
 
 
+def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> None:
+    """BASE_RUNS[WORKFLOW] (a workflow id or file name): its BASE runs, newest first, read once per judge."""
+    if workflow in base_runs:
+        return
+    # Every status: a job's verdict is final once the job completes, so a base run still running its slower jobs
+    # already answers for its finished ones (before_merge_base's note).
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&per_page={BASE_RUNS_PAGE}")
+    # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
+    # pull_request_target) is never the base's.
+    base_runs[workflow] = sorted(
+        (run for run in listed.get("workflow_runs") or []
+         if run.get("event") not in ("pull_request", "pull_request_target")
+         and run.get("conclusion") != "skipped"),
+        key=lambda run: run.get("created_at") or "", reverse=True)
+
+
+def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
+    """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
+    the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
+    path."""
+    path = run.get("path") if isinstance(run, dict) else None
+    if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
+        return None
+    file = path.removeprefix(".github/workflows/").split("@", 1)[0]
+    return next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                 if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+
+
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = (),
           flake_state: dict | None = None) -> list[str]:
     """Audit lines for every excused failure; raises Refused on the first that is not, or RateLimitedRead
     when a read was rate-limited (no verdict on any red, so nothing below may excuse or charge one)."""
     github = rate_limit_aware(github)
     audit: list[str] = []
-    base_runs: dict[int, list[dict]] = {}
+    base_runs: dict[int | str, list[dict]] = {}  # by workflow id, or file name for a base caller (BASE_WORKFLOW_FOR)
     base_jobs: dict[int, list[dict] | None] = {}
-    job_reads: dict[int, int] = {}
+    job_reads: dict[int | str, int] = {}
     suites = SuiteChecks(github)
     merge_bases: dict[str, str] = {}
     run_reads: dict = {}  # head_jobs' SEEN: the head's check runs, each run's workflow, each head's run list
@@ -2581,21 +2640,21 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"excused '{name}': quarantined base flakes: "
                          + "; ".join(f"{test} ({why})" for test, why in sorted(known.items())))
             continue
-        if workflow not in base_runs:
-            # Every status: a job's verdict is final once the job completes, so a base run still running its slower
-            # jobs already answers for its finished ones (before_merge_base's note).
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
-                                 f"&per_page={BASE_RUNS_PAGE}")
-            # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
-            # pull_request_target) is never the base's.
-            base_runs[workflow] = sorted(
-                (run for run in listed.get("workflow_runs") or []
-                 if run.get("event") not in ("pull_request", "pull_request_target")
-                 and run.get("conclusion") != "skipped"),
-                key=lambda run: run.get("created_at") or "", reverse=True)
+        list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
         base_run, base_job = next(verdicts, (None, None))
+        if ((caller := base_caller(repo, base, workflow_info, name)) is not None
+                and (base_run is None or before_merge_base(repo, base, sha, base_run, github, merge_bases))):
+            # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
+            # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
+            # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
+            list_base_runs(repo, base, caller, github, base_runs)
+            pushed = base_verdicts(repo, base, caller, name, github, base_runs, base_jobs, job_reads, suites)
+            pushed_run, pushed_job = next(pushed, (None, None))
+            if pushed_run is not None and (
+                    base_run is None or before_merge_base(repo, base, sha, pushed_run, github, merge_bases) is None):
+                base_run, base_job, verdicts = pushed_run, pushed_job, pushed
         if base_run is None:
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
