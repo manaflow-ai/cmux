@@ -55,7 +55,6 @@
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift",
-        "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinnerPeriod.generated.swift",
         "webviews/src/motion/scale.generated.ts"
       ],
       "inputs": ["schemas/motion-scale/**"],
