@@ -737,8 +737,7 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
-            },
-            connectWithSSH: connectWithSSHAction
+            }
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -875,11 +874,6 @@ struct CMUXMobileRootView: View {
     /// Presents the SSH computer form from the root sheet host.
     private func showAddSSHComputer() {
         handleRootPresentation(.presentSSHComputerEditor(.new))
-    }
-
-    /// "Connect with SSH Instead" in the pairing sheet swaps to the SSH form.
-    private var connectWithSSHAction: (() -> Void)? {
-        showAddSSHComputer
     }
 
     /// PRD D22: scope the workspace list to an SSH computer and connect it.
