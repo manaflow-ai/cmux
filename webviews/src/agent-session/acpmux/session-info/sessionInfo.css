@@ -365,19 +365,19 @@
   background: none;
 }
 /* The six-dot handle that moves a section (SessionInfoGroup.tsx): a small, faint grip at the right end of its
-   head, its dots ending on the rows' right edge (where a row's own trailing value or "..." ends), with the
-   head's count just left of it, so the head's left and right edges are the rows' (Leo, 2026-11-07: "the grip
-   and the lef tside aren't flush"; #37162 put it at the right: "if you look at the spacing of claude code,
-   they have theirs at the right"). The head keeps its room (`padding-right` below), so nothing in the head
-   moves when it shows. It shows only while its head (a bare section's first row) or the handle itself is
-   hovered, on keyboard focus, or while it drags: no glyph at rest, and not for a pointer over the section's
-   other rows. It is a control of its own: the head under it draws no fill, and only the grip lights under
-   the pointer, in its own small box (Leo: "simply don't highlight and have a thing you can click"). */
+   head, its dots ending on the rows' right text edge, where the head's count and every row's trailing value
+   end, so the head's left and right edges are the rows' at rest and under the pointer (Leo, 2026-11-07: "the
+   grip and the lef tside aren't flush"; #37162 put it at the right: "if you look at the spacing of claude
+   code, they have theirs at the right"). While it shows, it takes the count's place, as a hovered row's
+   "..." takes its trailing mark's: the count fades out under it and back, and nothing in the head moves.
+   It shows only while its head (a bare section's first row) or the handle itself is hovered, on keyboard
+   focus, or while it drags: no glyph at rest, and not for a pointer over the section's other rows. It is a
+   control of its own: the head under it draws no fill, and only the grip lights under the pointer, in its
+   own small box (Leo: "simply don't highlight and have a thing you can click"). */
 .acpmux-session-info-section {
   position: relative;
-  /* The grip's dots (ReorderHandle's 5.5px wide glyph), and with the gap before the count, its room. */
+  /* The grip's dots: ReorderHandle's 5.5px wide glyph. */
   --acpmux-session-info-grip-dots: 5.5px;
-  --acpmux-session-info-grip-room: calc(var(--acpmux-session-info-grip-dots) + var(--grid-base) * 1.5);
 }
 .acpmux-session-info-section__handle {
   position: absolute;
@@ -406,9 +406,18 @@
     opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
     background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
-.acpmux-session-info-section:has(> .acpmux-session-info-section__handle)
-  :is(.ui-disclosure-trigger, .acpmux-session-info-section__head) {
-  padding-right: calc(var(--grid-gap) + var(--acpmux-session-info-grip-room));
+.acpmux-session-info-section__meta {
+  transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-session-info-section:has(> .acpmux-session-info-section__handle):is(
+    :has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover),
+    :has(> .acpmux-session-info-section__head:hover),
+    :has(> .acpmux-session-info-section__handle:is(:hover, :focus-visible)),
+    [data-dragging]
+  )
+  :is(.ui-disclosure-trigger, .acpmux-session-info-section__head)
+  > .acpmux-session-info-section__meta {
+  opacity: 0;
 }
 .acpmux-session-info-section__handle:hover {
   background: var(--acpmux-session-info-row-hover);

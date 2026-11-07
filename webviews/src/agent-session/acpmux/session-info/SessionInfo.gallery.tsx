@@ -438,7 +438,10 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
-  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0);
+  // The grip fades in (and the count out) over the quick step: read both once they have.
+  await ctx.waitFor(
+    () => Number.parseFloat(style(ctx, handle).opacity) >= 0.7 && (!meta || style(ctx, meta).opacity === "0"),
+  );
   const opacity = Number.parseFloat(style(ctx, handle).opacity);
   if (!(opacity < 1)) throw new Error(`The grip shows at ${opacity}, not faint`);
   const after = title.getBoundingClientRect();
@@ -448,7 +451,7 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   if (metaBefore && metaAfter && metaAfter.right !== metaBefore.right)
     throw new Error("The count moved when the grip showed");
   // Two dots across and three down, about 6x10, at the head's right end, on its middle line: its dots end
-  // on the rows' text edge (one grid gap in from the section's), right of the count (Leo, 2026-11-07: "the
+  // on the rows' text edge (one grid gap in from the section's), in the count's place (Leo, 2026-11-07: "the
   // grip and the lef tside aren't flush").
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
@@ -458,7 +461,7 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const gap = Number.parseFloat(style(ctx, head).paddingLeft);
   if (Math.abs(dots.right - (section.getBoundingClientRect().right - gap)) > 1)
     throw new Error("The grip does not end on the rows' right text edge");
-  if (metaAfter && metaAfter.right > dots.left) throw new Error("The count runs under the grip");
+  if (meta && style(ctx, meta).opacity !== "0") throw new Error("The count still draws under the grip");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
   // The head under the pointer draws no fill: only the grip, a control of its own, lights.
@@ -690,23 +693,24 @@ const settled = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
 /// The Changes head, as one of the heads with a count.
 const CHANGES_HEAD = '[data-section="changes"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger';
 
-/// Leo, 2026-11-07: "simply don't highlight and have a thing you can click". The pointer on a head with a
-/// count: no fill, the chevron and count lit in the text's color, the grip at the right end, its dots on
-/// the rows' text edge, the count just left of it, the title on the rows' icon column.
+/// Leo, 2026-11-07: "simply don't highlight and have a thing you can click". A head with a count: at rest its
+/// count ends on the rows' right text edge; under the pointer it draws no fill, and the grip takes the
+/// count's place there, its dots on that same edge; the title is on the rows' icon column.
 const plainHead: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(CHANGES_HEAD));
-  await ctx.hover({ selector: CHANGES_HEAD });
   const head = ctx.find({ selector: CHANGES_HEAD });
   const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
   const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
-  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0);
+  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
+  const edge = section.getBoundingClientRect().right - gap;
+  const meta = head.querySelector(".acpmux-session-info-section__meta")!;
+  if (Math.abs(meta.getBoundingClientRect().right - edge) > 1)
+    throw new Error("The head's count does not end on the rows' right text edge");
+  await ctx.hover({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0 && style(ctx, meta).opacity === "0");
   if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
-  const meta = head.querySelector(".acpmux-session-info-section__meta")!.getBoundingClientRect();
-  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
-  if (Math.abs(dots.right - (section.getBoundingClientRect().right - gap)) > 1)
-    throw new Error("The grip does not end on the rows' right text edge");
-  if (meta.right > dots.left) throw new Error("The count runs under the grip");
+  if (Math.abs(dots.right - edge) > 1) throw new Error("The grip does not end on the rows' right text edge");
   const title = head.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect();
   if (Math.abs(title.left - (head.getBoundingClientRect().left + gap)) > 0.5)
     throw new Error("The title is off the rows' icon column");
@@ -1909,7 +1913,7 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows at the head's right end, its dots on the rows' right text edge and right of the count, on its middle line (Leo, 2026-11-06: \"if you look at the spacing of claude code, they have theirs at the right\"; 2026-11-07: \"the grip and the lef tside aren't flush\"). Nothing in the head moves; its room is always kept. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows at the head's right end in the count's place, its dots on the rows' right text edge, on its middle line (Leo, 2026-11-06: \"if you look at the spacing of claude code, they have theirs at the right\"; 2026-11-07: \"the grip and the lef tside aren't flush\"). Nothing in the head moves; its room is always kept. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
