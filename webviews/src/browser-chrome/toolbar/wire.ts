@@ -121,6 +121,12 @@ export type OmnibarConfig = {
   searchKeywordFormat: string;
 };
 
+/**
+ * Text a tab left in its omnibar unsent, with its selection ([location, length]). It travels with the
+ * tab when it moves to another pane, whose page has no slot for it.
+ */
+export type OmnibarDraft = { text: string; selection: [number, number] };
+
 export type ToolbarHostEvent =
   /** Focus the field: Cmd-L and new tabs (`keyboard`), a return to the tab (`programmatic`). */
   | { kind: "focus"; source: OmnibarFocusSource }
@@ -140,7 +146,7 @@ export type ToolbarHostEvent =
   | { kind: "pasteAndGo"; text: string }
   /** A native drop on the bar. */
   | { kind: "dropped"; text: string }
-  /** Tab slot `tab` closed: forget its resting omnibar. */
+  /** Tab slot `tab` closed or moved to another pane: forget its resting omnibar. */
   | { kind: "forgetTab"; tab: string }
   /** Type `text` into the field and (with `commit`) press Return (`debug.omnibar_type`). */
   | { kind: "debugType"; text: string; commit: boolean };
@@ -149,6 +155,11 @@ export type ToolbarHostState = {
   revision: number;
   /** The tab slot shown now. Each slot keeps its own omnibar state (`OmniboxView::SaveStateToTab`). */
   tab: string;
+  /**
+   * The draft `tab` brought from the pane it left (null: none). The page rests on it only when it has
+   * no slot for `tab`; its own slot is newer.
+   */
+  draft?: OmnibarDraft | null;
   /** The shown page's address (null: none, the New Tab page shows an empty bar). */
   url: string | null;
   /** What the chip describes (null: an empty or blank page). */
@@ -224,6 +235,10 @@ export type ToolbarPageCommand =
       elided: boolean;
       rows: string[];
       highlighted: number | null;
+      /** The tab slot this status describes. */
+      tab: string | null;
+      /** What the tab would leave unsent if it left now (the host keeps it with the tab). */
+      draft: OmnibarDraft | null;
     }
   /** The card: rows to show (empty closes it), the highlighted one, and the side. */
   | { type: "popup"; rows: BrowserSuggestion[]; highlighted: number | null; upward: boolean }

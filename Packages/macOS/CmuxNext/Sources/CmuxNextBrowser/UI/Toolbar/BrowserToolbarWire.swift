@@ -176,6 +176,10 @@ public nonisolated struct OmnibarStatus: Equatable, Sendable {
     public var elided = false
     public var rows: [String] = []
     public var highlighted: Int?
+    /// The tab slot this status describes (it may lag the slot just pushed by a pass).
+    public var tab: String?
+    /// What that tab would leave unsent if it left now; it moves with the tab to another pane.
+    public var draft: OmnibarDraft?
 
     public init() {}
 
@@ -190,7 +194,31 @@ public nonisolated struct OmnibarStatus: Equatable, Sendable {
         elided = wire["elided"] as? Bool ?? false
         rows = wire["rows"] as? [String] ?? []
         highlighted = BrowserToolbarPageCommand.int(wire["highlighted"])
+        tab = wire["tab"] as? String
+        draft = (wire["draft"] as? [String: Any]).flatMap(OmnibarDraft.init(wire:))
     }
+}
+
+/// Text a tab left in its omnibar unsent, with its selection (`OmnibarDraft` in wire.ts). The host
+/// keeps it on the tab (`BrowserChromeTabState.omnibarDraft`), so a tab that moves to another pane
+/// brings it to that pane's toolbar page.
+public nonisolated struct OmnibarDraft: Equatable, Sendable {
+    public var text: String
+    public var selection: NSRange
+
+    public init(text: String, selection: NSRange) {
+        self.text = text
+        self.selection = selection
+    }
+
+    init?(wire: [String: Any]) {
+        guard let text = wire["text"] as? String, !text.isEmpty else { return nil }
+        let pair = wire["selection"] as? [NSNumber] ?? []
+        let selection = pair.count == 2 ? NSRange(location: pair[0].intValue, length: pair[1].intValue) : NSRange(location: text.utf16.count, length: 0)
+        self.init(text: text, selection: selection)
+    }
+
+    var wire: [String: Any] { ["text": text, "selection": [selection.location, selection.length]] }
 }
 
 /// Where the toolbar page drew its controls (`layout` command), in the web view's top-left points.

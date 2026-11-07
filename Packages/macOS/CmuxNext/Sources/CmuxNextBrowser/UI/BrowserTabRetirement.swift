@@ -46,6 +46,9 @@ extension BrowserChromeTabSwitch {
         if let find = chrome.pageBars.findBarIfMade { find.isHidden = true }
         state.chrome = nil
         chrome.boundState = nil
+        // Its page forgets the tab's resting omnibar: a moved tab's draft travels on its state, and one that
+        // comes back takes that, not what this page kept.
+        chrome.addressBar.send(BrowserToolbarHostEvent.forgetTab(state.slot))
         // Nothing of the tab stays: its hooks (closures that may hold its page), its modes, its page.
         let none = BrowserChromeTabState()
         BrowserChromeTabHooks(chrome: chrome, state: none).apply()
