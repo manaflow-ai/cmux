@@ -7,6 +7,7 @@ import { runAttempts } from "../db/schema";
 import {
   createRunRecord,
   readRunSnapshot,
+  readRunArtifact,
   RunAdmissionError,
   RunArtifactConflictError,
   RunIdempotencyConflictError,
@@ -130,6 +131,52 @@ describe("durable Run API database behavior", () => {
     expect(snapshot?.artifacts[0]?.payload).toEqual({ value: "first" });
     const expectedDigest = createHash("sha256").update(JSON.stringify({ value: "first" })).digest("hex");
     expect(snapshot?.artifacts[0]?.digest).toBe(`sha256:${expectedDigest}`);
+  });
+
+  dbTest("persists a canonical receipt digest across JSONB key reordering and idempotent replay", async () => {
+    const owner = scope(randomUUID());
+    const created = await create(owner, `artifact-canonical-${randomUUID()}`);
+    const { id: runId } = created.snapshot.run;
+    const attemptId = created.snapshot.attempts[0]!.id;
+    await storeRunArtifact({ runId, attemptId, name: "receipt.json", payload: { z: 1, a: 2 } });
+    await storeRunArtifact({ runId, attemptId, name: "receipt.json", payload: { a: 2, z: 1 } });
+    const snapshot = await readRunSnapshot(runId, owner);
+    expect(snapshot?.artifacts).toHaveLength(1);
+    const persisted = snapshot?.artifacts[0];
+    const canonicalBody = '{"a":2,"z":1}';
+    expect(persisted?.digest).toBe(`sha256:${createHash("sha256").update(canonicalBody).digest("hex")}`);
+    expect(persisted?.sizeBytes).toBe(Buffer.byteLength(canonicalBody, "utf8"));
+    expect(await readRunArtifact({ ...owner, runId, artifactId: persisted!.id })).toMatchObject({
+      digest: persisted?.digest, sizeBytes: persisted?.sizeBytes,
+    });
+  });
+
+  dbTest("scopes Run artifact reads to the matching visible run and immutable artifact id", async () => {
+    const originalOwner = scope(randomUUID(), `team-a-${randomUUID()}`);
+    const otherOwner = scope(randomUUID(), `team-b-${randomUUID()}`);
+    const first = await create(originalOwner, `artifact-read-${randomUUID()}`);
+    const second = await create(otherOwner, `artifact-read-${randomUUID()}`);
+    const attemptId = first.snapshot.attempts[0]!.id;
+    await storeRunArtifact({
+      runId: first.snapshot.run.id,
+      attemptId,
+      name: "receipt.json",
+      payload: { status: "done", report: { alpha: 1, beta: 2 } },
+    });
+    const ownSnapshot = await readRunSnapshot(first.snapshot.run.id, originalOwner);
+    const artifactId = ownSnapshot?.artifacts[0]?.id;
+    expect(artifactId).toBeDefined();
+    const permitted = await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! });
+    expect(permitted?.payload).toEqual({ status: "done", report: { alpha: 1, beta: 2 } });
+    expect(await readRunArtifact({ ...otherOwner, runId: first.snapshot.run.id, artifactId: artifactId! })).toBeNull();
+    expect(await readRunArtifact({ ...originalOwner, runId: second.snapshot.run.id, artifactId: artifactId! })).toBeNull();
+    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: randomUUID() })).toBeNull();
+    // Provider teardown and terminal attach expiry must leave retained artifact bytes addressable.
+    await cloudDb().update(runAttempts)
+      .set({ cleanupState: "deleted", providerVmId: null, retainedUntil: null })
+      .where(and(eq(runAttempts.runId, first.snapshot.run.id), eq(runAttempts.id, attemptId)));
+    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! }))
+      .toMatchObject({ id: artifactId });
   });
 
   dbTest("requires the owning identity for attach tickets, enforces TTL, and allows one redemption", async () => {

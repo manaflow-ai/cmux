@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalRunArtifact } from "./artifactContent";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../../db/client";
 import { runArtifacts, runAttempts, runEvents, runs } from "../../../db/schema";
@@ -73,10 +73,35 @@ export async function listRunSnapshots(scope: RunScope): Promise<ReadonlyArray<R
   return snapshots.filter((snapshot): snapshot is RunSnapshot => snapshot !== null);
 }
 
+/** Read one immutable receipt only through the Run's established account/team scope. */
+export async function readRunArtifact(
+  input: RunScope & { readonly runId: string; readonly artifactId: string },
+  database: RunReadDatabase = cloudDb(),
+): Promise<{
+  readonly id: string;
+  readonly runId: string;
+  readonly digest: string;
+  readonly sizeBytes: number;
+  readonly payload: Record<string, unknown>;
+} | null> {
+  const [row] = await database
+    .select({
+      id: runArtifacts.id,
+      runId: runArtifacts.runId,
+      digest: runArtifacts.digest,
+      sizeBytes: runArtifacts.sizeBytes,
+      payload: runArtifacts.payload,
+    })
+    .from(runArtifacts)
+    .innerJoin(runs, eq(runArtifacts.runId, runs.id))
+    .where(and(eq(runArtifacts.id, input.artifactId), eq(runArtifacts.runId, input.runId), scopeWhere(input)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Receipt payloads are content addressed and immutable across worker replay. */
 export async function storeRunArtifact(input: { runId: string; attemptId: string; name: string; payload: Record<string, unknown> }): Promise<void> {
-  const bytes = JSON.stringify(input.payload);
-  const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const { digest, sizeBytes } = canonicalRunArtifact(input.payload);
   await cloudDb().transaction(async (tx) => {
     const [attempt] = await tx.select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, input.attemptId)).limit(1);
     if (!attempt || attempt.runId !== input.runId) throw new RunArtifactConflictError("Run artifact does not belong to this attempt");
@@ -85,6 +110,6 @@ export async function storeRunArtifact(input: { runId: string; attemptId: string
       if (existing.digest !== digest) throw new RunArtifactConflictError("Run artifact content is immutable");
       return;
     }
-    await tx.insert(runArtifacts).values({ ...input, digest, sizeBytes: Buffer.byteLength(bytes) });
+    await tx.insert(runArtifacts).values({ ...input, digest, sizeBytes });
   });
 }
