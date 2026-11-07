@@ -44,6 +44,7 @@ jobs:
     outputs:
       commit: ${{ steps.check.outputs.commit }}
       branch: ${{ steps.check.outputs.branch }}
+      sums: ${{ steps.check.outputs.sums }}
     steps:
       - name: Mint a read token for manaflow-ai/cef
         id: cef-token
@@ -68,7 +69,7 @@ jobs:
           # A release is built from a branch tip of the fork (the packager
           # refuses any other commit); the tip may have moved on since, so
           # accept a branch that contains the commit and name it.
-          branch="$(gh api "repos/manaflow-ai/cef/commits/$commit/branches-where-head" --jq '.[0].name // empty' 2>/dev/null || true)"
+          branch="$(gh api "repos/manaflow-ai/cef/commits/$commit/branches-where-head" --jq '[.[].name | select(startswith("cmux/"))][0] // empty' 2>/dev/null || true)"
           if [[ -z "$branch" ]]; then
             for name in $(gh api "repos/manaflow-ai/cef/branches?per_page=100" --jq '.[].name | select(startswith("cmux/"))'); do
               status="$(gh api "repos/manaflow-ai/cef/compare/$commit...$name" --jq .status)"
@@ -86,7 +87,9 @@ jobs:
           done < <(grep '\.tar\.xz$' "$work/assets")
           (( missing == 0 )) || exit 1
           grep -q '\.tar\.xz$' "$work/assets" || { echo "::error::release $TAG has no .tar.xz assets" >&2; exit 1; }
-          { echo "commit=$commit"; echo "branch=$branch"; } >> "$GITHUB_OUTPUT"
+          # The approval covers exactly this SHA256SUMS: publish takes no other file set.
+          sums="$(sha256sum "$work/SHA256SUMS" | awk '{print $1}')"
+          { echo "commit=$commit"; echo "branch=$branch"; echo "sums=$sums"; } >> "$GITHUB_OUTPUT"
           { echo "Release $TAG: manaflow-ai/cef $commit on $branch"; echo; echo '```'; cat "$work/SHA256SUMS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
@@ -133,13 +136,20 @@ jobs:
           GH_TOKEN: ${{ steps.cef-token.outputs.token }}
           TAG: ${{ inputs.tag }}
           COMMIT: ${{ needs.resolve.outputs.commit }}
+          SUMS: ${{ needs.resolve.outputs.sums }}
         run: |
           set -euo pipefail
           now="$(gh api "repos/manaflow-ai/cef/commits/$TAG" --jq .sha)"
           [[ "$now" == "$COMMIT" ]] || { echo "::error::$TAG moved from $COMMIT to $now since it was checked" >&2; exit 1; }
           dir="$RUNNER_TEMP/assets"; mkdir -p "$dir"
           gh release download "$TAG" --repo manaflow-ai/cef --pattern '*.tar.xz' --pattern SHA256SUMS --dir "$dir"
+          # The SHA256SUMS approved in resolve, and exactly its .tar.xz files: an
+          # asset added or replaced since then is refused, never uploaded.
+          echo "$SUMS  $dir/SHA256SUMS" | sha256sum -c -
           (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | sha256sum -c -)
+          listed="$(awk '$2 ~ /\.tar\.xz$/ {sub(/^\*/, "", $2); print $2}' "$dir/SHA256SUMS" | sort)"
+          present="$(find "$dir" -maxdepth 1 -type f -name '*.tar.xz' -printf '%f\n' | sort)"
+          [[ -n "$listed" && "$listed" == "$present" ]] || { echo "::error::the downloaded .tar.xz files are not exactly those in SHA256SUMS" >&2; exit 1; }
           rm "$dir/SHA256SUMS"
 
       - name: Publish
