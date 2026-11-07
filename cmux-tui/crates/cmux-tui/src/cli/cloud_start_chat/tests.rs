@@ -1625,7 +1625,8 @@ fn a_cleanup_never_holds_the_command_past_its_deadline() {
     else {
         panic!("{:?}", fake.ran)
     };
-    assert_eq!(error["code"], "chat.send_failed", "{error}");
+    // A refused send is the machine not answering (sent_failure), as before this change.
+    assert_eq!(error["code"], "chat.unreachable", "{error}");
     assert_eq!(fake.ran.len(), 5, "{:?}", fake.ran);
     assert!(fake.clock <= began + secs(60), "ran {:?} past the deadline", fake.clock - began);
 
