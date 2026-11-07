@@ -265,7 +265,7 @@ extension AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .tabRowTools(let width):
-            tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
+            tabRow.report(width: CGFloat(width)) // used only while the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
