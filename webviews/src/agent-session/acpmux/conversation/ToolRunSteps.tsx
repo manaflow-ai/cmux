@@ -11,6 +11,7 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { toolGroupKind } from "./toolGroups";
 import { InStep } from "./ToolFailureCause";
 import { isQuietThought } from "./thoughts";
+import { toolImages } from "../toolImages";
 
 const RunStep = memo(
   function RunStep({
@@ -25,6 +26,7 @@ const RunStep = memo(
     stepId: string;
   }) {
     const own = useMemo(() => [item], [item]);
+    const images = useMemo(() => (item.tool ? toolImages(item.tool) : []), [item.tool]);
     if (!item.tool && item.kind !== "note" && isQuietThought(item)) return null;
     return (
       <div className={item.tool ? "cv-step" : `cv-step is-thought${lead ? " is-lead" : ""}`}>
@@ -40,7 +42,8 @@ const RunStep = memo(
               disclosureKey={`group:edits:${item.tool.id || stepId}`}
               findTitle={item.tool.title}
             />
-          ) : item.tool.kind === "execute" && item.tool.command ? (
+          ) : item.tool.kind === "execute" && item.tool.command && !images.length ? (
+            // A command that returned or printed an image keeps ToolRow's strip under its row.
             <CommandRow item={item} />
           ) : (
             <ToolRow item={item} />
