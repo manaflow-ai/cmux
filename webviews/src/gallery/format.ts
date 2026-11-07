@@ -12,6 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
+import type { DiffCommentRecord } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -38,6 +39,7 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  SharesState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -57,6 +59,8 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
+  sharedLinks?: SharesState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -265,6 +269,10 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** Saved review comments the in-page host lists (`comments.list`). */
+  comments?: DiffCommentRecord[];
+  /** The host sends comments to the diff's chat (Send to agent). */
+  commentsSend?: boolean;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

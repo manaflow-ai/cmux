@@ -52,6 +52,8 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
+mod cloud_codex_holder;
+#[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
@@ -85,6 +87,8 @@ mod frontend_browser;
 mod host_mount;
 #[cfg(unix)]
 mod inference_gateway;
+#[cfg(unix)]
+mod inference_setup;
 mod internal;
 mod launch_credential;
 mod lifecycle;
@@ -101,6 +105,8 @@ mod vm_short;
 mod vnc;
 #[cfg(unix)]
 pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
+#[cfg(unix)]
+pub(crate) use cloud_client_session::secure_origin as secure_cloud_origin;
 #[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
@@ -204,6 +210,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "connect",
     "ssh",
     "forward",
+    "dial-tcp",
     "browser-proxy",
     "rpc",
     "enroll",
@@ -225,6 +232,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "connect" => Some("connect"),
         "ssh" => Some("ssh"),
         "forward" => Some("forward"),
+        "dial-tcp" => Some("dial-tcp"),
         "browser-proxy" => Some("browser-proxy"),
         "rpc" => Some("rpc"),
         "enroll" => Some("enroll"),
@@ -608,6 +616,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
+        .or_else(|| inference_setup::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
@@ -622,6 +631,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
+        .or_else(|| cloud_codex_holder::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))

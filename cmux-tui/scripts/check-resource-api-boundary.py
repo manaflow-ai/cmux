@@ -1201,6 +1201,10 @@ def _validate_catalog_type(
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A diff review comment is the diff page's own object, kept
+                # until it is sent to the agent; the daemon stamps only id,
+                # createdAt and updatedAt (diff-comments-v1).
+                "types.DiffComment.values",
             }
             is_explicit_extra = (
                 context.startswith("types.")

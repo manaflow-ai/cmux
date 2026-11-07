@@ -10,8 +10,10 @@ import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -59,7 +61,6 @@ final class HomeHostView: PaneMotionFollowingView {
     private var showsHosted = false
     private var isWorking = false
     /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
-    var isChiefWorking: Bool { isWorking }
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -594,3 +595,4 @@ extension HomeHostView: PrimaryInputTarget {
         focusTargetShouldTakeKeyboard(from: responder)
     }
 }
+extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking } }

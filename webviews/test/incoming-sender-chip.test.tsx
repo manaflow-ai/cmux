@@ -314,7 +314,11 @@ test("a sender nothing describes keeps no tooltip", async () => {
 // session acpmux names, on whatever machine, and a name acpmux has no chat for says so.
 const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
 
-async function asked(name: string, answers: Record<string, { sessionId: string; name: string; host: string }>) {
+async function asked(
+  name: string,
+  answers: Record<string, { sessionId: string; name: string; host: string }>,
+  lookup?: string,
+) {
   const queries: string[] = [];
   refs.resetSessionRefs();
   refs.setSessionRefResolver(async (query) => {
@@ -334,7 +338,11 @@ async function asked(name: string, answers: Record<string, { sessionId: string; 
       <SubsessionContext.Provider
         value={{ store, open: () => undefined, senderMissing: (who) => void missing.push(who) }}
       >
-        <IncomingMessageLine id="row-1" message={{ name, text, raw: text }} onOpen={(id) => void opened.push(id)} />
+        <IncomingMessageLine
+          id="row-1"
+          message={{ name, ...(lookup && { lookup }), text, raw: text }}
+          onOpen={(id) => void opened.push(id)}
+        />
       </SubsessionContext.Provider>,
     ),
   );
@@ -353,6 +361,8 @@ test("an unlisted sender on another machine opens the session acpmux resolves, b
       "gcp-agent-lane-1/side-lane": remote,
     });
     expect(open).not.toBeNull();
+    // Asked once the page is idle; answered, a click opens the session by its id.
+    await act(async () => void (await refs.resolveSessionRef("gcp-agent-lane-1/side-lane")));
     await act(async () => open!.click());
     expect(queries).toEqual(["gcp-agent-lane-1/side-lane"]);
     expect(opened).toEqual([remote.sessionId]);
@@ -367,13 +377,74 @@ test("an unlisted sender on another machine opens the session acpmux resolves, b
   }
 });
 
-test("a sender acpmux has no chat for says so on the click, never a silent no-op", async () => {
+// Leo, 2026-11-07: "I expect to see, okay, my right pane is going to either gain a new tab or, like,
+// split ... not only do I not get that, like immediate feedback after clicking, but it also just
+// fundamentally doesn't load." The click opens the tab at once, never after acpmux answers; the tab
+// finds the chat or says why it can't (direct.ts `resolveMissing`, chatUnavailable.ts).
+test("a click before acpmux answered opens the sender's tab at once, by what it is asked for", async () => {
+  try {
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/side-lane", {});
+    await act(async () => open!.click());
+    expect(opened).toEqual(["gcp-agent-lane-1/side-lane"]);
+    expect(queries).toEqual([]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a sender acpmux has no chat for opens a tab that says so, never a silent no-op", async () => {
   try {
     const { open, opened, missing } = await asked("gone-mesh", {});
     expect(open).not.toBeNull();
+    await act(async () => void (await refs.resolveSessionRef("gone-mesh")));
     await act(async () => open!.click());
-    expect(opened).toEqual([]);
-    expect(missing).toEqual(["gone-mesh"]);
+    expect(opened).toEqual(["gone-mesh"]);
+    expect(missing).toEqual([]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+// The coordinator chat showed "Can't find gcp-codex-swarm-01/ask-3f0256c58a-3 (self-declared,
+// unauthenticated)'s chat": the chip asked acpmux for its line's text, note and all.
+test("a self-declared sender is asked for and opened by the name it gave, never its line's text", async () => {
+  try {
+    const remote = { sessionId: "mock-swarm-lane", name: "ask-3f0256c58a-3", host: "gcp-codex-swarm-01" };
+    const label = "gcp-codex-swarm-01/ask-3f0256c58a-3";
+    const { open, opened, queries } = await asked(
+      `${label} (self-declared, unauthenticated)`,
+      { [label]: remote },
+      label,
+    );
+    await act(async () => open!.click());
+    expect(opened).toEqual([label]);
+    await act(async () => void (await refs.resolveSessionRef(label)));
+    expect(queries).toEqual([label]);
+    await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!.click());
+    expect(opened).toEqual([label, remote.sessionId]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+  }
+});
+
+test("a miss is asked again once it is old: a machine that connects later opens", async () => {
+  try {
+    let answer: { sessionId: string; name: string; host: string } | undefined;
+    refs.resetSessionRefs();
+    refs.setSessionRefResolver(async () => {
+      if (!answer) throw new Error("not found");
+      return { session: answer };
+    });
+    const now = Date.now;
+    expect(await refs.resolveSessionRef("late-vm/lane")).toBeNull();
+    answer = { sessionId: "mock-late", name: "lane", host: "late-vm" };
+    expect(await refs.resolveSessionRef("late-vm/lane")).toBeNull();
+    try {
+      Date.now = () => now() + refs.MISS_KEPT_MS + 1;
+      expect((await refs.resolveSessionRef("late-vm/lane"))?.sessionId).toBe("mock-late");
+    } finally {
+      Date.now = now;
+    }
   } finally {
     refs.setSessionRefResolver(undefined);
   }

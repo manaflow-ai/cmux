@@ -34,7 +34,7 @@ pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
-use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
+use host_migrate::{MIGRATING, REFUSED, UNIT_SHOW, migrate, migrate_back, unit_back};
 pub(crate) use host_update::{
     CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
 };
@@ -698,21 +698,51 @@ const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 /// some other service started (`ssh.service`, a CI runner, `tmux.service`, or
 /// `acpmux-update.service` when the self-update had to start it detached) has
 /// no `$u`: it is shut down keeping its agents like a detached one.
-const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
+///
+/// When no daemon answers, `$u` is the one hand-written acpmux unit in
+/// `~/.config/systemd/user` (`acpmux*.service` but `acpmux.service` and
+/// `acpmux-update.service`) that systemd reports stopped (inactive or
+/// failed) and whose effective command, as systemd reports it with every
+/// drop-in applied ([`UNIT_SHOW`]), is an acpmux binary running `daemon run`
+/// for this home (its effective `ACPMUX_HOME`, if it sets one, is
+/// `~/.acpmux` or where it links to), with `$p` empty: a stopped or disabled unit is moved to
+/// `acpmux.service` too ([`migrate`]), so an update never leaves a daemon
+/// that systemd does not restart. A Linux host (2026-11-06) shows why: the
+/// kernel's OOM killer (earlyoom) ended a daemon that ran under a disabled
+/// unit with no `Restart=`, and an update gave it a detached start. Two such
+/// units, or none, leave `$u` empty, as before.
+pub(super) fn daemon_unit() -> String {
+    format!(
+        r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
 if [ -n "$p" ]; then
   acpmux_main=$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null) || acpmux_main=
   [ "$acpmux_main" = "$p" ] && u=acpmux.service
   if [ -z "$u" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+else acpmux_c=
+  {UNIT_SHOW}  for acpmux_f in "$HOME"/.config/systemd/user/acpmux*.service; do
+    acpmux_n=${{acpmux_f##*/}}
+    case "$acpmux_n" in acpmux.service|acpmux-update.service) continue;; esac
+    [ -f "$acpmux_f" ] || continue
+    case "$(acpmux_show "$acpmux_n" ActiveState)" in inactive|failed) ;; *) continue;; esac
+    acpmux_runs_daemon "$acpmux_n" || continue
+    acpmux_h=$(acpmux_show "$acpmux_n" Environment | tr ' ' '\n' | sed -n 's/^ACPMUX_HOME=//p' | tail -1)
+    [ -z "$acpmux_h" ] || [ "$(cd -P "$acpmux_h" 2>/dev/null && pwd)" = "$(cd -P {REMOTE_HOME} 2>/dev/null && pwd)" ] || continue
+    acpmux_c="$acpmux_c $acpmux_n"
+  done
+  case "$acpmux_c" in " "*" "*) ;; " "*) systemctl --user show-environment >/dev/null 2>&1 && u=${{acpmux_c# }};; esac
 fi
 if [ "$u" = acpmux-update.service ]; then u=; fi
-"#;
+"#
+    )
+}
 
-/// Setup refuses (exit 3, the unit named on stderr) a daemon under an acpmux
-/// unit other than `acpmux.service`, such as a hand-written
+/// Setup refuses (exit 3, the unit named on stderr) a running daemon under an
+/// acpmux unit other than `acpmux.service`, such as a hand-written
 /// `acpmux-agent-<host>.service`: a shutdown would end its agents with that
 /// unit's cgroup, and the two units would then take turns on the lock. An
-/// update moves it instead ([`migrate`]).
-const FOREIGN_UNIT_REFUSAL: &str = r#"if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
+/// update moves it instead, and setup moves such a unit whose daemon is not
+/// running ([`migrate`]): nothing of it runs that a move could end.
+const FOREIGN_UNIT_REFUSAL: &str = r#"if [ -n "$p" ] && [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
 "#;
 
 /// Whether a user systemd manager answers in this ssh session.
@@ -756,18 +786,42 @@ fn linux_restart(install: bool, json: bool) -> String {
         format!("{SYSTEMD_MANAGER} && {has_unit} && {SYSTEMD_LINGERING}")
     };
     let detached = restart_detached(json);
-    let foreign = if install { FOREIGN_UNIT_REFUSAL.to_owned() } else { migrate(false) };
+    let foreign =
+        if install { format!("{FOREIGN_UNIT_REFUSAL}{}", migrate(false)) } else { migrate(false) };
     let refresh = if install { String::new() } else { unit_refresh() };
     let auto_update = host_auto_update::install_script();
     format!(
-        "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
+        "{refresh}{}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
 if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
-else {detached}; fi"
+else {detached}; fi",
+        daemon_unit()
     )
+}
+
+/// Setup's (re)start on Linux ([`linux_restart`]), whose output on success.
+/// A move from a stopped hand-written unit ([`migrate`]) that changed
+/// something and then failed goes back to that unit, as an update's does
+/// ([`migrate_back`]), so a failed setup never leaves it disabled and renamed.
+pub(super) fn setup_restart(r: &dyn Remote, json: bool) -> Result<String> {
+    let out = r.exec(&linux_restart(true, json), None)?;
+    if out.ok {
+        return Ok(out.stdout.trim().to_owned());
+    }
+    let mut why = format!("ssh {} failed: {}", r.host(), out.stderr.trim());
+    if let Some(unit) = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)) {
+        match unit_back(unit).map(|back| run(r, &back)) {
+            Some(Ok(_)) => why.push_str(&format!("; the daemon was moved back to {unit}")),
+            Some(Err(e)) => {
+                why.push_str(&format!("; moving the daemon back to {unit} failed: {e}"))
+            }
+            None => why.push_str(&format!("; cannot move the daemon back to {unit}")),
+        }
+    }
+    Err(anyhow!(why))
 }
 
 /// The status after a Linux (re)start: read after a grace when systemd started it.
@@ -940,7 +994,7 @@ pub(crate) fn install_daemon(
     write_config(r, &serde_json::to_string_pretty(&cfg)?)?;
     let os = run(r, "uname -s")?;
     if os != "Darwin" {
-        let out = run(r, &linux_restart(true, json))?;
+        let out = setup_restart(r, json)?;
         let (out, auto_update_off) = host_auto_update::take_auto_update_off(&out);
         return Ok((linux_status(r, out, json)?, auto_update_off));
     }

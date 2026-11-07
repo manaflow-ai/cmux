@@ -498,7 +498,8 @@ export function useSenderChat(
   sessionId: string | undefined,
 ): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const readId = () => sessionId ?? store.find(name);
+  // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
+  const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);

@@ -22,6 +22,8 @@ mod app_identity;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
+#[cfg(unix)]
+mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -41,6 +43,8 @@ mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_secrets;
 mod page_listener;
 mod private_mode;
 #[cfg(unix)]
@@ -1731,7 +1735,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             raw_args.drain(..2);
             raw_args.insert(0, "remote-stop".to_string());
         }
-        Some("connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons") => {
+        Some("connect" | "ssh" | "forward" | "dial-tcp" | "rpc" | "enroll" | "known-daemons") => {
             raw_args.remove(0);
         }
         Some("-h" | "--help") | None => {}
