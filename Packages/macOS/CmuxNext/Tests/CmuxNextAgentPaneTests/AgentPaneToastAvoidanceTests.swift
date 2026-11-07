@@ -72,6 +72,46 @@ struct AgentPaneToastAvoidanceTests {
         #expect(CmuxToastOverlayHost.floor(width: 400, in: bounds, window: window) == bounds.minY)
     }
 
+    /// A workspace switch hides an ancestor and changes no frame. A toast shown while the chat was
+    /// away rests at the window's foot; when the chat shows again, the toast moves above its composer
+    /// (review of #37545: it stayed over the composer until another geometry change).
+    @Test func aToastShownWhileThePaneWasHiddenMovesAboveTheComposerWhenItShows() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        defer { view.close() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer {
+            let panel = WindowOverlayHost.existingHost(for: window)?.panel
+            window.isReleasedWhenClosed = false
+            window.close()
+            panel?.close()
+        }
+        let content = try #require(window.contentView)
+        // The workspace's container, which a switch hides.
+        let workspace = NSView(frame: content.bounds)
+        content.addSubview(workspace)
+        view.frame = workspace.bounds
+        workspace.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        let pageHeight = (view.page?.frame ?? view.webView.frame).height
+        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
+        let composer = view.convert(view.toastAvoidanceRect, to: nil)
+
+        workspace.isHidden = true
+        let host = CmuxToastOverlayHost()
+        let handle = CmuxToastCenter(host: host).show(CmuxToast(id: "layout.resizeMode", message: "Snap"), in: window)
+        defer { handle.dismiss() }
+        let toast = try #require(Self.toastViews(in: window).first)
+        #expect(toast.convert(toast.bounds, to: nil).minY < composer.maxY, "a hidden chat still held the toast up")
+
+        workspace.isHidden = false
+        // The move runs one main-actor turn after the change (`CmuxToastAvoidance.avoidanceChanged`).
+        for _ in 0..<20 where toast.convert(toast.bounds, to: nil).minY < composer.maxY { await Task.yield() }
+        #expect(toast.convert(toast.bounds, to: nil).minY >= composer.maxY + CmuxToastOverlayHost.avoidanceGap - 0.5,
+                "the toast stayed over the composer after the chat showed again")
+    }
+
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         guard let panel = WindowOverlayHost.existingHost(for: window)?.panel, let root = panel.contentView else { return [] }
         var found: [CmuxToastView] = []
