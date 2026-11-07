@@ -1726,6 +1726,7 @@ let package = Package(
         self.write(self.SCAN, self.scan_source(1))
         self.commit("base: a process-scan line with no row")
         self.set_scan_row(1)
+        self.write("cmux-tui/crates/fixture/src/other.rs", "pub fn other() {}\n")  # the crate is in the trees
         self.commit("adds its row")
 
         result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
