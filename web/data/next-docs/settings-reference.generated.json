@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 602,
+  "count": 601,
   "sections": [
     {
       "id": "general",
@@ -29,31 +29,6 @@
           "values": [
             "context",
             "planUsage"
-          ]
-        },
-        {
-          "key": "agentPane.dictationShortcut",
-          "title": "Dictation App Shortcut",
-          "help": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
-          "kind": "text",
-          "default": "",
-          "group": "Agent Chat"
-        },
-        {
-          "key": "agentPane.dictationSource",
-          "title": "Dictate With",
-          "help": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
-          "kind": "choice",
-          "default": "cmux",
-          "group": "Agent Chat",
-          "values": [
-            "cmux",
-            "macos",
-            "chatgpt",
-            "claude",
-            "gemini",
-            "wisprFlow",
-            "superwhisper"
           ]
         },
         {
@@ -5370,6 +5345,14 @@
           "key": "browser.openLinksInCmuxBrowser",
           "title": "Open Links in cmux Browser",
           "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "title": "Open Pull Requests in cmux GitHub Page",
+          "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
           "default": true,
           "group": "Opening Links"
