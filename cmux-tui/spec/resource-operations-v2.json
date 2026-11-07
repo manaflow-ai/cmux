@@ -32797,6 +32797,46 @@
             },
             "description": "Where the new workspace goes in the sidebar order, for this create: top (first, below Home), after_current or bottom. Default: the workspaces.newPlacement setting."
           },
+          "created_by": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "person",
+                      "agent",
+                      "script"
+                    ]
+                  },
+                  "description": "Who made the workspace: the person, an agent session, or a script."
+                },
+                "workspace": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The workspace the agent or script runs in: its id, or its key (a terminal's CMUX_WORKSPACE_ID)."
+                },
+                "session": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "description": "The agent session that made it."
+                }
+              },
+              "extra": false
+            },
+            "description": "Who made the workspace: a place hint, never a trust claim. An agent or script workspace goes below its creator workspace, after the creator's earlier children, in its group; with no live creator workspace, at the end. A person's workspace, or one without created_by, follows placement or the setting. Shown as extra.created_by on the workspace."
+          },
           "cwd": {
             "required": false,
             "type": {

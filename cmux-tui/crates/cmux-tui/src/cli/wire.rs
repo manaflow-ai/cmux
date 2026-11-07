@@ -199,6 +199,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
+        | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -1129,6 +1130,7 @@ mod notify_desktop;
 mod retry;
 mod sanitize;
 mod socket;
+mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
