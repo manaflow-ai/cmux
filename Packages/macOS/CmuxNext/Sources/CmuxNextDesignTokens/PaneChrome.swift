@@ -86,8 +86,8 @@ public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
         self.borderWidth = borderWidth
     }
 
-    /// A padding, border color or border width is set: keys that only mean
-    /// something for padded, outlined panes. The corner radius is not one: it
+    /// A padding above 0, a border color or a border width is set: keys that
+    /// only mean something for padded, outlined panes. The corner radius is not one: it
     /// also rounds the curved main pane and the tabs, so setting it keeps the
     /// separation (2026-11-04, one radius for panes and tabs).
     package var describesBorderedPanes: Bool {
