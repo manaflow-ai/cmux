@@ -448,15 +448,13 @@ impl Machine {
             return;
         }
         let waiting = self.waiting();
+        // A Stop's hold keeps what is behind it waiting too: the queue runs in its order.
         let held = self.held();
-        let mut i = 0;
-        while i < self.queue.len() {
-            let p = self.queue[i].clone();
+        while let Some(p) = self.queue.first().cloned() {
             if held.contains(&p) {
-                i += 1;
-                continue;
+                return;
             }
-            self.queue.remove(i);
+            self.queue.remove(0);
             if let Some((_, seq)) = waiting.iter().find(|(w, _)| *w == p) {
                 let by_owner = self.by_owner.contains(seq);
                 self.run(&p, by_owner);
@@ -583,17 +581,17 @@ impl Machine {
             // Its recovery is made again on the restored log, whatever the restore answers.
             self.pending = true;
         }
-        let at = self.end();
         let answer = self.write_restored(after, records, stop_after);
+        // 4dcbe192 kept a restart's recovery in seqs the copy held (F1): the restore diverged on
+        // the machine's own records alone, and the copy's never went back.
         if self.recent && answer == Err("diverged") {
-            let own = self.journal.iter().filter(|h| h.seq > after && h.seq <= at);
-            let ours = own.clone().count() > 0 && own.clone().all(|h| h.recovery);
-            let differs = records.iter().any(|r| {
-                self.journal
-                    .iter()
-                    .any(|h| h.seq == r.seq && h.recovery && (h.at, h.kind) != (r.at, r.kind))
-            });
-            if ours && differs {
+            let differ: Vec<&Rec> = records
+                .iter()
+                .filter_map(|r| {
+                    self.journal.iter().find(|h| h.seq == r.seq && (h.at, h.kind) != (r.at, r.kind))
+                })
+                .collect();
+            if !differ.is_empty() && differ.iter().all(|h| h.recovery) {
                 LOST.with(|l| {
                     l.borrow_mut()
                         .push("recovered: a restore diverged on the machine's own recovery".into())
@@ -1782,11 +1780,12 @@ fn move_sim_finds_the_losses_of_the_rules_of_91b1343d() {
 }
 
 /// Under the rules of 4dcbe192 (review at 4dcbe192, F1 to F6) some seeds send a prompt on a link
-/// the gate did not decide (`raced`), run a prompt admitted before a restore took the lock in its
-/// hold (`held`), give back a prompt whose file its disk lacks (`file`), or leave a proof of an
-/// earlier owner start unchecked (`stuck`); rarer, a restore diverges on the machine's own
-/// recovery (`recovered`) and a prompt runs past the Stop the bound cut from its proof
-/// (`unheld`). At least 2000 seeds. Prints which seeds.
+/// the gate did not decide (`raced`), give back a prompt whose file its disk lacks (`file`), or
+/// leave a proof of an earlier owner start unchecked (`stuck`). Rarer, and held by unit tests
+/// (`journal_restore_tests.rs`, `peer_snapshot_tests.rs`): a restore diverges on the machine's
+/// own recovery (`recovered`), a prompt admitted before a restore took the lock runs in its hold
+/// (`held`), a prompt runs past the Stop the bound cut from its proof (`unheld`). At least 2000
+/// seeds. Prints which seeds.
 #[test]
 fn move_sim_finds_the_losses_of_the_rules_of_4dcbe192() {
     let range = seeds();
@@ -1796,7 +1795,7 @@ fn move_sim_finds_the_losses_of_the_rules_of_4dcbe192() {
     for f in failed.iter().take(10) {
         eprintln!("  {f}");
     }
-    for kind in ["raced", "held", "file", "stuck"] {
+    for kind in ["raced", "file", "stuck"] {
         assert!(kinds.contains_key(kind), "no seed found {kind}");
     }
 }
