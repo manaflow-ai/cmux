@@ -1,3 +1,4 @@
+import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
@@ -679,6 +680,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
     pending: true,
@@ -6892,6 +6894,12 @@ export class AcpmuxDirectClient {
             this.streamingAssistantMessageId = undefined;
           }
         }
+      } else if (event.kind === "steer_read") {
+        // The agent read this steer (acpmux `steer_end.rs`): its row is read now, so it offers no X
+        // acpmux would refuse. Its next words, which said so before, can come a minute later or
+        // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
+        // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
       } else if (event.kind === "steer_withdrawn") {
         // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
         // text went back to the composer that took it.

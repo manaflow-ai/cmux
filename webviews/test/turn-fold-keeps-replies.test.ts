@@ -181,8 +181,6 @@ test("a running turn keeps the same replies in sight between its runs", () => {
   const running = turn.slice(0, -2);
   const view = turnView(running, new Set(), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
     agentFamily: "claude",
     now: START + 200_000,
   });
