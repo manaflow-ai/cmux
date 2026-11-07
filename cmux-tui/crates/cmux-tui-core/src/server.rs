@@ -178,6 +178,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
+mod bookmarks_routed;
 mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
