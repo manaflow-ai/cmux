@@ -14,7 +14,7 @@ struct GitHubPageDetailsTests {
     private static let page = PageCallContext(page: "cmux.github")
     private static let click = PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 1)
     private static let pull = URL(string: "https://github.com/manaflow-ai/cmux/pull/36002")!
-    private static let head = String(repeating: "ab", count: 20)
+    nonisolated private static let head = String(repeating: "ab", count: 20)
 
     private final class Calls: @unchecked Sendable { // crash-allow: test log touched only on the main actor
         var reads = 0
@@ -25,7 +25,7 @@ struct GitHubPageDetailsTests {
         AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: "/nonexistent/gh", environment: [:]))
     }
 
-    private static let answer = #"""
+    nonisolated private static let answer = #"""
         {"data": {"repository": {"viewerDefaultMergeMethod": "SQUASH", "pullRequest": {
           "body": "## Summary\nFixes it.", "headRefOid": "\#(head)", "mergeStateStatus": "UNSTABLE",
           "labels": {"nodes": [{"name": "risk:normal", "color": "FBCA04"}, {"name": "odd", "color": "nothex"}]},
@@ -126,7 +126,7 @@ struct GitHubPageDetailsTests {
         }
     }
 
-    private static let diff = """
+    nonisolated private static let diff = """
         diff --git a/a.swift b/a.swift
         --- a/a.swift
         +++ b/a.swift
