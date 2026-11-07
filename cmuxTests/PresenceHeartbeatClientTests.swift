@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -24,6 +25,23 @@ import Testing
         #expect(PresenceSettings.isEnabled(defaults: defaults))
         defaults.set(false, forKey: PresenceSettings.enabledKey)
         #expect(!PresenceSettings.isEnabled(defaults: defaults))
+    }
+
+    /// A Mac that accepts other Macs must announce presence even with iOS
+    /// pairing off; otherwise every peer lists it but labels it offline (#21239).
+    @MainActor
+    @Test func macIncomingAccessPublishesPresenceWithoutIPhonePairing() {
+        let suiteName = "presence-mac-only-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(!PresenceSettings.isEnabled(defaults: defaults, cloudEnabled: true))
+        defaults.set(true, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(PresenceSettings.isEnabled(defaults: defaults, cloudEnabled: true))
+        // Incoming access is unavailable while Cloud is off.
+        #expect(!PresenceSettings.isEnabled(defaults: defaults, cloudEnabled: false))
+        defaults.set(false, forKey: PresenceSettings.enabledKey)
+        #expect(!PresenceSettings.isEnabled(defaults: defaults, cloudEnabled: true))
     }
 
     private func route(host: String, port: Int, id: String = "r") throws -> CmxAttachRoute {
