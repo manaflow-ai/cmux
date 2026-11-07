@@ -283,6 +283,13 @@ SECTIONS = [
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
     },
     {
+        "source": "schemas/settings/source/general.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+General.generated.swift",
+        "type": "GeneralSettingsSchema",
+        "lists": {name: (name, None) for name in ("history", "window", "quitting", "columns", "layout", "workspaceList",
+                                                  "palette", "menus")},
+    },
+    {
         "source": "schemas/settings/source/machines.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Machines.generated.swift",
         "type": "MachineSettingsSchema",
