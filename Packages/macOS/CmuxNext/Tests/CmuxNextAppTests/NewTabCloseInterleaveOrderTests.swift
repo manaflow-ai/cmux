@@ -199,11 +199,14 @@ struct NewTabCloseInterleaveOrderTests {
             recorder.sample(pane)
             let second = try #require(pane.stripModel.selectedID, "the second new tab is selected")
             try #require(second != firstNow, "the second press selected no new tab")
+            print("DIAG7255 test first=\(first.rawValue) firstNow=\(firstNow.rawValue) second=\(second.rawValue) tabs=\(pane.pane.tabs.map(\.id)) strip=\(pane.orderedIDs.map(\.rawValue))")
             pane.handle(.close(TabID(firstNow.rawValue), source: .mouse))
+            print("DIAG7255 test closed; tabs=\(pane.pane.tabs.map(\.id)) strip=\(pane.orderedIDs.map(\.rawValue))")
             recorder.sample(pane)
             try await Self.settle(pane, recorder)
 
             let frames = recorder.frames, seen = frames.map { $0.joined() }
+            print("DIAG7255 test end tabs=\(pane.pane.tabs.map(\.id)) strip=\(pane.orderedIDs.map(\.rawValue)) frames=\(seen)")
             #expect(frames.allSatisfy { $0.filter { $0 != "N" } == ["a", "b", "c"] }, "the other tabs reordered: \(seen)")
             #expect(frames.last == ["a", "b", "N", "c"], "settled at \(frames.last?.joined() ?? "-"); \(seen)")
             let selected = try #require(pane.stripModel.selectedID)

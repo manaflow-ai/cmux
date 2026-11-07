@@ -137,7 +137,7 @@ enum NewTabSlot {
                 if !joined { services.paneController(for: pane)?.resyncStrip() }
                 return nil
             }
-            guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
+            if let located = locate() { print("DIAG7255 place found=\(found) tab=\(located.0.id) tabs=\(located.1.tabs.map(\.id)) final=\(String(describing: index(located.1.tabs.filter { $0 !== located.0 }))) closing=\(services.daemon(for: located.1).store.closingTabIDs)") } else { print("DIAG7255 place found=\(found) not located") }; guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
                   pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
             await withCheckedContinuation { landed in TabMoves.move(tab, to: pane, index: final, services: services) { _ in landed.resume() } }
             return nil
@@ -151,9 +151,9 @@ enum NewTabSlot {
     /// the tab (``NewTabSuccession/rebasedSlot(in:by:among:)``), else nil. The start is right after the pinned tabs.
     static func slot(for target: Target, in others: [TabModel], pane: PaneModel? = nil, open: DemandTimer? = nil, services: AppServices? = nil) -> Int? {
         switch target {
-        case .after(let anchor, _): TabGroupWrites.slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
+        case .after(let anchor, _): { print("DIAG7255 slot anchor=\(anchor.id) inOthers=\(others.contains { $0 === anchor }) replacement=\(String(describing: pane.flatMap { services?.daemon(for: $0).store.creations.replacement(ofStandIn: anchor.id, in: $0)?.id })) rebased=\(String(describing: pane.flatMap { NewTabSuccession.rebasedSlot(in: $0, by: open, among: others) })) open=\(pane.map { NewTabSuccession.isOpen(in: $0) } ?? false)"); return () }(); return TabGroupWrites.slot(after: anchor, in: others) ?? pane.flatMap { pane in services?.daemon(for: pane).store.creations.replacement(ofStandIn: anchor.id, in: pane)
             .flatMap { TabGroupWrites.slot(after: $0, in: others) } ?? NewTabSuccession.rebasedSlot(in: pane, by: open, among: others) }
-        case .start: others.prefix { $0.pinned }.count
+        case .start: return others.prefix { $0.pinned }.count
         }
     }
 }
