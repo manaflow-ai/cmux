@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +15,7 @@ import {
   type BootImage,
   type SettleInput,
 } from "../../images/cmux-vm/auto-roll";
+import { runChild } from "./helpers/run-child";
 
 // images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
 const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
@@ -164,22 +164,22 @@ describe("auto-roll settle", () => {
       for (const attempt of [1, 2, 3, 4]) expect(settle(back({ deploy, product: "failure", attempt })).outcome).not.toBe("rollback");
   });
 
-  test("the CLI reads the deployed and tip first entries from wrangler.jsonc files", () => {
+  test("the CLI reads the deployed and tip first entries from wrangler.jsonc files", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-settle-"));
     try {
       const rolled = approve(wrangler, entry("500")).text;
       writeFileSync(path.join(dir, "deployed.jsonc"), rolled);
       writeFileSync(path.join(dir, "tip.jsonc"), rolled);
       const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
-      const run = (deploy: string) => {
-        const r = spawnSync("bun", [script, "settle", "--kind", "roll", "--image", image, "--deploy", deploy, "--product", "", "--boot-image", "",
-          "--deployed-wrangler", path.join(dir, "deployed.jsonc"), "--wrangler", path.join(dir, "tip.jsonc")], { encoding: "utf8" });
+      const run = async (deploy: string) => {
+        const r = await runChild("bun", [script, "settle", "--kind", "roll", "--image", image, "--deploy", deploy, "--product", "", "--boot-image", "",
+          "--deployed-wrangler", path.join(dir, "deployed.jsonc"), "--wrangler", path.join(dir, "tip.jsonc")]);
         expect(r.status).toBe(0);
         return JSON.parse(r.stdout) as { outcome: string; tipFirst: string; deployedFirst: string };
       };
-      expect(run("cancelled")).toMatchObject({ outcome: "rollback", tipFirst: image, deployedFirst: image });
+      expect(await run("cancelled")).toMatchObject({ outcome: "rollback", tipFirst: image, deployedFirst: image });
       writeFileSync(path.join(dir, "tip.jsonc"), rollback(rolled, image).text);
-      expect(run("cancelled")).toMatchObject({ outcome: "superseded", tipFirst: previous });
+      expect(await run("cancelled")).toMatchObject({ outcome: "superseded", tipFirst: previous });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
