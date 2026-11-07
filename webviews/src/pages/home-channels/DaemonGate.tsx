@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
+import "./DaemonGate.css";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
 

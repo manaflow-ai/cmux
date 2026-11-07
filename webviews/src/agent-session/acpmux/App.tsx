@@ -16,6 +16,7 @@ import React, {
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, thisMacName } from "./environments";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -441,10 +442,13 @@ import {
   cloudFolderGrants,
   cloudStartFolder,
   cloudStartToasted,
+  makeCloudSignInRetry,
+  resumeSignedIn,
   grantedCloudStart,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
+  type CloudStartAnswer,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
@@ -467,8 +471,6 @@ import { messagesRows } from "./conversation/messagesRows";
 import { PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
 import { useStatusVerbConfig } from "./statusVerbs";
-import { useCodexToolRuns } from "./codexToolRuns";
-import { useLiveLineBelow } from "./liveLineBelow";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
@@ -576,7 +578,8 @@ import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
-import { isFastModeOption } from "./heldOptions";
+import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
+import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -1188,16 +1191,10 @@ function DefaultComposerChips({
       }
       // A started chat forks to another harness through Continue In… (Leo 2026-10-22: "need to be
       // able to switch to different harnesses, can expose as fork"): the chat menu's own path, its
-      // review in this tab, then the new chat in a tab of its own. Not while a turn or queue runs.
-      {...(!startsChat && snapshot.canHandoff
-        ? {
-            fork: {
-              to: (harness: string) => void callNative("chat.handoff.prepare", { harness }).catch(() => undefined),
-              // Continue In…'s own check: no fork while a review is open or no harness can take it.
-              ready: canContinueIn(snapshot),
-            },
-          }
-        : {})}
+      // review in this tab, then the new chat in a tab of its own. A pick of another harness's model
+      // only holds it (forkHold.ts); the next message forks (Leo 2026-11-06: "it should only need to
+      // necessarily fork when you enter a message on that new model"), the composer's send.
+      {...(!startsChat && snapshot.canHandoff ? { fork: true } : {})}
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
@@ -2377,10 +2374,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
-  // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
-  const codexRuns = useCodexToolRuns();
-  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
-  const lineBelow = useLiveLineBelow();
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
@@ -2511,9 +2504,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           {
             working: snapshot.isWorking,
             clockOffset: snapshot.clockOffsetMs,
-            liveRuns: codexRuns,
             sessionStatus,
-            lineBelow,
             // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -2580,9 +2571,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     folds,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
-    codexRuns,
     sessionStatus,
-    lineBelow,
     snapshot.summary?.family,
     snapshot.waitingSteers,
     messageBreaks,
@@ -3925,6 +3914,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  const composerHandle = useRef<ComposerHandle | null>(null);
+  const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
+  /// The card retries its preserved request once; native keeps the click across browser auth.
+  const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
+  /// A `cloud.signIn` waits on the browser: leaving Cloud (another mode, chat or tab) withdraws its send.
+  const cloudSignInPending = useRef(false);
+  const cancelCloudSignIn = () => {
+    if (!cloudSignInPending.current) return;
+    cloudSignInPending.current = false;
+    void callNative("cloud.signInCancel").catch(() => undefined);
+  };
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
@@ -3953,17 +3953,58 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (cloudStartPending.current) return false;
     const reservationKey = cloudReservation.handoff(start.environment);
     const request: CloudStart = { task: text, attachments, ...start, ...(reservationKey ? { reservationKey } : {}) };
+    // A page's send leaves the page: its draft comes back in the chat composer, compared there.
+    void beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
+    return false;
+  };
+  const beginCloudSend = (
+    request: CloudStart,
+    signingIn = false,
+    preservedDraft?: { text: string; attachments: ComposerAttachment[] },
+    fromPage = false,
+  ): Promise<CloudStartAnswer> | undefined => {
+    const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
-    const started = startCloud(request, key);
+    const sent = startCloud(request, key, signingIn);
     // Another Return while a start waits starts nothing, and the card keeps that start.
-    if (!started) return false;
+    if (!sent) return undefined;
+    // Signed in: the start goes again, on the click the host kept, only if this page still waits for it.
+    const again = () => startCloud({ ...request, signedIn: true }, key);
+    const started = signingIn
+      ? sent.then((answer) => resumeSignedIn(answer, () => cloudSignInPending.current, again))
+      : sent;
+    // What the chat composer holds for this start: the page's draft once it is put back there.
+    let expectedDraft = preservedDraft;
+    cloudSignInSend.current = () => {
+      // The browser may stay open for minutes. If the person edits this prompt meanwhile,
+      // leave the edited draft in place rather than starting Cloud with the stale request.
+      const draft = composerHandle.current?.draft();
+      const expected = expectedDraft ?? { text, attachments: request.attachments ?? [] };
+      const sameAttachments =
+        draft === undefined ||
+        (draft.attachments.length === expected.attachments.length &&
+          draft.attachments.every((attachment, index) => attachment.id === expected.attachments[index]?.id));
+      if (draft !== undefined && (draft.text !== expected.text || !sameAttachments)) {
+        const answer: CloudStartAnswer = {
+          ok: false,
+          code: "cloud_prompt_changed",
+          message: "Your prompt changed while you were signing in. Send the updated prompt to Cloud.",
+        };
+        setCloudStart((current) => cloudStartEnded(current, key, answer));
+        return Promise.resolve(answer);
+      }
+      // The first send's compose reservation was handed off with it; the resumed send asks for none.
+      const { reservationKey: _spentReservation, ...resumed } = request;
+      return beginCloudSend(resumed, true, expected);
+    };
     cloudStartPending.current = true;
+    if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
       newTabCloudSent.current = true;
       // The prompt as sent, for a page that leaves no draft of its own (a prefilled location it
       // counts as untyped); the page's own draft, if it hands one over, replaces it.
-      cloudPageDraft.current = { text, attachments };
+      cloudPageDraft.current = { text, attachments: request.attachments ?? [] };
       setCloudLeftPage(newTabGeneration);
     }
     setCloudStart(
@@ -3972,15 +4013,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
+      if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);
       // A page's draft goes back to the chat composer unless the chat opened on its machine.
       const pageDraft = cloudPageDraft.current;
       cloudPageDraft.current = undefined;
       newTabCloudSent.current = false;
-      if (pageDraft && (!answer.ok || cloudRunsHere(answer)))
+      if (pageDraft && (!answer.ok || cloudRunsHere(answer))) {
         restoreComposerDraft(composerHandle, heldBack, pageDraft.text, pageDraft.attachments);
+        expectedDraft = pageDraft;
+      }
+      if (!answer.ok && answer.code === "cloud_sign_in_cancelled") {
+        // The person left Cloud while signing in: the prompt stays in the composer for their new pick.
+        setCloudStart((current) => (current?.key === key ? undefined : current));
+        return;
+      }
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
+        cloudSignInRetry.reset();
         setCloudStart((current) => (current?.key === key ? undefined : current));
         runModePicked.current = true;
         runHereSend.current = true;
@@ -3991,7 +4041,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
-    return false;
+    return started;
   };
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
   /// place of the chat until Back: a paid run's receipt stays reachable.
@@ -4014,7 +4064,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     cloudReservation.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    cancelCloudSignIn();
+    cloudSignInRetry.reset();
     setCloudStart(undefined);
+    cloudSignInSend.current = () => undefined;
     cloudPageDraft.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
@@ -4022,13 +4075,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
     cloudShownView.current = view;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
       cloudReservation.abandon();
+      cancelCloudSignIn();
+      cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+      cloudSignInSend.current = () => undefined;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [sandbox.mode, cloudReservation]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
@@ -4960,7 +5018,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
-  const composerHandle = useRef<ComposerHandle | null>(null);
   /// What the new chat shown leaves when its tab opens another chat (set below, cmux#32276).
   const newChatLeftover = useRef<() => { leave: () => void; cancel: () => void } | undefined>(() => undefined);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
@@ -5596,6 +5653,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),
       ...(keptStopping && { stopping: true as const }),
+      // The Quick Composer's send never forks (it has no review to show), so its model menu
+      // holds no pick of another harness either (review of #37196: it drew the hold, then sent
+      // the message to this chat).
+      ...(quick && { canHandoff: false }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -7328,9 +7389,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
           // its own tab and brings this one back to the chat.
-          "chat.handoff.prepare": async ({ harness }) => {
+          // From the composer's send with a held pick of another harness's model (forkHold.ts), it also
+          // lands that model on the new chat (it runs that harness now, so in place, as a model pick
+          // does) and adds the typed message to the review's context; a model or message that did
+          // not land fails the send, which keeps the message and the pick (prepareHeldFork).
+          "chat.handoff.prepare": async ({ harness, model, effort, fast, message }) => {
             harnessSwitch.cancel();
-            return client.continueIn(String(harness));
+            return prepareHeldFork(
+              {
+                harness: String(harness),
+                ...(typeof model === "string" && model ? { model } : {}),
+                ...(typeof effort === "string" && effort ? { effort } : {}),
+                ...(fast === true ? { fast: true } : {}),
+                ...(typeof message === "string" ? { message } : {}),
+              },
+              {
+                continueIn: (target) => client.continueIn(target),
+                pickModel: (picked, target) => harnessSwitch.pickModel(picked, { sessionId: target }),
+                options: async (target, picked) => {
+                  if (client.selectedSession !== target) return;
+                  if (picked.effort) await client.setConfig(HELD_EFFORT_ID, picked.effort).catch(() => undefined);
+                  if (picked.fast) await client.setConfig(HELD_FAST_ID, HELD_FAST_ON).catch(() => undefined);
+                },
+                record: () => client.handoff.state.record,
+                refresh: () => client.refreshHandoff(),
+                save: (review) => client.saveHandoff(review),
+                // The review drew the draft before the message joined it: it draws it again.
+                saved: () => setReviewReload((value) => value + 1),
+              },
+            );
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
@@ -8710,8 +8797,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
   // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
   // list any page received, drawn on its first frame and updated in place when another page hears a
-  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
-  // whose daemon is down list this page's own (`sharesChatList`).
+  // change. A page on another machine's daemon and a page whose daemon is down list this page's own
+  // (`sharesChatList`).
   const newTabSessions = useSharedSessions(
     carriedSessions ?? composerSnapshot.sessions,
     sharesChatList(newTab, composerSnapshot),
@@ -9542,13 +9629,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ) : (
             trayNode
           ))}
-        {statusCardOpen && (
-          <HarnessStatusCard
-            summary={snapshot.summary}
-            rows={snapshot.rows}
-            onDismiss={() => setStatusCardOpen(false)}
-          />
-        )}
+        {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -9636,6 +9717,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // A held pick of another harness's model (forkHold.ts; Leo 2026-11-06: "it should only
+              // need to necessarily fork when you enter a message on that new model"): this message
+              // forks the chat there through Continue In…, whose review it joins, and the model lands
+              // on the new chat. The composer keeps the message until the review is ready, and keeps
+              // it when the fork can't start (a turn running, a review open) or fails. Images can't
+              // join the review's text, so a message with them stays too.
+              if (snapshot.sessionId && surfaceRef.current !== "quick") {
+                // A chat that can no longer hand off (its host lost the support) drops the pick.
+                if (!snapshot.canHandoff) clearHeldFork(snapshot.sessionId);
+                const forked = sendHeldFork(snapshot.sessionId, text, {
+                  images: chips?.length ?? 0,
+                  ready: canContinueIn(snapshot),
+                  prepare: (params) => callNative<string | undefined>("chat.handoff.prepare", params),
+                  // The composer leaves with the chat: its prompt is not the source chat's draft now.
+                  sent: (source) => writePersistedDraft(source, ""),
+                });
+                if (forked !== undefined) return forked;
+              }
               // Shell mode's chips carry their commands' output as it is now.
               const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
               // The folder's trust holds prompts: this one waits in the pane and goes after Trust
@@ -10171,6 +10270,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 : sessionInfoSummary,
               machineName,
               peerKinds: snapshot.peerKinds,
+              place: chatPlace(snapshot),
               repository: githubRepository,
               cloudRepositoryAvailable,
               onOpenFolder:
@@ -10326,7 +10426,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         ...(cloudStart
                           ? {
                               cloudStatus: (
-                                <CloudStartView start={cloudStart} bubble={cloudStart.state === "starting"} />
+                                <CloudStartView
+                                  start={cloudStart}
+                                  bubble={cloudStart.state === "starting"}
+                                  onSignIn={cloudSignInRetry}
+                                />
                               ),
                             }
                           : {}),
@@ -10547,7 +10651,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 data-solo-tab={soloUnder ? "" : undefined}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
-                <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
+                {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
+                    (ui/titleTooltips.ts `data-tooltip-covered`). */}
+                <header
+                  className="acpmux-header"
+                  data-tab-row={inTabRow ? "" : undefined}
+                  data-tooltip-covered={inTabRow ? "" : undefined}
+                >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
                       <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
@@ -10775,7 +10885,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
                 ) : cloudStart && !snapshot.sessionId ? (
-                  <CloudStartView start={cloudStart} />
+                  <CloudStartView start={cloudStart} onSignIn={cloudSignInRetry} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}

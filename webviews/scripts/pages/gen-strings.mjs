@@ -213,6 +213,12 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Cloud progress page (cmux-page://cmux.cloud-progress/): a Cloud machine on its way to its terminal.
+  // Its table lives next to it; the words are the retired AppKit view's (Cloud.xcstrings `cloud.progress.`).
+  "cloud-progress": {
+    out: "webviews/src/pages/cloud-progress/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
+  },
   // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
   "mobile-pairing": {
     out: "webviews/src/pages/mobile-pairing/generated/strings.json",
@@ -257,6 +263,25 @@ export const PAGES = {
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+  },
+  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
+  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
+  "home-messages-transcript": {
+    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
+  },
+  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
+  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
+  // daemon gate it shares.
+  "home-messages": {
+    out: "webviews/src/pages/home-messages/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
+      {
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
+    ],
   },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
