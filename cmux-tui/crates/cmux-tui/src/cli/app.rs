@@ -43,7 +43,8 @@ mod page;
 mod renderers;
 mod right;
 mod run;
-mod settings;
+// `pub(super)`: the daemon's settings verbs read its key aliases (command/settings.rs).
+pub(super) mod settings;
 mod skew;
 mod space;
 mod version;

@@ -3207,6 +3207,22 @@ mod tests {
         assert_eq!(literal.params["value"], "--literal");
     }
 
+    /// `cmux config set on cloud` sets `chat.on` through the daemon, the route CRUD takes.
+    #[cfg(unix)]
+    #[test]
+    fn settings_crud_reads_a_key_alias_as_its_key() {
+        assert!(super::super::daemon_settings_scope(&strings(&["config", "set", "on", "cloud"])));
+        let set = protocol(&["config", "set", "on", "cloud"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "chat.on", "value": "cloud", "machine": "current", "session": "current"})
+        );
+        for verb in ["get", "reset", "unset"] {
+            assert_eq!(protocol(&["settings", verb, "on"]).params["key"], "chat.on", "{verb}");
+        }
+    }
+
     #[test]
     fn coding_agent_hook_management_stays_local() {
         let CommandPlan::AgentHooks(plan) = parse(

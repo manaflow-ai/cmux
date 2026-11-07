@@ -45,7 +45,9 @@ pub(super) fn parse(
     }
 }
 
+/// The request's `key`: a CLI alias (`on`) is its schema key, as the app's parser reads it.
 fn key_params(key: &str) -> Map<String, Value> {
+    let key = super::super::app::settings::resolve_alias(key);
     Map::from_iter([(String::from("key"), Value::String(key.to_owned()))])
 }
 
