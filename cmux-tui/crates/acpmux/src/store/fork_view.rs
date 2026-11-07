@@ -167,6 +167,13 @@ impl ForkView {
     fn materialize_locked(&self, id: &str) -> Result<()> {
         // Read under the lock: a write that ran first left none.
         let Some(reference) = self.reference(id) else { return Ok(()) };
+        // A fork reserved and not saved yet has no meta to hold the history's end, and no folder
+        // made with it: the history would go nowhere, or into a folder its meta's save then
+        // takes as already there. Its first save comes under `dropping` too, so the chat waits
+        // for that save (review of #37020).
+        let Some(mut meta) = self.inner.load(id)? else {
+            anyhow::bail!("a fork of this chat is still being made: try again");
+        };
         let Some(mut writer) = self.inner.history_writer(id)? else {
             anyhow::bail!("this store cannot hold a fork's history");
         };
@@ -190,11 +197,9 @@ impl ForkView {
         // The meta first: if its save fails, the reference stands on disk and here, and the next
         // write replaces segment `000000` whole (review of #37020: a failed save left the
         // reference on disk and none here, so the written history was never read).
-        if let Some(mut meta) = self.inner.load(id)? {
-            meta.history_from = None;
-            meta.history_kept_through = Some(reference.through_seq);
-            self.inner.save(&meta)?;
-        }
+        meta.history_from = None;
+        meta.history_kept_through = Some(reference.through_seq);
+        self.inner.save(&meta)?;
         let mut refs = self.refs.write().unwrap_or_else(|e| e.into_inner());
         refs.dropped.insert(id.to_owned(), reference.through_seq);
         refs.by_fork.remove(id);
