@@ -275,28 +275,66 @@ def keep(state: Path, path: Path) -> tuple[Path, str]:
     return copy, digest
 
 
-def app_pids(app: Path) -> list[str]:
+# The names bin/cmux runs as that serve `server status`. acpmux is the same file under another name
+# (bin/acpmux links to it) and serves another protocol, which never answers `server status`.
+DAEMON_NAMES = ("cmux", "cmux-tui")
+
+
+def app_pids(app: Path, names: tuple[str, ...] | None = None) -> list[str]:
     """The processes running an executable from APP's bin folder: by the executable's path (`comm`,
-    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short."""
+    as side-instance.sh finds a copy's), or by argv[0] for a process whose comm is cut short. With
+    NAMES, only those that run as one of them (the program name after the bin folder)."""
     prefixes = {str(app / BIN) + "/", str((app / BIN).resolve()) + "/"}
+    bin_dir = os.path.realpath(app / BIN)
     found = []
     for field in ("comm", "command"):
         ps = subprocess.run(["ps", "-axww", "-o", f"pid=,{field}="], capture_output=True, text=True).stdout
         for line in ps.splitlines():
             pid, _, rest = line.strip().partition(" ")
-            if pid not in found and any(rest.strip().startswith(prefix) for prefix in prefixes):
+            rest = rest.strip()
+            # A process may name the folder through a link (macOS: the app daemon as /tmp/..., the copy
+            # given as /private/tmp/...), so its bin folder is compared resolved.
+            cut = rest.find(f"/{BIN}/")
+            if pid in found or not rest.startswith("/") or cut < 0 \
+                    or os.path.realpath(rest[:cut + len(BIN) + 1]) != bin_dir:
+                continue
+            # Program names have no spaces, so the name ends at the first one (the app path may have some).
+            if names is None or rest[cut + len(BIN) + 2:].split(" ", 1)[0] in names:
                 found.append(pid)
+    # Linux: a daemon re-run through /proc/self/exe shows only its basename in comm and argv, but
+    # /proc/PID/exe still names the file (" (deleted)" once a swap renamed a build over it).
+    proc = Path("/proc")
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit() or entry.name in found:
+                continue
+            try:
+                exe = os.readlink(entry / "exe").removesuffix(" (deleted)")
+            except OSError:
+                continue
+            if not any(exe.startswith(prefix) for prefix in prefixes):
+                continue
+            if names is not None:
+                # exe resolves the acpmux link to cmux: the name it runs as is argv[0]'s.
+                try:
+                    argv0 = (entry / "cmdline").read_bytes().split(b"\0", 1)[0].decode(errors="replace")
+                except OSError:
+                    continue
+                if os.path.basename(argv0) not in names:
+                    continue
+            found.append(entry.name)
     return found
 
 
-def find_socket(app: Path, cli: Path) -> str | None:
-    """The socket of the daemon running from APP's bin folder: a process there whose unix socket
-    answers `server status` with that process's pid. None when no daemon runs from it; a socket
-    that never answered means one may, and raises rather than pass for none."""
-    hung = []
-    for pid in app_pids(app):
+def find_sockets(app: Path, cli: Path) -> list[str]:
+    """The sockets of the daemons running from APP's bin folder: processes there whose unix socket
+    answers `server status` with that process's pid, the app's own session (`cmux-app...`) first;
+    the app also runs other sessions' daemons from the same file (its chief's). A socket that never
+    answered means a daemon may run there, and raises rather than pass for none."""
+    hung, found = [], []
+    for pid in app_pids(app, DAEMON_NAMES):
         lsof = subprocess.run(["lsof", "-a", "-p", pid, "-U", "-Fn"], capture_output=True, text=True).stdout
-        for name in {entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}:
+        for name in sorted({entry[1:] for entry in lsof.splitlines() if entry.startswith("n/")}):
             try:
                 status = subprocess.run([str(cli), "--socket", name, "--json", "server", "status"],
                                         capture_output=True, text=True, timeout=10)
@@ -304,19 +342,36 @@ def find_socket(app: Path, cli: Path) -> str | None:
                 hung.append(name)
                 continue
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
-                return name
-    if hung:
+                found.append(name)
+                break
+    if hung and not found:
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
-    return None
+    return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
+
+
+def find_socket(app: Path, cli: Path) -> str | None:
+    """The socket of the app's own daemon running from APP's bin folder; None when none runs."""
+    found = find_sockets(app, cli)
+    return found[0] if found else None
 
 
 def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path) -> dict:
     """bin/cmux becomes `new` (sha256 `want`) and the app's daemon is handed to it; checked."""
     target = (app / BIN / "cmux").resolve()
     swapper_cls = load("rust_live", "rust-live.py").Swapper
-    socket = socket or find_socket(app, target)
+    try:
+        running = find_sockets(app, target)
+    except RuntimeError:
+        if not socket:
+            raise
+        running = [socket]  # --socket names the daemon; the others are not known
+    socket = socket or (running[0] if running else None)
     step: dict = {"file": str(target), "to": want, "socket": socket}
+    # Only the app's own daemon is handed off. Another session's (the chief's) keeps the build it
+    # mapped until its owner restarts; the receipt names it.
+    if others := [name for name in running if name != socket]:
+        step["left_on_old_build"] = others
     t0 = time.monotonic()
     if socket is None:
         # No daemon runs from this app: the file alone, which the app's next ensure runs.

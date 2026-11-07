@@ -103,9 +103,22 @@ public final class CloudAuth {
                 files[path] = try? String(contentsOfFile: path, encoding: .utf8)
             }
             reads = Reads(environment: environment, home: home, files: files, explicitFileSecure: secure)
+            // Each way the explicit file signs nobody in is logged (`auth`), so a launch left signed out says why; never a value.
+            if explicit != nil, !secure {
+                fileLog.notice("credentials file sign-in off: the file is not a regular file of this user, 0600 or stricter")
+            } else if let explicit, files[explicit] == nil {
+                fileLog.notice("credentials file sign-in off: the file could not be read")
+            }
         }
-        return CloudStartCore().call("cloud_auth_launch_login", Request(signIn: signIn, reads: reads), as: LaunchLogin.self)
+        let login = CloudStartCore().call("cloud_auth_launch_login", Request(signIn: signIn, reads: reads), as: LaunchLogin.self)
+        if let reads, let explicit = reads.environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty,
+           reads.files[explicit] != nil, login?.credentials == nil, login?.refusalLog == nil {
+            fileLog.notice("credentials file sign-in off: no CMUX_DOGFOOD_STACK_ or CMUX_UITEST_STACK_ email and password pair in it")
+        }
+        return login
     }
+
+    private nonisolated static let fileLog = Logger(subsystem: "com.cmuxterm.app.next", category: "auth")
 
     /// Whether `path` is a regular file owned by this user, 0600 or stricter (a symlink is not).
     nonisolated static func ownerOnlyRegularFile(_ path: String) -> Bool {

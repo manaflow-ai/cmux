@@ -19,9 +19,10 @@ pub fn is_team(value: &str) -> bool {
 
 /// The backend's id for a Stack team (the API's `stackTeamIdFor`).
 pub fn backend_team_id(stack_project_id: &str, stack_team_id: &str) -> String {
-    let digest = Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("team_{}", &hex[..20])
+    let digest =
+        Sha256::digest(format!("stack-team:{stack_project_id}:{}", stack_team_id.to_lowercase()));
+    let hex: String = digest.iter().take(10).map(|b| format!("{b:02x}")).collect();
+    format!("team_{hex}")
 }
 
 /// Why a token mint may not name the team it asked for.
@@ -64,7 +65,9 @@ pub fn is_transient(code: &str) -> bool {
     if code == "http_429" || code.contains("rate_limit") {
         return true;
     }
-    code.len() == 8 && code.starts_with("http_5") && code[5..].bytes().all(|b| b.is_ascii_digit())
+    code.strip_prefix("http_").is_some_and(|status| {
+        status.len() == 3 && status.starts_with('5') && status.bytes().all(|b| b.is_ascii_digit())
+    })
 }
 
 /// What an access token says about itself (unverified: the API verifies it).
@@ -75,19 +78,41 @@ pub struct Claims {
     pub user: Option<String>,
     /// The token's `exp` in seconds since 1970, when finite and positive.
     pub expires_at: Option<f64>,
+    /// The token's `team` (the backend team it was minted for), when non-empty: with no asked and
+    /// no active team, `cmux auth token` mints for the install token's own team.
+    pub team: Option<String>,
 }
 
 /// The claims of a three-part JWT; none of a token that is not one.
 pub fn claims(token: &str) -> Claims {
-    let parts: Vec<&str> = token.split('.').collect();
-    let payload = (parts.len() == 3)
-        .then(|| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1].trim_end_matches('=')).ok())
-        .flatten()
+    let mut parts = token.split('.');
+    let middle = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_), Some(middle), Some(_), None) => Some(middle),
+        _ => None,
+    };
+    let payload = middle
+        .and_then(|middle| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(middle.trim_end_matches('='))
+                .ok()
+        })
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let Some(payload) = payload else { return Claims::default() };
     Claims {
-        user: payload.get("sub").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(str::to_owned),
-        expires_at: payload.get("exp").and_then(serde_json::Value::as_f64).filter(|v| v.is_finite() && *v > 0.0),
+        user: payload
+            .get("sub")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
+        expires_at: payload
+            .get("exp")
+            .and_then(serde_json::Value::as_f64)
+            .filter(|v| v.is_finite() && *v > 0.0),
+        team: payload
+            .get("team")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
     }
 }
 
@@ -95,7 +120,7 @@ pub fn claims(token: &str) -> Claims {
 /// share or rotate each other's key: `install-key-<first 16 hex of SHA-256(user)>`.
 pub fn install_key_account(user: &str) -> String {
     let digest = Sha256::digest(user.as_bytes());
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("install-key-{hex}")
 }
 
@@ -123,7 +148,11 @@ pub fn share_origin(url: &str) -> Option<ShareOrigin> {
         None => format!("https://{}", parts.host),
         Some(port) => format!("https://{}:{}", parts.host, port.parse::<u16>().ok()?),
     };
-    Some(ShareOrigin { folder: format!("{SHARE_FOLDER_PREFIX}{}", parts.host), host: parts.host, origin })
+    Some(ShareOrigin {
+        folder: format!("{SHARE_FOLDER_PREFIX}{}", parts.host),
+        host: parts.host,
+        origin,
+    })
 }
 
 /// The API an earlier launch's share install folder was made for; none for any other folder.

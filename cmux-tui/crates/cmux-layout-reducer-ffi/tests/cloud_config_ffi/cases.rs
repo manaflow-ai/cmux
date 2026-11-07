@@ -40,13 +40,24 @@ fn the_configuration_is_made_from_the_runtime_selection() {
     assert_eq!(body["storage"]["keychainService"], "com.cmuxterm.app.debug.next.auth.dev-1");
     assert_eq!(body["storage"]["defaultsKeySuffix"], "dev-1");
     assert_eq!(body["namespacedLegacyStore"], Value::Null);
-    let (_, names) = call(c"cloud_config_storage_names", &json!({"bundleId": "com.cmuxterm.app.cloud-unavailable"}));
-    assert_eq!(names["keychainService"], "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable");
+    let (_, names) = call(
+        c"cloud_config_storage_names",
+        &json!({"bundleId": "com.cmuxterm.app.cloud-unavailable"}),
+    );
+    assert_eq!(
+        names["keychainService"],
+        "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable"
+    );
     let (_, url) = call(
         c"cloud_config_sign_in_url",
         &json!({"authWebOrigin": "https://cmux.com", "callbackScheme": "cmux", "state": null}),
     );
-    assert!(url["url"].as_str().unwrap().starts_with("https://cmux.com/handler/native-sign-in?after_auth_return_to="));
+    assert!(
+        url["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://cmux.com/handler/native-sign-in?after_auth_return_to=")
+    );
 }
 
 #[test]
@@ -56,7 +67,10 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"build": {"bundleId": "com.cmuxterm.app.debug.x", "isDebugBuild": true, "isProductionAuth": false},
                 "environment": {}, "home": "/h"}),
     );
-    assert_eq!(launch["signIn"], json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false}));
+    assert_eq!(
+        launch["signIn"],
+        json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
+    );
     assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
     let (_, login) = call(
         c"cloud_auth_launch_login",
@@ -65,11 +79,20 @@ fn launch_sign_in_and_identity_rules_answer_here() {
     assert_eq!(login["credentials"], Value::Null);
     assert_eq!(login["allowsEnvironmentAutoLogin"], true);
     assert!(login["refusalLog"].as_str().unwrap().contains("no declared account"));
-    let (_, window) = call(c"cloud_auth_sign_in_window", &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}));
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
+    );
     assert_eq!(window["opensDefaultBrowser"], false);
-    let (_, scope) = call(c"cloud_auth_creation_scope", &json!({"previous": [null, null], "current": ["u", null]}));
+    let (_, scope) = call(
+        c"cloud_auth_creation_scope",
+        &json!({"previous": [null, null], "current": ["u", null]}),
+    );
     assert_eq!(scope["survives"], true);
-    let (_, facts) = call(c"cloud_auth_seat_facts", &json!({"inviteMembers": false, "role": "admin", "members": 2}));
+    let (_, facts) = call(
+        c"cloud_auth_seat_facts",
+        &json!({"inviteMembers": false, "role": "admin", "members": 2}),
+    );
     assert_eq!(facts["canInvite"], true);
     assert_eq!(facts["memberCount"], 2);
     let (_, answer) = call(c"cloud_auth_invite_answer", &json!({"error": "forbidden"}));
@@ -79,10 +102,23 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": "t", "stackProjectId": "p"}),
     );
     assert_eq!(team["refusal"], "managed");
-    let (_, check) = call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
+    let (_, check) =
+        call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
     assert_eq!(check, json!({"isTeam": false, "transient": true}));
     let (_, claims) = call(c"cloud_identity_token", &json!({"token": "opaque"}));
-    assert_eq!(claims, json!({"user": null, "expiresAt": null}));
+    assert_eq!(claims, json!({"user": null, "expiresAt": null, "team": null}));
+    // No asked and no active team: the install token's own team is the one to mint for.
+    let (_, team) = call(
+        c"cloud_identity_mint_team",
+        &json!({"requested": null, "activeStackTeam": null, "managedStackTeam": null, "stackProjectId": "p"}),
+    );
+    assert_eq!(team["team"], Value::Null);
+    let (_, own) = call(
+        c"cloud_identity_token",
+        &json!({"token": "e30.eyJzdWIiOiJ1IiwiZXhwIjoxOTAwMDAwNjAwLCJ0ZWFtIjoidGVhbV9hYWFhYWFhYWFhYWFhYWFhYWFhYSJ9.c2ln"}),
+    );
+    assert_eq!(own["team"], "team_aaaaaaaaaaaaaaaaaaaa");
+    assert_eq!(own["user"], "u");
     let (_, key) = call(c"cloud_identity_install_key", &json!({"user": "u"}));
     assert!(key["account"].as_str().unwrap().starts_with("install-key-"));
     let (_, share) = call(

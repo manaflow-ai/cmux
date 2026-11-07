@@ -9,7 +9,13 @@ fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
 }
 
-fn selection(name: &str, bundle_id: &str, namespace: &str, legacy: bool, storage: Option<&str>) -> Selection {
+fn selection(
+    name: &str,
+    bundle_id: &str,
+    namespace: &str,
+    legacy: bool,
+    storage: Option<&str>,
+) -> Selection {
     Selection {
         name: name.to_owned(),
         api_origin: "https://backend.standin.invalid".to_owned(),
@@ -39,7 +45,10 @@ fn the_selection_names_every_origin_and_scopes_auth() {
     let selected = selection("staging", NEXT_DEV_BUNDLE_ID, "staging-2", false, None);
     let config = configure(
         selected.clone(),
-        &[("CMUX_AUTH_CALLBACK_SCHEME", "cmux-test-callback"), ("CMUX_STACK_PROJECT_ID", "wrong-project")],
+        &[
+            ("CMUX_AUTH_CALLBACK_SCHEME", "cmux-test-callback"),
+            ("CMUX_STACK_PROJECT_ID", "wrong-project"),
+        ],
         false,
     );
     assert_eq!(config.backend, Backend::Development(selected.api_origin.clone()));
@@ -56,17 +65,28 @@ fn the_selection_names_every_origin_and_scopes_auth() {
     assert_eq!(config.storage.defaults_key_suffix.as_deref(), Some("staging-2"));
     assert_eq!(config.namespaced_legacy_store, None);
     // Another backend's namespace is another store.
-    let other = configure(selection("staging", NEXT_DEV_BUNDLE_ID, "other-backend", false, None), &[], false);
+    let other = configure(
+        selection("staging", NEXT_DEV_BUNDLE_ID, "other-backend", false, None),
+        &[],
+        false,
+    );
     assert_ne!(other.storage, config.storage);
     // A selected local backend is available: development, not local-only.
     let mut local = selection("local", NEXT_DEV_BUNDLE_ID, "staging-2", false, None);
     local.api_origin = "http://localhost:8787".to_owned();
-    assert_eq!(configure(local, &[], false).backend, Backend::Development("http://localhost:8787".to_owned()));
+    assert_eq!(
+        configure(local, &[], false).backend,
+        Backend::Development("http://localhost:8787".to_owned())
+    );
 }
 
 #[test]
 fn only_known_untouched_defaults_keep_their_old_locations() {
-    let production = configure(selection("prod", "com.cmuxterm.app.nightly.cmux-next", "backend-0", true, None), &[], false);
+    let production = configure(
+        selection("prod", "com.cmuxterm.app.nightly.cmux-next", "backend-0", true, None),
+        &[],
+        false,
+    );
     assert_eq!(production.backend, Backend::Production);
     assert!(production.is_production_auth);
     assert_eq!(production.storage.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth");
@@ -81,22 +101,41 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
     assert_eq!(legacy.credentials_subpath.last().map(String::as_str), Some("backend-0"));
 
     let signed_dev = configure(
-        selection("dev", NEXT_DEV_BUNDLE_ID, "backend-0", true, Some("development-project-fixture")),
+        selection(
+            "dev",
+            NEXT_DEV_BUNDLE_ID,
+            "backend-0",
+            true,
+            Some("development-project-fixture"),
+        ),
         &[],
         false,
     );
-    assert_eq!(signed_dev.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.development-project-fixture");
-    assert_eq!(signed_dev.storage.defaults_key_suffix.as_deref(), Some("development-project-fixture"));
+    assert_eq!(
+        signed_dev.storage.keychain_service,
+        "com.cmuxterm.app.debug.next.auth.development-project-fixture"
+    );
+    assert_eq!(
+        signed_dev.storage.defaults_key_suffix.as_deref(),
+        Some("development-project-fixture")
+    );
     assert_eq!(signed_dev.namespaced_legacy_store, None);
-    let switched = configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
+    let switched =
+        configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
     assert_eq!(switched.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.backend-1");
 }
 
 #[test]
 fn the_placeholder_never_restores_a_real_bundles_credentials() {
     let names = storage_names(Some(UNAVAILABLE_BUNDLE_ID), None);
-    assert_eq!(names.keychain_service, "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable");
-    assert_eq!(names.credentials_subpath[3..], ["com.cmuxterm.app.cloud-unavailable", "bootstrap-unavailable"]);
+    assert_eq!(
+        names.keychain_service,
+        "com.cmuxterm.app.cloud-unavailable.auth.bootstrap-unavailable"
+    );
+    assert_eq!(
+        names.credentials_subpath[3..],
+        ["com.cmuxterm.app.cloud-unavailable", "bootstrap-unavailable"]
+    );
     assert_eq!(names.defaults_key_suffix.as_deref(), Some("bootstrap-unavailable"));
     assert_eq!(storage_names(None, None).keychain_service, "com.cmuxterm.app.auth");
     assert_eq!(storage_names(Some(""), None).credentials_subpath[3], "cmux");
@@ -116,21 +155,39 @@ fn the_callback_scheme_follows_the_build() {
     };
     assert_eq!(scheme(NEXT_DEV_BUNDLE_ID, &[], false), "cmux-next-dev");
     assert_eq!(scheme(NEXT_DEV_BUNDLE_ID, &[], true), "cmux-next-dev");
-    assert_eq!(scheme("com.cmuxterm.app.debug.x", &[("CMUX_TAG", "My_Tag!!2")], true), "cmux-dev-my-tag-2");
+    assert_eq!(
+        scheme("com.cmuxterm.app.debug.x", &[("CMUX_TAG", "My_Tag!!2")], true),
+        "cmux-dev-my-tag-2"
+    );
     assert_eq!(scheme("com.cmuxterm.app.debug.x", &[("CMUX_TAG", "---")], true), "cmux-dev");
     assert_eq!(scheme("com.cmuxterm.app.nightly", &[], false), "cmux-nightly");
     assert_eq!(scheme("com.cmuxterm.app.rc", &[], false), "cmux-rc");
     assert_eq!(scheme("com.cmuxterm.app", &[], false), "cmux");
     // A scheme that cannot form a URL is ignored.
-    assert_eq!(scheme("com.cmuxterm.app", &[("CMUX_AUTH_CALLBACK_SCHEME", "1 bad")], false), "cmux");
+    assert_eq!(
+        scheme("com.cmuxterm.app", &[("CMUX_AUTH_CALLBACK_SCHEME", "1 bad")], false),
+        "cmux"
+    );
 }
 
 #[test]
 fn only_signed_dev_on_production_adopts_nightlys_session() {
-    assert!(configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false).adopts_nightly_session);
-    assert!(!configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false).adopts_nightly_session);
-    assert!(!configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true).adopts_nightly_session);
-    assert!(!configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false).adopts_nightly_session);
+    assert!(
+        configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true)
+            .adopts_nightly_session
+    );
+    assert!(
+        !configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false)
+            .adopts_nightly_session
+    );
 }
 
 #[test]

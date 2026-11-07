@@ -67,6 +67,7 @@ extension SettingsSchema {
         "tabs.newTabTemplate",
         "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
+        "tabs.newTabButtonPosition", // where the + puts a tab; looks only, ends no work
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
@@ -270,6 +271,8 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        // How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).
+        .merging(ChiefPermissionSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
         .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }

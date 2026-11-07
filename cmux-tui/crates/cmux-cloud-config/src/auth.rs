@@ -294,16 +294,24 @@ pub fn launch_sign_in(build: &Build, environment: &BTreeMap<String, String>) -> 
     {
         return LaunchSignIn { auto_login: true, memory_only: true, ..LaunchSignIn::default() };
     }
-    let replace_asked =
-        environment.get("CMUX_DEV_AUTH_REPLACE_SESSION").is_some_and(|v| v == "1");
+    let replace_asked = environment.get("CMUX_DEV_AUTH_REPLACE_SESSION").is_some_and(|v| v == "1");
     if !build.is_debug_build && bundle_id == Some(crate::config::NEXT_DEV_BUNDLE_ID) && explicit {
-        return LaunchSignIn { auto_login: true, replaces_session: replace_asked, ..LaunchSignIn::default() };
+        return LaunchSignIn {
+            auto_login: true,
+            replaces_session: replace_asked,
+            ..LaunchSignIn::default()
+        };
     }
     let dev_auth = build.is_debug_build && (!build.is_production_auth || explicit);
     let replaces = replace_asked
         || environment.contains_key("CMUX_DEV_AUTH_PROFILE")
         || environment.contains_key("CMUX_AUTH_CREDENTIALS_FILE");
-    LaunchSignIn { dev_auth, auto_login: dev_auth, replaces_session: dev_auth && replaces, memory_only: false }
+    LaunchSignIn {
+        dev_auth,
+        auto_login: dev_auth,
+        replaces_session: dev_auth && replaces,
+        memory_only: false,
+    }
 }
 
 /// What the launch's sign-in does with the account [`decide`] picked.
@@ -333,7 +341,8 @@ pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> Laun
     });
     LaunchLogin {
         replace_session: credentials.is_some() && sign_in.replaces_session,
-        allows_environment_auto_login: sign_in.dev_auth || (sign_in.auto_login && credentials.is_some()),
+        allows_environment_auto_login: sign_in.dev_auth
+            || (sign_in.auto_login && credentials.is_some()),
         credentials,
         refusal_log,
     }
@@ -370,7 +379,10 @@ pub fn opens_default_browser(window: SignInWindow, default_browser: Option<&str>
 /// (`[user, team]`, before and after). Hosted auth publishes its user before loading the initial
 /// active team: that nil-to-team hydration belongs to the sign-in being awaited. A later user
 /// replacement, sign-out, or populated-team change does not.
-pub fn creation_survives_scope_change(previous: &[Option<String>], current: &[Option<String>]) -> bool {
+pub fn creation_survives_scope_change(
+    previous: &[Option<String>],
+    current: &[Option<String>],
+) -> bool {
     let at = |scope: &[Option<String>], i: usize| scope.get(i).cloned().flatten();
     let (was_user, was_team) = (at(previous, 0), at(previous, 1));
     let (user, team) = (at(current, 0), at(current, 1));
@@ -427,7 +439,10 @@ pub enum InviteAnswer {
 
 /// One invite's answer: `error` is the team error the call threw (`forbidden`, ...), else
 /// `first_failure_already_member` says whether the address was refused, and why.
-pub fn invite_answer(error: Option<&str>, first_failure_already_member: Option<bool>) -> InviteAnswer {
+pub fn invite_answer(
+    error: Option<&str>,
+    first_failure_already_member: Option<bool>,
+) -> InviteAnswer {
     match (error, first_failure_already_member) {
         (Some("forbidden"), _) => InviteAnswer::NotAllowed,
         (Some(_), _) => InviteAnswer::Unreachable,
