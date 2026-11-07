@@ -96,6 +96,14 @@ describe("design token ratchet", () => {
     expect(inlineStyleFindings("a.tsx", `<div style={{ gap: 8, borderRadius: 999, fontWeight: 600 }} />`)).toEqual([]);
   });
 
+  test("scans asserted style objects and right-hand || fallbacks", () => {
+    const source = `const A = () => <div style={({ color: customColor || "#fff", marginTop: customMargin || 6 } as React.CSSProperties)} />;`;
+    expect(inlineStyleFindings("asserted.tsx", source).map((f) => [f.kind, f.property, f.value])).toEqual([
+      ["color", "color", "#fff"],
+      ["spacing", "margin-top", "6px"],
+    ]);
+  });
+
   test("a new token literal fails, an allowlisted one passes, and a fixed one must shrink the baseline", () => {
     const id = "x.css\tcolor\tcolor\t#fff";
     expect(ratchetErrors(new Map([[id, 1]]), new Map())[0]).toContain("new design token violation");

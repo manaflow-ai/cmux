@@ -344,9 +344,17 @@ function kebab(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-/** The literal values an inline style property can take: a string, a number, or either branch of ?: / ??. */
+/** Unwrap syntax-only wrappers around a style expression. */
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+    return unwrapExpression(node.expression);
+  }
+  return node;
+}
+
+/** The literal values an inline style property can take: a string, a number, or either branch of ?: / ?? / ||. */
 function styleValues(node: ts.Expression, property: string): string[] {
-  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) return styleValues(node.expression, property);
+  node = unwrapExpression(node);
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];
   if (ts.isTemplateExpression(node))
     return [node.head.text + node.templateSpans.map((span) => `var(--expr)${span.literal.text}`).join("")];
@@ -360,7 +368,10 @@ function styleValues(node: ts.Expression, property: string): string[] {
     return styleValues(node.operand, property).map((value) => `-${value}`);
   if (ts.isConditionalExpression(node))
     return [...styleValues(node.whenTrue, property), ...styleValues(node.whenFalse, property)];
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+  if (
+    ts.isBinaryExpression(node) &&
+    (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  )
     return styleValues(node.right, property);
   return [];
 }
@@ -377,9 +388,11 @@ export function inlineStyleFindings(rel: string, source: string): Finding[] {
       node.initializer &&
       ts.isJsxExpression(node.initializer) &&
       node.initializer.expression &&
-      ts.isObjectLiteralExpression(node.initializer.expression)
+      ts.isObjectLiteralExpression(unwrapExpression(node.initializer.expression))
     ) {
-      for (const prop of node.initializer.expression.properties) {
+      const styleObject = unwrapExpression(node.initializer.expression);
+      if (!ts.isObjectLiteralExpression(styleObject)) return;
+      for (const prop of styleObject.properties) {
         if (!ts.isPropertyAssignment(prop)) continue;
         const name = ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name) ? prop.name.text : undefined;
         if (!name || name.startsWith("--")) continue;
