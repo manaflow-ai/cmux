@@ -24,6 +24,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "DetachClientTarget": "DetachClientTarget",
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
+    "TerminalSizingActivityKind": "SizeActivityKind",
     "ClientIdentityWire": "SizingIdentity",
 }
 

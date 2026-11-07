@@ -78,6 +78,7 @@ COMMAND_FIELD_ORDER = {
     "new-browser-tab": ("url", "pane", "cols", "rows"),
     "new-tab": ("pane", "cwd", "cols", "rows"),
     "new-workspace": ("name", "cols", "rows"),
+    "note-size-activity": ("surface", "view", "kind"),
     "notify": ("title", "body", "level", "surface"),
     "put-frontend-projection": (
         "frontend",

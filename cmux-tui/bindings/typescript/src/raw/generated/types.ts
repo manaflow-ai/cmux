@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 14d8af5728debdd6caf62cd0f2d9bf34926b4672256abd95cb286e193dce9275. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -699,6 +699,8 @@ export type Size = {
   "cols": number;
   "rows": number;
 };
+
+export type SizeActivityKind = "input" | "focus";
 
 export type SizeDetachActor = {
   "device_name"?: (string) | null;

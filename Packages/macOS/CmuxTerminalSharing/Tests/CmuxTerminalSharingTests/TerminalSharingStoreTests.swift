@@ -31,7 +31,7 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         publish()
         return ok
     }
-    func sharingNoteSelfActivity() { activity += 1; host.noteActivity(host.macParticipantID); publish() }
+    func sharingNoteSelfActivity() { activity += 1; host.noteActivity(host.macParticipantID, kind: .focus, at: 20_000); publish() }
     func sharingReattach(asViewer: Bool) -> Bool { reattached.append(asViewer); return true }
 }
 
@@ -43,12 +43,13 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         var host = LocalTerminalSizingHost(
             macParticipant: TerminalSizingParticipant(id: "mac:1", userID: "u_me", deviceKind: .mac, viewport: TerminalGridSize(cols: 120, rows: 40)),
             initialSize: TerminalGridSize(cols: 120, rows: 40),
-            policy: policy
+            policy: policy,
+            at: 0
         )
         host.syncPhones([
             TerminalSizingParticipant(id: "mobile:a", userID: "u_a", deviceKind: .iphone, viewport: TerminalGridSize(cols: 50, rows: 30)),
             TerminalSizingParticipant(id: "mobile:b", userID: "u_b", deviceKind: .ipad, viewport: TerminalGridSize(cols: 90, rows: 50)),
-        ])
+        ], at: 10_000)
         let controller = FakeController(host: host, store: store, surfaceID: id)
         store.register(controller, surfaceID: id)
         return (store, controller, id)

@@ -19,8 +19,8 @@ import Testing
         active: String? = nil
     ) -> TerminalSharingPresentation {
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 80, rows: 24), policy: policy)
-        for participant in participants { _ = engine.attach(participant) }
-        if let active { _ = engine.noteActivity(active) }
+        for (i, participant) in participants.enumerated() { _ = engine.attach(participant, at: UInt64(i) * 10_000) }
+        if let active { _ = engine.noteActivity(active, kind: .focus, at: UInt64(participants.count) * 10_000) }
         let snapshot = TerminalSharingSnapshot(state: engine.state, selfParticipantID: Self.me.id, isCloud: false)
         return TerminalSharingPresentation(snapshot: snapshot, strings: .english)
     }
