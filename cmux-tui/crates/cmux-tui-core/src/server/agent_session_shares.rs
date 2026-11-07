@@ -58,6 +58,10 @@ const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const MAX_TTL_SECS: u64 = 7 * DEFAULT_TTL_SECS;
 const MIN_TTL_SECS: u64 = 60;
 const MAX_USES: u32 = 8;
+/// A view-only link's uses (the Share dialog's "Anyone with the link"): its guests only watch,
+/// so it may admit many; the room bounds the guests connected at once, and the registry's size
+/// (`fits`) the guests recorded.
+const MAX_VIEW_USES: u32 = 1000;
 /// Records kept at once (an ended one goes when room is needed), so the file stays far below
 /// `state_file`'s 64 KiB read bound.
 const MAX_SHARES: usize = 16;

@@ -1143,6 +1143,32 @@ fn a_view_link_guest_watches_but_its_prompt_is_refused() {
     fake.no_frame();
 }
 
+/// A view-only link may admit up to 1000 guests (the Share dialog's "Anyone with the link"); a
+/// talk or default link keeps its 8.
+#[test]
+fn a_view_link_takes_up_to_1000_uses_and_a_talk_link_8() {
+    let fake = FakeAcpmux::start("share-link-uses");
+    let mux = mux_with(&fake, "share-link-uses");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-link-uses-owner");
+    let view = create(&mut owner, surface, json!({"role":"view", "uses":1000}));
+    assert_eq!(view["uses_left"], 1000);
+    assert_eq!(view["role"], "view");
+    let refused = |owner: &mut Client, extra: Value| {
+        let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
+        for (key, value) in extra.as_object().unwrap() {
+            frame[key] = value.clone();
+        }
+        assert_code(&owner.request(frame), "share.bad_request");
+    };
+    refused(&mut owner, json!({"role":"view", "uses":1001}));
+    refused(&mut owner, json!({"role":"view", "uses":0}));
+    assert_eq!(create(&mut owner, surface, json!({"uses":8}))["uses_left"], 8);
+    refused(&mut owner, json!({"uses":9}));
+    refused(&mut owner, json!({"role":"talk", "uses":9}));
+    refused(&mut owner, json!({"uses":1000}));
+}
+
 /// Revoking a view-role link share ends its live guest in the same step: the bound, attached
 /// connection closes (its stream ends), the guest cannot bind again, and the link redeems no more.
 #[test]

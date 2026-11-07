@@ -49,18 +49,23 @@ impl NewIds {
     }
 }
 
-/// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses, and a
-/// `create_id` of 1 to 64 bytes when there is one.
-fn terms(ttl_secs: u64, uses: u32, create_id: Option<String>) -> Result<ShareTerms, &'static str> {
+/// A create's or an invite-chat's terms, checked: a TTL of 1 minute to 7 days, 1 to 8 uses (to
+/// 1000 for a view-only link), and a `create_id` of 1 to 64 bytes when there is one.
+fn terms(
+    ttl_secs: u64,
+    uses: u32,
+    create_id: Option<String>,
+    role: Option<Role>,
+) -> Result<ShareTerms, &'static str> {
     let id_ok =
         create_id.as_ref().is_none_or(|id| !id.is_empty() && id.len() <= MAX_CREATE_ID_BYTES);
     if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl_secs)
-        || !(1..=MAX_USES).contains(&uses)
+        || !(1..=if role == Some(Role::View) { MAX_VIEW_USES } else { MAX_USES }).contains(&uses)
         || !id_ok
     {
         return Err("share.bad_request");
     }
-    Ok(ShareTerms { ttl_secs, uses, create_id, role: None })
+    Ok(ShareTerms { ttl_secs, uses, create_id, role })
 }
 
 /// The session `surface` shows, refused when the caller named another one.
@@ -93,9 +98,8 @@ pub(super) fn create(
     directory: Option<&Path>,
     p: Create,
 ) -> Result<Value, &'static str> {
-    let mut terms =
-        terms(p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS), p.uses.unwrap_or(1), p.create_id)?;
-    terms.role = p.role;
+    let terms =
+        terms(p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS), p.uses.unwrap_or(1), p.create_id, p.role)?;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     match room_for_new(shares, p.owner_token)? {
         None => shares.insert(directory, session, p.surface, terms, false),
@@ -115,7 +119,7 @@ pub(super) fn invite_chat(
 ) -> Result<Value, &'static str> {
     let account = normal_account(&p.account)?;
     let role = p.role.unwrap_or(Role::Talk);
-    let terms = terms(p.ttl_secs.unwrap_or(MAX_TTL_SECS), 1, p.create_id)?;
+    let terms = terms(p.ttl_secs.unwrap_or(MAX_TTL_SECS), 1, p.create_id, None)?;
     let session = chat(mux, p.surface, p.session.as_deref())?;
     let ids = NewIds::draw()?;
     // Asked before the lock: the room a new share would open in, or why none may be made.
