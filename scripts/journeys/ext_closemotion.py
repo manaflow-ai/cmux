@@ -75,7 +75,7 @@ def step_cm_browser(j, step):
     rec = W.named(j, step["pane"])
     focus = j.app.cmux("pane", rec["pane"], "focus")
     time.sleep(0.3)
-    url = P.page_url(step.get("bg", "#00FF00"), step["pane"])
+    url = step.get("url") or P.page_url(step.get("bg", "#00FF00"), step["pane"])  # url: close-ground-fix (error / dark pages)
     engine = step.get("engine", "cef")
     opened = j.app.rpc("action.run", {"action": "openBrowser", "args": {"url": url, "engine": engine}, "focus": True})
     end = D.now() + float(step.get("timeout", 30))
