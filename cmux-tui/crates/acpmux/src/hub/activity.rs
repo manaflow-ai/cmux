@@ -40,6 +40,8 @@ pub struct TurnActivity {
     pub open_past_cap: usize,
     /// The tool calls of [`Self::open_tools`] that run a known build or test, by id.
     pub open_heavy: std::collections::BTreeMap<String, crate::host_load::Heavy>,
+    /// Tool calls the turn started, for usage recording (`usage_record.rs`).
+    pub tool_calls: u32,
 }
 
 impl TurnActivity {
@@ -49,6 +51,9 @@ impl TurnActivity {
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
         if !matches!(kind, Some("tool_call" | "tool_call_update")) {
             return;
+        }
+        if kind == Some("tool_call") {
+            self.tool_calls = self.tool_calls.saturating_add(1);
         }
         let status = update.get("status").and_then(Value::as_str);
         if matches!(status, Some("completed" | "failed")) {

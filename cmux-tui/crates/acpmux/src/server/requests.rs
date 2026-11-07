@@ -1394,6 +1394,18 @@ async fn dispatch_request_with_identity(
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
+                    // Usage recording: a session started on that machine, its name hashed
+                    // (`usage_record.rs`).
+                    hub.usage.record(|| cmux_usage::Event::Session {
+                        session: cmux_usage::Id::new(id),
+                        harness: cmux_usage::Token::new(
+                            mux_meta(&params)
+                                .and_then(|m| m.get("harness"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("default"),
+                        ),
+                        machine: cmux_usage::Id::new(peer.name.as_str()),
+                    });
                 }
                 if let Some(obj) = result.as_object_mut() {
                     obj.insert("peer".into(), Value::String(peer.name.clone()));

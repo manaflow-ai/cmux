@@ -482,6 +482,8 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "update-remote-terminal-tab",
     "update-screen-group",
     "update-tab-group",
+    "usage-record",
+    "usage-set-enabled",
     "wait-for",
     "ws-listen",
 ];

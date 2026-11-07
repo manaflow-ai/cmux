@@ -180,6 +180,7 @@ pub mod trust_auto;
 pub mod tui;
 pub mod turn_attestation;
 pub mod usage_stats;
+mod usage_record;
 pub mod user_settings;
 pub mod vault;
 pub mod watch_delta;

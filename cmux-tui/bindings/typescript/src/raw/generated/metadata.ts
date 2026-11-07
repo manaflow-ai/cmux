@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
+/* cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86" as const;
+export const SDK_IR_SHA256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3695,6 +3695,27 @@ export const COMMAND_METADATA = {
     },
     "constraints": [
       "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
+  "usage-record": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Opt-in usage recording: interaction shape only, never content. Writes nothing while recording is off (written is 0).",
+      "A batch with any unknown field or event refuses whole, with nothing written. Ids are hashed with this install's salt."
+    ]
+  },
+  "usage-set-enabled": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Switching off keeps what was recorded; nothing is deleted."
     ]
   },
   "vt-state": {
@@ -14211,6 +14232,42 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Workspace"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "UsageRecordResult": {
+    "additional_properties": false,
+    "fields": {
+      "written": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "UsageSetEnabledResult": {
+    "additional_properties": false,
+    "fields": {
+      "dir": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -28782,6 +28839,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "GuestUrlSubscribeResult"
+    }
+  },
+  "usage-record": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "events": {
+          "constraints": [
+            {
+              "format": "JSON array text of {at, ev} usage records (cmux-usage Event)"
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "source": {
+          "constraints": [
+            {
+              "format": "writer stem token, e.g. app-nightly; any other text records as other"
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "UsageRecordResult"
+    }
+  },
+  "usage-set-enabled": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "UsageSetEnabledResult"
     }
   },
   "vt-state": {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86";
+pub const ir_sha256 = "923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3289,6 +3289,15 @@ pub const Tree = struct {
         "terminal_revision",
         "workspace_revision",
     };
+};
+
+pub const UsageRecordResult = struct {
+    written: u32,
+};
+
+pub const UsageSetEnabledResult = struct {
+    dir: []const u8,
+    on: bool,
 };
 
 pub const ViewAttachmentOutcome = enum {
@@ -10272,6 +10281,41 @@ pub fn urlOpenSubscribe(client: anytype, request: UrlOpenSubscribeRequest) !clie
     );
 }
 
+pub const UsageRecordRequest = struct {
+    events: []const u8,
+    source: []const u8,
+};
+
+pub fn usageRecord(client: anytype, request: UsageRecordRequest) !wire.Decoded(UsageRecordResult) {
+    return client.callTyped(
+        UsageRecordResult,
+        .{
+            .name = "usage-record",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const UsageSetEnabledRequest = struct {
+    on: bool,
+};
+
+pub fn usageSetEnabled(client: anytype, request: UsageSetEnabledRequest) !wire.Decoded(UsageSetEnabledResult) {
+    return client.callTyped(
+        UsageSetEnabledResult,
+        .{
+            .name = "usage-set-enabled",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const VtStateRequest = struct {
     surface: Id,
 };
@@ -11994,7 +12038,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 295;
+pub const command_count: usize = 297;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12287,6 +12331,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-claim", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-result", .authority = "frontend", .since = 12, .capability = null, .stream = null },
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
+    .{ .name = "usage-record", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "usage-set-enabled", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },

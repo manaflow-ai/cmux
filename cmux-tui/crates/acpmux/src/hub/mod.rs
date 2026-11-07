@@ -632,6 +632,8 @@ pub struct Hub {
     /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
     /// swaps the configured rules for the defaults (`usage_warnings.rs`).
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
+    /// Opt-in usage recording, shape only (`usage_record.rs`).
+    pub(crate) usage: crate::usage_record::UsageRecord,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
@@ -945,10 +947,13 @@ impl Hub {
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        // A memory store (tests, probes) records no usage.
+        let usage = crate::usage_record::UsageRecord::start(store.peer_cache_dir().is_some());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
+            usage,
             wireguard,
             store,
             mailbox,

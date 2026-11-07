@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
+/* cmux-tui mux protocol 12, IR 923f4da785ad663bcf7a12f6892992ef4adad5bd1f13542e049b2ffaf15a81f2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1650,6 +1650,15 @@ export type Tree = {
   "terminal_revision"?: bigint;
   "workspace_revision"?: bigint;
   "workspaces": Array<Workspace>;
+};
+
+export type UsageRecordResult = {
+  "written": number;
+};
+
+export type UsageSetEnabledResult = {
+  "dir": string;
+  "on": boolean;
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";

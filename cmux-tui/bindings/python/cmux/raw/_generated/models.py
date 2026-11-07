@@ -2234,6 +2234,19 @@ class Tree:
 
 
 @dataclass(frozen=True)
+class UsageRecordResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/UsageRecordResult'
+    written: int
+
+
+@dataclass(frozen=True)
+class UsageSetEnabledResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/UsageSetEnabledResult'
+    dir: str
+    on: bool
+
+
+@dataclass(frozen=True)
 class ViewportPaneWidthResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ViewportPaneWidthResult'
     width: float
@@ -5178,6 +5191,19 @@ class UrlOpenSubscribeRequest:
 
 
 @dataclass(frozen=True)
+class UsageRecordRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/usage-record/request'
+    events: str
+    source: str
+
+
+@dataclass(frozen=True)
+class UsageSetEnabledRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/usage-set-enabled/request'
+    on: bool
+
+
+@dataclass(frozen=True)
 class VtStateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/vt-state/request'
     surface: Id
@@ -6442,6 +6468,8 @@ __all__ = [
     'TerminalResourcesResult',
     'TerminalResumeCommandResult',
     'Tree',
+    'UsageRecordResult',
+    'UsageSetEnabledResult',
     'ViewportPaneWidthResult',
     'VtStateResult',
     'WaitForResult',
@@ -6791,6 +6819,8 @@ __all__ = [
     'UrlOpenClaimRequest',
     'UrlOpenResultRequest',
     'UrlOpenSubscribeRequest',
+    'UsageRecordRequest',
+    'UsageSetEnabledRequest',
     'VtStateRequest',
     'WaitForRequest',
     'WsListenRequest',

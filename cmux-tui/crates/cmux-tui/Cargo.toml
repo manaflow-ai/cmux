@@ -107,6 +107,7 @@ serde.workspace = true
 # tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).
 serde_json = { workspace = true, features = ["raw_value"] }
 cmux-panic-log.workspace = true
+cmux-usage.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
 # `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.

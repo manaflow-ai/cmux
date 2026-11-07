@@ -12594,6 +12594,22 @@
         "ty": "string"
       }
     },
+    "request:usage-record": {
+      "/events": {
+        "ty": "string",
+        "required": true
+      },
+      "/source": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:usage-set-enabled": {
+      "/on": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:vt-state": {
       "/surface": {
         "ty": "uint64",
@@ -21676,6 +21692,22 @@
     },
     "response:url-open-subscribe": {
       "/data/url_open_ready": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:usage-record": {
+      "/data/written": {
+        "ty": "uint32",
+        "required": true
+      }
+    },
+    "response:usage-set-enabled": {
+      "/data/dir": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/on": {
         "ty": "boolean",
         "required": true
       }

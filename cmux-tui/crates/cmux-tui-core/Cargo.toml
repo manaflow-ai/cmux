@@ -38,6 +38,8 @@ cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
+# The app's opt-in usage recording (server/cmd_usage.rs).
+cmux-usage.workspace = true
 cmux-tui-cloud-conversations.workspace = true
 cmux-tui-platform.workspace = true
 cmux-tui-image-paste.workspace = true
