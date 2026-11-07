@@ -115,6 +115,14 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
                 // A draft goes only to a trusted local connection that asked
                 // for drafts in set-client-info (the admission of
                 // `conversation.events`; old clients never see the event).
@@ -538,6 +546,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "keybindings-changed",
             "revision": change.revision,
             "origin": change.origin.as_str(),
+        }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",

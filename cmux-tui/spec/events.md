@@ -52,6 +52,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
 | `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
+| `agent-session-share-changed` | subscribe | `session` | protocol 12 additive extension; capability `agent-session-share-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
@@ -652,6 +653,28 @@ reads the record with `chief.profile.get` or `chief.profile.list`. Home and
 the Channels page redraw their Chiefs on it instead of polling. Not a
 conversation change: it carries no conversation or `rev` and never reaches
 `conversation.events` or the remote relay.
+
+### agent-session-share-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-session-share-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-session-share-events-v1` |
+
+`object{event:"agent-session-share-changed", session:string}`: the link shares
+of acpmux session `session`'s chat read differently in `agent-session-share-list`
+than before. Published after a create, an invite, an uninvite, a redeem (a
+link guest's or an invitee's join), a kick, a revoke, an expiry (the timer or
+any verb that notices it), the room ending or refusing the share, a room
+answering a create, and the chat closing. A read, an invite or redeem asked
+again, and a room's own bookkeeping (a queued kick or `DELETE` acknowledged)
+publish nothing. It names only the chat, never an account or a guest: a client
+reads `agent-session-share-list {surface}` again. Only to the owner's own
+connections that may run the share verbs (same-user Unix, not bound by
+`agent-session-proxy-bind`, not a remote relay) and echoed
+`agent-session-share-events-v1` in `set-client-info`. The app's Invite People
+sheet re-reads its rows on it for as long as it is open, instead of polling.
 
 ### cloud-conversation-run-changed
 

@@ -34,6 +34,9 @@ public protocol AgentShareHost: AnyObject {
     /// Shows the Invite People sheet of one chat over the active window (the owner's own run of
     /// Invite People… with no account named).
     func shareShowInvites(_ model: AgentShareInviteSheetModel)
+    /// Calls `changed` with the chat's acpmux session on every `agent-session-share-changed` this Mac's
+    /// daemon sends (the daemon that makes and lists shares); answers what stops it.
+    func shareChanges(_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void
 }
 
 public extension AgentShareHost {
@@ -41,6 +44,8 @@ public extension AgentShareHost {
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
     /// A host with no sheet shows nothing.
     func shareShowInvites(_ model: AgentShareInviteSheetModel) {}
+    /// A host with no daemon events reports no change.
+    func shareChanges(_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void { {} }
 }
 
 /// What the owner is asked before a run they did not start makes a guest link, or invites an account:
