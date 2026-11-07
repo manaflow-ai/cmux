@@ -259,6 +259,9 @@
         "cmux_exec"
       ],
       "paths": [
+        "webviews/src/agent-session/acpmux/PermissionCard.tsx",
+        "webviews/src/agent-session/acpmux/permissions/cardHeight.ts",
+        "webviews/src/agent-session/acpmux/question/QuestionCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/McpCallRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/mcpCalls.ts",
         "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts",

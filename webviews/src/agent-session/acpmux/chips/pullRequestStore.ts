@@ -26,6 +26,12 @@ export type PullRequestFile = {
 /** The header's pull request with everything else the card draws. */
 export type LinkedPullRequest = HeaderPullRequest & {
   readonly author?: string;
+  /** The author's GitHub picture as a `data:image/…` URL (a cmux page's CSP allows only those);
+   *  absent until the host has it, when the card draws the monogram in the same box. */
+  readonly authorAvatar?: string;
+  /** GitHub's colour for each label, six hex digits without `#`; a label missing here gets a tone
+   *  picked from its name. */
+  readonly labelColors?: Readonly<Record<string, string>>;
   /** GitHub's ISO 8601 text; empty when the host did not say. */
   readonly createdAt?: string;
   readonly updatedAt?: string;
@@ -82,6 +88,8 @@ function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer):
   if (!previous) return false;
   if (previous.reading !== next.reading || previous.fetchedAt !== next.fetchedAt) return false;
   if (previous.cacheOnly !== next.cacheOnly) return false;
+  // The author's picture loads after the read it belongs to, under the same `fetchedAt`.
+  if (previous.pullRequest?.authorAvatar !== next.pullRequest?.authorAvatar) return false;
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 

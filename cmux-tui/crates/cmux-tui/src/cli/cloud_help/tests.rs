@@ -280,7 +280,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
     for japanese in [false, true] {
         assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
     }
-    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat [--prompt TEXT]"));
     // The start matrix runs its no-name row only on a build whose help names new_machine (cmuxterm-hq#7406).
     assert!(START_CHAT_USAGE.contains("new_machine: true"));
     let examples = START_CHAT_USAGE
@@ -288,7 +288,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 2, "{examples:?}");
+    assert_eq!(examples.len(), 3, "{examples:?}");
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();

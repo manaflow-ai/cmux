@@ -3,11 +3,13 @@ import { createElement, Fragment } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { avatarRows } from "./avatarRow";
+import { miniRow } from "./miniRow";
 import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 import type { NativeRowToolsHost } from "./useNativeRowTools";
@@ -126,6 +128,28 @@ const openMenu: Play = async (ctx) => {
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
+
+/// The chat menu with Set Chat Avatar… (and Remove Chat Avatar with a picture) and Show in Mini before
+/// Archive, as App.tsx builds them; `mini` is what the host's mini shows (undefined: an older app).
+const avatarMenu = (avatar: string | undefined, mini: string | null | undefined) => (): ChatMenuItem[] => {
+  const rows = menuRows();
+  const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+  const avatarRow = avatarRows({ sessionId: "session-1", avatar }, { set: () => undefined, remove: () => undefined });
+  const mineRow = miniRow({ sessionId: "session-1", mini }, () => undefined);
+  return [...rows.slice(0, archive), ...avatarRow, ...mineRow, "separator", ...rows.slice(archive)];
+};
+
+/// Gallery-only looks for the avatar row, tried over the shipped one (14px round, in the glyph's place).
+const avatarLook =
+  (css: string): Play =>
+  async (ctx) => {
+    const style = ctx.document.createElement("style");
+    style.textContent = css;
+    ctx.document.head.append(style);
+    await openMenu(ctx);
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-menu-image"));
+  };
+const avatarShown: Play = avatarLook("");
 
 // The App reports Terminal's, Browser's (a plain browser and the chat's page, both Browser's to close),
 // and Changes' panels open and panes beside the chat (its headerState push).
@@ -1069,21 +1093,54 @@ export default componentEntry<HeaderToolsProps>({
       play: openMenu,
     },
     "menu-avatar": {
+      height: 900,
+      note: "Shipped. A chat with an agent session and an uploaded avatar: Set Chat Avatar… draws the chat's picture, 14px and round as on its cards, in the glyph's place; Remove Chat Avatar and Show in Mini follow, before Archive and Close (header/avatarRow.ts, header/miniRow.ts). Leo 2026-11-07: \"What is an avatar supposed to be?\"",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, null) },
+      play: avatarShown,
+    },
+    "menu-avatar-square": {
+      height: 900,
+      note: "Tried, not shipped: the picture 16px with a small-radius square. It reads as an app icon, not the round avatar the chat's cards and sender chip draw, and stands taller than the row's 14px glyphs.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, null) },
+      play: avatarLook(".acpmux-chat-menu-image{width:16px;border-radius:4px}"),
+    },
+    "menu-avatar-trailing": {
+      height: 900,
+      note: "Tried, not shipped: the picture at the row's trailing edge, where keycaps sit, with the label kept in the icon column's line. The leading column has a hole, and the picture reads as a shortcut or a status.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, null) },
+      play: avatarLook(
+        ".acpmux-chat-menu-image{order:3;margin-inline-start:auto}.acpmux-chat-menu-image+.acpmux-chat-menu-label{padding-inline-start:calc(14px + var(--cmux-menu-icon-gap))}",
+      ),
+    },
+    "menu-avatar-ring": {
+      height: 900,
+      note: "Tried, not shipped: the round picture with a hairline ring. On a dark menu the ring adds a second edge; the cards draw none.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, null) },
+      play: avatarLook(".acpmux-chat-menu-image{box-shadow:0 0 0 1px var(--agent-border)}"),
+    },
+    "menu-avatar-none": {
       height: 860,
-      note: "A chat with an agent session and an uploaded avatar: Set Avatar… and Remove Avatar end the chat menu's tab rows, before Archive and Close (header/avatarRow.ts).",
-      props: {
-        ...base,
-        menu: () => {
-          const rows = menuRows();
-          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
-          const avatar = avatarRows(
-            { sessionId: "session-1", hasAvatar: true },
-            { set: () => undefined, remove: () => undefined },
-          );
-          return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
-        },
-      },
+      note: "A chat without an avatar: Set Chat Avatar… keeps the account glyph and there is no Remove Chat Avatar; the mini shows the Chief, so the chat offers Show in Mini.",
+      props: { ...base, menu: avatarMenu(undefined, null) },
       play: openMenu,
+    },
+    "menu-mini-shows-chat": {
+      height: 900,
+      note: "The mini shows this chat (agent.mini answers its session): the row reads Show Chief in Mini and points the mini back at the Chief.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, "session-1") },
+      play: avatarShown,
+    },
+    "menu-mini-other-chat": {
+      height: 900,
+      note: "The mini shows another chat: this chat still offers Show in Mini, which points the mini here.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, "session-2") },
+      play: avatarShown,
+    },
+    "menu-mini-unsupported": {
+      height: 860,
+      note: "An app that does not answer agent.mini (older than the mini's chat pick): no Show in Mini row.",
+      props: { ...base, menu: avatarMenu(UPLOADED_AVATAR, undefined) },
+      play: avatarShown,
     },
     "menu-revoke-access": {
       height: 860,
