@@ -2,7 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { bottomStackBox, watchToastAvoidance, type StackBox } from "./toastAvoidance";
+import { setNativeHost } from "./native";
+import {
+  bottomStackBox,
+  elementBox,
+  reportToastAvoidance,
+  resetToastAvoidanceReports,
+  watchToastAvoidance,
+  type StackBox,
+} from "./toastAvoidance";
 
 // The composer never moves for a toast (Leo 2026-11-07): the page reports its bottom stack and the
 // host lifts the toasts above it; no toast band reaches the page's layout.
@@ -66,6 +74,45 @@ describe("toast avoidance", () => {
     expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750 });
     stop();
     expect(sent.at(-1)).toBeUndefined();
+  });
+
+  test("the newest layout's report is the one the host hears; when it goes, the one under it again", () => {
+    const { dom, document, dock, place } = page();
+    const view = dom.window as unknown as Window & typeof globalThis;
+    (view as any).ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+    };
+    const frames: FrameRequestCallback[] = [];
+    view.requestAnimationFrame = (callback) => frames.push(callback);
+    view.cancelAnimationFrame = () => {};
+    const flush = () => frames.splice(0).forEach((callback) => callback(0));
+    resetToastAvoidanceReports();
+    const heard: unknown[] = [];
+    setNativeHost(async (method, params) => {
+      if (method === "pane.toastAvoidance") heard.push(params.rects);
+    });
+    try {
+      place("form.acpmux-composer", { left: 20, top: 660, width: 860, height: 90 });
+      const chat = reportToastAvoidance(dock);
+      flush();
+      expect(heard.at(-1)).toEqual([{ left: 20, top: 660, right: 880, bottom: 750 }]);
+      // A New Tab composer card mounts over it (the chat's stack stays mounted a moment).
+      const card = document.createElement("div");
+      document.body.append(card);
+      place("body > div", { left: 40, top: 600, width: 820, height: 100 });
+      const newTab = reportToastAvoidance(card, elementBox);
+      flush();
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      // The chat's stack goes first: the card is still what the toasts avoid.
+      chat();
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      newTab();
+      expect(heard.at(-1)).toEqual([]);
+    } finally {
+      setNativeHost(undefined);
+      resetToastAvoidanceReports();
+    }
   });
 
   test("no rule lets a toast band move the shell, the stage or the stack", () => {
