@@ -226,5 +226,15 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
       },
     },
+    "claude-sign-in-cancel": {
+      props: { signIn: "claude" },
+      note: "Opening the code form and cancelling resize the card over the shared micro duration; the final card is the original sign-in state.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.click({ selector: ".cv-turn-signin__row .cv-turn-auth-action:nth-child(2)" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin__input"));
+      },
+    },
   },
 });

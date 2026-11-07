@@ -598,6 +598,7 @@ function TurnFailure({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
@@ -710,7 +711,7 @@ function TurnFailure({
           )}
         </span>
       </span>
-      <span className="cv-turn-error__actions">
+      <span className="cv-turn-error__actions" ref={actionsRef}>
         {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
@@ -730,7 +731,13 @@ function TurnFailure({
           </button>
         )}
         {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
-          <CloudSignIn signIn={cloudSignIn} rowId={retryRowId} prompt={prompt} keyOnly={teamMachine} />
+          <CloudSignIn
+            signIn={cloudSignIn}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={teamMachine}
+            actionsRef={actionsRef}
+          />
         )}
         {signInFirst && (
           <button
@@ -741,7 +748,9 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
-        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
+        {localKey && (
+          <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
         {offersRetry && (
           <button
             type="button"
