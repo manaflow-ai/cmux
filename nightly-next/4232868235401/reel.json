@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "build": "4232868235401",
+  "notes": "notes/4232868235401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37252,
+      "title": "Cloud progress: New Cloud Workspace and paused-machine windows are a React page; the AppKit view is gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37387,
+      "title": "sidebar_edits: a group moves with its subgroups; idempotent edits report no change (#37322 review fixes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37363,
+      "title": "cmux-sdk: generic call and subscribe; cmux chief talks through the SDK",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37313,
+      "title": "acpmux + iOS: let a paired phone allow a peer's prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36189,
+      "title": "Agent pane: permission card at Claude desktop's level, Esc and ⌘↩ keycaps; Needs your input pill on the live line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37376,
+      "title": "hot-apply proof: open a terminal tab, not only a workspace, so the copy starts its daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37373,
+      "title": "cmux-sdk: the conversation client rules as pure helpers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37367,
+      "title": "cmux-host: a Cloud request in flight when the machine's addresses change fails at once instead of hanging 20 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37331,
+      "title": "Optimistic overlay rules in Rust: cmux-layout-reducer optimistic.rs over the app FFI, with golden vectors (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37305,
+      "title": "cmux NEXT: peer rows per peer and session, and the watch's later pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37251,
+      "title": "cmux NEXT onboarding: offer to install a missing Claude Code or Codex",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37383,
+      "title": "test(cloud): the no-group test reaches the mark: a shown document, and a refused mark counts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37364,
+      "title": "l10n(cmux-next): translate Live Web Reload's error in six locales; Italian says \"in tempo reale\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37356,
+      "title": "fix(chief): run auto mode on Claude Code's local classifier",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37324,
+      "title": "sidebar_doc: the sidebar's sections from one window's rows, and New Subgroup and remote-group plans, in Rust (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37354,
+      "title": "fix(tabs): a tab that is not its pane's last slides out on the tab strip (close case A, m49)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37262,
+      "title": "cmux NEXT Home: the Messages transcript and composer in React",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37360,
+      "title": "Cloud repo step: the off-GitHub failure says to give the machine access, without the word token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37318,
+      "title": "Cloud bootstrap rules in Rust: machine bootstrap, machine.toml applier, create retry (FFI ops first)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37359,
+      "title": "acpmux harness install: a failure names the installer's last line from stderr or stdout, and discovery takes only an executable ~/.local/bin/claude (#37244 review follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36886,
+      "title": "Agent pane: hover previews anchor to their row; /status reads Claude Code's version from the summary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37330,
+      "title": "fix(next): a Reduce Motion pane close shows its terminals at their new sizes in its first frame (CLOSE MOTION 3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
