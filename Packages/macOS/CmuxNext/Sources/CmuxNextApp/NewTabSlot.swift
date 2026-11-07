@@ -116,7 +116,7 @@ enum NewTabSlot {
     private static func home(of tab: TabModel, _ services: AppServices) -> PaneModel? { services.locateTab(model: tab)?.1 }
 
     /// `pane`'s next new tab's move, its turn taken at the press: moves go in press order (Ctrl-` then Cmd-T: `a b 2 1 c`); an unanswered one passes within the strip's hold.
-    private static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: NewTabSuccession.orderLimit, owner: "NewTabSlot.answer", passing: nil) }
+    static func reserve(_ pane: PaneModel?, services: AppServices) -> WorkTurn<ActionWorkFailure?>? { pane.flatMap { services.paneController(for: $0) }?.placements.next(limit: NewTabSuccession.orderLimit, owner: "NewTabSlot.answer", passing: nil) }
     /// Moves the tab `find` returns from `pane` to the final index `index` gives (from the pane's other tabs) once the pane
     /// lists it, and after the pane's previous new tab's move (`turn`; a Cmd-T burst's second read its slot too early: `a b 1 c 2`).
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, turn: WorkTurn<ActionWorkFailure?>?, services: AppServices,
