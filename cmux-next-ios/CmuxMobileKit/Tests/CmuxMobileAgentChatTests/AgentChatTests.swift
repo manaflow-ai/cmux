@@ -102,6 +102,34 @@ import Testing
         #expect(store.clientError == nil)
     }
 
+    /// The Cloud carrier sends permission_pending but refuses permission_respond.
+    /// The phone must keep the request waiting and never queue a fake "Reply instead".
+    @Test func cloudPermissionRequiresMacHandoff() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "cloud", name: "Cloud", harness: "claude", agentName: "Claude",
+                                         cwd: "~", workspaceTitle: "vm", macName: "vm"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 4000
+        let store = AgentChatStore(source: mock, canAnswerPendingRequests: false)
+        while store.turns.isEmpty { await Task.yield() }
+        store.send(prompt: "go")
+        while store.pendingPermission == nil { await Task.yield() }
+        let permission = try #require(store.pendingPermission)
+
+        store.respond(to: permission.request, option: permission.request.options.first)
+        #expect(store.clientError == "Answer this Cloud request on your Mac.")
+        #expect(store.approvingOptionID == nil)
+        #expect(store.pendingPermission?.request.id == permission.request.id)
+
+        store.respond(to: permission.request, option: permission.request.options.last)
+        #expect(store.pendingPermission?.request.id == permission.request.id)
+        store.send(prompt: "guidance instead", denyingPermission: true)
+        #expect(store.clientError == "Answer this Cloud request on your Mac.")
+        #expect(store.queue.isEmpty)
+        #expect(store.pendingPermission?.request.id == permission.request.id)
+    }
+
     /// A tab the Mac reports as waiting opens on its card, and the replayed
     /// history arrives as one change (no past turn ever shows "Working").
     @Test func waitingMockSessionsOpenOnTheirCard() async throws {
