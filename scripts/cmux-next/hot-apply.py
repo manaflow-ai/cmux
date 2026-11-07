@@ -66,6 +66,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -137,7 +138,9 @@ def sha256_file(path: Path) -> str:
 
 
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as answer:
+    # files.cmux.com answers Python's default user agent (Python-urllib/...) with 403.
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
+    with urllib.request.urlopen(request, timeout=300) as answer:
         return answer.read()
 
 
@@ -294,9 +297,12 @@ def app_pids(app: Path, names: tuple[str, ...] | None = None) -> list[str]:
             rest = rest.strip()
             # A process may name the folder through a link (macOS: the app daemon as /tmp/..., the copy
             # given as /private/tmp/...), so its bin folder is compared resolved.
-            cut = rest.find(f"/{BIN}/")
-            if pid in found or not rest.startswith("/") or cut < 0 \
-                    or os.path.realpath(rest[:cut + len(BIN) + 1]) != bin_dir:
+            # Every place the segment appears is tried: a folder above the app may hold it too.
+            marker, cut, starts = f"/{BIN}/", -1, []
+            while (cut := rest.find(marker, cut + 1)) >= 0:
+                starts.append(cut)
+            cut = next((c for c in starts if os.path.realpath(rest[:c + len(BIN) + 1]) == bin_dir), -1)
+            if pid in found or not rest.startswith("/") or cut < 0:
                 continue
             # Program names have no spaces, so the name ends at the first one (the app path may have some).
             if names is None or rest[cut + len(BIN) + 2:].split(" ", 1)[0] in names:
@@ -344,7 +350,8 @@ def find_sockets(app: Path, cli: Path) -> list[str]:
             if re.search(rf'"pid"\s*:\s*{pid}\b', status.stdout):
                 found.append(name)
                 break
-    if hung and not found:
+    # The app's own session must answer: a hung one is not passed over for another session's.
+    if hung and (not found or any(Path(name).name.startswith("cmux-app") for name in hung)):
         raise RuntimeError(f"`server status` never answered on {', '.join(sorted(hung))}: the daemon running "
                            f"from {app} is not known; nothing changed (--socket names it)")
     return sorted(found, key=lambda name: not Path(name).name.startswith("cmux-app"))
