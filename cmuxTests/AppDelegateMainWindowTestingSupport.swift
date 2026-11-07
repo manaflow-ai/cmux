@@ -163,13 +163,14 @@ extension AppDelegate {
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil,
+        sidebarState: SidebarState = SidebarState(),
         window: NSWindow? = nil
     ) -> UUID {
         tabManager.windowId = windowId
         let context = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
-            sidebarState: SidebarState(),
+            sidebarState: sidebarState,
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
