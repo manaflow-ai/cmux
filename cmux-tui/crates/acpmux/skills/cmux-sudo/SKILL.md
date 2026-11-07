@@ -24,9 +24,13 @@ password field. Only the person can answer that card; you cannot. If they approv
 - Pass `argv` as a list, such as `["fs_usage", "-w", "-f", "filesys", "-t", "10"]`. It runs with
   no shell, so pipes, `&&`, globs and redirects don't work. Run one command and filter its
   output yourself afterwards.
+- Every argument is printable ASCII, so the card shows exactly what runs. A path or text with
+  other characters is refused; put it in a file and pass the file's path.
 - Make the command end on its own: `fs_usage -t SECONDS`, `powermetrics -n 1`. Set
   `timeoutSecs` (1 to 600, default 60). A command still running at the timeout is stopped,
-  and `timedOut` is true.
+  and `timedOut` is true. `stillRunning` is then `"yes"` when part of it ignored the stop and
+  still runs as root, or `"unknown"` when the group stopped but a detached process can't be
+  ruled out. Tell the person in either case.
 - Write `reason` as one plain sentence: what you will learn or fix with the command.
 - The command runs on this chat's own machine. Leave `host` out, or set it to this machine's
   name. To run as root on another machine, ask from a chat on that machine.

@@ -70,6 +70,12 @@ fn check_takes_argv_reason_and_this_host_only() {
         json!({"argv": ["echo", "a\nb"], "reason": "a newline"}),
         json!({"argv": ["echo", "a\u{1b}[2Kb"], "reason": "an escape"}),
         json!({"argv": ["id"], "reason": "looks fine\u{202E}"}),
+        json!({"argv": ["echo", "a\u{E0001}b"], "reason": "a language tag"}),
+        json!({"argv": ["echo", "\u{0600}1"], "reason": "an arabic number sign"}),
+        json!({"argv": ["r\u{043C}", "x"], "reason": "a cyrillic look-alike"}),
+        json!({"argv": ["echo", "caf\u{00E9}"], "reason": "any non-ascii"}),
+        json!({"argv": ["id"], "reason": "tagged\u{E0041}"}),
+        json!({"argv": ["id"], "reason": "sign\u{0600}"}),
         json!({"argv": ["id"]}),
         json!({"argv": ["id"], "reason": "r", "host": "some-other-host-7c2e"}),
         json!({"argv": ["id"], "reason": "r", "timeoutSecs": 0}),
@@ -155,7 +161,7 @@ async fn a_timeout_ends_the_whole_group_even_past_an_ignored_sigterm() {
     let out =
         run(&sudo, &ask(&["sh", "-c", &script], 1), Zeroizing::new(PASSWORD.to_owned())).await;
     assert_eq!(out["timedOut"], true, "{out}");
-    assert_eq!(out["stillRunning"], false, "{out}");
+    assert_eq!(out["stillRunning"], "unknown", "{out}");
     assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
     let child: i32 = std::fs::read_to_string(dir.join("child")).unwrap().trim().parse().unwrap();
     // SAFETY: signal 0 checks for the process and sends nothing.

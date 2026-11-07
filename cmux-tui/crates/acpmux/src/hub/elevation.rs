@@ -19,7 +19,8 @@
 //!   its own arguments, never through a shell. The run has a timeout ([`MAX_TIMEOUT`] at most):
 //!   sudo leads its own process group; past the timeout the group gets SIGTERM (sudo relays it to
 //!   the command), then SIGKILL. A root process that ignores SIGTERM is past what this daemon (the
-//!   user) can kill: the agent gets `stillRunning: true` and says so.
+//!   user) can kill: the agent gets `stillRunning: "yes"` and says so. A process that left the
+//!   group (`setsid`) cannot be seen, so a timeout whose group is gone still reports `"unknown"`.
 //! - sudo is the system's own `/usr/bin/sudo`, owned by root and setuid, never one from PATH: an
 //!   agent can put a `sudo` of its own on the user's PATH, and that one would read the password.
 //! - A deny is final for that request: the agent gets `denied` and the card is gone. The card
@@ -109,14 +110,26 @@ fn names_this_host(host: &str) -> bool {
         || short(host) == short(&label)
 }
 
-/// Whether `c` reads on the card as itself. Control characters, bidi overrides and isolates and
-/// invisible format characters could make the command a person approves read differently from
-/// the argv sudo runs, so a request holding one is refused.
-fn shows_as_is(c: char) -> bool {
+/// Whether an argv entry reads on the card exactly as sudo gets it: printable ASCII only. Any
+/// other character can render invisibly (format, tag and bidi characters, fillers, variation
+/// selectors) or as a look-alike of another letter, so the command a person approves could read
+/// differently from what runs. A command that needs other text reads it from a file.
+fn argv_shows_as_is(c: char) -> bool {
+    matches!(c, ' '..='~')
+}
+
+/// Whether a character of the reason reads as itself: no control character, no line or
+/// paragraph separator, and no Unicode format character (general category Cf: bidi controls,
+/// zero-width characters, tags), so the reason cannot hide or reorder what the card shows.
+fn reason_shows_as_is(c: char) -> bool {
     !c.is_control()
         && !matches!(c,
-            '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
-            | '\u{2060}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+            '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}'
+            | '\u{0890}'..='\u{0891}' | '\u{08E2}' | '\u{115F}'..='\u{1160}' | '\u{180E}'
+            | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}'
+            | '\u{3164}' | '\u{FE00}'..='\u{FE0F}' | '\u{FEFF}' | '\u{FFA0}' | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}' | '\u{110CD}' | '\u{13430}'..='\u{1343F}' | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}' | '\u{E0000}'..='\u{E0FFF}')
 }
 
 /// Checks the request's fields. `host` must name this machine: sudo runs where the daemon runs.
@@ -130,10 +143,12 @@ pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
     let argv: Vec<String> = argv
         .iter()
         .map(|a| match a.as_str() {
-            Some(s) if s.chars().all(shows_as_is) && s.len() <= MAX_ARG_BYTES => Ok(s.to_owned()),
+            Some(s) if s.chars().all(argv_shows_as_is) && s.len() <= MAX_ARG_BYTES => {
+                Ok(s.to_owned())
+            }
             _ => Err(RpcError::invalid_params(format!(
-                "each argv entry is a string of at most {MAX_ARG_BYTES} bytes, without control, \
-                 bidi or invisible characters"
+                "each argv entry is printable ASCII of at most {MAX_ARG_BYTES} bytes: the card \
+                 shows it exactly as sudo runs it (put other text in a file)"
             ))),
         })
         .collect::<Result<_, _>>()?;
@@ -141,7 +156,7 @@ pub(super) fn check(params: &Value) -> Result<Ask, RpcError> {
         return Err(RpcError::invalid_params("argv[0] must name the command, not an option"));
     }
     let reason = params.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
-    if !reason.chars().all(shows_as_is) {
+    if !reason.chars().all(reason_shows_as_is) {
         return Err(RpcError::invalid_params(
             "reason must be plain text, without control, bidi or invisible characters",
         ));
@@ -298,16 +313,28 @@ async fn run(sudo: &Path, ask: &Ask, password: Zeroizing<String>) -> Value {
     if let Some(Err(e)) = &status {
         stderr.push_str(&format!("\nwaiting for sudo: {e}"));
     }
+    // A process that left sudo's group (`setsid`, a daemon) is out of sight, so a timeout never
+    // proves nothing is left.
+    let still_running = match (status.is_none(), left_running) {
+        (false, _) => "no",
+        (true, true) => "yes",
+        (true, false) => "unknown",
+    };
     if left_running {
         stderr.push_str(
             "\nacpmux: the command ignored SIGTERM past its timeout and still runs as root; \
              this daemon cannot kill a root process. Tell the person.",
         );
+    } else if status.is_none() {
+        stderr.push_str(
+            "\nacpmux: the command was stopped at its timeout. A process it detached from its \
+             group (setsid) would not be seen and may still run as root.",
+        );
     }
     json!({
         "exitCode": exit,
         "timedOut": status.is_none(),
-        "stillRunning": left_running,
+        "stillRunning": still_running,
         "stdout": mask_within(out, &password, MAX_OUTPUT_BYTES),
         "stderr": stderr,
     })
