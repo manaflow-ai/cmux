@@ -413,4 +413,24 @@ struct TerminalGridReportCoalescerTests {
         await rig.drain()
         #expect(rig.sent.grids == [forced, a, b], "a late timer sent again: \(rig.sent.grids)")
     }
+
+    /// (12) RESIZE P0 8, review of #37964 (finding 1): a view shown into a key hold reports the grid of its pre-layout
+    /// bounds (`waitsForRefresh`: never at once), and its pane's layout gives it its size in the same turn. That layout's
+    /// grid goes at once (#37842's rule for a size that shows), not one refresh later behind the just-shown grid, and the
+    /// just-shown grid never goes.
+    @Test func aJustShownGridGivesWayToTheLayoutsGridAtOnce() async throws {
+        let rig = Rig(ticking: true)
+        let ticks = try #require(rig.ticks)
+        rig.coalescer.viewSized(Self.grid(99), waitsForRefresh: true)
+        #expect(rig.sent.grids.isEmpty, "the just-shown grid went at once: \(rig.sent.grids)")
+        let laidOut = Self.grid(80)
+        rig.coalescer.viewSized(laidOut)
+        #expect(rig.sent.grids == [laidOut], "the layout's grid did not go in its turn: \(rig.sent.grids)")
+        #expect(!rig.coalescer.isWaiting, "a grid still waits after the layout's grid went")
+        rig.clock.advance(by: Self.frame)
+        ticks.refresh()
+        rig.clock.advance(by: .milliseconds(100))
+        await rig.drain()
+        #expect(rig.sent.grids == [laidOut], "the just-shown grid went later: \(rig.sent.grids)")
+    }
 }

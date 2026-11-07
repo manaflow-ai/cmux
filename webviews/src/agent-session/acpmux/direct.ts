@@ -77,6 +77,7 @@ import {
   forgetTail,
   keptTail,
   KEPT_EVENTS,
+  type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
@@ -99,6 +100,7 @@ import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
+import { noteTranscriptReplace } from "./flickerLog";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
@@ -1864,6 +1866,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 }
 
+/// Rows a snapshot drew, of which chat, and the machine and session they were proven of.
+type ShownRows = {
+  sessionId: string | undefined;
+  rows: readonly AcpmuxRow[];
+  peer: string | undefined;
+  generation: number | undefined;
+};
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 /// Every native root a session summary names into `fold`: the chat's current agent session and
 /// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
@@ -2196,6 +2206,13 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
+  /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
+  /// are whole through below a page merged past that gap. A copy kept, or the next open's resume,
+  /// continues from the lowest of them, not from `lastSeq`, so the records in a hole are read once
+  /// the machine answers. One per read: a lag's read and a reconnect's can be out together, and
+  /// one that lands never clears another's hole.
+  private readonly gapReads = new Map<number, { sessionId: string; seq: number }>();
+  private gapReadKeys = 0;
   private turnOpen = false;
   /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
   /// record is outside the held page): the live line's clock counts from it, never from an older
@@ -2296,6 +2313,20 @@ export class AcpmuxDirectClient {
   /// Counts the attaches of the copy on screen: one that a newer one (a reconnect's) took over
   /// leaves the copy to it when it fails.
   private copyAttaches = 0;
+  /// The chat whose rows the last snapshot drew (the tab's chat while it is missing), those rows,
+  /// and the machine and session (`createdAt`) they were proven of.
+  private drawn?: ShownRows;
+  /// The rows a reset took off screen (`resetSessionState`), until the chat's next frame says
+  /// whether it drew them again or replaced them (`noteReplace`).
+  private cleared?: ShownRows & { cause: string };
+  /// The tail of the tab's chat that left the list while drawn, for its reopen (`select`).
+  private leftTail?: { sessionId: string; tail: KeptTail };
+  /// The rows on screen when the chat was reset, for its next rebuild (`shownRowsToKeep`): a
+  /// resync of the same chat lays its rows over these, so each unchanged row keeps its object, and
+  /// the pane its node, instead of every row being built anew.
+  private shownBefore?: ShownRows;
+  /// Each chat's full transcript replaces on this page (`noteReplace`), for the flicker log and tests.
+  private readonly replaces = new Map<string, number>();
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
   /// The attach of the selected chat that is out.
@@ -2541,7 +2572,7 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail();
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
-    this.resetSessionState();
+    this.resetSessionState("adopted chat missing");
     this.noteMissing(sessionId);
     this.missingReason = "notListedAtOpen";
     // A name no listed chat goes by (`HOST/NAME` of this Mac's own chat): acpmux's resolver names it.
@@ -2906,7 +2937,7 @@ export class AcpmuxDirectClient {
         this.wire.lifecycle("tab session", { asked: this.selectedSessionId, attached: tabSession });
         this.selectedSessionId = tabSession;
         this.selectionGeneration += 1;
-        this.resetSessionState();
+        this.resetSessionState("open: tab session");
       }
       // A tab that recorded the chat's name or its harness's session id in place of acpmux's id
       // opens the one listed chat that goes by it, and the app rebinds the tab to that chat's id
@@ -2917,7 +2948,7 @@ export class AcpmuxDirectClient {
         this.wire.lifecycle("tab session named", { asked: this.selectedSessionId, opened: named.session });
         this.selectedSessionId = named.session;
         this.selectionGeneration += 1;
-        this.resetSessionState();
+        this.resetSessionState("open: named chat");
         // The host keeps it as the tab's session (`chat.persistSession`), so the tab is rebound.
         this.rebound = named.session;
       }
@@ -2937,7 +2968,7 @@ export class AcpmuxDirectClient {
         this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.fallback = { from, generation: this.selectionGeneration };
-        this.resetSessionState();
+        this.resetSessionState("open: not listed");
         // The machine the chat was on, from what the app host kept of it (another tab read it).
         const missing = this.missingSession;
         if (missing) {
@@ -2978,7 +3009,8 @@ export class AcpmuxDirectClient {
       this.earlyTailWindow = undefined;
       // Its rows are on screen already: the pane draws the chat as it comes, as after any kept tail.
       if (drawnEarly) this.releaseSnapshots(hold);
-      const resumeAfter = heldCopy || drawnEarly ? 0 : this.lastSeq;
+      const resumeAfter =
+        (heldCopy && !heldCopy.own) || drawnEarly ? 0 : sessionId ? this.wholeSeq(sessionId) : this.lastSeq;
       // The attach asked with the list is the open's only while it is of the chat opened now, on
       // this machine as the list names it: anything else (another chat chosen, a chat on another
       // machine, which may be down and draw the Mac's copy first) is attached as before.
@@ -2997,7 +3029,8 @@ export class AcpmuxDirectClient {
         // in flight: from this page when it read the chat before, else from the app host, which is
         // what makes a chat opened in a NEW TAB instant too (tailCache.ts). Only on a cold page: a
         // reconnect already holds the chat's own events, which are newer than any tail.
-        let keptThrough = heldCopy?.lastSeq ?? drawnEarly?.through ?? 0;
+        // Rows the machine drew itself (`own`) are the chat's events, resumed as a reconnect's.
+        let keptThrough = (heldCopy && !heldCopy.own ? heldCopy.lastSeq : undefined) ?? drawnEarly?.through ?? 0;
         if (!heldCopy && !drawnEarly && resumeAfter === 0 && this.events.length === 0) {
           const hostTail = readHostTail(sessionId).catch(() => undefined);
           // An attach that answered already is newer than any tail the host holds: the chat draws
@@ -3106,7 +3139,13 @@ export class AcpmuxDirectClient {
   }
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
-  private resetSessionState(): void {
+  private resetSessionState(cause = "reset"): void {
+    // The rows on screen go: the next frame of the same chat is a full replace unless it draws them
+    // again (`noteReplace`). Only the newest reset names the cause; a switch to another chat is none.
+    if (this.drawn && this.drawn.rows.length > 0) {
+      this.cleared = { ...this.drawn, cause };
+      this.shownBefore = this.drawn;
+    }
     this.cancelTrustStart?.();
     // Typing and presence stop with the chat at once, not when the next attach lands: a keystroke
     // meanwhile never reaches the chat before.
@@ -3161,6 +3200,7 @@ export class AcpmuxDirectClient {
     this.promptIndex?.cancel?.();
     this.promptIndex = undefined;
     this.lastSeq = 0;
+    this.gapReads.clear();
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
@@ -3245,8 +3285,16 @@ export class AcpmuxDirectClient {
   /// host alone and not into this page's map (tailCache.ts `rememberTail`).
   private rememberCurrentTail(forThisPage = true): void {
     const sessionId = this.selectedSessionId;
-    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
-    if (this.attachedGeneration !== this.selectionGeneration) return;
+    const tail = this.currentTail();
+    if (sessionId && tail) rememberTail(sessionId, tail, forThisPage);
+  }
+
+  /// The selected chat's tail as this page read it (its newest `KEPT_EVENTS` records and what they
+  /// need to draw), once its attach answered; undefined before, or for a replay.
+  private currentTail(): KeptTail | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
+    if (this.attachedGeneration !== this.selectionGeneration) return undefined;
     const events = this.events.slice(-KEPT_EVENTS);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
@@ -3263,22 +3311,18 @@ export class AcpmuxDirectClient {
         }
       }
     }
-    rememberTail(
-      sessionId,
-      {
-        events,
-        // The machine and session its rows are of, which the attach's detail does not name
-        // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
-        summary: this.provenSummary(),
-        turnOpener,
-        // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-        historyExhausted: this.historyExhausted && events.length === this.events.length,
-        queue: this.queue,
-        configSeq: this.configSeq,
-        usageFromSeq: this.usageFromSeq,
-      },
-      forThisPage,
-    );
+    return {
+      events,
+      // The machine and session its rows are of, which the attach's detail does not name
+      // (`keptPeer`): a tail drawn later is told from another machine's journal by them (`attach`).
+      summary: this.provenSummary(),
+      turnOpener,
+      // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
+      historyExhausted: this.historyExhausted && events.length === this.events.length,
+      queue: this.queue,
+      configSeq: this.configSeq,
+      usageFromSeq: this.usageFromSeq,
+    };
   }
 
   /// Hands the app host the fork acpmux just made of `from` as its tail (forkTail.ts), drawn from
@@ -3363,7 +3407,7 @@ export class AcpmuxDirectClient {
       ? held.peer !== read.copy.peer || !sameGeneration(held.generation, read.copy.generation)
       : this.events.length > 0 &&
         (this.rowsPeer !== read.copy.peer || !sameGeneration(this.rowsGeneration, read.copy.generation));
-    if (otherRows) this.resetSessionState();
+    if (otherRows) this.resetSessionState("peer copy of another session");
     // Drawn from the reply itself, never from a cache another read filled meanwhile.
     const drawn = this.drawKeptTail(sessionId, read.tail);
     // Its attach follows at once (`attaching`), so no row change starts another meanwhile.
@@ -3387,6 +3431,14 @@ export class AcpmuxDirectClient {
   /// is what was confirmed, and the next attach continues from its newest seq, never from a record
   /// past a hole. Answers whether the chat is shown: its copy, or, with none, the machine read once
   /// more when its row said it was back (`attachIfBack`).
+  /// The newest seq `sessionId`'s records are whole through: `lastSeq`, or below it while a gap
+  /// read is out or failed (`gapReads`).
+  private wholeSeq(sessionId: string): number {
+    let seq = this.lastSeq;
+    for (const gap of this.gapReads.values()) if (gap.sessionId === sessionId) seq = Math.min(seq, gap.seq);
+    return seq;
+  }
+
   private async keepPeerCopy(sessionId: string, generation: number, error: unknown): Promise<boolean> {
     const selected = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
     if (!selected() || !(peerDown(error) || this.socket?.readyState !== WebSocket.OPEN)) return false;
@@ -3402,7 +3454,29 @@ export class AcpmuxDirectClient {
       ? !this.copyOfRow(held)
       : (this.rowsGeneration !== undefined && !sameGeneration(this.rowsGeneration, rowNow?.createdAt)) ||
         (this.rowsPeer !== undefined && this.rowsPeer !== rowNow?.peer);
-    if (otherRows) this.resetSessionState();
+    if (otherRows) this.resetSessionState("peer copy kept: other rows");
+    // Rows the machine's own attach drew, of the session listed now, stay as they are, marked as a
+    // copy: the Mac's copy holds only the newest records, so drawing it in their place took the
+    // older rows off screen until the machine answered, which then drew them all anew.
+    if (
+      this.peerCopy?.sessionId !== sessionId &&
+      !otherRows &&
+      this.events.length > 0 &&
+      // Proven by an attach of this selection: a tail drawn before any (a cold open's) is not.
+      this.attachedGeneration === generation &&
+      typeof rowNow?.peer === "string" &&
+      this.rowsPeer === rowNow.peer &&
+      sameGeneration(this.rowsGeneration, rowNow.createdAt)
+    )
+      this.peerCopy = {
+        sessionId,
+        peer: rowNow.peer,
+        generation: this.rowsGeneration,
+        lastSeq: this.wholeSeq(sessionId),
+        capturedAt: this.events.at(-1)?.at,
+        offline: true,
+        own: true,
+      };
     if (this.peerCopy?.sessionId !== sessionId && (await this.drawPeerCopy(sessionId, generation)) === 0)
       return this.attachIfBack(sessionId, generation);
     const copy = this.peerCopy;
@@ -3412,6 +3486,7 @@ export class AcpmuxDirectClient {
     this.copyLive = undefined;
     if (this.events.some((event) => event.seq > copy.lastSeq)) {
       this.events = this.events.filter((event) => event.seq <= copy.lastSeq);
+      this.lastSeq = Math.min(this.lastSeq, copy.lastSeq);
       this.rebuild();
     }
     this.emit("peer offline");
@@ -3428,11 +3503,15 @@ export class AcpmuxDirectClient {
     if (this.copyBack !== sessionId || !peerBack(row)) return false;
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return false;
     this.copyBack = undefined;
-    this.resetSessionState();
-    return this.attach(sessionId, generation, 0).then(
-      () => true,
-      () => false,
-    );
+    // The frame drawn stays until the machine's page is in, as for a switch: no empty pane between.
+    const hold = this.holdSnapshots(SWITCH_HOLD_MS);
+    this.resetSessionState("peer back: read again");
+    return this.attach(sessionId, generation, 0)
+      .then(
+        () => true,
+        () => false,
+      )
+      .finally(() => this.releaseSnapshots(hold));
   }
 
   /// Whether the selected chat, attached with nothing out, is listed now as another session than
@@ -3465,7 +3544,7 @@ export class AcpmuxDirectClient {
     // under, so it lands on nothing.
     const generation = ++this.selectionGeneration;
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
-    this.resetSessionState();
+    this.resetSessionState("row moved on");
     // An older page in flight was read of the session before: it lands on nothing (`fetchOlder`).
     this.historyEpoch += 1;
     const mine = ++this.copyAttaches;
@@ -3503,14 +3582,24 @@ export class AcpmuxDirectClient {
     copy.attaching = true;
     const generation = this.selectionGeneration;
     const mine = ++this.copyAttaches;
+    // Rows the machine drew itself continue as after a reconnect: its page joins them, and the
+    // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
+    // drawn stays until both are in, or, when either fails, until the copy is offline again: no
+    // transcript with a hole in it between them.
+    const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     try {
-      await this.attach(sessionId, generation, copy.lastSeq);
+      const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
+      const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+      if (copy.own && oldest > copy.lastSeq + 1 && generation === this.selectionGeneration)
+        await this.fetchMissedEvents(sessionId, generation, copy.lastSeq, false);
     } catch (error) {
       // A reconnect's attach took the copy over meanwhile: its outcome decides.
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       this.dropPeerCopy(sessionId);
+    } finally {
+      if (hold !== undefined) this.releaseSnapshots(hold);
     }
   }
 
@@ -3519,9 +3608,11 @@ export class AcpmuxDirectClient {
   /// one; else the chat is off screen as after a failed open, and opens again once the machine is.
   private async redrawPeerCopy(sessionId: string): Promise<void> {
     const generation = this.selectionGeneration;
+    // The frame drawn stays until the new copy is read, as for a switch: no empty pane between.
+    const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     // Everything of the old session goes, its queue and prompts not yet sent too, as for a switch.
-    this.resetSessionState();
-    const drawn = await this.drawPeerCopy(sessionId, generation);
+    this.resetSessionState("peer copy redrawn");
+    const drawn = await this.drawPeerCopy(sessionId, generation).finally(() => this.releaseSnapshots(hold));
     const copy = this.peerCopy as PeerCopy | undefined;
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     if (drawn === 0 || copy?.sessionId !== sessionId) {
@@ -3563,7 +3654,7 @@ export class AcpmuxDirectClient {
     forgetTail(sessionId);
     // Everything of it goes, its cursors too: a recreated session's attach later starts its seqs
     // over, and none of them may read as already held.
-    this.resetSessionState();
+    this.resetSessionState("peer copy dropped");
     this.rebuild();
     this.emit("failed");
   }
@@ -4013,7 +4104,9 @@ export class AcpmuxDirectClient {
     afterSeq: number,
     replayLiveState = true,
   ): Promise<void> {
+    const key = ++this.gapReadKeys;
     for (let cursor = afterSeq; ;) {
+      this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
         sessionId,
         afterSeq: cursor,
@@ -4027,6 +4120,10 @@ export class AcpmuxDirectClient {
       if (result?.hasMore !== true || missed.length === 0) break;
       cursor = Math.max(cursor, ...missed.map((event) => event.seq));
     }
+    // Read through: this read's hole is filled, and so is any older failed read's that starts at
+    // or past this one's start (everything after `afterSeq` is in now).
+    for (const [other, gap] of this.gapReads)
+      if (other === key || (gap.sessionId === sessionId && gap.seq >= afterSeq)) this.gapReads.delete(other);
     this.emit("resynced");
   }
 
@@ -4165,7 +4262,7 @@ export class AcpmuxDirectClient {
       this.wire.lifecycle("reopen failed", { sessionId: target });
       this.selectedSessionId = undefined;
       this.selectionGeneration += 1;
-      this.resetSessionState();
+      this.resetSessionState("reopen failed");
       [this.missingSession, this.missingReason, this.missingSince, this.missingPeer, this.missingAmbiguous] = [
         missing,
         reason,
@@ -4241,12 +4338,27 @@ export class AcpmuxDirectClient {
       (this.purgingSessionId === this.selectedSessionId || this.purgedSessionId === this.selectedSessionId);
     if (purging) this.purgedSessionId = undefined;
     const from = this.selectedSessionId;
+    // The tab's chat on another machine that left the list while drawn, and not by this pane's own
+    // delete, keeps its frame for a switch's hold: a row its machine lists again at once (a peer's
+    // list read anew) opens it on that frame, rows kept (`shownRowsToKeep`), instead of an empty pane
+    // for a moment; one that stays gone says so when the hold ends. A chat on this Mac that leaves
+    // the list is gone (closed on another device): the pane says so at once.
+    const brief =
+      this.host.sessionMustExist &&
+      !purging &&
+      !!this.drawn?.rows.length &&
+      from !== undefined &&
+      this.drawn.peer !== undefined;
+    // What this page read of it, for a reopen while it is held (`select`): kept here only, never
+    // in the shared cache, which a purge cleared.
+    const tail = brief ? this.currentTail() : undefined;
+    this.leftTail = from !== undefined && tail ? { sessionId: from, tail } : undefined;
     this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
     this.fallback = from ? { from, generation } : undefined;
-    const hold = this.selectedSessionId ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
-    this.resetSessionState();
+    const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    this.resetSessionState(reason);
     this.emit(reason);
     // The tab's chat went away while shown: why (chatUnavailable.ts) reads the machines as they are now.
     if (this.host.sessionMustExist && this.selectedSessionId === undefined && this.missingSession !== undefined)
@@ -5143,7 +5255,7 @@ export class AcpmuxDirectClient {
         this.selectedSessionId === sessionId &&
         strayedFrom(watch)
       )
-        this.resetSessionState();
+        this.resetSessionState("attach strayed");
       throw error;
     } finally {
       if (this.attachWatch === watch) this.attachWatch = undefined;
@@ -5208,9 +5320,22 @@ export class AcpmuxDirectClient {
     const again = () => {
       // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
-      this.resetSessionState();
+      // The frame drawn stays until the retry's page is in, as for a switch: no empty pane between.
+      // A retry that fails keeps it until its caller draws what comes instead (the Mac's copy, the
+      // failure), not the emptied state in between.
+      const hold = this.holdSnapshots(SWITCH_HOLD_MS);
+      this.resetSessionState("attach retried");
       this.copyLive = new Map();
-      return this.attach(sessionId, generation, 0, tries + 1);
+      return this.attach(sessionId, generation, 0, tries + 1).then(
+        (page) => {
+          this.releaseSnapshots(hold);
+          return page;
+        },
+        (error: unknown) => {
+          this.releaseSnapshotsOnEmit(hold);
+          throw error;
+        },
+      );
     };
     if (strayed()) return again();
     // An attach asked before the list was read, whose reply is of another session than the list
@@ -5276,7 +5401,7 @@ export class AcpmuxDirectClient {
     this.drawnGeneration = undefined;
     // Rows of another session: everything of it goes, its queue and unsent prompts too, as for a
     // switch; the live records held for this attach are the new session's and stay.
-    if (otherSession) this.resetSessionState();
+    if (otherSession) this.resetSessionState("attach: another session");
     this.rowsGeneration = typeof createdAt === "number" ? createdAt : undefined;
     this.rowsPeer = typeof row?.peer === "string" ? row.peer : undefined;
     if (replaced) {
@@ -5874,7 +5999,8 @@ export class AcpmuxDirectClient {
     if (retiredAt === undefined || retiredAt >= from || retiredAt > through) this.retiredCompactionTurnId = undefined;
     if (this.compactionFenceSeq !== undefined && (this.compactionFenceSeq >= from || this.compactionFenceSeq > through))
       this.compactionFenceSeq = undefined;
-    const previous = new Map(this.rows);
+    // After a reset of the chat on screen, the rows it showed then, under any drawn since.
+    const previous = new Map([...(this.shownRowsToKeep() ?? []), ...this.rows]);
     this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     // Only prompts still awaiting acceptance are retained before replay. Durable keys are used
@@ -7895,12 +8021,61 @@ export class AcpmuxDirectClient {
     return value;
   }
 
+  /// A frame of the chat a reset cleared (`cleared`) is a full transcript replace when it draws none
+  /// of the row objects shown before: an empty transcript, or every row built anew, which the pane
+  /// lays out again from scratch (Leo, 2026-11-07: "It shouldn't need to completely re-render from
+  /// scratch."). Counted per chat, with the reset's cause, in the wire log and the flicker log.
+  /// O(rows) only on the first frame after a reset, never per streamed event.
+  private noteReplace(rows: readonly AcpmuxRow[]): void {
+    const chat = this.selectedSessionId ?? this.missingSession;
+    const cleared = this.cleared;
+    this.drawn = { sessionId: chat, rows, peer: this.rowsPeer, generation: this.rowsGeneration };
+    // The resync is drawn: its rebuilds are over.
+    this.shownBefore = undefined;
+    if (!cleared) return;
+    this.cleared = undefined;
+    if (chat === undefined || chat !== cleared.sessionId) return;
+    const before = new Set(cleared.rows);
+    if (rows.some((row) => before.has(row))) return;
+    const count = (this.replaces.get(chat) ?? 0) + 1;
+    this.replaces.set(chat, count);
+    const detail = { sessionId: chat, cause: cleared.cause, rows: rows.length, before: cleared.rows.length, count };
+    this.wire.lifecycle("transcript replaced", detail);
+    noteTranscriptReplace(cleared.cause, rows.length === 0, count);
+  }
+
+  /// The rows a reset of the chat took off screen, when this rebuild draws the same chat again: the
+  /// same session on the same machine (its `createdAt` and machine as the rows drawn now were proven
+  /// of), so the same seqs are the same records. Kept through the resync's rebuilds (a kept tail's,
+  /// then its attach's) until the next frame draws; a rebuild of anything else drops them.
+  private shownRowsToKeep(): ReadonlyMap<string, AcpmuxRow> | undefined {
+    const shown = this.shownBefore;
+    if (!shown) return undefined;
+    const same =
+      shown.sessionId !== undefined &&
+      shown.sessionId === this.selectedSessionId &&
+      shown.generation !== undefined &&
+      shown.generation === this.rowsGeneration &&
+      shown.peer === this.rowsPeer;
+    if (!same) {
+      this.shownBefore = undefined;
+      return undefined;
+    }
+    return new Map(shown.rows.map((row) => [row.id, row]));
+  }
+
+  /// How many times the transcript of `sessionId` was replaced whole on this page (`noteReplace`).
+  transcriptReplaces(sessionId: string): number {
+    return this.replaces.get(sessionId) ?? 0;
+  }
+
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
       this.frameSnapshot = undefined;
+      if (this.snapshotHold.untilEmit) this.releaseSnapshots(this.snapshotHold.key);
       return;
     }
     this.shownSessionId = this.selectedSessionId;
@@ -7923,6 +8098,7 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     const publishedRows = this.rows.sorted();
+    this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
     const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
     this.publishedProgress = progress;
@@ -9526,8 +9702,16 @@ export class AcpmuxDirectClient {
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
     const previousSessionId = this.selectedSessionId;
+    // The chat is on screen already (picked again, or listed again after it left the list): with no
+    // tail of this page's own, that frame stays until its attach is in, which keeps its rows
+    // (`shownRowsToKeep`). The host's tail or the Mac's copy may hold fewer rows than are shown,
+    // which would leave and come back.
+    const onScreen = this.drawn?.sessionId === sessionId && this.drawn.rows.length > 0;
     // The chat being left is kept for its own next open, while it is still the selected one.
     this.rememberCurrentTail();
+    // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
+    const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
+    this.leftTail = undefined;
     const generation = ++this.selectionGeneration;
     if (this.purgedSessionId !== sessionId) this.purgedSessionId = undefined;
     // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
@@ -9539,11 +9723,13 @@ export class AcpmuxDirectClient {
     // A hidden pane does not see the chat it opens (the tab's missing chat came back while its
     // workspace was in the background): it stays unread until the page shows (`showChanged`).
     if (pageShown()) this.markSeen(sessionId);
-    this.resetSessionState();
+    this.resetSessionState("select");
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
     let keptThrough = this.drawKeptTail(sessionId);
-    if (keptThrough === 0) {
+    // Listed again while held: its rows come back from what this page read, older pages too.
+    if (keptThrough === 0 && onScreen && leftTail) keptThrough = this.drawKeptTail(sessionId, leftTail);
+    if (keptThrough === 0 && !onScreen) {
       // A chat this page never read, which another tab did: the host's tail draws it here too. It
       // costs one in-process round trip, where the attach it stands in for is a daemon one. A
       // read-ahead already out for it (a hover just before the press) is waited on as briefly.
@@ -9629,6 +9815,8 @@ export class AcpmuxDirectClient {
     connection?: string;
     released: Promise<void>;
     release: () => void;
+    /// Ends with the next snapshot, which it draws (`releaseSnapshotsOnEmit`).
+    untilEmit?: boolean;
   };
   private holdKeys = 0;
   /// The chat the last snapshot drawn showed.
@@ -9657,6 +9845,13 @@ export class AcpmuxDirectClient {
       timer: setTimeout(() => this.releaseSnapshots(key), limitMs),
     };
     return key;
+  }
+
+  /// Hold `key` ends with the next snapshot, drawing it: the state a failure's handling commits,
+  /// never what was held back before it. Its limit still ends it if nothing is drawn.
+  private releaseSnapshotsOnEmit(key: number): void {
+    if (this.snapshotHold?.key !== key) return;
+    this.snapshotHold.untilEmit = true;
   }
 
   /// Ends hold `key` and draws the snapshot it held back, if any.
@@ -9927,7 +10122,7 @@ export class AcpmuxDirectClient {
     this.refusedPeerTrust = undefined;
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
-    this.resetSessionState();
+    this.resetSessionState("leave");
     this.emit();
     if (previous) void this.typed("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
   }

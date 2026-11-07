@@ -46,6 +46,61 @@ pub(crate) struct Overlay {
     pub hidden: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order: Option<i32>,
+    /// The user's worktree recipe, over the one the repository has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeRecipe>,
+}
+
+/// What a new worktree of the project runs and copies (`git.worktree.create`).
+/// A command set here wins over the repository's (an empty one turns the
+/// repository's off); include lines come after the repository's, so a `!`
+/// line takes one of its back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WorktreeRecipe {
+    /// Runs in a new worktree once its files are copied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<String>,
+    /// Runs in a worktree before it is removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub teardown: Option<String>,
+    /// Starts the project in a worktree (its dev server, say), on `CMUX_PORT`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    /// `.worktreeinclude` lines: what to copy from the main checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
+}
+
+/// The longest saved setup or teardown command.
+const MAX_COMMAND_BYTES: usize = 64 * 1024;
+/// The most saved include lines.
+const MAX_INCLUDE_LINES: usize = 1000;
+
+impl WorktreeRecipe {
+    fn check(&self) -> Result<(), ProjectReject> {
+        let commands = [&self.setup, &self.teardown, &self.run];
+        if commands.iter().any(|command| {
+            command
+                .as_ref()
+                .is_some_and(|text| text.len() > MAX_COMMAND_BYTES || text.contains('\0'))
+        }) {
+            return Err(ProjectReject::InvalidName(
+                "a worktree command must be at most 64 KiB".into(),
+            ));
+        }
+        if self.include.as_ref().is_some_and(|lines| {
+            lines.len() > MAX_INCLUDE_LINES
+                || lines
+                    .iter()
+                    .any(|line| line.len() > MAX_PATH_BYTES || line.contains(['\n', '\0']))
+        }) {
+            return Err(ProjectReject::InvalidName(
+                "worktree include must be at most 1000 single lines".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Overlay {
@@ -104,6 +159,9 @@ pub(crate) struct OverlayEdit {
     pub hidden: Option<bool>,
     #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
     pub order: Option<Option<i32>>,
+    /// The project's worktree recipe; null clears it.
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<Option<WorktreeRecipe>>,
 }
 
 /// A field that is present (`Some`), null included (`Some(None)`); serde's
@@ -424,6 +482,9 @@ impl Projects {
         {
             return Err(ProjectReject::InvalidName("name must be 1 to 256 bytes".into()));
         }
+        if let Some(Some(recipe)) = &edit.worktree {
+            recipe.check()?;
+        }
         let project = self
             .by_path
             .get_mut(path)
@@ -440,6 +501,10 @@ impl Projects {
         }
         if let Some(order) = edit.order {
             project.overlay.order = order;
+        }
+        if let Some(worktree) = &edit.worktree {
+            project.overlay.worktree =
+                worktree.clone().filter(|recipe| recipe != &WorktreeRecipe::default());
         }
         Ok(project.overlay != before)
     }
