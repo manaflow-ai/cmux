@@ -94,7 +94,11 @@ import Testing
         session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
         session.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
         workspace.layoutSubtreeIfNeeded()
-        let atOnce = coalescer.lastSent.flatMap { $0 == sentBefore ? nil : [$0] } ?? []
+        let first = try #require(session.surfaceView.fittedGrid)
+        try #require(first != sentBefore, "the 760x520 size did not change the grid (\(first))")
+        #expect(coalescer.lastSent == first && !coalescer.isWaiting,
+                "the first grid of the refresh did not go at once (last sent \(String(describing: coalescer.lastSent)))")
+        let atOnce = [first]
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
         let newest = try #require(session.surfaceView.fittedGrid)

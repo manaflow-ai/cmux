@@ -5,7 +5,7 @@ import CmuxNextWakeups
 /// the PTY and sends SIGWINCH for each one.
 ///
 /// During a key resize or a divider drag the view's fit grid changes on almost every display frame. The shell sees
-/// at most one resize per display refresh, and always the newest grid: Chromium's rule for a renderer's size (the
+/// at most one resize per display refresh: Chromium's rule for a renderer's size (the
 /// new size goes with the next frame, its visual properties at the begin-frame), not Ghostty.app's 25 ms timer
 /// (`src/termio/Thread.zig`, `min_ms`). RESIZE P0 6 (cause T): a held key moves a pane 10-20 pt per 120 Hz refresh,
 /// and one grid per 25 ms window (4 refreshes) left the program's own drawing 40-80 pt off its pane edge (the m20
@@ -16,8 +16,12 @@ import CmuxNextWakeups
 ///   refresh at the end of its turn, and a grid that waited for the next refresh made the program's redraw race the next
 ///   draw-ahead render, so it showed 3 refreshes after its pane (m20 allows 2; px-keys-held-2-s1r x1, fd7a1664 on cmux21
 ///   1x: 46 terminal frames, every PTY grid 3-6 ms after the trace sample that showed its width). Chromium's
-///   `RenderWidgetHostImpl::SynchronizeVisualProperties` sends a new size at once and keeps one in flight. A send spends
-///   the refresh (``spent``) until the next one.
+///   `RenderWidgetHostImpl::SynchronizeVisualProperties` sends a new size at once and keeps one in flight until the
+///   renderer acks it; here the refresh, not an ack, bounds the sends. Every send while frames run (at once, at a refresh,
+///   a backstop, ``flush()``, ``reportNow(_:)``) spends the refresh (``spent``) until the next one.
+/// - So the first grid of a refresh goes even when a newer grid comes later in that refresh; the newer one goes at the
+///   next refresh. A bounce inside one refresh (34, 35, 34 columns) now reaches the PTY as two resizes; the terminal's
+///   option 1028 (`GHOSTTY_TERMINAL_OPT_PROMPT_REDRAW_WAITS_FOR_SHELL`, #37461) keeps a shell's prompt for it.
 /// - A new grid in a refresh that already sent one, or with no frames running, opens a window; it is not sent at once.
 /// - Each later grid inside that window replaces the waiting one (no timer work: a compare and a store).
 /// - The window ends at the next display refresh of the view's window (its frame ticks), or when its ``DemandTimer``
@@ -72,7 +76,7 @@ final class TerminalGridReportCoalescer {
     ///   - interval: The backstop of a window no refresh reaches; Ghostty's 25 ms by default.
     ///   - clock: The backstop timer's clock; tests pass a manual one.
     ///   - ticks: The display refreshes that end a window (the view's window presenter); nil: the timer only.
-    ///   - send: Reports one grid to the PTY owner. Called on the main thread, at most once per window.
+    ///   - send: Reports one grid to the PTY owner. Called on the main thread; while frames run, at most once per refresh.
     init(interval: Duration = TerminalGridReportCoalescer.defaultInterval,
          clock: any Clock<Duration> = ContinuousClock(),
          ticks: @escaping @MainActor () -> (any TerminalGridReportTicks)? = { nil },
@@ -83,7 +87,8 @@ final class TerminalGridReportCoalescer {
         timer = DemandTimer(owner: "TerminalGridReportCoalescer.window", clock: clock)
     }
 
-    /// The view's fit grid is now `grid`: it waits for the open window, or opens one.
+    /// The view's fit grid is now `grid`: while frames run and this refresh sent nothing, it goes at once; else it waits
+    /// for the open window, or opens one.
     func viewSized(_ grid: TerminalGridSize) {
         if pending != nil {
             pending = grid
@@ -91,11 +96,9 @@ final class TerminalGridReportCoalescer {
         }
         guard grid != lastSent else { return }
         let source = ticks()
-        if let source, !spent {
+        if source != nil, !spent {
             // Frames run and this refresh sent nothing: the grid goes in the turn that showed its size.
-            spent = true
             deliver(grid)
-            source.tickGridReports(self)
             return
         }
         pending = grid
@@ -112,8 +115,7 @@ final class TerminalGridReportCoalescer {
             spent = false
             return false
         }
-        windowEnded(window)
-        spent = true
+        windowEnded(window, ticking: true)
         return true
     }
 
@@ -130,6 +132,7 @@ final class TerminalGridReportCoalescer {
     func reportNow(_ grid: TerminalGridSize) {
         close()
         lastSent = grid
+        spendRefresh()
         send(grid)
     }
 
@@ -164,17 +167,31 @@ final class TerminalGridReportCoalescer {
 
     /// The window `ended` is over (its refresh, its backstop or a flush): its grid goes once; a later end of the same
     /// window finds it closed and sends nothing.
-    private func windowEnded(_ ended: UInt64) {
+    private func windowEnded(_ ended: UInt64, ticking: Bool = false) {
         guard ended == window, let grid = pending else { return }
         pending = nil
         window &+= 1
-        deliver(grid)
+        deliver(grid, ticking: ticking)
     }
 
-    private func deliver(_ grid: TerminalGridSize) {
+    /// Sends `grid` unless it is the last sent grid. While frames run the send spends this refresh (`ticking`: the
+    /// refresh's own tick, which keeps ticking by its return value).
+    private func deliver(_ grid: TerminalGridSize, ticking: Bool = false) {
         guard grid != lastSent else { return }
         lastSent = grid
+        if ticking {
+            spent = true
+        } else {
+            spendRefresh()
+        }
         send(grid)
+    }
+
+    /// A send while frames run spends this refresh: the next new grid waits for the next refresh, which clears it.
+    private func spendRefresh() {
+        guard let source = ticks() else { return }
+        spent = true
+        source.tickGridReports(self)
     }
 }
 
