@@ -58,7 +58,10 @@ for f in "$driver" ${RJ_DRIVER_FILES:-}; do  # checked before the lease, so a ty
 done
 # Room for the exclusive drain: acquire's deadline bounds it (120 s by default; a step on the mini may run 5).
 export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}"
-capture-host acquire --slot --exclusive >"$out/lease.txt" 2>"$out/lease.err" &
+# RJ_EXCLUSIVE=0: a shared slot, for a driver whose results are not timings (no drain wait).
+exclusive=--exclusive
+[ "${RJ_EXCLUSIVE:-1}" = 0 ] && exclusive=
+capture-host acquire --slot $exclusive >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
   if [ -n "${host:-}" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run'" >/dev/null 2>&1 || true; fi

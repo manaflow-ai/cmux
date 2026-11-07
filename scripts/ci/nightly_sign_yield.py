@@ -59,7 +59,7 @@ PAGE = 100
 MAX_PAGES = 5
 # Leo's rule: a landing that has waited this long unpublished is built, signed and published to the end.
 PIN_AFTER_S = 30 * 60
-NEXT_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+NEXT_FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 # A NEXT build number is <run id><two-digit attempt>.
 # At most 20 digits: anything longer is no build number, and int() of it could raise past Python's digit limit.
 BUILD = re.compile(r"<sparkle:version>\s*([0-9]{3,20})\s*</sparkle:version>")

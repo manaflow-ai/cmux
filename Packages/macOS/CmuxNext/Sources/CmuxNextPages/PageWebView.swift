@@ -107,6 +107,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
+    /// False for a page inside native chrome that lays it out in points (a browser chrome
+    /// surface): its CSS pixel stays one point at every `uiScale`, so the sizes it reports and
+    /// the metrics it is given match the native card around it.
+    public var followsUIScale = true {
+        didSet { if followsUIScale != oldValue { applyUIScale() } }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -339,6 +345,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
+        if options.keepsLoadedWeb { WebBundleServedViews.shared.keepLoadedTree(webView) }
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
@@ -394,6 +401,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }
+        PageTitleRowPress.install(in: webView.configuration.userContentController) { [weak self] in self?.titleRowPressed($0) }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -510,8 +518,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
-    /// by itself (its own links and history).
+    /// The fragment the host last asked the page to show (``open(route:)``), or the one the page
+    /// showed when it moved from Chromium to WebKit (``reopenForLiveOverride(hosting:isCurrent:)``);
+    /// the page may move on by itself (its own links and history).
     public internal(set) var route: String?
 
     /// Shows `route` (the URL fragment) in the page.
@@ -685,8 +694,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
                                      mainFrame: action.targetFrame?.isMainFrame ?? true,
-                                     targetFrameURL: action.targetFrame?.request.url,
-                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
+                                     targetFrameURL: action.targetFrameURL,
+                                     sourceFrameURL: action.sourceFrameURL, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

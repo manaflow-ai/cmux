@@ -1,5 +1,6 @@
 // One command in a "Ran N commands" group, as the Codex desktop app lists them: the terminal glyph
-// and what it does (Claude Code's Bash description) or "Ran <command>" with the command in mono, cut
+// and "Ran <command>" with the command in mono, never Claude Code's Bash description in its place
+// (Lucas, 2026-11-06: the command, as Codex draws it), cut
 // to the row without the setup it starts with (`export PATH=…;`, a leading `cd <folder> &&`, which
 // its Shell block names), then its exit status and run time (the check and time on hover only),
 // opening to its Shell block. A command that went on in the background shows how it stands there
@@ -78,13 +79,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {short}
     </code>
   );
-  const called = tool.description ? (
-    // What the command does in a few words (Claude Code's Bash description); the raw line
-    // waits in its Shell block, opened.
-    // Find counts the command, not this, so it is not highlighted.
-    <span data-find-skip>{tool.description}</span>
-  ) : (
-    // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+  // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+  const called = (
     <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
       {before && <span data-find-skip>{before}</span>}
       {line}
@@ -99,7 +95,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         <span className="cv-command__lead" data-find-skip>
           {t("bgTask.completedLead")}
         </span>{" "}
-        <span className="cv-command__title">{tool.description ? called : line}</span>
+        <span className="cv-command__title">{line}</span>
       </>
     ) : (
       called

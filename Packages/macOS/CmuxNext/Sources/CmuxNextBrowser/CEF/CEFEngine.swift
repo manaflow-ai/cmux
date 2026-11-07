@@ -87,6 +87,11 @@ public final class CEFEngine: BrowserEngine {
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
+    /// Sends every first-party page file to its page host while `live` (the live web loop,
+    /// web-dev.json); false when this Chromium cannot.
+    @discardableResult
+    public func setLivePages(_ live: Bool) -> Bool { CEFRuntime.shared.setLivePages(live) }
+
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         adoptStores()
         try await CEFRuntime.shared.start(layout: layout)
@@ -257,7 +262,7 @@ public final class CEFEngine: BrowserEngine {
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
-    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
+    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:

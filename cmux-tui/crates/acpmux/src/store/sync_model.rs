@@ -84,6 +84,18 @@ pub(crate) fn synced(file: &File, ok: bool) {
     });
 }
 
+/// The bytes of the log segment `file` from `offset` on were written again (the open's
+/// write-back of a range it verified; the checkpoint's sync of the same handle follows): a loss
+/// from at or after `offset` ends, as for a cut, since those pages are dirty again and the next
+/// sync writes them.
+pub(crate) fn rewritten(file: &File, offset: u64) {
+    update(file, |kept, _| {
+        if kept.lost_from.is_some_and(|from| from >= offset) {
+            kept.lost_from = None;
+        }
+    });
+}
+
 /// The log segment `file` was cut to `len` (its sync follows).
 pub(crate) fn cut(file: &File, len: u64) {
     update(file, |kept, _| {

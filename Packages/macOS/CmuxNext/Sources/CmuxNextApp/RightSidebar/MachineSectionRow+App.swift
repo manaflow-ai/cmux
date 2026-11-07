@@ -5,9 +5,9 @@ import CmuxNextServer
 @MainActor
 extension MachineSectionRow {
     /// The rows of `machines` now, each with its kind, its link state and its last check from `health`;
-    /// then the sample machines while `machines.section.fixture` is on; then the machines that joined
-    /// with a one-line token (`joined`, empty while Labs `labs.machineJoin` is off) that the app does
-    /// not already connect to (kind `.joined`, their own group).
+    /// then the sample machines while `machines.section.fixture` is on; then the person's machines that
+    /// joined through the hub (`joined`: `cmux machine list`) that the app does not already connect to
+    /// (kind `.joined`, their own group). A revoked machine has left: it has no row.
     /// A joined machine the app also connects to (its `meshPeerId` is a daemon's id) stays one row:
     /// the daemon's, in that daemon's kind, carrying the joined machine so its menu offers Check,
     /// Rotate and Revoke.
@@ -15,7 +15,7 @@ extension MachineSectionRow {
     /// hosts, peers and probes our tooling made under this account) has no row: it is not one of the
     /// person's own machines.
     static func rows(_ machines: MachineRegistry, health: MachineHealthStore, joined: JoinedMachineStore? = nil) -> [MachineSectionRow] {
-        let all = joined?.machines ?? []
+        let all = (joined?.machines ?? []).filter { $0.state != .revoked }
         let byPeer = Dictionary(all.compactMap { machine in machine.meshPeerId.map { ($0, machine) } }, uniquingKeysWith: { first, _ in first })
         let live = machines.daemons.filter { !isAgentInfrastructure($0.machineID, in: machines) }.map { daemon in
             let state = daemon.store.connectionState

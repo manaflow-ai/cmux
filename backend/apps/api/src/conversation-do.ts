@@ -242,7 +242,7 @@ export class ConversationDO extends OwnerDO<Head> {
   }
 
   private addressStub(id: string) {
-    return this.env.ADDRESS_DO.get(this.env.ADDRESS_DO.idFromName(id)) as unknown as { chiefReply(entity: string, r: { message: string; agent: string; name: string; text: string }): Promise<string>; chiefTyping(entity: string): Promise<void> }
+    return this.env.ADDRESS_DO.get(this.env.ADDRESS_DO.idFromName(id))
   }
 
   /** After a committed message.send: a Chief's words go out as a text; the person's own app message ends the bridge. */
@@ -266,7 +266,7 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** What the attachment storage paths (home-attachment-gc.ts) need from this object. */
   private get gc(): gc.AttachmentGcDeps {
-    return { sql: this.sqlStore, env: this.env, users: (user) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as gc.AttachmentUsers, scheduleAlarm: () => this.scheduleAlarm() }
+    return { sql: this.sqlStore, env: this.env, users: (user) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)), scheduleAlarm: () => this.scheduleAlarm() }
   }
 
   /**

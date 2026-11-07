@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 
@@ -77,8 +78,8 @@ enum DebugMouse {
             _ = DebugHover.move(to: baseLocation(point, in: window), in: window)
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
-            guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
-                                     phase: params["phase"]?.stringValue, flags: flags) else {
+            guard let event = NSEvent.syntheticScroll(atBase: baseLocation(point, in: window), in: window, dx: params["dx"]?.doubleValue ?? 0,
+                                                      dy: params["dy"]?.doubleValue ?? 0, phase: params["phase"]?.stringValue, flags: flags) else {
                 return .object(["error": .string("could not synthesize events")])
             }
             guard event.window == nil else {
@@ -106,21 +107,21 @@ enum DebugMouse {
                 return false
             }
             if layoutTook {
-                if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
+                if movesPointer { movePointer(baseLocation(point, in: window), controller: controller, window: window) }
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                                 "delivered_to": .string("LayoutRootView")])
             }
-            if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
+            if movesPointer { movePointer(baseLocation(point, in: window), controller: controller, window: window) }
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered_to": .string(String(describing: type(of: target)))])
         case "leave":
             // The synthesized pointer leaves the window (divider hover clears).
-            LayoutRootView.setDebugPointer(nil, in: window)
+            movePointer(nil, controller: controller, window: window)
             return .object(["window": .string(controller.state.id)])
         case "hover":
             // Hover: tracking-area owners get the events at once (DebugHover).
             let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
-            LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
+            movePointer(baseLocation(point, in: window), controller: controller, window: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered": .number(Double(delivered)), "crossings": .array(DebugHover.lastCrossings.map(JSONValue.string))])
         default:
@@ -131,7 +132,9 @@ enum DebugMouse {
         // The layout's hover reads the pointer, not events: the synthesized
         // pointer ends where the last event is (cx-ww20).
         let last = action == "drag" ? dragTarget(params, from: point, controller: controller, window: window) : point
-        if action != "scroll" || params["hover"]?.boolValue != false { LayoutRootView.setDebugPointer(baseLocation(last, in: window), in: window) }
+        if action != "scroll" || params["hover"]?.boolValue != false {
+            movePointer(baseLocation(last, in: window), controller: controller, window: window)
+        }
         // Agent input: never the user choosing the app (no-activate guard).
         SyntheticInput.register(posted)
         for event in posted { NSApp.postEvent(event, atStart: false) }
@@ -179,6 +182,11 @@ enum DebugMouse {
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 
+    /// Moves the synthesized pointer that layout and chrome hover read, for the window's on-screen layouts.
+    static func movePointer(_ point: NSPoint?, controller: WindowController, window: NSWindow) {
+        LayoutRootView.setDebugPointer(point, in: window, layouts: controller.onScreenContents.map(\.layoutView))
+    }
+
     /// `point` (top-left window points, the journal's) in `window`'s base coordinates (bottom-left).
     static func baseLocation(_ point: NSPoint, in window: NSWindow) -> NSPoint {
         let height = window.contentView?.bounds.height ?? window.frame.height
@@ -219,37 +227,6 @@ enum DebugMouse {
         let miss = NSPoint(x: base.x - first.locationInWindow.x, y: base.y - first.locationInWindow.y)
         guard miss != .zero else { return first }
         cg.location = CGPoint(x: cg.location.x + miss.x, y: cg.location.y - miss.y)
-        return NSEvent(cgEvent: cg)
-    }
-
-    /// A pixel scroll at `point`, addressed to `window` like the window
-    /// server addresses a real one.
-    /// `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture
-    /// event: continuous (precise deltas) with that scroll phase (R99 swipes).
-    /// `flags` are the modifier keys held (NSEvent's flag bits are CGEvent's).
-    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
-                               flags: NSEvent.ModifierFlags = []) -> NSEvent? {
-        scroll(atBase: baseLocation(point, in: window), in: window, dx: dx, dy: dy, phase: phase, flags: flags)
-    }
-
-    /// ``scroll(at:in:dx:dy:phase:flags:)`` at `base`, a point in `window`'s base coordinates (a page
-    /// window's, `scrollPage`).
-    static func scroll(atBase base: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
-                       flags: NSEvent.ModifierFlags = []) -> NSEvent? {
-        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
-                               wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
-        cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-        if let phase, let value = ["began": 1, "changed": 2, "ended": 4][phase] {
-            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(value))
-            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
-            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
-        }
-        let screen = window.convertPoint(toScreen: base)
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-        cg.location = CGPoint(x: screen.x, y: primaryHeight - screen.y)
-        cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
-        cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         return NSEvent(cgEvent: cg)
     }
 

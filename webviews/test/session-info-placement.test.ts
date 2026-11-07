@@ -1,10 +1,10 @@
 // cmux-web-test-timeout: 240
 // Session Info never lies over the transcript's text (session-info/SessionInfo.tsx `pushes`, Leo
 // 2026-10-21: "a popup or dropdown-looking thing that DOESN'T close when you click out of it and
-// DOESN'T shift the layout. OR it shifts the layout if there isn't enough space"). In a wide pane it
-// floats in the right gutter beside the transcript's centered column, and the transcript does not
-// move; in a narrow one, a pane of a split included, it pushes the chat aside, and the panel's rect
-// meets no transcript row and not the composer. Either way it is a dropdown as tall as its sections,
+// DOESN'T shift the layout. OR it shifts the layout if there isn't enough space"). Wherever the
+// transcript's column fits beside the whole panel, a wide pane too, it pushes: the column moves left,
+// its width kept, centered beside the panel (Lucas, 2026-11-06), and the panel's rect meets no
+// transcript row and not the composer; in a pane too narrow for that it lies over the chat. Either way it is a dropdown as tall as its sections,
 // not a full-height column. A click elsewhere in the chat leaves it open; its toggle closes it. In Leo's
 // chat it lay over the transcript at a narrow width: his prompt sat on "Background tasks".
 //
@@ -90,7 +90,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     });
 
   for (const name of browsers.keys()) {
-    test(`${name}: in a wide pane it floats beside the transcript, which does not move`, async () => {
+    // Lucas, 2026-11-06: "we need to make sure that the chat is centered when the session info is open".
+    // In a wide pane it no longer floats in the gutter: the chat keeps the pane's width (its scrollbar at
+    // the pane's edge) and its column moves left, its width kept, centered between the pane's left edge
+    // and the panel.
+    test(`${name}: in a wide pane the column moves left, centered beside the panel, and keeps its width`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 1600, height: 700 });
       try {
@@ -109,23 +113,41 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         const { panel } = await openSessionInfo(page);
         const box = await rect(page);
         const after = await transcript(page);
+        const main = await page.evaluate(() => {
+          const { left, right } = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+          return { left, right };
+        });
+        const column = await page.evaluate(() => {
+          const { left, right } = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+          return { left, right };
+        });
         expect(before.length).toBeGreaterThan(0);
         expect({
           placement: await panel.getAttribute("data-placement"),
-          moved: after.map(
-            (row, index) => Math.abs(row.left - before[index]!.left) + Math.abs(row.right - before[index]!.right),
+          resized: after.map((row, index) =>
+            Math.round(Math.abs(row.right - row.left - (before[index]!.right - before[index]!.left))),
           ),
+          movedLeft: after.every((row, index) => row.left < before[index]!.left - 1),
+          chatKeepsPane: Math.abs(main.right - main.left - 1600) < 0.5,
+          centered: Math.abs(column.left - main.left - (box.left - column.right)) <= 1,
           covers: after.filter((row) => meets(row, box)).length,
-        }).toEqual({ placement: "overlay", moved: after.map(() => 0), covers: 0 });
+        }).toEqual({
+          placement: "push",
+          resized: after.map(() => 0),
+          movedLeft: true,
+          chatKeepsPane: true,
+          centered: true,
+          covers: 0,
+        });
       } finally {
         await page.close();
       }
     });
 
-    // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where the
-    // right gutter cannot hold it and pushing keeps the transcript's column at its width (1100px and
-    // 1420px panes) it pushes into the chat under the header, by only what the gutter lacks
-    // (SessionInfo.tsx pushedRoom): the chat narrows, and the panel covers no row and not the composer.
+    // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where pushing
+    // keeps the transcript's column at its width (1100px and 1420px panes) it pushes under the header:
+    // the chat keeps the pane's width and its column moves left (SessionInfo.tsx pushedRoom,
+    // sessionInfo.css --acpmux-session-info-shift), and the panel covers no row and not the composer.
     // Where a push would narrow the column it lies over the chat instead (the 370/528/740px cases below;
     // Leo, 2026-11-03: "if it would need to be then session info should be an overlay").
     for (const width of [1100, 1420]) {
@@ -134,6 +156,8 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         const page = await pane!.open({ width, height: 700 });
         try {
           const chat = () => page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
+          const column = () =>
+            page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().left);
           const toggle = page.locator("button.acpmux-session-info-toggle");
           await page.evaluate(() =>
             (
@@ -145,6 +169,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
           await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
           const before = await chat();
+          const columnBefore = await column();
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
           const rows = await transcript(page);
@@ -152,10 +177,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           expect(rows.length).toBeGreaterThan(0);
           expect({
             placement: await panel.getAttribute("data-placement"),
-            narrower: (await chat()) < before,
+            chatKeepsPane: Math.abs((await chat()) - before) < 0.5,
+            movedLeft: (await column()) < columnBefore - 1,
             underHeader: box.top >= header.y + header.height - 0.5,
             covers: rows.filter((row) => meets(row, box)),
-          }).toEqual({ placement: "push", narrower: true, underHeader: true, covers: [] });
+          }).toEqual({ placement: "push", chatKeepsPane: true, movedLeft: true, underHeader: true, covers: [] });
         } finally {
           await page.close();
         }
@@ -219,8 +245,10 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           }).toEqual({
             unasked: width >= 648,
             placement: over ? "overlay" : "push",
-            overChat: over,
-            popover: false,
+            // Under 648px it is a popover (Lucas, 2026-11-06: "In a narrow layout: it becomes a popover
+            // and starts closed"): over the chat, with no foot of its own over the composer.
+            overChat: over && width >= 648,
+            popover: width < 648,
             chatKeepsPane: over,
             besideChat: !over,
             aboveComposer: true,
@@ -273,7 +301,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             short: box.bottom - box.top < 700 * 0.5,
             foot,
-          }).toEqual({ placement: width === 1100 ? "push" : "overlay", short: true, foot: "the page" });
+          }).toEqual({ placement: "push", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
@@ -314,7 +342,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
           const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
-          expect(placed).toEqual({ width: to, placement: to === 1100 ? "push" : "overlay", inset: 8, overChat: false });
+          expect(placed).toEqual({ width: to, placement: "push", inset: 8, overChat: false });
         } finally {
           await page.close();
         }

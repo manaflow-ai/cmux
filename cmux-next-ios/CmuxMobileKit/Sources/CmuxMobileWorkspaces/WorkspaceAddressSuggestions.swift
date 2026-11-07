@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import CmuxTabsKit
 import SwiftUI
 
@@ -53,8 +54,10 @@ public struct WorkspaceAddressSuggestions: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(hit.title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
                                 .foregroundStyle(theme.colors.label)
-                            Text(hit.subtitle ?? "").font(.system(size: 13)).lineLimit(1)
-                                .foregroundStyle(theme.colors.secondaryLabel)
+                            if let subtitle = hit.subtitle, !subtitle.isEmpty {
+                                Text(subtitle).font(.system(size: 13)).lineLimit(1)
+                                    .foregroundStyle(theme.colors.secondaryLabel)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
@@ -104,7 +107,7 @@ public struct WorkspaceAddressSuggestions: View {
                         .padding(.leading, 15)
                     Spacer(minLength: 0)
                     if source.pendingTabTitle == WorkspaceTabsSource.openAddressTitle {
-                        ProgressView().padding(.trailing, 4)
+                        CmuxSpinner().padding(.trailing, 4)
                     }
                 }
                 .frame(height: 52)

@@ -35,7 +35,7 @@ use cmux_remote::provider::{
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
-    LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
+    LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
 };
 use serde_json::Value;
@@ -100,6 +100,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
+        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
         Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
@@ -195,6 +196,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
+        Some("dial-tcp") => client.dial_tcp_help,
         Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
@@ -1074,23 +1076,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        let workspace =
-            match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
-                WorkspaceResponse::Workspace { id, .. } => id,
-                _ => return Err(anyhow!("unexpected open-workspace response")),
-            };
-        let route = match client
-            .request(WorkspaceRequest::CreateRoute {
-                workspace,
-                host,
-                port,
-                policy: RoutePolicy::LoopbackOnly,
-            })
-            .await?
-        {
-            WorkspaceResponse::RouteCreated { route, .. } => route,
-            _ => return Err(anyhow!("unexpected create-route response")),
-        };
+        let route = create_loopback_route(&client, workspace_root, host, port).await?;
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
@@ -1131,11 +1117,43 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+/// Opens `workspace_root` and a [`RoutePolicy::LoopbackOnly`] route to
+/// `host:port` in it. The daemon scopes every route to a workspace this
+/// client holds open, so a stream that needs no files still opens one; the
+/// daemon refuses an address that is not loopback.
+async fn create_loopback_route(
+    client: &WorkspaceClient,
+    workspace_root: String,
+    host: String,
+    port: u16,
+) -> anyhow::Result<RouteId> {
+    let workspace =
+        match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
+            WorkspaceResponse::Workspace { id, .. } => id,
+            _ => return Err(anyhow!("unexpected open-workspace response")),
+        };
+    match client
+        .request(WorkspaceRequest::CreateRoute {
+            workspace,
+            host,
+            port,
+            policy: RoutePolicy::LoopbackOnly,
+        })
+        .await?
+    {
+        WorkspaceResponse::RouteCreated { route, .. } => Ok(route),
+        _ => Err(anyhow!("unexpected create-route response")),
+    }
+}
+
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
+#[path = "remote_dial_tcp.rs"]
+mod remote_dial_tcp;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+use remote_dial_tcp::run_dial_tcp;
 use remote_wg_hub::run_wg;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1833,9 +1851,9 @@ fn parent_process_is(_: u32) -> bool {
 }
 
 /// Returns when the process `expected` (our parent at launch) exits. It
-/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
-/// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
-/// the old check as a fallback.
+/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd,
+/// `acpmux::parent_watch`); it used to re-check `getppid` every 100 ms.
+/// Kernels without pidfd keep the old check as a fallback.
 ///
 /// The kernel wait runs on a detached thread, not tokio's blocking pool: a
 /// blocking task cannot be cancelled, so a runtime shut down by a signal
@@ -1846,7 +1864,7 @@ async fn wait_for_parent_exit(expected: u32) {
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
-        let _ = sender.send(wait_for_process_exit(expected));
+        let _ = sender.send(acpmux::parent_watch::wait_for_parent(expected));
     });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
@@ -1854,74 +1872,6 @@ async fn wait_for_parent_exit(expected: u32) {
     while parent_process_is(expected) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-}
-
-/// Blocks until process `pid` exits (at once when it is already gone).
-#[cfg(target_os = "macos")]
-fn wait_for_process_exit(pid: u32) -> io::Result<()> {
-    let pid = libc::pid_t::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
-    // SAFETY: kqueue has no preconditions; the descriptor is closed below.
-    let queue = unsafe { libc::kqueue() };
-    if queue < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the kevent structs are fully initialized and outlive the call.
-    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
-    change.ident = pid as libc::uintptr_t;
-    change.filter = libc::EVFILT_PROC;
-    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
-    change.fflags = libc::NOTE_EXIT;
-    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-    let mut changes = 1;
-    let result = loop {
-        let count =
-            unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
-        if count > 0 {
-            break Ok(());
-        }
-        let error = io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::EINTR) => {
-                // The registration was applied before the interruption.
-                changes = 0;
-            }
-            Some(libc::ESRCH) => break Ok(()),
-            _ => break Err(error),
-        }
-    };
-    // SAFETY: `queue` is owned here.
-    unsafe { libc::close(queue) };
-    result
-}
-
-#[cfg(target_os = "linux")]
-fn wait_for_process_exit(pid: u32) -> io::Result<()> {
-    // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-    if fd < 0 {
-        let error = io::Error::last_os_error();
-        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
-    }
-    let fd = fd as libc::c_int;
-    let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-    let result = loop {
-        // SAFETY: `pollfd` names the pidfd owned here.
-        if unsafe { libc::poll(&mut pollfd, 1, -1) } > 0 {
-            break Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            break Err(error);
-        }
-    };
-    // SAFETY: `fd` is owned here.
-    unsafe { libc::close(fd) };
-    result
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn wait_for_process_exit(_pid: u32) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// A wg-quick file is small; anything larger is not one.
@@ -2687,10 +2637,12 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: Vec::new(),
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: Vec::new(),
             resume_lease: cmux_remote::daemon::DEFAULT_RESUME_LEASE,
             replaceable_sidecar: true,
+            local_sockets: Vec::new(),
         },
     )?;
     let mut mux_disappeared = false;
@@ -3911,7 +3863,7 @@ mod tests {
 
     #[test]
     fn every_remote_subcommand_help_exits_without_running_the_command() {
-        for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
+        for command in ["connect", "ssh", "forward", "dial-tcp", "rpc", "enroll", "remote-probe"] {
             let args = [command.to_string(), "--help".to_string()];
             assert!(
                 run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
@@ -4495,6 +4447,7 @@ mod tests {
             "connect",
             "ssh",
             "forward",
+            "dial-tcp",
             "rpc",
             "enroll",
             "known-daemons",
@@ -5142,10 +5095,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("acknowledged legacy state remained blocked");

@@ -155,6 +155,29 @@ class Provision(unittest.TestCase):
         self.assertIn("Stack user id user-new", lines[0])
         self.assertNotIn(PASSWORD, lines[0])
 
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_journey_target_has_its_own_account_sealed_to_the_journey_environment(self):
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["journey-production"]
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")  # the probe's account is untouched
+        self.assertTrue(all(r[2]["x-stack-project-id"] == provision.PRODUCTION_PROJECT_ID for r in fake.requests))
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-journey-prod@manaflow.dev")
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux", "cmux-next-cloud-journey"))
+        self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
+
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",
                            "client_read_only_metadata": {"other": 1, "cmuxVmPlan": "free"}}])

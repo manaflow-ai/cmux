@@ -269,6 +269,26 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
         self.assertTrue(any(warning.startswith("tests/test_old.py:") for warning in warnings), warnings)
         self.assertFalse(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
 
+    def test_a_base_workflow_that_does_not_parse_only_warns(self):
+        # feat-cmux-next dd8b867f7 left nightly.yml with a colon-space in a plain scalar; the
+        # pull request fixing it crashed here reading the base, so the fix could not go green.
+        broken = FEAT_PULL_REQUEST + "jobs:\n" + job("echo a: b").replace("- run: echo a: b", "- name: a b: c")
+        tree = Tree(["tests/test_old.py"], {"next.yml": broken})
+        self.addCleanup(tree.close)
+        root = tree.root
+        self.git(root, "init", "--quiet", "-b", "feat-cmux-next")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "base")
+        base = self.git(root, "rev-parse", "HEAD")
+        (root / ".github" / "workflows" / "next.yml").write_text(
+            FEAT_PULL_REQUEST + "jobs:\n" + job("true"), encoding="utf-8")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "head")
+
+        errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
+        self.assertEqual(errors, [])
+        self.assertTrue(warnings and warnings[0].startswith("could not judge the pull request lanes"), warnings)
+
     def test_without_a_base_every_gap_fails(self):
         tree = Tree(["tests/test_old.py"], {})
         self.addCleanup(tree.close)
@@ -348,11 +368,15 @@ class ThisTree(unittest.TestCase):
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
         calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        self.assertEqual(len(calls), 2, calls)
+        # A pull request's head call (ci and the routed groups, release-notary among them), a push's head call
+        # (release-notary left to nightly-guards), then the base.
+        self.assertEqual(len(calls), 3, calls)
         for call in calls:
             with self.subTest(call=call):
                 self.assertIn("--feat-routes", call)
-        self.assertIn("--root .guard-base", calls[1])
+        self.assertNotIn("--group", calls[0])
+        self.assertIn("--skip-group release-notary", calls[1])
+        self.assertIn("--root .guard-base", calls[2])
 
 
 if __name__ == "__main__":

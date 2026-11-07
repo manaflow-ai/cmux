@@ -2,7 +2,7 @@
 // starts (this Mac and its recent projects) and the chats that need the user, each one dismissable.
 // Every row comes from what the page already has: the composer's projects and the acpmux sessions.
 import type { AcpmuxSnapshot } from "../model";
-import { recentSessions } from "../NewTabPage";
+import { recentSessions } from "../newTabModel";
 import type { Project } from "../ProjectChooser";
 import { activityTime, isAgentHome, sessionMark } from "../sessionList";
 

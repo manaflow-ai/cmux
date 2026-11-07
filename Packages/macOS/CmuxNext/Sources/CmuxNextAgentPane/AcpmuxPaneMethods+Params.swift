@@ -32,7 +32,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex"], []),
+        // `subagent`: one subagent's own records, for its pane when the chat's page no longer holds
+        // it (subagents/subagentOwnLog.ts; acpmux hub/paging.rs EventFilter::of_subagent).
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
@@ -49,7 +51,10 @@ nonisolated extension AcpmuxPaneMethods {
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
-        "_acpmux/kill": (["sessionId", "purge"], []),
+        // `cancelFork`: Fork Conversation's Cancel takes back a fork nobody used, with the transcript
+        // copy its agent made (direct.ts `takeBackFork`, acpmux hub/fork_cancel.rs); with
+        // `cancelToken`, it stops the fork that token names while it is still being made.
+        "_acpmux/kill": (["sessionId", "purge", "cancelFork", "cancelToken"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
@@ -113,6 +118,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        "_acpmux/context": (["sessionId"], []),
+        // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
+        "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
@@ -134,7 +142,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
-        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
+        // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
+        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
         // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
         // never canonicalized against this Mac's filesystem (the owning daemon checks it).
         "acp.trust.get": (["cwd", "sessionId", "peer"], []),

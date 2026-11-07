@@ -123,11 +123,11 @@ pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 mod exit_with;
 mod install_key;
 mod replace;
-#[cfg(any(target_vendor = "apple", target_os = "linux"))]
-pub(crate) use exit_with::exit_with;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use exit_with::{exit_with, test_owner_exit_with};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
@@ -842,7 +842,12 @@ fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWrite
 }
 
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
-    let program = platform::self_exe_for_spawn()?;
+    // A build staged beside this binary goes in now, while no owner runs this
+    // session: the owner starts from the new file (staged_update.rs).
+    let program = match crate::staged_update::promote_own_binary() {
+        Some(binary) => binary,
+        None => platform::self_exe_for_spawn()?,
+    };
     let mut command = Command::new(program);
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
@@ -883,11 +888,6 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
-    }
-    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
-    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
-    if !crate::headless::owner_keepers_switch() {
-        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own

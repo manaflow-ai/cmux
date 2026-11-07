@@ -355,10 +355,13 @@ pub(crate) struct ClientRegistry {
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     pub(super) apps: crate::apps::AppsSlot,
+    /// The local Tasks owner link of the routed `tasks` namespace (tasks_link.rs).
+    pub(crate) tasks: crate::tasks_link::TasksLink,
     /// Script sessions by connection (`script-*`, crate::scripts).
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
+    pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
@@ -429,9 +432,11 @@ impl ClientRegistry {
             agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            tasks: crate::tasks_link::TasksLink::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
+            remote_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(

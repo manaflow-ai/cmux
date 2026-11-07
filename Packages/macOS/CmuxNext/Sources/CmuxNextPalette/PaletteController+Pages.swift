@@ -38,6 +38,8 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = true
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows(NoMatchPaletteRows.Kind.allCases)
+        page.noMatchItemsTrailResults = true
         return previewingActions(page)
     }
 
@@ -119,7 +121,18 @@ extension PaletteController {
         )
         page.mergesSectionsWhenTyping = sources.navigation != nil
         page.queryItems = goToRows()
+        page.noMatchItems = noMatchRows([.newWorkspace, .askAgent])
+        page.noMatchItemsTrailResults = true
         return page
+    }
+
+    /// Rows for a typed query that matched nothing (`NoMatchPaletteRows`), of `kinds` in that order.
+    func noMatchRows(_ kinds: [NoMatchPaletteRows.Kind]) -> @MainActor (String) -> [PaletteItem] {
+        let rows = NoMatchPaletteRows(kinds: kinds)
+        return { [weak self] query in
+            guard let self else { return [] }
+            return rows.items(query, registry: self.registry, source: self.sources.goTo)
+        }
     }
 
     /// Open and Ask Agent rows for a typed path or web address, first in
@@ -173,6 +186,7 @@ extension PaletteController {
         provider.hiddenIDs.formUnion(hiddenActionIDs?() ?? [])
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
+        provider.targetCreators = sources.targetCreators
         provider.capturedTargets = capturedTargets
         provider.argumentPreview = sources.argumentPreview
         provider.argumentSwatches = sources.argumentSwatches

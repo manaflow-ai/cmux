@@ -924,127 +924,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لـ cmux-tui على %@ تمرير localhost. حدّث ذلك الجهاز لاستخدام localhost الخاص به هنا."
+            "value": "لا يستطيع cmux على %@ تمرير localhost. حدّث ذلك الجهاز لاستخدام localhost الخاص به هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ ne može prosljeđivati localhost. Ažurirajte tu mašinu da biste ovdje koristili njen localhost."
+            "value": "cmux na %@ ne može prosljeđivati localhost. Ažurirajte taj računar da biste ovdje koristili njegov localhost."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ kan ikke videresende localhost. Opdater den maskine for at bruge dens localhost her."
+            "value": "cmux på %@ kan ikke videresende localhost. Opdater maskinen for at bruge dens localhost her."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das cmux-tui auf %@ kann localhost nicht weiterleiten. Aktualisieren Sie diesen Rechner, um hier seinen localhost zu nutzen."
+            "value": "cmux auf %@ kann localhost nicht weiterleiten. Aktualisiere diesen Rechner, um seinen localhost hier zu nutzen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui on %@ cannot forward localhost. Update that machine to use its localhost here."
+            "value": "cmux on %@ can't forward localhost. Update that machine to use its localhost here."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cmux-tui de %@ no puede reenviar localhost. Actualiza esa máquina para usar su localhost aquí."
+            "value": "cmux en %@ no puede reenviar localhost. Actualiza esa máquina para usar su localhost aquí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le cmux-tui de %@ ne peut pas relayer localhost. Mettez cette machine à jour pour utiliser son localhost ici."
+            "value": "cmux sur %@ ne peut pas transférer localhost. Mettez cette machine à jour pour utiliser son localhost ici."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il cmux-tui su %@ non può inoltrare localhost. Aggiorna quella macchina per usare qui il suo localhost."
+            "value": "cmux su %@ non può inoltrare localhost. Aggiorna quella macchina per usare qui il suo localhost."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux-tui は localhost を転送できません。ここでその localhost を使うには、そのマシンを更新してください。"
+            "value": "%@ の cmux は localhost を転送できません。ここでその localhost を使うには、そのマシンをアップデートしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើ %@ មិនអាចបញ្ជូន localhost បានទេ។ សូមធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីននោះ ដើម្បីប្រើ localhost របស់វានៅទីនេះ។"
+            "value": "cmux នៅលើ %@ មិនអាចបញ្ជូន localhost បន្តបានទេ។ អាប់ដេតម៉ាស៊ីននោះដើម្បីប្រើ localhost របស់វានៅទីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 cmux-tui는 localhost를 전달할 수 없습니다. 여기서 그 localhost를 사용하려면 해당 머신을 업데이트하세요."
+            "value": "%@의 cmux는 localhost를 전달할 수 없습니다. 여기에서 그 localhost를 쓰려면 그 머신을 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ kan ikke videresende localhost. Oppdater den maskinen for å bruke localhost-en dens her."
+            "value": "cmux på %@ kan ikke videresende localhost. Oppdater maskinen for å bruke dens localhost her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ nie może przekazywać localhost. Zaktualizuj tę maszynę, aby używać tu jej localhost."
+            "value": "cmux na %@ nie może przekazywać localhost. Zaktualizuj tę maszynę, aby używać tu jej localhost."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui em %@ não consegue encaminhar localhost. Atualize essa máquina para usar o localhost dela aqui."
+            "value": "O cmux em %@ não consegue encaminhar o localhost. Atualize essa máquina para usar o localhost dela aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ не умеет пересылать localhost. Обновите эту машину, чтобы использовать здесь её localhost."
+            "value": "cmux на %@ не может пересылать localhost. Обновите эту машину, чтобы использовать её localhost здесь."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บน %@ ส่งต่อ localhost ไม่ได้ อัปเดตเครื่องนั้นเพื่อใช้ localhost ของเครื่องนั้นที่นี่"
+            "value": "cmux บน %@ ส่งต่อ localhost ไม่ได้ อัปเดตเครื่องนั้นเพื่อใช้ localhost ของเครื่องนั้นที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ üzerindeki cmux-tui localhost'u iletemiyor. Oradaki localhost'u burada kullanmak için o makineyi güncelleyin."
+            "value": "%@ üzerindeki cmux localhost'u yönlendiremiyor. Onun localhost'unu burada kullanmak için o makineyi güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ не вміє пересилати localhost. Оновіть цю машину, щоб використовувати тут її localhost."
+            "value": "cmux на %@ не може пересилати localhost. Оновіть ту машину, щоб використовувати тут її localhost."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên %@ không thể chuyển tiếp localhost. Hãy cập nhật máy đó để dùng localhost của nó tại đây."
+            "value": "cmux trên %@ không thể chuyển tiếp localhost. Hãy cập nhật máy đó để dùng localhost của nó tại đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 无法转发 localhost。请更新该机器，以便在这里使用它的 localhost。"
+            "value": "%@ 上的 cmux 无法转发 localhost。请更新该机器，以便在这里使用它的 localhost。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 無法轉送 localhost。請更新該機器，以便在這裡使用它的 localhost。"
+            "value": "%@ 上的 cmux 無法轉送 localhost。請更新該機器，以便在這裡使用它的 localhost。"
           }
         }
       }

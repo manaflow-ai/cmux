@@ -128,6 +128,14 @@
    "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 2.5v11M3.5 9 8 13.5 12.5 9\" /></g></svg>",
    "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
    "replaces": []
+  },
+  {
+   "name": "tool.thought",
+   "meaning": "A thought (the agent's reasoning)",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 3.5C8 2.6 7.2 2 6.2 2 5 2 4.2 2.9 4.3 4 3.2 4.2 2.5 5.1 2.6 6.2 2.6 6.9 3 7.5 3.5 7.9 2.9 8.4 2.6 9.1 2.7 9.9 2.9 11 3.8 11.7 4.9 11.6 5.2 12.9 6.2 13.6 7.2 13.5 7.7 13.4 8 13 8 12.5\" /><path d=\"M 8 3.5 C 8 2.6 8.8 2 9.8 2 11 2 11.8 2.9 11.7 4 12.8 4.2 13.5 5.1 13.4 6.2 13.4 6.9 13 7.5 12.5 7.9 13.1 8.4 13.4 9.1 13.3 9.9 13.1 11 12.2 11.7 11.1 11.6 10.8 12.9 9.8 13.6 8.8 13.5 8.3 13.4 8 13 8 12.5\" /><path d=\"M8 3.5V12.5\" /><path d=\"M4.3 4C4.5 5 5.4 5.6 6.3 5.5M3.5 7.9C4.2 8.4 5.3 8.4 6 7.8M4.9 11.6C5.1 10.7 5.9 10.2 6.7 10.3\" /><path d=\"M 11.7 4 C 11.5 5 10.6 5.6 9.7 5.5 M 12.5 7.9 C 11.8 8.4 10.7 8.4 10 7.8 M 11.1 11.6 C 10.9 10.7 10.1 10.2 9.3 10.3\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M8 3.5C8 2.6 7.2 2 6.2 2 5 2 4.2 2.9 4.3 4 3.2 4.2 2.5 5.1 2.6 6.2 2.6 6.9 3 7.5 3.5 7.9 2.9 8.4 2.6 9.1 2.7 9.9 2.9 11 3.8 11.7 4.9 11.6 5.2 12.9 6.2 13.6 7.2 13.5 7.7 13.4 8 13 8 12.5\" /><path d=\"M 8 3.5 C 8 2.6 8.8 2 9.8 2 11 2 11.8 2.9 11.7 4 12.8 4.2 13.5 5.1 13.4 6.2 13.4 6.9 13 7.5 12.5 7.9 13.1 8.4 13.4 9.1 13.3 9.9 13.1 11 12.2 11.7 11.1 11.6 10.8 12.9 9.8 13.6 8.8 13.5 8.3 13.4 8 13 8 12.5\" /><path d=\"M8 3.5V12.5\" /><path d=\"M4.3 4C4.5 5 5.4 5.6 6.3 5.5M3.5 7.9C4.2 8.4 5.3 8.4 6 7.8M4.9 11.6C5.1 10.7 5.9 10.2 6.7 10.3\" /><path d=\"M 11.7 4 C 11.5 5 10.6 5.6 9.7 5.5 M 12.5 7.9 C 11.8 8.4 10.7 8.4 10 7.8 M 11.1 11.6 C 10.9 10.7 10.1 10.2 9.3 10.3\" /></g></svg>",
+   "note": "Transcript thought rows, beside the tool rows' glyphs (Lucas, 2026-11-06: Codex parity).",
+   "replaces": []
   }
  ]
 }

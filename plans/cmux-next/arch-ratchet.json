@@ -382,10 +382,6 @@
       "assume_isolated_total": 10,
       "observer_sites": 4
     },
-    "CmuxNextTasks": {
-      "assume_isolated_outside_adapters": 2,
-      "assume_isolated_total": 2
-    },
     "CmuxNextTerminal": {
       "stateful_singletons": 1,
       "global_mutable_statics": 23,
@@ -726,7 +722,7 @@
       "date": "2026-10-31",
       "row": "app_lines",
       "allow": 21,
-      "why": "Composition-root wiring that makes the Automations page reachable (docs/automations-platonic-ideal.md section 8): InternalPageID.automations, the TopPageRoute and SidebarBridge mappings, and in TopPages.registerProviders the AutomationsPageHost made from ProcessRunner (bundled CLI) and CloudAutomationRelay (CloudAuth), a WebPageTab provider and the typed automations.show binding. The page, its model and view are in CmuxNextCloudUI; only the App can join ProcessRunner, CloudAuth and the page registry. Package.swift is frozen (WINDOW PKG) and new App files are refused, so the wiring is in existing App files.",
+      "why": "Composition-root wiring that makes the Automations page reachable (docs/automations-platonic-ideal.md section 8): InternalPageID.automations, the TopPageRoute and SidebarBridge mappings, and in TopPages.registerProviders the AutomationsPageHost made from ProcessRunner (bundled CLI) and the Cloud automation relay (CloudCLICall over CloudAuth), a WebPageTab provider and the typed automations.show binding. The page, its model and view are in CmuxNextCloudUI; only the App can join ProcessRunner, CloudAuth and the page registry. Package.swift is frozen (WINDOW PKG) and new App files are refused, so the wiring is in existing App files.",
       "author": "a908",
       "owner": "a908 (move into a CmuxNextAutomations target once a PKG slot is granted)",
       "receipt": "Review (independent review subagent, read-only): SHIP at 6b959f3e38f1ea616a24710d117f01bbf28785d7",

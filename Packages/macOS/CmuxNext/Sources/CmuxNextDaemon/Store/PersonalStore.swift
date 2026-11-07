@@ -36,7 +36,16 @@ public final class PersonalStore {
     public internal(set) var workspaces: [PersonalWorkspace] = [] {
         didSet {
             workspaceIndex = personalWorkspaceIndex(workspaces)
-            workspaceOrder = workspaces.sorted { $0.index < $1.index }
+            // Keep the daemon's input order for equal positions. Swift's sort is not stable, and
+            // `PersonalSidebar.order` uses this projection to avoid sorting every workspace on
+            // every sidebar pass.
+            let offsets = Dictionary(workspaces.enumerated().map { (Self.orderKey($0.element), $0.offset) },
+                                     uniquingKeysWith: { first, _ in first })
+            workspaceOrder = workspaces.sorted {
+                $0.index == $1.index
+                    ? (offsets[Self.orderKey($0)] ?? .max) < (offsets[Self.orderKey($1)] ?? .max)
+                    : $0.index < $1.index
+            }
         }
     }
     /// Per-terminal themes, keyed `session_id` then terminal key.
@@ -66,6 +75,10 @@ public final class PersonalStore {
     @ObservationIgnored private var pinIndex: [String: [String: ProfileID]] = [:]
 
     public init() {}
+
+    private static func orderKey(_ workspace: PersonalWorkspace) -> String {
+        workspace.sessionID + "\u{0}" + workspace.workspaceKey.rawValue
+    }
 
     /// The own theme of a session-qualified terminal.
     public func terminalTheme(session: String, terminal: String) -> String? { terminalThemes[session]?[terminal] }

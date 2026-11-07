@@ -36,7 +36,7 @@ extension WorkspaceRowView {
     func trailingActionFrame(rowWidth: CGFloat, cy: CGFloat, control: CGFloat, minimumSlot: Int) -> CGRect {
         let fold = treeFoldSlot.made
         let contentStart = ([fold, rollUp, pullRequests] as [NSView?]).compactMap(\.self)
-            .filter { !$0.isHidden && ($0 !== fold || treeFold != nil) }.map { $0.frame.minX }.min()
+            .filter { !$0.isHidden && ($0 !== fold || (treeFold != nil && $0.alphaValue > 0)) }.map { $0.frame.minX }.min()
         let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         let slot = contentStart.map {
             max(minimumSlot, Int(ceil((center + control / 2 + Metrics.space1 - $0) / SidebarStyle.trailingSlotPitch)))

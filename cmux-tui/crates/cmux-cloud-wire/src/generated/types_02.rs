@@ -4,6 +4,14 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// Per-user push rules, synced by the feed owner.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedPrefs {
+    pub push_enabled: bool,
+    pub push_delay: FeedPrefsPushDelay,
+    pub push_skip_when_mac_active: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedPrefsPushDelay {
     pub urgent: Option<i64>,
@@ -136,6 +144,14 @@ pub struct HomeChief {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub archived_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<HomeChiefChannel>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeChiefChannel {
+    pub conversation: ConversationId,
+    pub title: String,
 }
 
 /// rev after the op; seq and message_id for a new message; change is the committed Change.
@@ -192,6 +208,9 @@ pub struct HomeConversationSummary {
     pub read_cursors: BTreeMap<String, i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ConversationKind>,
+    /// A channel's own Chief (channel.create): it is woken only by this conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_chief: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -881,23 +900,3 @@ pub struct PairingInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<ServerCapability>>,
 }
-
-wire_enum! {
-    PairingInfoArch {
-        X8664 = "x86_64",
-        Aarch64 = "aarch64",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingPreview {
-    pub code: PairingCode,
-    pub info: PairingInfo,
-    pub public_jwk: PublicJwk,
-    pub thumbprint: String,
-    pub country: Option<String>,
-    pub expires_at: i64,
-}
-
-/// user_<id>, agent_<name> or addr_<26> (an invited address).
-pub type ParticipantId = String;

@@ -315,6 +315,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     (attachment, host)
 }

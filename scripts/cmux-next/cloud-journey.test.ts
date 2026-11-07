@@ -3,9 +3,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeLoginPrograms, cliExecNeedsDirectFallback, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { cliExecWithFallback, nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { machineIds, newMachineIds } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { nativeProofSkip, oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { carrierDial, hopTimes, machineIds, newMachineIds } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -44,12 +44,6 @@ describe("cloud journey", () => {
     expect(out).not.toContain("cmuxvm_sk_0123456789");
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
-  });
-  test("CLI exec falls back only for the structured unsupported provider response", () => {
-    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" }))).toBe(true);
-    expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 502 Bad Gateway cloud.provider.unsupported" }))).toBe(false);
-    expect(cliExecNeedsDirectFallback(1, "HTTP 501 cloud.provider.unsupported", "")).toBe(false);
-    expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
@@ -180,25 +174,92 @@ describe("cloud journey: link_token on a Native machine", () => {
   });
 });
 
-describe("cloud journey: exec on a VM API machine", () => {
-  test("falls back to the machine exec route once the CLI answers cloud.provider.unsupported", async () => {
-    const calls: string[] = [];
-    const cli = async (c: string) => (calls.push(`cli ${c}`), { code: 1, stdout: "", stderr: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" });
-    const direct = async (c: string) => (calls.push(`direct ${c}`), { code: 0, stdout: "ok", stderr: "" });
-    const journey = { meta: {} as Record<string, string> };
-    const exec = cliExecWithFallback(cli, direct, journey);
-    expect((await exec("a")).stdout).toBe("ok");
-    expect((await exec("b")).stdout).toBe("ok");
-    expect(calls).toEqual(["cli a", "direct a", "direct b"]);
-    expect(journey.meta.exec_route).toContain("CLI gap");
-  });
-  test("keeps every other CLI failure as the step's own", async () => {
-    const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
-    expect((await exec("a")).code).toBe(2);
-  });
+describe("cloud journey: app cli", () => {
   test("app cli: machines new since a create are listed, never picked", () => {
     expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
     expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
+  });
+});
+
+describe("carrier dial step", () => {
+  // A stand-in for `cmux carrier dial`: its status and route lines on stderr, then the daemon's answer to each line.
+  const fakeCmux = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-carrier-"));
+    const bin = join(dir, "cmux");
+    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nprintf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN \${CMUX_CLOUD_TEAM:--}" > "${dir}/env"\n${body}\n`, { mode: 0o755 });
+    return { dir, bin };
+  };
+  const api = { origin: "https://api.example", bearer: "session-value", team: "team_0123456789abcdef0123" };
+
+  test("passes on the carrier route and the daemon's answer, with the dial's own connect time", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=812' >&2
+read -r line; echo '{"event":"pushed","conn":0}'; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}'; cat >/dev/null`);
+    process.env.CMUX_CLOUD_TEAM = "team_inherited000000000000";
+    const d = await carrierDial(bin, { ...api, team: undefined }, "vm_abcdefghij0123456789", 2_000).finally(() => delete process.env.CMUX_CLOUD_TEAM);
+    expect(d.connectMs).toBe(812);
+    expect(d.reply).toBe('{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}');
+    expect(d.replyMs).toBeGreaterThanOrEqual(0);
+    // No team of its own: none is passed, and the inherited CMUX_CLOUD_TEAM is dropped.
+    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --deadline-ms 2000");
+    expect(readFileSync(join(dir, "env"), "utf8").trim()).toBe("https://api.example session-value -");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a failed attempt the dial retries is counted, and the ok attempt's time is the connect time", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=640' >&2
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
+    expect({ connectMs: d.connectMs, retries: d.retries }).toEqual({ connectMs: 640, retries: 1 });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a route line before the status line is out of contract", async () => {
+    const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("a route line before the status line");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("names the step the dial did not get past", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":false,"error_code":"parked_timeout"}' >&2; exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("parked_timeout");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("refuses another route, and a stream that ends with no answer", async () => {
+    const other = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"link"}' >&2; cat >/dev/null`);
+    await expect(carrierDial(other.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("route link, not carrier");
+    const silent = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
+exit 0`);
+    await expect(carrierDial(silent.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("before the daemon answered");
+    for (const d of [other.dir, silent.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("an identify refused or answered with no identity fails, and a dial that exits before the write fails the step", async () => {
+    const connected = `echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2`;
+    const refused = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":false,"error":"denied"}'; cat >/dev/null`);
+    await expect(carrierDial(refused.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const bare = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":true,"data":{}}'; cat >/dev/null`);
+    await expect(carrierDial(bare.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const gone = fakeCmux(`${connected}\nexec 0<&-; exit 0`);
+    await expect(carrierDial(gone.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial");
+    await expect(carrierDial("/nonexistent/cmux", api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial: ");
+    for (const d of [refused.dir, bare.dir, gone.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("the gateway hop cost drops the warm-up, needs every call answered 200, and reports ms percentiles", () => {
+    const lines = (rows: string[]) => ["noise", ...rows.map((r) => `hop-t ${r}`)].join("\n");
+    const out = lines(["200 9.000 9.000 0", ...Array.from({ length: 10 }, (_, i) => `200 ${((i + 1) / 100).toFixed(3)} ${((i + 1) / 10).toFixed(3)} 0`)]);
+    expect(hopTimes(out, 10)).toEqual({ ttfb_p50: 50, ttfb_p90: 90, total_p50: 500, total_p90: 900 });
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 0"]), 2)).toThrow("1 of 2 timed calls");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "502 0.1 0.1 0"]), 1)).toThrow("did not answer 200 whole (502 exit 0)");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 18"]), 1)).toThrow("(200 exit 18)");
   });
 });

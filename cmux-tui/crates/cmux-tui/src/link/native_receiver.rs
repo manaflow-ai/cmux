@@ -12,9 +12,7 @@ use anyhow::{anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use cmux_host::cloud::receiver::ReceiverBinding;
 use cmux_link::elapsed::Deadline;
-use cmux_link::native_token::{
-    MAX_POLICY_LEASE_MS, NativePolicy, NativeTokenVerifier, PolicyDeadline,
-};
+use cmux_link::native_token::{MAX_ADMIT_MS, NativePolicy, NativeTokenVerifier, PolicyDeadline};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
@@ -26,7 +24,9 @@ use zeroize::Zeroizing;
 
 #[cfg(test)]
 use super::host_inbound::serve_host_inbound;
-use super::host_inbound::{HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced};
+use super::host_inbound::{
+    DESKTOP_SOCKET, HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced,
+};
 
 const MAX_STREAMS: usize = 4096;
 type ServiceTask = Pin<Box<dyn Future<Output = u64> + Send>>;
@@ -157,7 +157,13 @@ impl NativeReceiver {
         let sshd = self.sshd;
         self.inflight.push(Box::pin(async move {
             let source = stream.peer_addr();
-            let me = HostIdentity { host: &host, epoch, session_socket: &session, sshd };
+            let me = HostIdentity {
+                host: &host,
+                epoch,
+                session_socket: &session,
+                sshd,
+                desktop: std::path::Path::new(DESKTOP_SOCKET),
+            };
             let started = Instant::now();
             let mut trace = StreamTrace::default();
             let outcome = tokio::select! {
@@ -186,7 +192,7 @@ impl NativeReceiver {
             let lifetime = policy
                 .expires_at_ms
                 .checked_sub(policy.checked_at_ms)
-                .filter(|duration| *duration > 0 && *duration <= MAX_POLICY_LEASE_MS)
+                .filter(|duration| *duration > 0 && *duration <= MAX_ADMIT_MS)
                 .ok_or_else(|| anyhow!("cloud.receiver.policy_lease_refused"))?;
             let deadline = policy
                 .request_started
@@ -305,9 +311,13 @@ pub(super) fn stream_ended_line(
         None => {
             "closed by the receiver (its peer left the policy, or the receiver stopped)".to_string()
         }
-        Some(Err(HostRefused::Token)) => match trace.token {
-            Some(why) => format!("refused: token {why:?}"),
-            None => "refused: token".to_string(),
+        Some(Err(HostRefused::Token)) => match (trace.token, &trace.check) {
+            // The verifier's own check, when it names more than the variant.
+            (Some(why), Some(check)) if check.reason != why.name() => {
+                format!("refused: token {why:?}: {check}")
+            }
+            (Some(why), _) => format!("refused: token {why:?}"),
+            (None, _) => "refused: token".to_string(),
         },
         Some(Err(why)) => format!("refused: {why:?}"),
         Some(Ok(())) => match trace.spliced {

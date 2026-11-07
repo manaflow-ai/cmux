@@ -1,11 +1,12 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// ``WindowViewGeometry``: what a launch recording counts as moved between two frames.
 @MainActor
-@Suite struct WindowViewGeometryTests {
+@Suite(.closesItsWindows) struct WindowViewGeometryTests {
     private func tree() -> (root: NSView, sidebar: NSView, pane: NSView) {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
@@ -106,7 +107,7 @@ import Testing
 }
 
 /// ``WindowFrameBrightness``'s 16x16 grid: a flat picture is one value, and a half-white one is white on one half.
-@Suite struct WindowFrameBrightnessGridTests {
+@Suite(.closesItsWindows) struct WindowFrameBrightnessGridTests {
     private func image(_ fill: (CGContext) -> Void) -> CGImage? {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 0, space: space,

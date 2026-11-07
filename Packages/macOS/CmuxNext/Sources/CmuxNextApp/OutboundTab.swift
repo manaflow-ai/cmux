@@ -113,7 +113,7 @@ final class OutboundTab {
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
     private func shownByPane(_ tab: TabModel) -> Bool {
         guard let pane else { return false }
-        return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
+        return tab.surface == pane.pendingSelect.surface || tab.id == pane.pendingSelect.tab || tab.id == pane.stripModel.selectedID?.rawValue
     }
 
     /// Keeps the open's stand-ins listed now (provisional, new and not the pane's) out until they go.

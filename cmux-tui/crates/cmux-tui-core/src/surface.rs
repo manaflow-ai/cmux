@@ -281,6 +281,9 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Rows of history older than the replay's first row, left out by a
+    /// tail replay (`replay_history_rows`); `None` for a whole replay.
+    pub history_rows_omitted: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }

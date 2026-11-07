@@ -110,11 +110,30 @@ public actor CloudLinkSession {
     /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
     /// it before it connects and again as it sends: a different answer means the link ended or a
     /// new connect asked the Cloud API again, so an owner answer never carries over to another link
-    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
     public var ownerLink: Int? {
         switch state {
         case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
         case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// What this link's connect answered about the signed-in caller: ``CloudCallerOwnership/unknown`` while no
+    /// link is up, or when the answer was neither `owner` nor `team` (the app server could not read it, or predates it).
+    public var callerOwnership: CloudCallerOwnership {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? .owner : socket.callerIsTeammate ? .team : .unknown
+        case .idle, .connecting, .ended: .unknown
+        }
+    }
+
+    /// The link's state in one word, for a decision log line (no id, path or token).
+    public var stateWord: String {
+        switch state {
+        case .idle: "idle"
+        case .connecting: "connecting"
+        case .ready: "ready"
+        case .attached: "attached"
+        case .ended: "ended"
         }
     }
 
@@ -145,6 +164,19 @@ public actor CloudLinkSession {
             throw error
         case .idle, .connecting:
             throw CloudLinkError.disconnected(reason: "not connected")
+        }
+    }
+
+    /// The ticket's socket for one more connection to the machine's daemon (an agent chat's attach,
+    /// the history reader): each connection to the carrier's socket is its own dial, so this neither
+    /// attaches nor ends the link. Only the daemon connection's own redial goes through
+    /// ``endpoint(_:)``, whose second call is that connection dropping.
+    public func streamEndpoint(_ ticket: CloudLinkTicket) throws -> String {
+        guard ticket.id == attempt else { throw Self.superseded }
+        switch state {
+        case .ready(let socket), .attached(let socket): return socket.path
+        case .ended(let error): throw error
+        case .idle, .connecting: throw CloudLinkError.disconnected(reason: "not connected")
         }
     }
 
@@ -190,4 +222,10 @@ public actor CloudLinkSession {
 public struct CloudLinkTicket: Equatable, Sendable {
     public let id: UInt64
     public let socket: CloudLinkSocket
+}
+
+/// Who the signed-in caller is to a machine, by its link's connect answer: its owner, a teammate, or not known (no link
+/// up, or no answer read). Only `owner` grants anything; `unknown` is never read as a teammate's machine.
+public enum CloudCallerOwnership: String, Sendable {
+    case owner, team, unknown
 }

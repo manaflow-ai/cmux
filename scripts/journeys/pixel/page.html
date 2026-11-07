@@ -1,0 +1,133 @@
+<!doctype html>
+<!--
+Pixel-border browser fixture for real-app resize films (PIXEL PERFECT kit, video-cases/gen_pixel.py). No network:
+everything is in this file. gen_pixel.py writes it to the mini (/tmp/jr-pixel-page.html, the driver's `file` step) and
+navigates a browser pane to file:///tmp/jr-pixel-page.html?bg=FFFF00&label=p1 (colors are hex without '#').
+
+  bg     the body's loud background (default FFFF00)
+  x y z  the three borders of a fixed overlay at inset 0, from the outside in: 1 CSS px of x (default FF0000),
+         inside it 2 CSS px of y (default FFFFFF), inside that 3 CSS px of z (default 000000): the same three colors,
+         in the same order, as the terminal fixture's rings (pixel/tui_border.py), so the judge reads both alike
+  label  the pane's name, shown in the middle
+
+Exact CSS px: the borders are CSS borders of fixed boxes (box-sizing: border-box); at devicePixelRatio 2 they are 2, 4
+and 6 device px. Device px: a canvas at the viewport's device-pixel size (innerWidth x devicePixelRatio) draws a
+ruler (a tick every 10 CSS px along the top and the left, inside the borders; longer at 50, a number at 100) and a
+block of 1-device-pixel stripes next to it, which shows crisp only when the canvas maps 1:1 to device pixels. The
+middle text shows innerWidth x innerHeight, devicePixelRatio, the device size and a requestAnimationFrame counter;
+each frame checks the size and redraws the canvas in the same frame when it changed. The ticks, stripes and text are
+grays with every channel between 96 and 160, never one of the fixture's color classes (the judge classes the corners of
+the color cube).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>pixel fixture</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+  body { font: 600 16px/1.35 Menlo, "SF Mono", monospace; }
+  .ring { position: absolute; top: 0; right: 0; bottom: 0; left: 0; box-sizing: border-box; border-style: solid; }
+  #r1 { position: fixed; border-width: 1px; z-index: 3; pointer-events: none; }
+  #r2 { border-width: 2px; }
+  #r3 { border-width: 3px; }
+  #ruler { position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none; }
+  #info { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; white-space: pre;
+          text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="ruler"></canvas>
+<div id="info"></div>
+<div id="r1" class="ring"><div id="r2" class="ring"><div id="r3" class="ring"></div></div></div>
+<script>
+(function () {
+  "use strict";
+  var q = new URLSearchParams(location.search);
+  function hex(name, fallback) {
+    var v = (q.get(name) || fallback).replace(/^#/, "");
+    return /^[0-9a-fA-F]{6}$/.test(v) ? "#" + v.toUpperCase() : "#" + fallback;
+  }
+  var bg = hex("bg", "FFFF00"), x = hex("x", "FF0000"), y = hex("y", "FFFFFF"), z = hex("z", "000000");
+  var label = (q.get("label") || "").slice(0, 24);
+  function luma(c) {
+    var n = parseInt(c.slice(1), 16);
+    return 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  }
+  // Grays whose every channel lies between the judge's 96 and 160: never a fixture color class (a ring, a fill, the
+  // shell); the darker one on a light background.
+  var ink = luma(bg) > 110 ? "#686868" : "#989898", other = luma(bg) > 110 ? "#989898" : "#686868";
+  document.documentElement.style.background = bg;
+  document.body.style.background = bg;
+  document.body.style.color = ink;
+  document.getElementById("r1").style.borderColor = x;
+  document.getElementById("r2").style.borderColor = y;
+  document.getElementById("r3").style.borderColor = z;
+  document.title = "pixel " + (label || bg);
+
+  var canvas = document.getElementById("ruler"), ctx = canvas.getContext("2d");
+  var info = document.getElementById("info");
+  var BORDER = 6; // 1 + 2 + 3 CSS px
+  var drawn = "";
+
+  function drawRuler(w, h, dpr) {
+    var dw = Math.round(w * dpr), dh = Math.round(h * dpr);
+    canvas.width = dw;
+    canvas.height = dh;
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, dw, dh);
+    var inner = Math.round(BORDER * dpr), unit = Math.max(1, Math.round(dpr));
+    ctx.fillStyle = ink;
+    ctx.font = Math.round(9 * dpr) + "px Menlo, monospace";
+    ctx.textBaseline = "top";
+    // Ticks every 10 CSS px from the page's origin, drawn from the inner edge of the borders inward.
+    for (var cx = 10; cx < w - BORDER; cx += 10) {
+      var len = cx % 100 === 0 ? 14 : cx % 50 === 0 ? 9 : 5;
+      ctx.fillRect(Math.round(cx * dpr), inner, unit, Math.round(len * dpr));
+      if (cx % 100 === 0) ctx.fillText(String(cx), Math.round(cx * dpr) + 2 * unit, inner + Math.round(15 * dpr));
+    }
+    for (var cy = 10; cy < h - BORDER; cy += 10) {
+      var len2 = cy % 100 === 0 ? 14 : cy % 50 === 0 ? 9 : 5;
+      ctx.fillRect(inner, Math.round(cy * dpr), Math.round(len2 * dpr), unit);
+      if (cy % 100 === 0) ctx.fillText(String(cy), inner + Math.round(16 * dpr), Math.round(cy * dpr) + unit);
+    }
+    // 1-device-pixel stripes (16 x 16 device px) just inside the top-left corner: crisp only at 1:1 device pixels.
+    var sx = inner + Math.round(30 * dpr), sy = inner + Math.round(30 * dpr);
+    for (var i = 0; i < 16; i++) {
+      ctx.fillStyle = i % 2 ? ink : other;
+      ctx.fillRect(sx + i, sy, 1, 16);
+      ctx.fillRect(sx + 20, sy + i, 16, 1);
+    }
+  }
+
+  var frames = 0;
+  function tick() {
+    frames += 1;
+    var w = window.innerWidth, h = window.innerHeight, dpr = window.devicePixelRatio || 1;
+    var key = w + "x" + h + "@" + dpr;
+    if (key !== drawn) {
+      drawRuler(w, h, dpr);
+      drawn = key;
+    }
+    info.textContent = (label ? label + "  " : "") + bg + "\n" + w + "x" + h + " css px  dpr " + dpr + "\n" +
+      Math.round(w * dpr) + "x" + Math.round(h * dpr) + " device px\nraf " + frames;
+    window.requestAnimationFrame(tick);
+  }
+  window.addEventListener("resize", function () {
+    var w = window.innerWidth, h = window.innerHeight, dpr = window.devicePixelRatio || 1;
+    if (w + "x" + h + "@" + dpr !== drawn) {
+      drawRuler(w, h, dpr);
+      drawn = w + "x" + h + "@" + dpr;
+    }
+  });
+  window.requestAnimationFrame(tick);
+  window.__pixelFixture = function () {
+    return {w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, raf: frames, bg: bg, x: x, y: y, z: z,
+            label: label};
+  };
+})();
+</script>
+</body>
+</html>

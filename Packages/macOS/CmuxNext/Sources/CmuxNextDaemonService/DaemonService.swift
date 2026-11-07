@@ -95,7 +95,7 @@ public final class DaemonService {
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
-    ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
+    ///   - echoesPlacementShift: The App passes true (it orders sidebar rows from the document); tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
@@ -324,11 +324,15 @@ public final class DaemonService {
     /// the connection closes, the service stops and the store shows why.
     /// `bridge`: each connection runs this child instead of connecting to the
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
+    /// `stream`: the route for every other connection to that daemon (``remoteEndpoint``), when
+    /// asking `endpoint` again means this connection dropped (a Cloud app link's ticket); nil uses `endpoint`.
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
-               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
+               admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
+               stream: (@Sendable () async throws -> String)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
-        remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
+        let streamEndpoint = stream ?? endpoint
+        remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint()) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
         let machineID = machineID

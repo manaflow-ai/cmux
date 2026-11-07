@@ -4,7 +4,7 @@
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { categoryById, homes, categoryOf } from "./categories";
-import type { AgentsState, ChannelsState } from "./ops";
+import type { AgentsState, ChannelsState, SharesState } from "./ops";
 import { settingsKeys } from "./queries";
 import type { SettingsStore } from "./store";
 
@@ -48,6 +48,19 @@ export function agentsQuery(store: SettingsStore) {
   });
 }
 
+/** The Shared Links list's key; a revoke refreshes it. */
+export const SHARES_KEY = [...settingsKeys.all, "shares"] as const;
+
+/** Settings > Privacy and Security > Shared Links: this Mac's chat shares (null: the host has none). */
+export function sharesQuery(store: SettingsStore) {
+  return queryOptions<SharesState | null>({
+    queryKey: SHARES_KEY,
+    queryFn: () => store.shares(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The section a route shows: the focused key's home, else the path's category or schema section. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
   const home = focus ? homes.get(focus) : undefined;
@@ -69,6 +82,7 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
+  if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
   if (cards.has("channels")) {
     const ring = store.getSnapshot().rows.get("updates.channel")?.value;
     reads.push({ options: channelsQuery(store, typeof ring === "string" ? ring : undefined), revalidate: true });

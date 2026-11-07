@@ -4,7 +4,8 @@
 // Docs), its comments, and at the end its failing checks (with how many already fail on its base
 // branch, dimmed: those are not this pull request's) or a green dot when they pass. Its state is
 // the glyph's shape and color alone (PullRequestGlyph), never a word. A click opens it beside the
-// chat; its ⋯ menu also copies the link or the reference. Five rows show, then Show more.
+// chat; its ⋯ menu also opens its diff (View diff), or copies the link or the reference. Five rows
+// show, then Show more.
 import { Counts } from "../changes/Counts";
 import { copyText } from "../conversation/clipboard";
 import { pullRequestStateSince, type HeaderPullRequest } from "../header/headerState";
@@ -20,6 +21,8 @@ import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
 import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
+import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows shown before Show more (Claude Code desktop's Changes shows five).
@@ -175,15 +178,18 @@ export function ChangesSection({
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="changes">
-        {shown.map((pr) => (
-          <PullRequestRow
-            key={pr.url}
-            pr={pr}
-            live={statuses[pr.url] ?? {}}
-            onOpenBeside={onOpenBeside}
-            onDismiss={onDismiss}
-          />
-        ))}
+        <WindowedRows
+          items={shown}
+          render={(pr) => (
+            <PullRequestRow
+              key={pr.url}
+              pr={pr}
+              live={statuses[pr.url] ?? {}}
+              onOpenBeside={onOpenBeside}
+              onDismiss={onDismiss}
+            />
+          )}
+        />
       </ul>
       {folds && (
         <button
@@ -225,6 +231,7 @@ function PullRequestRow({
   const onBase = Math.min(Math.max(0, live.failingOnBase ?? 0), Math.max(0, failing));
   const comments = live.comments ?? 0;
   const stateLabel = t(STATE_LABELS[state]);
+  const diffUrl = onOpenBeside ? pullRequestDiffUrl(pr.url) : undefined;
   return (
     // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
     // over the row's own gap and padding (sessionInfo.css), with only the ⋯ button above it. The
@@ -347,6 +354,11 @@ function PullRequestRow({
           label={t("sessionInfo.changes.actions", { reference })}
           align="end"
         >
+          {diffUrl && (
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+              {t("sessionInfo.changes.viewDiff")}
+            </MenuItem>
+          )}
           {onOpenBeside && (
             <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onOpenBeside(pr.url)}>
               {t("sessionInfo.changes.openBeside")}
