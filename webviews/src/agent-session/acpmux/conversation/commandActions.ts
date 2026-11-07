@@ -548,13 +548,19 @@ function fetched(args: string[]): Act | undefined {
   return { key: "command.fetched", values: { url: oneLine(page) } };
 }
 
+/** A table's own entry for `name`, never one it inherits: `__proto__` or `constructor` as a
+ *  command word must fall back to the plain command line, not call into Object.prototype. */
+function own<T>(table: Record<string, T>, name: string | undefined): T | undefined {
+  return name !== undefined && Object.hasOwn(table, name) ? table[name] : undefined;
+}
+
 const PROGRAMS: Record<string, Rule> = {
   git: (args) => {
     // `git -C dir`, `-c key=value`, `--no-pager` come before the subcommand.
     let i = 0;
     while (i < args.length && args[i]!.startsWith("-"))
       i += ["-C", "-c", "--git-dir", "--work-tree"].includes(args[i]!) ? 2 : 1;
-    const rule = GIT[args[i] ?? ""];
+    const rule = own(GIT, args[i]);
     return rule?.(args.slice(i + 1));
   },
   gh: (args) => {
@@ -575,7 +581,8 @@ const PROGRAMS: Record<string, Rule> = {
       ]).positional[0];
       return path ? { key: "command.gh.api", values: { path: oneLine(path) } } : undefined;
     }
-    return GH[group ?? ""]?.[sub ?? ""]?.(rest);
+    const subs = own(GH, group);
+    return subs && own(subs, sub)?.(rest);
   },
   rg: (args) => searched(args, RG_VALUES),
   grep: (args) => searched(args, GREP_VALUES),
@@ -739,7 +746,7 @@ export function commandAction(command: string): CommandAction | undefined {
   const words = unwrap(first.map((word) => word.text));
   const [program, ...args] = words;
   if (!program) return undefined;
-  const rule = PROGRAMS[baseName(program)];
+  const rule = own(PROGRAMS, baseName(program));
   const act = rule?.(args);
   return act && { ...act, ...(more ? { more } : {}) };
 }

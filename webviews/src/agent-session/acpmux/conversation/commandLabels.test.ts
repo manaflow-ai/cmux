@@ -8,6 +8,7 @@ import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolLabel } from "../toolPaths";
 import { toolGroupLabel } from "./toolGroups";
+import { commandAction } from "./commandActions";
 
 const t = translatorFor("en");
 let next = 0;
@@ -167,3 +168,19 @@ test("a group of one kind of work names it; a mixed group counts its commands", 
   running[1]!.tool!.status = "in_progress";
   expect(toolGroupLabel(t, "commands", running)).toBe("Running 2 commands");
 });
+
+// A command word that names an Object.prototype member is not a rule: it falls back to the plain
+// command line instead of throwing (which would trip the pane's error boundary on every reload).
+for (const command of [
+  "__proto__",
+  "git __proto__",
+  "gh pr __proto__",
+  "gh __proto__ list",
+  "constructor",
+  "git toString",
+]) {
+  test(`${command} falls back without throwing`, () => {
+    expect(() => commandAction(command)).not.toThrow();
+    expect(commandAction(command)).toBeUndefined();
+  });
+}
