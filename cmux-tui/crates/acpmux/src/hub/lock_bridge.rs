@@ -133,7 +133,9 @@ pub(crate) struct Tracker {
 }
 
 impl Tracker {
-    pub(crate) fn new(now: Instant) -> Self {
+    /// A tracker whose worker read `first` when it started.
+    pub(crate) fn new(now: Instant, first: Lock) -> Self {
+        let _ = first;
         Self { last_running: now, locked_since: None }
     }
 
@@ -224,7 +226,7 @@ impl Hub {
         let hub = std::sync::Arc::downgrade(self);
         BRIDGE.wake.notify_one();
         tokio::spawn(async move {
-            let mut tracker = Tracker::new(Instant::now());
+            let mut tracker = Tracker::new(Instant::now(), crate::mac_lock::lock());
             loop {
                 BRIDGE.wake.notified().await;
                 let mut hold: Option<IdleSleepHold> = None;
@@ -319,7 +321,7 @@ mod tests {
     fn turns_one_after_another_share_one_locked_stretch() {
         let t0 = Instant::now();
         let at = |minutes: u64| t0 + Duration::from_secs(minutes * 60);
-        let mut tracker = Tracker::new(t0);
+        let mut tracker = Tracker::new(t0, Lock::Unlocked);
         assert!(holds(tracker.step(true, Lock::Locked, 1, 0, t0).unwrap()));
         assert_eq!(tracker.step(true, Lock::Locked, 0, 0, at(30)), None, "the turn ended: idle");
         let next = tracker.step(true, Lock::Locked, 1, 0, at(31)).unwrap();
@@ -330,6 +332,29 @@ mod tests {
         assert!(tracker.step(true, Lock::Unlocked, 1, 0, at(121)).is_some());
         let relocked = tracker.step(true, Lock::Locked, 1, 0, at(122)).unwrap();
         assert!(holds(relocked), "an unlock ends the stretch: {relocked:?}");
+    }
+
+    /// A daemon that restarts during a locked stretch (review of cmux#37239) does not open a
+    /// fresh window: it cannot know when the stretch began, so it holds nothing until it reads
+    /// an unlock. Restart after restart cannot keep a locked Mac up past the cap.
+    #[test]
+    fn a_daemon_that_starts_while_locked_holds_nothing_until_an_unlock() {
+        let t0 = Instant::now();
+        let at = |minutes: u64| t0 + Duration::from_secs(minutes * 60);
+        for first in [Lock::Locked, Lock::Unknown] {
+            let mut tracker = Tracker::new(t0, first);
+            let locked = tracker.step(true, Lock::Locked, 1, 0, t0).unwrap();
+            assert!(!holds(locked), "started {first:?}: no fresh window: {locked:?}");
+            assert!(tracker.step(true, Lock::Unknown, 1, 0, at(1)).is_some());
+            let still = tracker.step(true, Lock::Locked, 1, 0, at(2)).unwrap();
+            assert!(!holds(still), "an unknown read is not an unlock: {still:?}");
+            assert!(tracker.step(true, Lock::Unlocked, 1, 0, at(3)).is_some());
+            let relocked = tracker.step(true, Lock::Locked, 1, 0, at(4)).unwrap();
+            assert!(holds(relocked), "an unlock starts a stretch: {relocked:?}");
+            assert_eq!(relocked.locked_for, Duration::ZERO);
+        }
+        let mut unlocked_start = Tracker::new(t0, Lock::Unlocked);
+        assert!(holds(unlocked_start.step(true, Lock::Locked, 1, 0, t0).unwrap()));
     }
 
     #[test]
