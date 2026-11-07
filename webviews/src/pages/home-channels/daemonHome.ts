@@ -447,6 +447,8 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   if (result.pinned && typeof raw.pin_position === "number") result.pinPosition = raw.pin_position;
   if (raw.marked_unread === true) result.markedUnread = true;
+  const readers = Object.entries(cursors).filter(([id, seq]) => id !== me && typeof seq === "number" && seq > 0);
+  if (readers.length > 0) result.readCursors = Object.fromEntries(readers.map(([id, seq]) => [id, { seq }]));
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
   // The last message's time orders the list even when it was deleted (a read never moves a row).

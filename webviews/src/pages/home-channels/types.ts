@@ -222,6 +222,8 @@ export interface HomeConversation {
   createdAt?: number;
   /** Messages after my read cursor. */
   unread: number;
+  /** The others' read cursors (the newest seq each read), by participant id: my messages' Read receipts. */
+  readCursors?: Readonly<Record<string, { seq: number }>>;
   /** Mentions of me after my read cursor (the owner's count; 0 where the owner keeps none). */
   mentions: number;
   muted: boolean;
