@@ -147,7 +147,7 @@ test("the recorded turn restored in a Claude chat, folded by default, keeps ever
   globalThis.cmuxExperiments = {};
   try {
     const rows = await replayRows();
-    const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: "claude" });
+    const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "claude" });
     expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
     expect(
       assistants(view)
