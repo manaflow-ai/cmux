@@ -68,6 +68,13 @@ public nonisolated enum BookmarkRanker {
 /// --search` use it: every term must appear in the title or the URL
 /// (case and diacritic insensitive). Folders match by title.
 public nonisolated enum BookmarkSearch {
+    /// `bookmark.list`'s nodes: those matching `text` when it has terms, else `folder`'s children, else
+    /// every node in tree order; at most `limit` (at least 1).
+    public static func listed(_ tree: BookmarkTree, text: String?, folder: String?, limit: Int?) -> [BookmarkNode] {
+        let nodes = if let text, !text.isEmpty { results(tree, text: text) } else if let folder { tree.children(of: folder) } else { tree.ordered }
+        return limit.map { Array(nodes.prefix(max(1, $0))) } ?? nodes
+    }
+
     public static func results(_ tree: BookmarkTree, text: String) -> [BookmarkNode] {
         let terms = tokens(text)
         guard !terms.isEmpty else { return [] }

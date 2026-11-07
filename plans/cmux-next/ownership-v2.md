@@ -66,7 +66,7 @@ app hosts and `cmux-feed serve`.
 | Pairing, machines | TeamDO server directory (`domains/team-servers.ts`), PairingDO per code; mobile pairing in the daemon's in-memory `PairingBroker` (`cmux-tui-core/src/pairing.rs`) | Mac `CmuxNextApp/Cloud/MachineRegistry.swift` | machine registry assembled in Swift from three sources: `/api/vm` (old Next.js API), SSH saved hosts (daemon projection), local daemon; iOS keeps its own paired-Mac SQLite and `CmuxSyncStore` |
 | Tunnels | `cmux-wg`, `cmux-remote`, `cmux-relay`, HostDO relay | | link process not yet separate |
 | Apps, scenes | Rust `cmux-app-manifest` (v2 validator), `cmux-app-host` (QuickJS planned) | | Swift duplicates: `CmuxNextApps/Manifest/AppManifestValidator.swift` (v1), JavaScriptCore `Engine/AppEngine.swift`, `Registry/AppRegistryFile.swift` (stand-in for UserDO/TeamDO installs), scenes owned by Swift |
-| Browser history, bookmarks | daemon (`frontend_browser_history.rs`, `bookmarks.rs`) | app | Swift `CmuxNextHistory/BrowserVisitLog.swift` writes its own `History.sqlite` per profile; `BookmarkFileStore.swift` JSON fallback |
+| Browser history, bookmarks | daemon (`frontend_browser_history.rs`, `bookmarks.rs`) | app | Swift `CmuxNextHistory/BrowserVisitLog.swift` writes its own `History.sqlite` per profile; the app's optimistic bookmark rules (`BookmarkTree+Apply.swift`, V-11; the `BookmarkFileStore` JSON fallback went in #31842) |
 
 ### 1a. Patterns behind the duplicates
 

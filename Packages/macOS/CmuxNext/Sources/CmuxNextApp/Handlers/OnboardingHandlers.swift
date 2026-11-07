@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBrowser
+import CmuxNextBookmarks
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
@@ -20,8 +21,8 @@ enum OnboardingHandlers {
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
             Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
-                let counts = try? await sync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
-                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+                let outcome = await sync.removalOutcome(profile: record.id, bookmarks: services.importedBookmarkSink)
+                BrowserFileImport.toast(services, id: "browser-import-removed", outcome.removalText(profile: record.name, refusal: BookmarkError.unavailableMessage))
             }
         })
         // No path argument: only the person's own pick in the open panel brings passwords in.

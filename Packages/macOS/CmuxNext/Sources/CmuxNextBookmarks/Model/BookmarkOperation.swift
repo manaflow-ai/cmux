@@ -54,4 +54,10 @@ public nonisolated enum BookmarkOperation: Sendable, Hashable {
     /// first draft's title and children (created at `parent`/`index` when
     /// missing; the created folder carries `sourceKey`).
     case importDrafts(parent: String, index: Int?, sourceKey: String?, replace: Bool, drafts: [BookmarkDraft])
+
+    /// An import: applied and sent even when it changes nothing (a replace with the same drafts).
+    public var isImport: Bool {
+        if case .importDrafts = self { return true }
+        return false
+    }
 }

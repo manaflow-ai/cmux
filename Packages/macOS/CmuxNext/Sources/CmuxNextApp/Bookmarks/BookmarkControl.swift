@@ -42,15 +42,8 @@ enum BookmarkControl {
         let profile = params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
         // `tree` asks the daemon the first time, so read it before `isLoaded`.
         let tree = services.bookmarks.tree(profile)
-        var nodes: [BookmarkNode]
-        if let text = params["text"]?.stringValue, !text.isEmpty {
-            nodes = BookmarkSearch.results(tree, text: text)
-        } else if let folder = params["folder"]?.stringValue {
-            nodes = tree.children(of: folder)
-        } else {
-            nodes = tree.ordered
-        }
-        if let limit = params["limit"]?.intValue { nodes = Array(nodes.prefix(max(1, limit))) }
+        let nodes = BookmarkSearch.listed(tree, text: params["text"]?.stringValue, folder: params["folder"]?.stringValue,
+                                          limit: params["limit"]?.intValue)
         return .object([
             "profile": .string(profile),
             "storage": .string(services.bookmarks.usesDaemon ? "daemon" : "file"),

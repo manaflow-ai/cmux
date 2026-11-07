@@ -40,7 +40,7 @@ enum BookmarkPalettePages {
             PaletteCommand(id: "manager", title: BookmarkAppStrings.showInManager, symbol: "book.closed",
                            effect: .perform { services.bookmarkPages.open(selecting: node.id) }),
             PaletteCommand(id: "delete", title: BookmarkAppStrings.delete, symbol: "trash", isDestructive: true,
-                           effect: .performKeepingOpen { try? services.bookmarks.apply(.delete(id: node.id), profile: profile) }),
+                           effect: .performKeepingOpen { services.bookmarks.applyOrRefuse(.delete(id: node.id), profile: profile) }),
         ]
         var item = PaletteItem(
             id: node.id, title: node.displayTitle, subtitle: url, accessory: path, symbol: "star", keywords: [url, path],
