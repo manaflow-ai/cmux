@@ -88,6 +88,9 @@ public final class UsageRecorder {
     private var actions: ActionBudgetReporter?
     /// The events of this on-period; nil while off.
     private var queue: UsageEventQueue?
+    /// When this recording period began (``ActionBudgetMonitor/now()``): only action runs started
+    /// since then are recorded.
+    private var recordingSince: UInt64 = 0
     private var lastFocus: Focus?
     private var lastActive: Bool?
     /// The daemon's switch as last confirmed; nil before the first decision (then it is sent either
@@ -307,6 +310,7 @@ public final class UsageRecorder {
         let record = ports.record
         let queue = UsageEventQueue { events in try await record(source, events) }
         self.queue = queue
+        recordingSince = ActionBudgetMonitor.now()
         var first: [UsageEvent] = []
         if !launchRecorded {
             launchRecorded = true
@@ -326,12 +330,18 @@ public final class UsageRecorder {
         lastActive = nil
     }
 
-    /// Every action run from now on, mapped off the main actor on the reporter's task.
+    /// Every action run started in this recording period, mapped off the main actor on the
+    /// reporter's task. The reporter also hands over runs it gathered earlier (its unbatched runs,
+    /// a batch from before the switch), so runs made while off or before consent are dropped here
+    /// (Codex review of 78bb60ce).
     private func tapActions(into queue: UsageEventQueue) {
         guard let actions else { return }
         let naming = actions.naming
+        let since = recordingSince
         actions.setRunSink { samples in
-            queue.stage(UsageRecord.actions(samples, naming: naming, nowUptimeNanos: ActionBudgetMonitor.now(),
+            let mine = samples.filter { $0.startUptimeNanos >= since }
+            guard !mine.isEmpty else { return }
+            queue.stage(UsageRecord.actions(mine, naming: naming, nowUptimeNanos: ActionBudgetMonitor.now(),
                                             nowMilliseconds: UsageRecord.nowMilliseconds()))
         }
     }

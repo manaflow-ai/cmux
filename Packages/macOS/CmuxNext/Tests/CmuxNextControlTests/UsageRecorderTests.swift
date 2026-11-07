@@ -299,6 +299,36 @@ import Testing
         #expect(UsageRecorder.consented(defaults))
     }
 
+    /// Runs made while off (or awaiting consent) are never written after opting in, whether the
+    /// reporter hands them over unbatched or late (Codex review of 78bb60ce).
+    @Test func actionsMadeWhileOffAreNotWrittenAfterOptingIn() async {
+        let monitor = ActionBudgetMonitor(budget: .milliseconds(10))
+        let reporter = ActionBudgetReporter(monitor: monitor, naming: Self.naming, overBudget: nil, sampling: false, logsRuns: false)
+        let batches = Mutex<[String]>([])
+        let ports = UsageRecorder.Ports(
+            channel: "dev", build: "1", previousRun: { "clean" }, counts: { UsageCounts() }, appActive: { true },
+            ask: { _, _, _, _ in false }, setEnabled: { _ in },
+            record: { _, events in batches.withLock { $0.append(events) } })
+        let recorder = UsageRecorder(ports: ports, managedDisables: { false },
+                                     defaults: UserDefaults(suiteName: "cn-usage-\(UUID().uuidString)") ?? .standard)
+        recorder.attach(actions: reporter)
+        let index = monitor.intern("workspace.select-next")
+        let offStart = ActionBudgetMonitor.now()
+        monitor.record(index, .key, start: offStart, end: offStart + 500_000, inputAgeMilliseconds: -1, outcome: .committed)
+
+        recorder.apply(true)
+        let onStart = ActionBudgetMonitor.now()
+        monitor.record(index, .pointer, start: onStart, end: onStart + 500_000, inputAgeMilliseconds: -1, outcome: .committed)
+        // Resigning folds the reporter's runs and sends.
+        recorder.noteFocus(appActive: false, windowKey: false, kind: nil, tab: nil)
+        let sent = { batches.withLock { $0.joined() } }
+        for _ in 0..<500 where !sent().contains("workspace.select-next") { await Task.yield() }
+        let text = sent()
+        #expect(text.components(separatedBy: "workspace.select-next").count - 1 == 1)
+        #expect(!text.contains(#""via":"key""#))
+        recorder.apply(false)
+    }
+
     // MARK: Queue
 
     @Test func aStoppedQueueKeepsAndSendsNothing() async {
