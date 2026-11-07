@@ -33,7 +33,12 @@ name, a syntax example). A row:
                  (the SettingKind cases; ordered_choices and choice_set export as a string_list with
                  choices and `ordered`)
   choices        [{value, title: text, note?, swift_case?}]: choice, choice_or_number,
-                 choice_or_url, ordered_choices and choice_set rows, and only those
+                 choice_or_url, ordered_choices and choice_set rows, and only those. On a row with a
+                 hand-written swift_enum, "swift_case": null marks a value that is no case of the
+                 enum (the descriptor writes the string; it cannot be the default)
+  choices_from   choice kinds: "Type.member", a Swift [SettingChoice] listed after `choices`, for
+                 choices another source defines (a catalog in Swift, another schemas table);
+                 `choices` may then be empty, and the default may be one of them
   range          {min, max, step, unit, placeholder?}: number, choice_or_number and number_list rows;
                  unit is points | milliseconds | seconds | minutes | days | count | fraction;
                  placeholder (default min) is where the control sits while a null default is unset
@@ -256,6 +261,38 @@ SECTIONS = [
         "lists": {"tabs": ("descriptors", "CmuxConfigSnapshot")},
     },
     {
+        "source": "schemas/settings/source/appearance.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Appearance.generated.swift",
+        "type": "AppearanceSettingsSchema",
+        "lists": {"appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
+                  "look": ("look", None), "chromeStyle": ("chromeStyle", None), "lookMotion": ("lookMotion", None),
+                  "panes": ("panes", None), "focusRing": ("focusRing", None)},
+    },
+    {
+        "source": "schemas/settings/source/motion.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Motion.generated.swift",
+        "type": "MotionSettingsSchema",
+        "lists": {"motion": ("descriptors", None)},
+    },
+    {
+        "source": "schemas/settings/source/surfaces.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Surfaces.generated.swift",
+        "type": "SurfaceSettingsSchema",
+        "lists": {"surfaces": ("descriptors", "SurfaceBackgroundSetting")},
+    },
+    {
+        "source": "schemas/settings/source/status-indicator.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+StatusIndicator.generated.swift",
+        "type": "StatusIndicatorSettingsSchema",
+        "lists": {"statusIndicator": ("descriptors", "StatusIndicatorConfigParser")},
+    },
+    {
+        "source": "schemas/settings/source/machine-colors.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+MachineColors.generated.swift",
+        "type": "MachineColorsSettingsSchema",
+        "lists": {"machineColors": ("descriptors", None)},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
@@ -263,8 +300,9 @@ SECTIONS = [
     },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
+MEMBER = __import__("re").compile(r"^[A-Z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$")
 UNITS = {"points", "milliseconds", "seconds", "minutes", "days", "count", "fraction"}
-ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "url_key", "default",
+ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "choices_from", "range", "url_key", "default",
               "default_label", "placeholder", "aliases", "keywords", "consumers", "palette_hidden", "page_hidden",
               "palette_shown", "swift_enum", "swift_owner"}
 IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
@@ -318,6 +356,11 @@ def camel(value):
     if not IDENT.match(name) or name in DOT_RESERVED:
         raise SystemExit("choice value %r gives no Swift case name: give the choice a swift_case" % value)
     return name
+
+
+def no_case(choice):
+    """Whether a hand-written enum's row lists this value with no case of the enum ("swift_case": null)."""
+    return "swift_case" in choice and choice["swift_case"] is None
 
 
 def case_name(choice):
@@ -434,6 +477,8 @@ def check_default(src, key, kind, row, values):
         return
     in_range = is_number(default) and rng.get("min", default) <= default <= rng.get("max", default)
     strings = isinstance(default, list) and all(isinstance(item, str) and item.strip() for item in default)
+    if row.get("choices_from") and isinstance(default, str):
+        values = values + [default]  # one of the Swift-listed choices: the Swift type checks it
     ok = {
         "toggle": isinstance(default, bool),
         "number": in_range,
@@ -485,7 +530,8 @@ def check_row(src, row, seen_keys, idents):
     values = []
     if kind in CHOICE_KINDS:
         values = [choice.get("value") for choice in row["choices"]]
-        if not values or len(set(values)) != len(values) or not all(isinstance(v, str) and v for v in values):
+        if (not values and not row.get("choices_from")) or len(set(values)) != len(values) \
+                or not all(isinstance(v, str) and v for v in values):
             fail(src, "%s: choices need unique non-empty string values" % key)
         for choice in row["choices"]:
             if set(choice) - {"value", "title", "note", "swift_case"}:
@@ -497,6 +543,9 @@ def check_row(src, row, seen_keys, idents):
         if set(rng) - {"min", "max", "step", "unit", "placeholder"} or not {"min", "max", "step", "unit"} <= set(rng) \
                 or rng["unit"] not in UNITS or not rng["min"] <= rng["max"]:
             fail(src, "%s: range needs min <= max, step, unit (one of %s), optional placeholder" % (key, sorted(UNITS)))
+    if "choices_from" in row and (kind not in CHOICE_KINDS or not isinstance(row["choices_from"], str)
+                                  or not MEMBER.match(row["choices_from"])):
+        fail(src, "%s: choices_from is \"Type.member\" on a choice row" % key)
     check_default(src, key, kind, row, values)
     enum = row.get("swift_enum")
     if enum is not None:
@@ -505,7 +554,14 @@ def check_row(src, row, seen_keys, idents):
                 or ("module" in enum and (enum.get("generated", True) or not TYPE.match(enum["module"]))):
             fail(src, "%s: swift_enum is {name, generated (default true), module (a hand-written enum's module)} on a choice row" % key)
         for choice in row["choices"]:
+            if no_case(choice):
+                if enum.get("generated", True) or choice["value"] == row["default"]:
+                    fail(src, "%s choice %r: swift_case null needs a hand-written enum and a value that is not the default"
+                         % (key, choice["value"]))
+                continue
             case_name(choice)
+    elif any(no_case(choice) for choice in row.get("choices", [])):
+        fail(src, "%s: swift_case null belongs to rows with a hand-written swift_enum" % key)
     if "aliases" in row:
         if kind != "choice" or not enum or not enum.get("generated", True):
             fail(src, "%s: only choice rows with a generated swift_enum have aliases" % key)
@@ -614,7 +670,8 @@ def default_constant(row):
     if isinstance(default, bool):
         return None, "true" if default else "false", ".bool({c})"
     if enum and isinstance(default, str) and kind in ("choice", "choice_or_number", "choice_or_url"):
-        choice = next(c for c in row["choices"] if c["value"] == default)
+        # A default among the Swift-listed choices (choices_from) is the value's camel-case case.
+        choice = next((c for c in row["choices"] if c["value"] == default), {"value": default})
         return enum["name"], "." + case_name(choice), ".string({c}.rawValue)"
     if is_number(default):
         return "Double", number_literal(default), ".number({c})"
@@ -642,7 +699,7 @@ def constants_swift(row, names):
                    % (names["range"], number_literal(rng["min"]), number_literal(rng["max"])))
         if "placeholder" in rng:
             out.append("    public nonisolated static let %s: Double = %s" % (names["placeholder"], number_literal(rng["placeholder"])))
-    if kind in CHOICE_KINDS and not row.get("swift_enum"):
+    if kind in CHOICE_KINDS and not row.get("swift_enum") and not row.get("choices_from"):
         out.append("    public nonisolated static let %s = [%s]" % (names["values"], ", ".join(swift_string(c["value"]) for c in row["choices"])))
     return out
 
@@ -663,8 +720,11 @@ def kind_swift(row, owner, names):
             text = choice["title"]
             return swift_string(text["text"]) if text["key"] is None else keyed(text)
         def value(choice):
-            return "%s.%s.rawValue" % (enum["name"], case_name(choice)) if enum else swift_string(choice["value"])
-        return "[%s\n                ]" % "".join("\n                    SettingChoice(%s, %s)," % (value(c), title(c)) for c in row["choices"])
+            return "%s.%s.rawValue" % (enum["name"], case_name(choice)) if enum and not no_case(choice) else swift_string(choice["value"])
+        listed = "[%s\n                ]" % "".join("\n                    SettingChoice(%s, %s)," % (value(c), title(c)) for c in row["choices"])
+        if row.get("choices_from"):
+            return "%s + %s" % (listed, row["choices_from"]) if row["choices"] else row["choices_from"]
+        return listed
 
     return {
         "number": lambda: ".number(%s)" % number(),

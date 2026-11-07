@@ -68,7 +68,7 @@ enum AppearanceHandlers {
         })
     }
 
-    private static let uiScalePath = UIScaleSetting().configPath
+    private static let uiScalePath = UIScaleSetting.configPath
 
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
@@ -96,7 +96,7 @@ enum AppearanceHandlers {
 
     private static func resetUIScale(_ context: AppActionContext) throws {
         try requireUnmanaged(uiScalePath, context)
-        context.design.uiScale = CGFloat(UIScaleSetting().fallback)
+        context.design.uiScale = CGFloat(UIScaleSetting.fallback)
         context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
     }
 

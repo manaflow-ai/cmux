@@ -6,7 +6,7 @@ import Foundation
 /// actor) can prove it agrees with Swift on every row.
 nonisolated enum SettingsSchemaSamples {
     static func samples(for descriptor: SettingDescriptor) -> (accept: [JSONValue], refuse: [JSONValue]) {
-        if descriptor.path == CustomDensitiesSetting().configPath {
+        if descriptor.path == CustomDensitiesSetting.configPath {
             let tight = JSONValue.object(["id": .string("my-tight"), "name": .string("My Tight"), "level": .number(-0.25),
                                           "fontSize": .number(11.5), "tokens": .object(["sidebarRowHeight": .number(22)])])
             return ([.array([]), .array([tight])],
@@ -24,7 +24,7 @@ nonisolated enum SettingsSchemaSamples {
         case .toggle:
             return ([.bool(true), .bool(false)], [.string("true"), .number(1), .null])
         case .choice(let choices):
-            if descriptor.path == BackdropSelectionSetting().configPath {
+            if descriptor.path == BackdropSelectionSetting.configPath {
                 return (BackdropSelectionSetting.acceptedSamples, BackdropSelectionSetting.refusedSamples)
             }
             return (choices.map { .string($0.value) }, [.string("__not_a_choice__"), .number(1), .bool(true)])

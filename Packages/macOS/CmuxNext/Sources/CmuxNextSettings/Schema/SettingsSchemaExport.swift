@@ -168,11 +168,11 @@ public struct SettingsSchemaExport {
         // value domain the app publishes, not a fixed rule.
         if descriptor.path == ChatSettings.rootsPath {
             row["validation"] = "domain:chat_roots"
-        } else if descriptor.path == CustomDensitiesSetting().configPath {
+        } else if descriptor.path == CustomDensitiesSetting.configPath {
             row["validation"] = "domain:custom_densities"
         } else if descriptor.path == CommandLabelsSetting().configPath {
             row["validation"] = "domain:command_labels"
-        } else if descriptor.path == BackdropSelectionSetting().configPath {
+        } else if descriptor.path == BackdropSelectionSetting.configPath {
             row["validation"] = "domain:backdrop_selection"
         } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
             // Portable: a web address that contains %s or {searchTerms}, or empty.
