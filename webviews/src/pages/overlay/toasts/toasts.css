@@ -5,9 +5,14 @@
 .cmux-toasts {
   position: absolute;
   inset-inline: 0;
-  /* `bottom` is the app's floor (inline style): above the window's bottom and its message box. */
+  /* `bottom` is the app's floor (inline style): above the window's bottom and its message box. The stack
+     spans the page above it, its toasts at the bottom: a stack taller than the room shrinks its toasts'
+     Details instead of pushing the older toasts' buttons off the page, and closing a toast never moves
+     the stack's top (where fading copies are placed from). */
+  top: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--ds-space-2);
   padding-inline: var(--ds-space-3);
@@ -23,6 +28,11 @@
   --glass-elevation: var(--elevation-2);
   position: relative;
   box-sizing: border-box;
+  /* A column whose Details give up their height first (min-height: 0 lets the toast shrink). */
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
   width: max-content;
   max-width: min(440px, 100%);
   min-width: 0;
@@ -51,6 +61,7 @@
 /* The title row: the message, then the action and the close button at the trailing edge. The
    buttons' hover fills stop a step short of the edge, so the toast reads as one surface with text. */
 .cmux-toast-row {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
@@ -125,6 +136,7 @@
    pushes the title row out of the window. */
 .cmux-toast-detail {
   max-height: min(240px, 40vh);
+  min-height: 0;
   overflow-y: auto;
   margin: 0 var(--ds-space-4) var(--ds-space-3);
   -webkit-user-select: text;
