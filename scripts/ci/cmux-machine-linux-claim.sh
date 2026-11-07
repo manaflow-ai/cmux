@@ -20,6 +20,8 @@
 #
 # Reads R2_ENDPOINT, AWS_* (R2 credentials), GITHUB_SHA and GITHUB_RUN_ID.
 set -euo pipefail
+# claim runs in a command substitution: keep errexit there too.
+shopt -s inherit_errexit
 mode=$1 assets=$2
 TARGETS=(x86_64-unknown-linux-musl aarch64-unknown-linux-musl)
 NAMES=(cmux-tui cmux-tui-hook)
@@ -31,16 +33,22 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Prints the claim's run id and time; claims it for this run first when nobody has.
 claim() {
-  printf '%s %s\n' "$GITHUB_RUN_ID" "$(date +%s)" >"$tmp/claim"
-  local rc=0
-  r2 --write-once --conflict-exit-code 75 --file "$tmp/claim" --key "cmux-tui-machine-claims/$GITHUB_SHA" \
+  printf '%s %s\n' "$GITHUB_RUN_ID" "$(date +%s)" >"$tmp/mine"
+  local rc=0 held="$tmp/mine"
+  r2 --write-once --conflict-exit-code 75 --file "$tmp/mine" --key "cmux-tui-machine-claims/$GITHUB_SHA" \
     --cache-control "no-store" --content-type text/plain >&2 || rc=$?
   if [[ $rc == 75 ]]; then
-    r2 --key "cmux-tui-machine-claims/$GITHUB_SHA" --download-to "$tmp/claim" >&2
+    # Another write landed first: only the claim read back from R2 says whose it is. A failed read is
+    # never taken for this run's own claim.
+    held="$tmp/held"
+    rc=0
+    r2 --key "cmux-tui-machine-claims/$GITHUB_SHA" --download-to "$held" >&2 || rc=$?
+    [[ $rc == 0 && -s "$held" ]] || { echo "::error::could not read the claim cmux-tui-machine-claims/$GITHUB_SHA (exit $rc)" >&2; exit 1; }
   elif [[ $rc != 0 ]]; then
     exit "$rc"
   fi
-  read -r run at <"$tmp/claim"
+  local run at
+  read -r run at <"$held"
   [[ "$run" =~ ^[0-9]+$ && "$at" =~ ^[0-9]+$ ]] || { echo "unreadable claim: $(head -c 80 "$tmp/claim")" >&2; exit 1; }
   echo "$run $at"
 }
@@ -59,8 +67,9 @@ keep_served() {
   rm -f "$tmp/$file"
 }
 
-claimed="$(claim)"
+claimed="$(claim)" || exit
 read -r owner at <<<"$claimed"
+[[ -n "${owner:-}" && -n "${at:-}" ]] || { echo "::error::no claim read for ${GITHUB_SHA:0:12}" >&2; exit 1; }
 case "$mode" in
   early)
     [[ "$owner" == "$GITHUB_RUN_ID" ]] && exit 0

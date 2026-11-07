@@ -185,6 +185,19 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
         self.assertEqual(self.served(), "linux build of run 1\n")
         self.assertIn("15", (pathlib.Path(self.tmp.name) / "sleep.log").read_text())
 
+    def test_a_claim_that_cannot_be_read_is_never_taken_for_this_runs_own(self):
+        # Run 2's publish holds the claim; run 1's early job cannot read it back (review of cmux#37970).
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        early = self.early(FAKE_DOWNLOAD_FAIL=f"cmux-tui-machine-claims/{self.box.sha}=56")
+        self.assertNotEqual(early.returncode, 0)
+        self.assertNotIn("uploaded", early.stdout)
+        self.assertIn("build 2", self.served())
+        # Its publish fails the same way rather than adopting bytes no run uploaded.
+        self.box.build("1", real_checksums=True)
+        keep = self.box.run(self.keep, GITHUB_RUN_ID="1", FAKE_DOWNLOAD_FAIL=f"cmux-tui-machine-claims/{self.box.sha}=56")
+        self.assertNotEqual(keep.returncode, 0)
+
     def test_a_rerun_of_all_jobs_keeps_its_own_earlier_upload(self):
         early = self.early(GITHUB_RUN_ID="2")
         self.assertIn("uploaded", early.stdout, early.stderr)
