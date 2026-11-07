@@ -99,6 +99,13 @@ fn agent_error(e: &anyhow::Error, id: &str, produced: bool) -> crate::cli::error
     if retryable {
         app = app.retryable();
     }
+    // A typed failure (`recovery.rs`: `auth.signed_out`, `agent.exited`, ...) keeps its kind
+    // and recovery: the envelope and the Cloud relay's `error_kind` name it, not only the text.
+    if let Some(data) =
+        e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone())
+    {
+        app = app.with_data(data);
+    }
     app
 }
 
