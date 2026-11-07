@@ -225,8 +225,12 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           };
           w.__seen = seen;
           let lastFoot: number | undefined;
+          // The sampler's first painted frame: the turn starts only after it, so the baseline is sampled.
+          let firstPaint!: () => void;
+          const painted = new Promise<void>((resolve) => (firstPaint = resolve));
           w.__stop = window.cmuxAfterPaint(() => {
             seen.frames += 1;
+            firstPaint();
             const node = aside();
             if (node !== panel) {
               seen.replaced += 1;
@@ -262,6 +266,7 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
             }
             return true;
           });
+          await painted;
           return stackTop();
         }, hostGlass);
 
