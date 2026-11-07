@@ -186,7 +186,7 @@ fn quick_start_commands_parse() {
             .collect::<Vec<_>>();
         // Two `cmux chat --on vm:` lines, three follow-ups and six machine lines, most of them
         // short verbs, and `vm new`. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 11, "{commands:?}");
+        assert_eq!(commands.len(), 12, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
