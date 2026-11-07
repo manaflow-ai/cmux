@@ -194,6 +194,7 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
     let mut progress = Progress {
         machine: Some(Machine::Target(machine_id.to_owned())),
         chat: Some((machine_id.to_owned(), session.to_owned(), answer.clone())),
+        again: Some(send_again(request, machine_id, session)),
         ..Progress::default()
     };
     let outcome = send_prompt(
@@ -206,6 +207,24 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         &mut progress,
     );
     if deadline.passed(runner) { progress.late(request) } else { outcome }
+}
+
+/// The command that sends to `session` on `machine_id` again (`cmux chat send`): never a start, which would
+/// make another session. The prompt may be private, so the command holds a placeholder for it.
+fn send_again(request: &Request, machine_id: &str, session: &str) -> String {
+    let mut words = vec![
+        "cmux chat send".to_owned(),
+        shell_quote(session),
+        format!("--on vm:{}", shell_quote(machine_id)),
+    ];
+    if request.wait {
+        words.push("--wait".to_owned());
+        if !request.timeout.is_zero() {
+            words.push(format!("--timeout {}", request.timeout.as_secs()));
+        }
+    }
+    words.extend(["--json".to_owned(), "TEXT".to_owned()]);
+    words.join(" ")
 }
 
 /// Whether the app is signed in to cmux Cloud now, as its own machine list answers
@@ -671,7 +690,16 @@ const OUT_OF_TIME: &str = "cloud.start_pending";
 /// The deadline passed before the prompt was sent: nothing more starts or is sent, and `machine` (one made so far,
 /// or the chat's) is there for the same ask again. `answer` holds the chat's ids once it started.
 fn out_of_time(request: &Request, machine: &Machine, answer: Value) -> Outcome {
-    let again = again_command(request, machine);
+    out_of_time_again(request, again_command(request, machine), machine, answer)
+}
+
+/// [`out_of_time`] with `again` as the command to ask again.
+fn out_of_time_again(
+    request: &Request,
+    again: String,
+    machine: &Machine,
+    answer: Value,
+) -> Outcome {
     let machine_id = if let Machine::Target(id) = machine { json!(id) } else { Value::Null };
     failed(
         OUT_OF_TIME,
@@ -700,9 +728,19 @@ struct Progress {
     created: Option<String>,
     /// That create's `creation_id`, when the app answered it pending with no machine id.
     creation: Option<String>,
+    /// The command to ask again when it is not a start (`cmux chat send SESSION`'s own send, [`send_to`]).
+    again: Option<String>,
 }
 
 impl Progress {
+    /// [`out_of_time`], with this run's own command to ask again when it has one.
+    fn out_of_time(&self, request: &Request, machine: &Machine, answer: Value) -> Outcome {
+        match &self.again {
+            Some(again) => out_of_time_again(request, again.clone(), machine, answer),
+            None => out_of_time(request, machine, answer),
+        }
+    }
+
     /// The request to ask again: once the app took this run's create, that machine has its environment. A create
     /// with no answer keeps it: a rerun of the name then finds the create, or makes it in the environment.
     fn rerun(&self, request: &Request) -> Request {
@@ -735,9 +773,11 @@ impl Progress {
                     75,
                 )
             }
-            (chat, false) => {
-                out_of_time(request, &machine, chat.as_ref().map_or(Value::Null, |c| c.2.clone()))
-            }
+            (chat, false) => self.out_of_time(
+                request,
+                &machine,
+                chat.as_ref().map_or(Value::Null, |c| c.2.clone()),
+            ),
         }
     }
 }
@@ -1047,6 +1087,10 @@ fn send_prompt(
     progress: &mut Progress,
 ) -> Outcome {
     let chat = Machine::Target(machine_id.to_owned());
+    // No upload and no send once the deadline has passed, whichever command came here.
+    if deadline.passed(runner) {
+        return progress.out_of_time(request, &chat, answer);
+    }
     let quoted = shell_quote(prompt);
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
@@ -1060,7 +1104,7 @@ fn send_prompt(
         let file = match upload_prompt(runner, machine_id, session, prompt.as_bytes(), deadline) {
             Ok(file) => file,
             Err(error) if at(&error, "code").as_str() == Some(OUT_OF_TIME) => {
-                return out_of_time(request, &chat, answer);
+                return progress.out_of_time(request, &chat, answer);
             }
             Err(error) => {
                 return failed(
@@ -1076,7 +1120,7 @@ fn send_prompt(
         };
         // The last piece answered after the deadline: the file stays unsent (it is this run's own, mode 0600).
         if deadline.passed(runner) {
-            return out_of_time(request, &chat, answer);
+            return progress.out_of_time(request, &chat, answer);
         }
         uploaded = Some(file.clone());
         format!(
