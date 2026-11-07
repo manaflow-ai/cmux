@@ -13,6 +13,7 @@
 import AppKit
 import ApplicationServices
 import ImageIO
+import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 let args = CommandLine.arguments
@@ -52,9 +53,31 @@ switch args[1] {
 case "screenshot":
   guard args.count == 4, let width = Double(args[3]) else { fail("usage: arena-desktop screenshot OUT.jpg WIDTH") }
   let display = CGMainDisplayID()
-  guard let image = CGDisplayCreateImage(display) else { fail("arena-desktop: no screen capture (Screen Recording granted?)") }
   let points = CGDisplayBounds(display).size
   let w = Int(width), h = Int((width * points.height / points.width).rounded())
+  // ScreenCaptureKit (macOS 26 has no CGDisplayCreateImage): the whole display, without the cursor,
+  // as `import -window root` gives it. Its handlers run on its own queue, so the wait here is safe.
+  final class Shot: @unchecked Sendable { var image: CGImage?; var failure = "" }
+  let shot = Shot(), finished = DispatchSemaphore(value: 0)
+  SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+    guard let screen = content?.displays.first(where: { $0.displayID == display }) else {
+      shot.failure = error?.localizedDescription ?? "no main display in the shareable content"
+      finished.signal()
+      return
+    }
+    let config = SCStreamConfiguration()
+    config.width = w
+    config.height = h
+    config.showsCursor = false
+    SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: screen, excludingWindows: []),
+                                     configuration: config) { image, error in
+      shot.image = image
+      shot.failure = error?.localizedDescription ?? ""
+      finished.signal()
+    }
+  }
+  finished.wait()
+  guard let image = shot.image else { fail("arena-desktop: no screen capture (Screen Recording granted?) \(shot.failure)") }
   guard let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
   else { fail("arena-desktop: no context") }

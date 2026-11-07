@@ -78,6 +78,9 @@ export type ChatMenuItem =
       key: string;
       label: string;
       icon: string;
+      /// A picture drawn in the icon's place (the chat's own avatar on Set Chat Avatar…, avatarRow.ts);
+      /// `icon` stays for a surface that draws only glyphs (the native menu, the palette).
+      image?: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
       /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
@@ -783,7 +786,11 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={14} />
+      {item.image ? (
+        <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
+      ) : (
+        <Icon name={item.icon} size={14} />
+      )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>
