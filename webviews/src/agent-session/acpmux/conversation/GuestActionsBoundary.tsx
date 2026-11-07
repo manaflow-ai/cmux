@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { BackgroundTaskOutputContext } from "./backgroundTaskOutput";
 import { ArtifactContext } from "./artifactPreview";
 import { ImageViewerContext } from "./imageViewerContext";
-import { FailedSendsContext } from "./PromptDelivery";
+import { FailedSendsContext } from "./promptDeliveryModel";
 import { TranscriptReadOnly } from "./readOnly";
 import { RenderPages } from "./renderCall";
 import { RunInBackgroundContext } from "./runInBackground";
