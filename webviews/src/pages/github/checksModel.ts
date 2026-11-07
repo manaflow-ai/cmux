@@ -122,7 +122,9 @@ export interface RollupCheck {
 }
 
 /** Whether `job` is the rollup's `check`: the Actions job its link names, else the same link; a
- * check with no link (a bare commit status) by name, the only identity it has. */
+ * check with no link (a bare commit status) by name, the only identity it has. An Actions job and
+ * its check run share one id: the rollup's link is `/actions/runs/R/job/<check run id>`, and the
+ * host's `job.id` is that check run's `databaseId`, which `actions/jobs/<id>` answers. */
 function isCheck(job: DashboardJob, check: RollupCheck): boolean {
   if (!check.url) return job.name === check.name;
   const id = /\/job\/(\d+)/.exec(check.url)?.[1];
