@@ -97,7 +97,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineBootstrap.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineConfig.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineSecrets.swift": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
-    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandApprovalWire.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeDeviceEnrollment.swift": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeDeviceHTTPTransport.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Network/NativeNetworkTarget.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

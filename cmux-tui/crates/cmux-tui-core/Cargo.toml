@@ -23,6 +23,7 @@ cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 # The daemon checks URLs with the URL parser (`url`); the app links the crate without it.
 cmux-bookmarks-core = { workspace = true, features = ["url"] }
+cmux-bookmarks-ops = { workspace = true }
 cmux-unix-socket.workspace = true
 cmux-url-input.workspace = true
 cmux-pty.workspace = true

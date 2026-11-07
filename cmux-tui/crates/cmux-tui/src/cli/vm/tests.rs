@@ -69,7 +69,7 @@ fn a_vm_with_no_verb_or_an_unknown_verb_lists_the_wrapper_verbs() {
 #[test]
 fn resize_points_at_the_cloud_action() {
     let error = planned(&["vm", "resize"]).unwrap_err();
-    assert!(error.0.contains("cmux cloud resize-machine"), "{}", error.0);
+    assert!(error.0.contains("cmux vm resize-machine"), "{}", error.0);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn snapshot_subcommands_and_help_pass_through() {
 #[test]
 fn workspace_new_points_at_the_app_action() {
     let error = planned(&["vm", "workspace", "new", "vm_1"]).unwrap_err();
-    assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
+    assert!(error.0.contains("cmux vm new-workspace"), "{}", error.0);
 }
 
 #[test]
@@ -667,4 +667,62 @@ fn a_daemon_socket_is_no_app_for_machine_new() {
     assert!(!app_present(false, true, || false, || true), "a daemon socket, though the app runs");
     assert!(app_present(false, false, || false, || true));
     assert!(!app_present(false, false, || false, || false));
+}
+
+/// `cmux cloud` is now `cmux vm`: a Cloud verb under `vm` runs as `cloud VERB`, and every verb
+/// `vm` had as `machine`'s old name stays its own.
+#[test]
+fn vm_runs_every_cloud_verb_and_keeps_its_machine_verbs() {
+    for (typed, expected) in [
+        (&["vm", "list-machines", "--json"][..], &["cloud", "list-machines", "--json"][..]),
+        (&["--json", "vm", "sign-in"], &["--json", "cloud", "sign-in"]),
+        (
+            &["vm", "kill-machine", "--target", "machine:m", "--confirm"],
+            &["cloud", "kill-machine", "--target", "machine:m", "--confirm"],
+        ),
+        (&["vm", "secret", "ls"], &["cloud", "secret", "ls"]),
+        (&["vm", "env", "get"], &["cloud", "env", "get"]),
+        // The Cloud forms of `exec` and `client-session` name a target.
+        (
+            &["vm", "exec", "--target", "machine:m", "--command", "uname"],
+            &["cloud", "exec", "--target", "machine:m", "--command", "uname"],
+        ),
+        (
+            &["vm", "client-session", "create", "--target=machine:m"],
+            &["cloud", "client-session", "create", "--target=machine:m"],
+        ),
+    ] {
+        assert_eq!(cloud_alias(&args(typed)), Some(args(expected)), "{typed:?}");
+    }
+    for typed in [
+        &["vm", "ls"][..],
+        &["vm", "list"],
+        &["vm", "new", "--size", "small"],
+        &["vm", "exec", "vm_1", "--", "uname"],
+        &["vm", "add", "box"],
+        &["vm", "--help"],
+        &["vm"],
+        &["cloud", "list-machines"],
+        &["machine", "list-machines"],
+    ] {
+        assert_eq!(cloud_alias(&args(typed)), None, "{typed:?}");
+    }
+}
+
+/// No `vm chat`: a Cloud chat is `cmux chat --on vm:…`.
+#[test]
+fn vm_has_no_chat_verb() {
+    for verb in ["start-chat", "chat"] {
+        assert_eq!(cloud_alias(&args(&["vm", verb, "--prompt", "hi"])), None);
+        let error = planned(&["vm", verb, "--prompt", "hi"]).unwrap_err();
+        assert!(error.0.contains("cmux chat --on vm:"), "{}", error.0);
+    }
+}
+
+#[test]
+fn cloud_names_its_new_spelling() {
+    assert!(rename_note(Some("list-machines"), false).contains("`cmux vm list-machines`"));
+    assert!(rename_note(Some("start-chat"), false).contains("cmux chat --on vm:"));
+    assert!(rename_note(None, false).contains("`cmux vm`"));
+    assert!(rename_note(Some("list-machines"), true).contains("cmux vm"));
 }

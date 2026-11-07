@@ -232,13 +232,8 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
-  // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
-  const quick = useQuickActions();
-  const actions =
-    !browserOpensPreview && JSON.stringify(quick) === JSON.stringify(QUICK_ACTION_DEFAULTS)
-      ? withShown(quick, "preview", true)
-      : quick;
+  const { lit, pullRequest } = useHeaderState();
+  const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
@@ -310,12 +305,11 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself (Debug `agentChat.browserOpensPreview`), so then Preview
-    // folds only without a Browser button.
+    // Browser opens the chat's page itself, so Preview folds only without a Browser button.
     if (
       onPreview &&
       !shownIds.has("preview") &&
-      !(shownIds.has("browser") && headerState().browserOpensPreview) &&
+      !shownIds.has("browser") &&
       (previewUrl || lit.includes(HEADER_ACTIONS.preview))
     )
       folded.push({
@@ -354,7 +348,6 @@ export function ChatHeaderTools({
     tabTools,
     sideTabs,
     lit,
-    browserOpensPreview,
     hasChanges,
     previewUrl,
     onTerminal,
