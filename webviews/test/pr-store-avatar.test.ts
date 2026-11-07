@@ -2,7 +2,11 @@
 // so the next answer carries the same `fetchedAt`; the store kept the answer without it.
 import { expect, test } from "bun:test";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
-import { askPullRequest, pullRequestAnswer, resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
+import {
+  askPullRequest,
+  pullRequestAnswer,
+  resetPullRequestStore,
+} from "../src/agent-session/acpmux/chips/pullRequestStore";
 
 const URL = "https://github.com/manaflow-ai/cmux/pull/1";
 const pullRequest = { url: URL, number: 1, title: "t", state: "open", checks: { state: "", passed: 0, total: 0 } };
