@@ -35,7 +35,7 @@ import { Bot, ChevronDown } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
-import { pastedSize } from "../composer/TextAttachmentCard";
+import { pastedSize } from "../composer/textAttachmentCardModel";
 import { isLargePaste } from "../pastedText";
 import { pastedBlockLook } from "./pastedBlockLook.experiment";
 

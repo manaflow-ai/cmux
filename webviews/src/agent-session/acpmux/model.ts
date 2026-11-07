@@ -605,9 +605,13 @@ export type AcpmuxRow = {
   /// What the Codex-style live line says when it names no call (conversation/turns.ts
   /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
   /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
-  /// "thinking" accounting is also off pretty frequently").
-  liveState?: "subagents" | "writing";
+  /// "thinking" accounting is also off pretty frequently"), and neither does a compaction
+  /// (`compacting`: `liveCompaction` running, timed from its start at `doingAt`, or just completed):
+  /// its own row folds into the line (Leo, 2026-11-07: "You're not thinking during this time ...
+  /// That should replace the thinking area").
+  liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  liveCompaction?: AcpmuxCompaction;
   /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
   /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
   thoughtMs?: number;
@@ -682,6 +686,10 @@ export type AcpmuxRow = {
   /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
   /// the run after it, so Find and a shell's count reach each (chatFind.ts).
   joined?: string[];
+  /// A closed fold's line that draws only a step's calls, not its edits (conversation/turns.ts
+  /// `lineWork`): it is not that step's open-fold copy, so a Find match in the step opens the fold
+  /// (chatFind.ts isFindRow).
+  partial?: boolean;
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
   pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
