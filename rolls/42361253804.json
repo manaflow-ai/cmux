@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42361253804",
+  "recorded_at": "2026-11-07T09:56:51Z",
+  "reason": "cmux-tui 528c824a8c0e changes the image's cmux-tui (pinned e1a7317468a2)",
+  "dry_run": false,
+  "cmux_tui": "528c824a8c0ed6f4b6063c4068e7a1cc55053c56",
+  "fixes": [
+    {
+      "sha": "528c824a8c0ed6f4b6063c4068e7a1cc55053c56",
+      "mergedAt": "2026-11-07T01:35:18-08:00",
+      "subject": "acpmux: a trust check with no answer during a daemon restart answers the restart, not trust.pending (#37665)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T09:56:51Z",
+    "snapshot_id": "sh-8daef7bbfa5247c3864ee66e1ef51056",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42361253804): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6653af3b7ab8bdf3ecade7faf430f404c9e5c5f1",
+    "image": "cloud-native-auto-528c824a-42361253804-1",
+    "revision": "ci-42361253804-1",
+    "at": "2026-11-07T09:56:51Z"
+  },
+  "rolled_back": false
+}
