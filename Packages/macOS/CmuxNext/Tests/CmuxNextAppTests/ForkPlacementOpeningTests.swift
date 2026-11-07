@@ -23,7 +23,7 @@ import Testing
     private static let host = "install:fork-placement-test"
 
     /// One chat tab alone on its screen; agent tab creates are faked (recorded, then refused).
-    private static func chat() throws -> (AppServices, AgentTabStore, String, Seen) {
+    private static func chat(answering: Bool = false) throws -> (AppServices, AgentTabStore, String, Seen) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -53,7 +53,8 @@ import Testing
         tabs.create = { _, _, _, _, _, split in
             seen.creates.append(split)
             seen.hear.yield()
-            throw CancellationError()
+            guard answering else { throw CancellationError() }
+            return (created: AgentTabCreated(key: "fork-tab", surface: SurfaceID(rawValue: 2)), sequence: nil)
         }
         return (services, tabs, key, seen)
     }
@@ -108,5 +109,46 @@ import Testing
         if seen.creates.isEmpty { for await _ in seen.heard { break } }
         try #require(seen.creates.count == 1, "\(destination): one new-conversation-tab")
         #expect((seen.creates[0] != nil) == (destination.opening == .split))
+    }
+
+    /// Review of #37709 at 203371f3: the store can list a New Window fork's new pane before Move Tab to New Window has
+    /// placed its workspace in the new window (`placeMoved`), and a focus in that interval showed the fork's workspace
+    /// in the chat's window. The fork takes the keyboard only once the move answered, with its window placed.
+    @Test(.timeLimit(.minutes(1)), arguments: [AgentForkDestination.window, .workspace])
+    func aForkToANewWindowFocusesOnlyOnceItsWindowIsPlaced(destination: AgentForkDestination) async throws {
+        let (services, tabs, chat, _) = try Self.chat(answering: true)
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: "tab.focus", title: "Focus", category: .other)])
+        let focuses = Focuses()
+        registry.bind("tab.focus", invoke: { _ in focuses.count += 1; focuses.hear.yield() })
+        tabs.actionRegistry = registry
+        let (moving, moveStarted) = AsyncStream<Bool>.makeStream()
+        let gate = Gate()
+        tabs.moveToNewWorkspace = { [weak services] _, newWindow in
+            // The store lists the fork in its new pane now, outside the chat's pane; the move's reply, and the
+            // window's placement after it, wait.
+            tabs.locate = { _ in services.map { (pane: PaneID(rawValue: 2), daemon: $0.daemon) } }
+            moveStarted.yield(newWindow)
+            return await withCheckedContinuation { gate.open = $0 }
+        }
+
+        #expect(tabs.openFork("s-fork-\(destination.rawValue)", at: destination, beside: chat))
+        var moves = moving.makeAsyncIterator()
+        #expect(await moves.next() == (destination == .window))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(focuses.count == 0, "\(destination): the fork was focused before its workspace was placed")
+
+        gate.open?.resume(returning: true)
+        if focuses.count == 0 { for await _ in focuses.heard { break } }
+        #expect(focuses.count == 1)
+        withExtendedLifetime(registry) {}
+    }
+
+    @MainActor private final class Focuses {
+        var count = 0
+        let (heard, hear) = AsyncStream<Void>.makeStream()
+    }
+
+    @MainActor private final class Gate {
+        var open: CheckedContinuation<Bool, Never>?
     }
 }

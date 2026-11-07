@@ -253,6 +253,21 @@ def shown_tab(run, pane):
     return None
 
 
+def find_fork(run, parent_session):
+    """The pane, in any window, that shows a chat other than `parent_session` with rows: the fork (a new window's
+    fork is not in the first window, and need not be the pane the app reports focused)."""
+    for window in (run.rpc("debug.surfaces") or {}).get("windows") or []:
+        for row in window.get("panes") or []:
+            pane = row.get("pane")
+            if not pane or row.get("kind") == "terminal":
+                continue
+            state = run.pane("chat_state", pane=pane)
+            sid = state.get("sessionId")
+            if sid and sid != parent_session and (state.get("rows") or 0) > 0:
+                return pane, sid
+    return None, None
+
+
 def workspace_of(run, pane):
     """The workspace pane `pane` is in, in any window."""
     for window in (run.rpc("debug.surfaces") or {}).get("windows") or []:
@@ -262,7 +277,7 @@ def workspace_of(run, pane):
     return None
 
 
-def checks(run, pane):
+def checks(run, pane, watch):
     """What the fork's pane does once usable: where its transcript sits (at the fork point: its
     latest row), whether anything moves after its first paint, and whether the window's hit test
     reaches the page at the composer, the chat's title (its hat) and its ••• menu, each a native
@@ -274,7 +289,6 @@ def checks(run, pane):
     out["drew_kept_tail"] = state.get("drewKeptTail")
     out["at_fork_point"] = (isinstance(top, (int, float)) and isinstance(client, (int, float))
                             and isinstance(height, (int, float)) and height - client - top <= 2)
-    watch = run.pane("layout_watch", pane=pane, ms=600) or {}
     out["late_shifts"] = len(watch.get("shifts") or []) + len(watch.get("scroll_jumps") or [])
     # The fork takes the keyboard where it opens (AgentTabs+Fork.swift focusForkComposer).
     out["composer_focused"] = (run.pane("composer_focused", pane=pane) or {}).get("focused")
@@ -364,7 +378,8 @@ def fork_once(run, placement, parent, before_sessions):
         run.rpc("debug.chat_open_trace", {"action": "finish"})
         return {"error": f"action: {acted['error']}"}
     usable = None
-    fork_session = None
+    fork_session = fork_pane = None
+    watch = {}
     deadline = began + opts.timeout
     polls = 0
     while time.monotonic() < deadline:
@@ -377,13 +392,19 @@ def fork_once(run, placement, parent, before_sessions):
         if polls % 25 == 0 and fork_stage(run.pane("acp_log", pane=parent["pane"], limit=80),
                                           armed.get("armed_wall") or time.time()).get("fork_reply_kind") == "error":
             break
+        # The focused pane first (one call a frame); every pane of every window now and then, for a fork the
+        # app shows in another window than the one it reports focused.
         state = run.pane("chat_state")
-        sid = state.get("sessionId")
-        if sid and sid != parent["session"] and (state.get("rows") or 0) > 0:
-            ready = run.pane("readiness")
+        pane, sid = state.get("pane"), state.get("sessionId")
+        if not (sid and sid != parent["session"] and (state.get("rows") or 0) > 0):
+            pane, sid = find_fork(run, parent["session"]) if polls % 10 == 0 else (None, None)
+        if sid and sid != parent["session"]:
+            ready = run.pane("readiness", pane=pane) if pane else run.pane("readiness")
             if ready.get("composer_visible") and ready.get("document_ready"):
                 usable = round((time.monotonic() - began) * 1000, 1)
-                fork_session = sid
+                fork_session, fork_pane = sid, pane or ready.get("pane")
+                # What moves on the fork's page from the moment it is usable (not seconds later).
+                watch = run.pane("layout_watch", pane=fork_pane, ms=600) or {}
                 break
         time.sleep(0.01)  # test script: about once a frame
     trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 300}, timeout=30) or {}
@@ -391,12 +412,11 @@ def fork_once(run, placement, parent, before_sessions):
     time.sleep(0.5)  # test script: anything a fork opens twice opens by now
     workspace1, panes1, focused1 = shown_layout(run)
     workspaces1, windows1 = workspace_count(run), window_count(run)
-    fork_pane = run.pane("readiness").get("pane")
-    after = checks(run, fork_pane) if fork_session and fork_pane else {}
+    after = checks(run, fork_pane, watch) if fork_session and fork_pane else {}
     # A new window's workspace is not the first window's: closed with the run's.
     after["fork_workspace"] = workspace_of(run, fork_pane) if fork_pane else None
     made = store_sessions(run.home) - before_sessions
-    state = run.pane("chat_state")
+    state = run.pane("chat_state", pane=fork_pane) if fork_pane else run.pane("chat_state")
     record = {
         "placement": placement, "usable_ms": usable, "pane_ms": marks.get("pane_made"),
         "content_ms": trace.get("first_content_ms"), "timed_out": trace.get("timed_out"),

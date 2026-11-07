@@ -75,14 +75,15 @@ public enum AgentForkDestination: String, CaseIterable, Sendable {
         }
     }
 
-    /// The Move Tab action that takes a ``Opening/moved`` fork from the chat's pane to this destination; nil for a strip
-    /// column or row (`DaemonService.placeFork`) and for a destination that opens where it goes.
+    /// The Move Tab action that takes a fork made in the chat's pane to this destination: `tab.moveToNewSplit` for a
+    /// split (left, up, or right and down on a daemon without `conversation-tab-split-v1`), Move Tab to New Workspace
+    /// for a workspace or a window (which then shows it); nil for a strip column or row (`DaemonService.placeFork`) and a tab.
     public var moveAction: ActionID? {
         switch self {
-        case .left, .up: "tab.moveToNewSplit"
+        case .left, .up, .right, .down: "tab.moveToNewSplit"
         case .workspace: "palette.moveTabToNewWorkspace"
         case .window: "tab.moveToNewWindow"
-        case .right, .down, .columnRight, .columnLeft, .row, .tab: nil
+        case .columnRight, .columnLeft, .row, .tab: nil
         }
     }
 
