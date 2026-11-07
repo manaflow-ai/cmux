@@ -3,6 +3,7 @@
 // calls, draws a closed clock button for them and nothing more until the reader opens it; opened,
 // each call is a bar on the turn's axis that opens its row.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { TurnFooter } from "./TurnRows";
@@ -240,4 +241,36 @@ test("the header's empty corner says the turn's total and its calls, in the axis
   expect(
     summary(renderToStaticMarkup(<TurnWaterfall row={{ at: 840, durationMs: 840 }} work={[call("a", 0, 800)]} />)),
   ).toBe("1 call · 840ms");
+});
+
+test("at a phone's width (390px, under the 420px container query) the header corner takes its own line and truncates", () => {
+  const css = readFileSync(new URL("./TurnWaterfall.css", import.meta.url), "utf8");
+  const rule = (block: string, selector: string) =>
+    block.match(new RegExp(`${selector.replace(/[.]/g, "\\.")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  // Wide: the header row is the rows' grid, so the corner is the label column.
+  expect(rule(css, ".cv-waterfall__head")).toContain(
+    "grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time)",
+  );
+  expect(rule(css, ".cv-waterfall__span,\n.cv-waterfall__lane")).toContain(
+    "grid-template-columns: var(--wf-label-width, 38%) minmax(0, 1fr) var(--wf-time)",
+  );
+  // It never pushes into the axis: it shrinks and ends in an ellipsis.
+  const summary = rule(css, ".cv-waterfall__summary");
+  for (const line of ["min-width: 0", "overflow: hidden", "text-overflow: ellipsis", "white-space: nowrap"])
+    expect(summary).toContain(line);
+  // 390px falls under the query; there the header is one column, the corner over the axis.
+  const query = css.match(/@container \(max-width: (\d+)px\) \{([\s\S]*)\}\s*$/);
+  expect(Number(query?.[1])).toBeGreaterThan(390);
+  expect(rule(query![2]!, ".cv-waterfall.is-bars .cv-waterfall__head")).toContain(
+    "grid-template-columns: minmax(0, 1fr)",
+  );
+  // And the corner is still drawn there, before the axis, with its words.
+  const markup = renderToStaticMarkup(
+    <div style={{ width: 390 }}>
+      <TurnWaterfall row={{ at: 90_000, durationMs: 90_000 }} work={[call("a", 0, 80_000)]} />
+    </div>,
+  );
+  expect(markup).toMatch(
+    /class="cv-waterfall__head"><span class="cv-waterfall__summary">.*1 call.*1m 30s.*<\/span><div class="cv-waterfall__axis"/,
+  );
 });
