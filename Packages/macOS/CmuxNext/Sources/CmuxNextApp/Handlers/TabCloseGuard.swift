@@ -117,8 +117,8 @@ enum TabCloseGuard {
     /// The warnings, and what closing `tabs` reads first (cmux-window-rules `close::reads`); nil: nothing asks.
     private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnings: WindowRules.Warnings, reads: WindowRules.Reads)? {
         let snapshot = services.settings?.snapshot
-        let warnings = WindowRules.Warnings(warnTab: snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                                            warnAgent: snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback)
+        let warnings = WindowRules.Warnings(warnTab: snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault,
+                                            warnAgent: snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.warnBeforeClosingAgentSessionDefault)
         let facts = tabs.map { WindowRules.ClosingTab($0, agentAtWork: $0.agent.map { $0.state == .working || $0.state == .blocked } ?? false) }
         return WindowRules().closeReadsFailingClosed(facts, warnings).map { (warnings, $0) }
     }

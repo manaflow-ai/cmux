@@ -69,12 +69,10 @@ extension SidebarBridge {
     /// registered. INTERIM until then: Home and the App Store keep their
     /// show actions, every other app opens its page (`app.open`).
     static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ActionValue]) {
-        if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
-        if let action = interimAppActions[app], registered(action) { return (action, [:]) }
-        return ("app.open", ["app": .string(app)])
+        let actions = SidebarBridgeRules().appActivation(app) // best first; the last always runs
+        let chosen = actions.first { registered(ActionID(rawValue: $0.action)) } ?? actions.last ?? ("app.open", true)
+        return (ActionID(rawValue: chosen.action), chosen.appArgument ? ["app": .string(app)] : [:])
     }
-
-    private static let interimAppActions: [String: ActionID] = ["cmux/home": "home.show", "cmux/app-store": "appStore.show"]
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
     /// does not register draws dimmed.
