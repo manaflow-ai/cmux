@@ -282,10 +282,21 @@ public final class AcpmuxHub {
         let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
         let sign = try await approver.authorize(reason)
         // The expiry starts once the signer returned.
+        let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+        // A prompt of another daemon run than this Mac's is a peer's (a chat opened with `--host`), as
+        // the Mac app decides: the peer checks it as one of this Mac's enrolled phones, against its run.
+        if let personInstance, instance != personInstance {
+            let payload = PeerApprovalPayload(
+                instance: instance, approver: PeerApprovalPayload.peerID(macDevice: approver.macDevice, phone: approver.phoneID),
+                session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID,
+                toolCall: pending["request"]?["toolCall"]?["toolCallId"]?.stringValue ?? "", option: optionID, nonce: nonce,
+                expiresAt: expiresAt, answers: answers)
+            return payload.meta(signature: try sign(payload.message))
+        }
         let payload = ApprovalPayload(
             instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
-            expiresAt: Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime), answers: answers)
+            expiresAt: expiresAt, answers: answers)
         return payload.meta(signature: try sign(payload.message))
     }
 
