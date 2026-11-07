@@ -7,7 +7,9 @@ import AppKit
 ///
 /// Only the apps this Mac itself said an attachment came from (``noteAnswered(_:)``: a drop's or
 /// paste's source, and cmux for its own captures) have an icon. Any other id answers none, so a page
-/// can't ask whether an app it names is installed. They are kept across launches, so a reopened
+/// can't ask whether an app it names is installed. The dictation apps the mic can hand off to
+/// (``AgentPaneDictationHandoff/bundleIds``) are drawn too: `dictation.sources` already says which
+/// of those this Mac has. They are kept across launches, so a reopened
 /// chat's chips keep theirs. Each pane's model owns one (``AgentPaneModel/sourceIcons``); the
 /// answered apps are kept in `defaults`, so every pane draws the same ones.
 @MainActor final class AttachmentSourceIcons {
@@ -43,7 +45,7 @@ import AppKit
     /// The data URL of `bundleId`'s icon, or nil when this Mac never said an attachment came from
     /// it, or no such app is installed.
     func dataURL(_ bundleId: String) -> String? {
-        guard bundleId == ownBundleId || answered.contains(bundleId) else { return nil }
+        guard bundleId == ownBundleId || AgentPaneDictationHandoff.bundleIds.contains(bundleId) || answered.contains(bundleId) else { return nil }
         if let kept = cache[bundleId] { return kept }
         if cache.count >= Self.limit { cache = [:] }
         let made = workspace.urlForApplication(withBundleIdentifier: bundleId).flatMap { png(of: $0) }

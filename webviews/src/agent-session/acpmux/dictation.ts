@@ -8,6 +8,8 @@ import {
   type DictationUpdate,
 } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
+import { composerSettingsSnapshot } from "./composerSettings";
+import { handoffFailure } from "./dictationSources";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
 
@@ -264,6 +266,23 @@ export function useDictation(
     notice,
     toggle() {
       if (!active) prompt.current?.focus();
+      // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
+      // own that still runs is stopped by it as before.
+      const source = composerSettingsSnapshot().dictationSource;
+      if (source !== "cmux" && !active) {
+        setNotice(null);
+        void call("dictation.handoff").catch((error: unknown) => {
+          const code = error instanceof NativeError ? error.code : undefined;
+          setNotice({
+            state: "failed",
+            text: "",
+            level: 0,
+            cancelled: false,
+            message: handoffFailure(code, source, t),
+          });
+        });
+        return;
+      }
       requested.current = true;
       void call("dictation.toggle").catch((error: unknown) => {
         requested.current = false;

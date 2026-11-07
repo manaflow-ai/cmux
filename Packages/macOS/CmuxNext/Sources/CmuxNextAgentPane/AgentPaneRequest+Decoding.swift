@@ -179,6 +179,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDictationSource":
+            // The mic menu's source pick; the page writes only this key with it.
+            if let source = (params?["source"] as? String).flatMap(AgentPaneDictationSource.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.dictationSourcePath, value: .string(source.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
@@ -616,6 +623,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.handoff": self = .dictationHandoff
+        case "dictation.sources": self = .dictationSources
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)

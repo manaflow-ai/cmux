@@ -461,7 +461,13 @@ public final class AgentPaneView: NSView {
     /// holding the key past a moment makes it push-to-talk: dictation stops
     /// when the key comes up.
     public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
-        dictation.toggle(from: event)
+        // A dictation app the person picked (`agentPane.dictationSource`) gets the press instead,
+        // as the mic's click does (`dictation.handoff`); one that cannot take it is a beep.
+        switch model.dictationHandoff.handOff(model.composer) {
+        case nil: return
+        case .ownDictation: dictation.toggle(from: event)
+        default: NSSound.beep()
+        }
     }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
