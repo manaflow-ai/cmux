@@ -114,7 +114,7 @@ import Testing
     /// Fixed inks for the offscreen render: the dynamic secondary and tertiary label colors drew
     /// nothing through `cacheDisplay` (the first gallery lost every disabled row, shortcut and caption).
     struct Inks {
-        var primary, disabled, shortcut, caption, separator, fill: NSColor
+        var primary, disabled, shortcut, caption, separator, fill, backdrop: NSColor
         init(dark: Bool) {
             let ink = NSColor(white: dark ? 1 : 0, alpha: 1)
             primary = ink.withAlphaComponent(0.88)
@@ -123,6 +123,7 @@ import Testing
             caption = ink.withAlphaComponent(0.6)
             separator = ink.withAlphaComponent(0.14)
             fill = dark ? NSColor(white: 0.2, alpha: 1) : NSColor(white: 0.97, alpha: 1)
+            backdrop = dark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.9, alpha: 1)
         }
     }
 
@@ -194,6 +195,8 @@ import Testing
         outer.spacing = 8
         outer.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         outer.appearance = appearance
+        outer.wantsLayer = true
+        outer.layer?.backgroundColor = inks.backdrop.cgColor
         outer.frame = NSRect(origin: .zero, size: outer.fittingSize)
         outer.layoutSubtreeIfNeeded()
         return outer
