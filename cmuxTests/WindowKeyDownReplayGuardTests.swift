@@ -423,6 +423,90 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    #if DEBUG
+    enum WorkspaceUndoScenario: CaseIterable {
+        case applicationRoute, windowRoute, unbound, editableResponder, recorderActive
+    }
+
+    @Test(arguments: WorkspaceUndoScenario.allCases)
+    func configuredWorkspaceUndoRespectsShortcutAndResponderOwnership(
+        scenario: WorkspaceUndoScenario
+    ) throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        let action = KeyboardShortcutSettings.Action.reopenClosedWorkspace
+        let savedShortcutData = UserDefaults.standard.data(forKey: action.defaultsKey)
+        let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "workspace-undo-routing"
+        )
+        let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        let window = try #require(appDelegate.mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let originalContentView = window.contentView
+        let terminal = TerminalCommandEquivalentProbeView(frame: window.contentView!.bounds)
+        let textView = EditableUndoProbeTextView(frame: terminal.bounds)
+        textView.isEditable = true
+        terminal.addSubview(textView)
+        window.contentView = terminal
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            KeyboardShortcutRecorderActivity.resetForTesting()
+            window.contentView = originalContentView
+            appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            ClosedItemHistoryStore.shared.removeAll()
+            KeyboardShortcutSettings.settingsFileStore = originalFileStore
+            if let savedShortcutData {
+                UserDefaults.standard.set(savedShortcutData, forKey: action.defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+            }
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+        KeyboardShortcutSettings.setShortcut(
+            scenario == .unbound ? .unbound : .init(
+                key: "z", command: true, shift: false, option: false, control: false
+            ),
+            for: action
+        )
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        let workspace = try #require(manager.selectedWorkspace)
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let restoredTitle = "Recovered workspace \(UUID().uuidString)"
+        snapshot.customTitle = restoredTitle
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(), windowId: windowId, workspaceIndex: 1, snapshot: snapshot
+            ))
+        ))
+        let initialWorkspaceCount = manager.tabs.count
+        #expect(window.makeFirstResponder(scenario == .editableResponder ? textView : terminal))
+        if scenario == .recorderActive {
+            KeyboardShortcutRecorderActivity.beginRecording()
+        }
+        let event = try #require(makeCommandZKeyDownEvent(
+            modifiers: [.command], windowNumber: window.windowNumber
+        ))
+
+        let handled: Bool
+        if scenario == .windowRoute {
+            handled = window.performKeyEquivalent(with: event)
+        } else {
+            handled = NSApp.cmuxRouteApplicationUndoRedoCommandEquivalent(event)
+        }
+
+        let shouldRestore = scenario == .applicationRoute || scenario == .windowRoute
+        #expect(handled == (scenario != .editableResponder))
+        #expect(manager.tabs.count == initialWorkspaceCount + (shouldRestore ? 1 : 0))
+        #expect(manager.tabs.contains { $0.customTitle == restoredTitle } == shouldRestore)
+        #expect(ClosedItemHistoryStore.shared.canReopen == !shouldRestore)
+        #expect(terminal.afterMenuMissEvents.count == (scenario == .unbound || scenario == .recorderActive ? 1 : 0))
+        #expect(terminal.keyDownEvents.isEmpty)
+    }
+    #endif
+
     @Test
     func terminalHostedEditableResponderKeepsLocalUndo() {
         _ = NSApplication.shared
