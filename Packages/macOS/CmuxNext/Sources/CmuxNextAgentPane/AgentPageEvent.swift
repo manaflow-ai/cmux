@@ -63,6 +63,15 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         JSONValue(foundation: AgentPaneDictation.payload(update)).map { AgentPageEvent(kind: "dictation", value: $0) }
     }
 
+    /// Another app's use of the microphone, for the composer's mark (webviews outsideDictation.ts):
+    /// `{active, bundleId?, name?}`.
+    public static func micActivity(_ state: MicrophoneActivity.State) -> AgentPageEvent {
+        var value: [String: JSONValue] = ["active": .bool(state.active)]
+        if let bundleId = state.bundleId { value["bundleId"] = .string(bundleId) }
+        if let name = state.name { value["name"] = .string(name) }
+        return AgentPageEvent(kind: "micActivity", value: .object(value))
+    }
+
     /// A hand-off from the Toggle Dictation shortcut that did not happen (`{code}`): the composer
     /// shows why, as for the mic's click (webviews dictation.ts).
     public static func dictationHandoff(failure code: String) -> AgentPageEvent {

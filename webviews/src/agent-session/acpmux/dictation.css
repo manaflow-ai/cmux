@@ -128,3 +128,45 @@
   border-radius: 4px;
   pointer-events: none;
 }
+
+/* Another app's dictation (outsideDictation.ts): three thin bars drawn in the mic's own place, rising
+   and falling slowly. Drawn, not measured: cmux never hears the audio. Only `transform` moves (one
+   compositor layer), the button keeps its size, and motion-off settings hold the bars still
+   (styles.css `data-agent-motion="off"`). */
+.acpmux-mic-outside {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.acpmux-mic-outside > span {
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--agent-soft);
+  transform: scaleY(0.35);
+  transform-origin: center;
+  animation: acpmux-mic-outside 1.4s ease-in-out infinite;
+}
+.acpmux-mic-outside > span:nth-child(2) { animation-delay: -0.45s; }
+.acpmux-mic-outside > span:nth-child(3) { animation-delay: -0.9s; }
+@keyframes acpmux-mic-outside {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+/* Static status indicators, motion off or Reduce Motion: the bars hold still at three heights. */
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span {
+  animation: none;
+}
+:root:is([data-status-indicators="static"], [data-agent-motion="off"], [data-agent-motion="reduced"]) .acpmux-mic-outside > span:nth-child(2) {
+  transform: scaleY(0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-mic-outside > span { animation: none; }
+  .acpmux-mic-outside > span:nth-child(2) { transform: scaleY(0.8); }
+}
+/* The wave takes the glyph's place; the glyph stays in the tree so the button never re-lays out. */
+.acpmux-mic[data-outside] > :is(svg, img) { display: none; }

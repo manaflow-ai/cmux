@@ -179,6 +179,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// `dictation.watchMicrophone {on}`: the view starts or stops watching the microphone for the page.
+    @ObservationIgnored var onWatchMicrophone: ((Bool) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
     @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
@@ -436,7 +438,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .dictationSources, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .dictationSources, .watchMicrophone, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
@@ -737,6 +739,10 @@ public final class AgentPaneModel {
             // never for page script alone (the old bridge has no call context, so it spends gesture credit).
             guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             return dictationHandoff.reply(composer)
+        case .watchMicrophone(let on):
+            guard let onWatchMicrophone else { return Self.unsupported("dictation.watchMicrophone") }
+            onWatchMicrophone(on)
+            return AgentPaneReply.success()
         case .dictationSources:
             let sources = dictationHandoff.sources()
             sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })
