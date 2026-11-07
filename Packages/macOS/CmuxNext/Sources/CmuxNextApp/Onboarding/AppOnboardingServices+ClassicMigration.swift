@@ -414,7 +414,7 @@ extension AppOnboardingServices {
         return made
     }
 
-    /// The workspace's classic color, pin and group, on its new cmux-next workspace.
+    /// The workspace's classic color, pin and group, on its new cmux-next workspace (a loose one leaves the group `afterCurrent` gave it).
     fileprivate func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
         let local = services.machines.local
         let store = local.store
@@ -431,9 +431,9 @@ extension AppOnboardingServices {
             if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
-            if let classic = saved.groupID, let group = groups[classic], let session = store.registryID {
+            if let session = store.registryID, case let group = saved.groupID.flatMap({ groups[$0] }), group != nil || store.personal.workspace(session: session, key: key.rawValue)?.group != nil {
                 try await connection.state.placePersonalWorkspace(session: session, key: key, resource: store.personalStateID(session: session, key: key),
-                                                                  group: .set(group), index: store.personal.index(afterLastMemberOf: group, moving: key.rawValue, session: session))
+                                                                  group: group.map { FieldUpdate<WorkspaceGroupID>.set($0) } ?? .clear, index: store.personal.index(afterLastMemberOf: group, moving: key.rawValue, session: session))
                 await local.appliedThroughReply(on: connection, after: "classic group") // the next member's index reads this row (#28425)
             }
         } catch {
