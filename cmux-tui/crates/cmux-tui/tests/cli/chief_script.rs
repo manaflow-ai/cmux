@@ -384,14 +384,14 @@ fn chief_script_cloud_chats_use_the_clis_own_lease_and_send_as_cli() {
 #[test]
 fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
     let (server, _home, conversation, _token) = chief_daemon("chief-script-runs");
-    let mut home = super::conversation_runs::Unix::open(&server.socket);
-    let mut chief = super::conversation_runs::bound(&server, &mut home, "agent_mux");
+    let mut home = conversation_runs::Unix::open(&server.socket);
+    let mut chief = conversation_runs::bound(&server, &mut home, "agent_mux");
     // Pages of 7 (`--page`), with start-time ties across a page boundary.
     let total = 30_u64;
     for index in 0..total {
         chief.request(
             "conversation-run-append",
-            append(
+            conversation_runs::append(
                 &conversation,
                 json!({"id": format!("turn:runs:{index}"), "status": "done",
                        "started_at": 1_000 + index / 2 * 2, "title": format!("run {index}")}),
@@ -401,7 +401,7 @@ fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
     }
     chief.request(
         "conversation-run-append",
-        append(
+        conversation_runs::append(
             &conversation,
             json!({"id": "turn:runs:steps", "status": "done", "started_at": 5_000}),
             json!([{"id": "tool:1", "kind": "tool", "status": "done",
