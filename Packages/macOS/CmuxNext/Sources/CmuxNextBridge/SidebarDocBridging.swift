@@ -214,7 +214,9 @@ public final class SidebarDocSections {
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         var unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
         // One that listed before keeps its slot (its group, under the same row) until the document places it again.
-        unplaced = holdSlots(unplaced, session: session, in: &sections, machineSections: machineSections)
+        let waiting = holdSlots(unplaced, session: session, in: &sections, machineSections: machineSections)
+        let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
+        unplaced = waiting
         let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
         // A new row stays where it first listed: the place it took then, not the current workspace now.
         var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplaced.contains { $0.id == id } }
@@ -235,7 +237,7 @@ public final class SidebarDocSections {
             for (at, rows) in runs { Self.insertNew(rows, at, into: &sections, machineSections: machineSections) }
         }
         flush()
-        noteSlots(sections, session: session, live: workspaces)
+        noteSlots(sections, session: session, placed: listed, held: held)
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
     }
@@ -269,14 +271,22 @@ public final class SidebarDocSections {
         return unplaced.filter { !held.contains($0.id) }
     }
 
-    /// Records where each of the machine's rows lists now, for ``holdSlots``; only live workspaces are kept.
-    private func noteSlots(_ sections: [CmuxNextDaemon.SidebarSection], session: String, live: [WorkspaceModel]) {
+    /// Records where each row the document places lists now, for ``holdSlots``; a `held` row keeps the slot it had. A
+    /// new row (no item yet) gets none: it keeps the place it first took (`anchors`), and is no row's `after`.
+    private func noteSlots(_ sections: [CmuxNextDaemon.SidebarSection], session: String, placed: Set<String>, held: Set<String>) {
+        let old = slots[session] ?? [:]
         var next: [String: Slot] = [:]
-        next.reserveCapacity(live.count)
+        next.reserveCapacity(placed.count + held.count)
         for section in sections {
             var above: String?
             for w in section.workspaces {
-                next[w.id] = Slot(group: section.group?.id.rawValue, after: above)
+                if held.contains(w.id) {
+                    next[w.id] = old[w.id]
+                } else if placed.contains(w.id) {
+                    next[w.id] = Slot(group: section.group?.id.rawValue, after: above)
+                } else {
+                    continue
+                }
                 above = w.id
             }
         }
