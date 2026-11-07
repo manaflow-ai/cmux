@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42350107897",
+  "recorded_at": "2026-11-07T07:17:08Z",
+  "reason": "cmux-tui 285ab2fac5e2 changes the image's cmux-tui (pinned 17a8d73293ca)",
+  "dry_run": false,
+  "cmux_tui": "285ab2fac5e2206dde4104b9e7f350375702dd35",
+  "fixes": [
+    {
+      "sha": "5720234d11b5a028bf66063e2d55c4d1cf2a7ef2",
+      "mergedAt": "2026-11-06T22:56:13-08:00",
+      "subject": "cmux cloud start-chat -- TEXT: the prompt, read as text (#37546)"
+    },
+    {
+      "sha": "dc84d82b63f4f21e026f030286ee1780b4daaa6f",
+      "mergedAt": "2026-11-06T22:55:20-08:00",
+      "subject": "acpmux: a Claude chat past its context window compacts, then goes on by itself (#34462)"
+    },
+    {
+      "sha": "cfdc6a404847a6070fbd769bae926ad20746a054",
+      "mergedAt": "2026-11-06T22:48:09-08:00",
+      "subject": "cmux chat: an output flag after -- is the prompt (#37524)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T07:17:08Z",
+    "snapshot_id": "sh-5dd4199cecc444139ab77579815152af",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42350107897): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "29da7b7abe89c2d63e8746ed33e93e2ae3c8ffac",
+    "image": "cloud-native-auto-285ab2fa-42350107897-1",
+    "revision": "ci-42350107897-1",
+    "at": "2026-11-07T07:17:08Z"
+  },
+  "rolled_back": false
+}
