@@ -273,7 +273,12 @@ public final class SidebarDocSections {
                 firstPlaces[w.id] = place
                 add(w)
             }
-            for (at, rows) in runs { Self.insertNew(rows, at, into: &sections, machineSections: machineSections) }
+            var machineCount = machineSections
+            for (at, rows) in runs {
+                let count = sections.count
+                Self.insertNew(rows, at, into: &sections, machineSections: machineCount)
+                machineCount += sections.count - count // a run listed first can open a loose section on top
+            }
         }
         flush()
         noteSlots(sections, session: session, placed: listed, held: held)
