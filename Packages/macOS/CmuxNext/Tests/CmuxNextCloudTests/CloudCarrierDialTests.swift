@@ -130,16 +130,31 @@ import Testing
         await link.close()
     }
 
-    /// A socket another serve holds (its `socket` refusal, or a usage exit 64) is a clear failure.
-    @Test(arguments: ["printf '{\"ok\":false,\"error_code\":\"socket\"}\\n' >&2\nexit 6\n", "exit 64\n"])
-    func aTakenSocketIsAClearFailure(body: String) async throws {
-        let cli = try Self.standIn(body)
+    /// A socket another serve holds (serve's `bad_request` naming the path, exit 64) is a clear failure.
+    @Test func aTakenSocketIsAClearFailure() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":false,\"error_code\":\"bad_request\",\"error_detail\":\"Unix socket path /tmp/mine.sock is already leased\",\"route\":\"carrier\"}\\n' >&2\nexit 64\n")
         defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
         let serve = CloudCarrierServe(connector: connector, socket: "/tmp/mine.sock") { _ in }
         await #expect(throws: CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")) {
             _ = try await serve.socketPath()
         }
+    }
+
+    /// Serve's exits (#37278) as link failures: before ready, a path it could not claim is the taken socket and
+    /// `ticket` (2) and `handshake` (5) keep the dial's wording; after ready, the listener failing (`socket`, 6)
+    /// ends serve, and a refused stdin line (`bad_request`) is not a refused connection.
+    @Test func serveRefusalsReadAsTheirFailures() {
+        let socket = "/tmp/x/cmux-link-0123456789ab.sock"
+        #expect(CloudCarrierDial.serveStartError(code: "bad_request", detail: "Unix socket path \(socket) is already leased", socket: socket)
+            == CloudCarrierDial.socketTaken)
+        #expect(CloudCarrierDial.serveStartError(code: "bad_request", detail: "usage: cmux carrier serve --machine vm_… --socket PATH", socket: socket)
+            == .failed(code: "bad_request", message: "bad_request: usage: cmux carrier serve --machine vm_… --socket PATH"))
+        #expect(CloudCarrierDial.serveStartError(code: "ticket", detail: "no credential", socket: socket) == .failed(code: "ticket", message: "ticket: no credential"))
+        #expect(CloudCarrierDial.serveStartError(code: "handshake", detail: nil, socket: socket) == .failed(code: "handshake", message: ""))
+        #expect(CloudCarrierDial.serveRefusal(code: "bad_request", detail: "a stdin line is too long") == nil)
+        #expect(CloudCarrierDial.serveRefusal(code: "socket", detail: "accept failed") == .helperNotRunning(reason: "cmux carrier serve stopped listening: accept failed"))
+        #expect(CloudCarrierDial.serveRefusal(code: "parked_timeout", detail: nil) == .notUp(state: "parked_timeout"))
     }
 
     /// A child that serves another socket than the one asked for is refused.

@@ -97,6 +97,29 @@ public struct CloudCarrierDial: Equatable, Sendable {
         }
     }
 
+    /// `carrier serve`'s refusal before its ready line, after which it exits (#37278). A path it could not
+    /// claim (a live serve's socket or another file there) is `bad_request` naming that path, exit 64: another
+    /// cmux serving the machine. `ticket` (exit 2: no API URL or credential) and `handshake` (exit 5: no device
+    /// key) keep the dial's wording.
+    public static func serveStartError(code: String, detail: String?, socket: String) -> CloudLinkError {
+        if code == "bad_request", let detail, detail.contains(socket) { return socketTaken }
+        return linkError(code: code, detail: detail)
+    }
+
+    /// A refusal line of a ready `carrier serve`: a refused connection's step, or the listener failing for good
+    /// (`socket`, exit 6), which ends serve. Nil for `bad_request`, which answers a stdin line serve could not use
+    /// (a token it refused), not a connection.
+    public static func serveRefusal(code: String, detail: String?) -> CloudLinkError? {
+        switch code {
+        case "bad_request": nil
+        case "socket": .helperNotRunning(reason: "cmux carrier serve stopped listening" + (detail.map { ": \($0)" } ?? ""))
+        default: linkError(code: code, detail: detail)
+        }
+    }
+
+    /// Another `carrier serve` holds the session's socket.
+    static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
+
     /// The JSON line `carrier serve` reads on stdin to take a new access token for its next dials.
     public static func tokenLine(_ accessToken: String) -> String {
         let data = (try? JSONSerialization.data(withJSONObject: ["access_token": accessToken])) ?? Data()

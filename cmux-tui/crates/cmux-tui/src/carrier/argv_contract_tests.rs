@@ -8,13 +8,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{DialService, parse};
-
-/// `carrier serve`'s parser, which cmux#37278 adds. That PR is this one's
-/// HOLD: merging it flips this to
-/// `Some(|args| super::parse_serve(args).is_some())`, and the `serve`
-/// child is checked from then on. Until then it is the one child skipped.
-const SERVE_PARSER: Option<fn(&[String]) -> bool> = None;
+use super::{DialService, parse, parse_serve};
 
 fn children() -> Vec<Value> {
     let path =
@@ -54,10 +48,12 @@ fn every_child_the_app_spawns_parses_with_the_real_carrier_cli() {
                 };
                 assert_eq!(dial.service, service, "{name}");
             }
-            Some("serve") => match SERVE_PARSER {
-                Some(parses) => assert!(parses(args), "{name}: `cmux {}` exits 64", argv.join(" ")),
-                None => eprintln!("{name}: skipped until cmux#37278 adds `carrier serve`"),
-            },
+            Some("serve") => {
+                let serve = parse_serve(args)
+                    .unwrap_or_else(|| panic!("{name}: `cmux {}` exits 64", argv.join(" ")));
+                assert_eq!(Some(serve.dial.machine.as_str()), machine, "{name}");
+                assert_eq!(serve.socket.to_str(), text(child, &["swift", "socket"]), "{name}");
+            }
             other => panic!("{name}: the carrier CLI has no verb {other:?}"),
         }
     }

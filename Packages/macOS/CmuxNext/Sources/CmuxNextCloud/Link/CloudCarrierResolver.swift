@@ -165,7 +165,8 @@ public actor CloudCarrierServe {
                 guard let line = CloudCarrierDial.serveLine(text) else { continue }
                 if !answered { answered = true; answer.yield(line); answer.finish(); continue }
                 switch line {
-                case .refused(let code, let detail): await self?.noteRefused(CloudCarrierDial.linkError(code: code, detail: detail))
+                case .refused(let code, let detail):
+                    if let refusal = CloudCarrierDial.serveRefusal(code: code, detail: detail) { await self?.noteRefused(refusal) }
                 case .connected(let vmk): await self?.noteConnected(vmk: vmk)
                 case .ready: break
                 }
@@ -185,10 +186,10 @@ public actor CloudCarrierServe {
             case .connected?:
                 throw CloudLinkError.invalidAnswer("no ready line")
             case .refused(let code, let detail)?:
-                throw code == "socket" ? Self.socketTaken : CloudCarrierDial.linkError(code: code, detail: detail)
+                throw CloudCarrierDial.serveStartError(code: code, detail: detail, socket: socket)
             case nil:
-                // Exit 64 is a usage refusal, a live listener at the path included.
-                throw await child.waitForExit() == 64 ? Self.socketTaken : CloudLinkError.helperNotRunning(reason: child.stderrText)
+                // Serve writes a line before every exit; none means it never ran.
+                throw CloudLinkError.helperNotRunning(reason: child.stderrText)
             }
         } catch {
             child.closeInput()
@@ -200,8 +201,6 @@ public actor CloudCarrierServe {
         Task { [weak self] in _ = await child.waitForExit(); await self?.childExited(child) }
         return socket
     }
-
-    private static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
 }
 
 extension CloudCallerOwnership {
