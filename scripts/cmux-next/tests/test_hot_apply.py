@@ -54,6 +54,7 @@ class HotApplyRust(unittest.TestCase):
         self.new = hashlib.sha256(self.new_body).hexdigest()
         self.publish(self.new_body, self.new)
         self.env = dict(os.environ, CMUX_HOT_APPLY_TUI_BASE=(self.tmp / "tree").as_uri(),
+                        CMUX_HOT_APPLY_COMMIT_BASE=(self.tmp / "commits").as_uri(),
                         CMUX_HOT_APPLY_STATE_DIR=str(self.tmp / "state"))
 
     def tearDown(self):
@@ -65,6 +66,21 @@ class HotApplyRust(unittest.TestCase):
         (tree / self.name).write_bytes(body)
         (tree / f"{self.name}.sha256").write_text(f"{digest}  {self.name}\n")
         (tree / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {self.name: listed or digest}}))
+        (tree / "source.json").write_text(json.dumps({"commit": FIX}))
+        self.publish_companions({})
+
+    def publish_companions(self, bodies):
+        """The commit-addressed build source.json names, with these companions (file -> bytes)."""
+        built = self.tmp / "commits" / FIX
+        built.mkdir(parents=True, exist_ok=True)
+        triple = self.name.removeprefix("cmux-tui-")
+        artifacts = {"cmux-app-host": "app-host", "cmux-cloud": "cloud-server", "cmux-holder": "holder"}
+        binaries = {}
+        for file, body in bodies.items():
+            asset = f"cmux-tui-{artifacts[file]}-{triple}"
+            (built / asset).write_bytes(body)
+            binaries[asset] = hashlib.sha256(body).hexdigest()
+        (built / "manifest.json").write_text(json.dumps({"binaries": binaries}))
 
     def hot(self, *args):
         done = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=self.env)
@@ -237,6 +253,38 @@ class HotApplyRust(unittest.TestCase):
         code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built))
         self.assertEqual(code, 0, err)
         self.assertEqual(self.sha(), self.new)
+
+    def test_companions_go_in_with_the_daemon_and_come_back_on_rollback(self):
+        # The app host is the build's; the holder the app has is gone from the build; the cloud
+        # server is new in it. The daemon then runs no sibling of another build.
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        holder = self.app / "Contents/Resources/bin/cmux-holder"
+        app_host.write_bytes(b"old host")
+        holder.write_bytes(b"old holder")
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"new host")
+        self.assertFalse(holder.exists())
+        self.assertEqual((self.app / "Contents/Resources/bin/cmux-cloud").read_bytes(), b"new cloud")
+        self.assertTrue((self.app / "Contents/Resources/bin/cmux-tui").is_symlink(), "a link is left alone")
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"old host")
+        self.assertEqual(holder.read_bytes(), b"old holder")
+        self.assertFalse((self.app / "Contents/Resources/bin/cmux-cloud").exists())
+        self.assertEqual(self.sha(), self.old)
+
+    def test_a_binary_brings_the_companions_beside_it(self):
+        built = self.tmp / "dev/bin"
+        built.mkdir(parents=True)
+        (built / "cmux").write_bytes(self.new_body)
+        (built / "cmux-app-host").write_bytes(b"dev host")
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"old host")
+        code, _, err = self.hot("apply", FIX, "--app", str(self.app), "--binary", str(built / "cmux"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(app_host.read_bytes(), b"dev host")
 
     def test_a_commit_the_app_already_has_is_a_no_op(self):
         with open(self.app / "Contents/Info.plist", "wb") as handle:

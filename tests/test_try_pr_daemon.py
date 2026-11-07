@@ -36,6 +36,17 @@ sys.exit(int(os.environ.get("APPLY_EXIT", "0")))
 '''
 RECORD = '''#!/bin/sh
 echo "$(basename "$0") $*" >> "$CALLS"
+[ "$(basename "$0")" = web-overlay.sh ] && exit "${WEB_EXIT:-0}"
+exit 0
+'''
+# side-instance.sh: records each call; `path` names the copy, `launch` exits $LAUNCH_EXIT.
+SIDE = '''#!/bin/sh
+echo "side-instance.sh $*" >> "$CALLS"
+case "$1" in
+  path) echo "$CMUX_SIDE_ROOT/$2/cmux PR.app" ;;
+  launch) exit "${LAUNCH_EXIT:-0}" ;;
+  env) echo ":" ;;
+esac
 '''
 BUDDY = '''#!/usr/bin/env python3
 import plistlib, sys
@@ -164,6 +175,41 @@ class TryPrDaemonTests(unittest.TestCase):
         self.assertIn("not published yet", out.stdout)
         self.assertIn("so the fleet dev build, whose daemon is swapped in", out.stdout)
         self.assertIn("would wait for it and swap its bin/cmux into your app", out.stdout)
+
+    def stub_side_instance(self):
+        side = self.checkout / "scripts/cmux-next/side-instance.sh"
+        side.write_text(SIDE)
+        side.chmod(0o755)
+
+    def test_a_web_part_that_fails_puts_the_daemon_back(self):
+        self.push_pr(RUST, WEB)
+        self.write_plan(left={"web (not published for a branch)": [WEB]})
+        self.env["WEB_EXIT"] = "1"
+        out = self.try_pr("--here", "--no-build")
+        self.assertIn("did not go in, so the daemon goes back", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        rollback = [c for c in self.calls_of("hot-apply") if c.startswith("hot-apply rollback")]
+        self.assertEqual(rollback, ["hot-apply rollback --app " + str(self.app)])
+
+    def test_a_side_instance_that_does_not_open_fails_the_try(self):
+        self.push_pr(RUST)
+        self.write_plan()
+        self.stub_side_instance()
+        self.env["LAUNCH_EXIT"] = "1"
+        out = self.try_pr()
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("did not open", out.stdout)
+        self.assertEqual(self.calls_of("cmux-ci"), [], "no dev build after the daemon went in")
+
+    def test_a_dev_copy_with_web_is_refused_before_anything_changes(self):
+        self.push_pr(RUST, WEB)
+        self.write_plan(left={"web (not published for a branch)": [WEB]})
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.next", "CFBundleVersion": "1",
+                           "CMUXCommit": self.base}, handle)
+        out = self.try_pr("--no-build")
+        self.assertIn("a copy of cmux NEXT DEV cannot load it", out.stdout)
+        self.assertFalse([c for c in self.calls_of("hot-apply") if " apply " in f" {c} "])
 
     def test_a_side_instance_gets_its_own_copy_swapped_before_it_opens(self):
         self.push_pr(RUST)
