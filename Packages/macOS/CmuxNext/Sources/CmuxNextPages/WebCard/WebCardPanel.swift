@@ -182,8 +182,8 @@ public final class WebCardPanel: NSPanel {
     /// down and up on the button, not a key, an Accessibility press, a posted event or a script; held
     /// through a mouse-up AppKit dispatches on its own), on the key panel, the card hears it once.
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
-        // A move setFrame did not see (a drag of the panel) still counts: Confirm somewhere new on
-        // screen rearms first, so that click is not taken.
+        // A move the panel's own sizing did not report (a drag, any other frame change) still
+        // counts: Confirm somewhere new on screen rearms first, so that click is not taken.
         if event.type == .leftMouseDown, hasFooter, controlScreenRect != currentControlScreenRect { controlMoved() }
         guard personClick.dispatch(event, allow: { [weak self] in self?.enabledControl }, in: windowNumber, body),
               isKeyForPerson(self), let card else { return }
@@ -226,21 +226,6 @@ public final class WebCardPanel: NSPanel {
         NSSize(width: personButton.fittingSize.width + 2 * WebCardSurface.inset, height: surface.footerHeight)
     }
 
-    /// SECURITY: while a control shows the panel never gets smaller than its footer (whatever size
-    /// the page asks for), keeping its top edge; every change moves Confirm, so the guard rearms.
-    override public func setFrame(_ newFrame: NSRect, display flag: Bool) {
-        var rect = newFrame
-        if hasFooter {
-            // Borderless with a full-size content view: the content is the frame.
-            let minimum = minimumContent
-            let top = rect.maxY
-            rect.size = NSSize(width: max(rect.width, minimum.width), height: max(rect.height, minimum.height))
-            rect.origin.y = top - rect.height
-        }
-        let moved = rect != frame
-        super.setFrame(rect, display: flag)
-        if moved { frameChanged() }
-    }
 
     /// Whether a control shows in the footer for the shown card.
     private var hasFooter: Bool { card.flatMap { controls[$0] } != nil }
@@ -251,8 +236,6 @@ public final class WebCardPanel: NSPanel {
         surface.show(control)
         if control != nil {
             contentMinSize = minimumContent
-            // Grow to the footer at once when the panel is smaller.
-            setFrame(frame, display: isVisible)
             controlMoved()
         } else {
             contentMinSize = .zero
@@ -261,7 +244,8 @@ public final class WebCardPanel: NSPanel {
         }
     }
 
-    /// The panel's size for a page content size: the footer under it while a control shows.
+    /// SECURITY: the panel's size for a page content size: the footer under it while a control
+    /// shows, and never smaller than the footer with the control at full size, whatever the page asks.
     private func panelSize(_ content: NSSize) -> NSSize {
         guard hasFooter else { return content }
         return NSSize(width: max(content.width, minimumContent.width), height: content.height + surface.footerHeight)
@@ -315,6 +299,7 @@ public final class WebCardPanel: NSPanel {
         WindowActivation.show(self, intent)
         if intent == .raise { page.focusPage() }
         placePersonControl()
+        frameChanged()
     }
 
     /// Grows or shrinks downward, keeping the top edge where the person saw it.
@@ -322,6 +307,8 @@ public final class WebCardPanel: NSPanel {
         guard abs(size.height - frame.height) > 0.5 || abs(size.width - frame.width) > 0.5 else { return }
         let top = frame.maxY
         setFrame(NSRect(x: frame.midX - size.width / 2, y: top - size.height, width: size.width, height: size.height), display: true)
+        // Confirm moved on screen with the panel.
+        frameChanged()
     }
 
     private func finish(_ card: String) {

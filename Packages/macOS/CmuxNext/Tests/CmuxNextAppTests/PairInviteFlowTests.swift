@@ -425,8 +425,8 @@ import Testing
         let card = CountingCard(PairInviteCardProvider.route)
         let mouse = try Mouse(card)
         let panel = mouse.panel
+        // The page asks for a 1x1 card.
         panel.pageResized(card: card.card, width: 1, height: 1)
-        panel.setContentSize(NSSize(width: 1, height: 1))
         panel.contentView?.layoutSubtreeIfNeeded()
         let bounds = try #require(panel.contentView?.bounds)
         let button = panel.personButton
@@ -434,6 +434,7 @@ import Testing
         #expect(frame.size == button.fittingSize, "Confirm keeps its full size")
         #expect(bounds.contains(frame), "and shows whole inside the card")
         #expect(bounds.height >= button.fittingSize.height + 2 * WebCardSurface.inset, "the footer keeps its height")
+        #expect(bounds.width == button.fittingSize.width + 2 * WebCardSurface.inset, "the page's 1x1 ask took effect, clamped to the footer")
     }
 
     @Test func aLostSocketSaysSoAndNeverReconnectsOnItsOwn() async {
