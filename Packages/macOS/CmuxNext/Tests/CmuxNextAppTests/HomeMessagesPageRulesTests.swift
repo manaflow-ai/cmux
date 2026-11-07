@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextHome
 @testable import CmuxNextApp
 import CmuxNextPages
 import Testing
@@ -49,9 +50,9 @@ struct HomeMessagesPageRulesTests {
 
     /// F4: the deleted set goes to the page as `{hidden: {id: seq}}`.
     @Test func theHiddenStreamSendsEachDeletedConversationWithItsSeq() {
-        let value = HomeMessagesHostProvider.json(hidden: [HomeChiefRosterTests.ada: 42])
+        let value = [HomeChiefRosterTests.ada: Seq(42)].pageHidden
         #expect(value == .object(["hidden": .object(["conv_ada": .number(42)])]))
-        #expect(HomeMessagesHostProvider.json(hidden: [:]) == .object(["hidden": .object([:])]))
+        #expect(([ConversationID: Seq]()).pageHidden == .object(["hidden": .object([:])]))
     }
 
     /// F5: a Home pane tab's content is this view; the focus model finds its page through

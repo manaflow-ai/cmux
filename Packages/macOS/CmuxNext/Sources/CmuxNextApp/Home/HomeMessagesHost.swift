@@ -58,8 +58,6 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The conversations deleted from the page's list (``HomeSidebarSource/hidden``).
     var hidden: @MainActor () -> [ConversationID: Seq] = { [:] }
     private lazy var hiddenStream = HomePageStream(initial: .object(["hidden": .object([:])]))
-    /// The longest draft kept (a paste of a log stays a draft; a runaway page cannot fill the cache).
-    static let maxDraftLength = 200_000
     private var previewProvider: HomeLinkPreviewProvider?
     /// The page's streams; an observed one reads only while it has a listener.
     private lazy var appearanceStream = HomePageStream(observing: { [weak self] in self?.appearance() ?? .null })
@@ -100,17 +98,11 @@ final class HomeMessagesHostProvider: PageProvider {
             onShown?(id, composing)
             if moved { [panelsStream, chiefPlace, needsYouStream].forEach { $0.restart() }; firstRun?.restart() }
             return .null
-        case "drafts.load":
-            let store = home.homeStore
-            let drafts = store.rows.reduce(into: [String: JSONValue]()) { out, row in
-                if let text = store.draft(for: row.id), !text.isEmpty { out[row.id.rawValue] = .string(text) }
-            }
-            return .object(["drafts": .object(drafts)])
+        case "drafts.load": return home.homeStore.pageDrafts
         case "drafts.save":
-            let id = try conversation(fields)
-            let text = fields["text"]?.stringValue ?? ""
-            guard text.count <= Self.maxDraftLength else { throw PageError.invalidParams("text is longer than a draft keeps") }
-            home.homeStore.setDraft(text, for: id)
+            guard try home.homeStore.savePageDraft(fields["text"]?.stringValue ?? "", for: conversation(fields)) else {
+                throw PageError.invalidParams("text is longer than a draft keeps")
+            }
             return .null
         case "requests.list":
             await home.requests.reload()
@@ -231,7 +223,7 @@ final class HomeMessagesHostProvider: PageProvider {
         switch stream {
         case HomeMessagesPageRoute.prefix + "appearance": return appearanceStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "hidden":
-            hiddenStream.publish(Self.json(hidden: hidden()))
+            hiddenStream.publish(hidden().pageHidden)
             return hiddenStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "headerPanels": return panelsStream.subscribe(onEvent)
         case HomeMessagesPageRoute.prefix + "chiefTurn": return chiefTurn.subscribe(onEvent)
@@ -312,11 +304,7 @@ final class HomeMessagesHostProvider: PageProvider {
     // MARK: Streams
 
     /// The deleted conversations changed: the page's list reads them again.
-    func publishHidden() { hiddenStream.publish(Self.json(hidden: hidden())) }
-
-    static func json(hidden: [ConversationID: Seq]) -> JSONValue {
-        .object(["hidden": .object(hidden.reduce(into: [String: JSONValue]()) { $0[$1.key.rawValue] = .number(Double($1.value)) })])
-    }
+    func publishHidden() { hiddenStream.publish(hidden().pageHidden) }
 
     private func appearance() -> JSONValue {
         guard let home = services?.home else { return .null }
