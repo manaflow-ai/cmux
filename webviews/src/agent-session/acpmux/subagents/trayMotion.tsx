@@ -302,9 +302,16 @@ export function Tick({
     widthFrom.current = undefined;
     const node = cell.current;
     if (from === undefined || !node || !slide || typeof node.animate !== "function") return undefined;
+    // The new words' own width, not their span's: both spans fill one grid cell, which the leaving
+    // words still hold wide, so a long-to-short change would read the old width. A range over the
+    // text measures the words alone; the cell's padding (none today) would add to it.
     const incoming = node.querySelector<HTMLElement>(":scope > .acpmux-tick__in");
-    const to = incoming?.scrollWidth;
-    if (to === undefined || Math.abs(to - from) < 1) return undefined;
+    if (!incoming) return undefined;
+    const range = node.ownerDocument.createRange();
+    range.selectNodeContents(incoming);
+    const text = range.getBoundingClientRect?.().width;
+    const to = text ? Math.ceil(text) : incoming.scrollWidth;
+    if (Math.abs(to - from) < 1) return undefined;
     const style = node.ownerDocument.defaultView?.getComputedStyle(node);
     const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 200;
     if (duration <= 0) return undefined;

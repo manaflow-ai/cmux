@@ -134,6 +134,27 @@ describe("one item heads the hat", () => {
     }
   });
 
+  test("a lone subagent acpmux retries says so at the row's end, with no stale step", async () => {
+    const view = await hat({
+      items: [
+        agentItem({
+          id: "a1",
+          task: "Diagnose nightly lag",
+          action: "Bash",
+          state: "failed",
+          retry: { attempt: 2, of: 4 },
+        }),
+      ],
+    });
+    try {
+      const head = view.head()!;
+      expect(head.querySelector(".acpmux-running-tray__time[data-lone]")?.textContent).toContain("Retrying (2/4)");
+      expect(head.querySelector(".acpmux-running-tray__latest")).toBeNull();
+    } finally {
+      await view.done();
+    }
+  });
+
   test("a second item joining a folded hat changes only its words: same header, still folded, no list", async () => {
     // Leo, 2026-11-07, on the hat when a new command comes in: "we don't want it to, like, jitter. We
     // don't want it to be indecisive." A lone line used to turn into a header and a folding list.

@@ -606,6 +606,12 @@ export const SubagentTray = memo(function SubagentTray({
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone>
               {loneHead.status === "done" ? (
                 <DoneMark state={loneHead.state} time={loneHead.time} look={doneLook} />
+              ) : loneHead.retry ? (
+                loneHead.time === undefined ? (
+                  loneHead.state
+                ) : (
+                  `${loneHead.state} · ${loneHead.time}`
+                )
               ) : loneHead.status === "running" || loneHead.time === undefined ? (
                 (loneHead.time ?? loneHead.state)
               ) : (
@@ -928,6 +934,8 @@ type LoneHead = {
   status: SubagentStatus;
   state: string;
   time?: string;
+  /// A retry is in progress: its words ("Retrying (2/4) ...") stay on the row, as its line says them.
+  retry?: boolean;
 };
 function loneHeadOf(
   t: Translate,
@@ -938,12 +946,15 @@ function loneHeadOf(
 ): LoneHead {
   if (item.kind === "agent") {
     const status = subagentStatus(item.agent, waiting);
+    const retry = retrying(item.agent) !== undefined;
     return {
       title: subagentTaskLabel(t, item.agent),
-      latest: showLatest && status === "running" ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
+      latest:
+        showLatest && status === "running" && !retry ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
       status,
       state: subagentStateText(t, item.agent, waiting),
       time: formatDuration(elapsed(item.agent, now)),
+      retry,
     };
   }
   if (item.kind === "command")
@@ -956,12 +967,17 @@ function loneHeadOf(
       time:
         item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt)),
     };
-  const status = SESSION_STATUS[item.session.state];
+  // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
+  // retries reads as retrying, never Failed.
+  const phase = sessionRetry(item.session);
+  const retry = phase.kind === "retrying" ? phase.retry : undefined;
+  const status = retry ? "running" : SESSION_STATUS[item.session.state];
   return {
     title: item.session.title,
-    latest: showLatest && status === "running" ? item.session.doing : undefined,
+    latest: showLatest && status === "running" && !retry ? item.session.doing : undefined,
     status,
-    state: t(STATUS_LABEL[status]),
+    state: retry ? retryLabel(t, retry) : t(STATUS_LABEL[status]),
+    retry: retry !== undefined,
   };
 }
 
