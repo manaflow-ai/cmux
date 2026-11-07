@@ -22,9 +22,9 @@ import CmuxNextSettings
                      scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])
     }
 
-    /// The quit, before the chats' composers are saved: a recording still running, or one not
-    /// collected, is finished and kept, since no page collects it any more
-    /// (``AgentPaneRecorder/finishForQuit()``).
+    /// The quit, after the chats' composers are saved (a slow stream stop never holds them up): a
+    /// recording still running, or one not collected, is finished and kept, since no page collects
+    /// it any more, unless its chat is incognito (``AgentPaneRecorder/finishForQuit()``).
     public static func finishForQuit() async {
         await AgentPaneRecorder.shared.finishForQuit()
     }

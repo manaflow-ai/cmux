@@ -54,11 +54,15 @@ final class AgentPaneRecorder {
     /// chat then, whose Chat Uploads folder keeps the movie.
     private weak var recordingModel: AgentPaneModel?
     private var recordingSession: String?
+    /// Whether its chat was incognito when it started (``AgentPaneModel/sendIsIncognito``; unknown
+    /// counts as incognito): a quit discards its movie with the chat.
+    private var recordingIncognito = true
     /// Recordings that ended by themselves and were not collected yet when another started: each
     /// waits for its own pane's `capture.record.stop`, and goes when that pane does.
     private struct Leftover {
         weak var model: AgentPaneModel?
         let session: String?
+        let incognito: Bool
         let recording: AgentPaneRecording
         let since: Date
     }
@@ -101,7 +105,7 @@ final class AgentPaneRecorder {
         if let stale = current {
             current = nil
             if let owner = recordingModel {
-                leftovers.append(Leftover(model: owner, session: recordingSession, recording: stale, since: Date()))
+                leftovers.append(Leftover(model: owner, session: recordingSession, incognito: recordingIncognito, recording: stale, since: Date()))
             } else {
                 Task.detached(priority: .utility) { await stale.discard() }
             }
@@ -134,6 +138,7 @@ final class AgentPaneRecorder {
         recordingView = view(for: model)
         recordingModel = model
         recordingSession = model.onLocalPaths?() == true ? model.sessionId : nil
+        recordingIncognito = model.sendIsIncognito?() ?? true
         // The stream follows the window when it moves or resizes; a close or the quit ends it.
         observers = [NSWindow.willCloseNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification].map { name in
             MainActorObservation(name, object: window) { [weak window] in
@@ -175,20 +180,25 @@ final class AgentPaneRecorder {
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
-    /// The quit (QuitCoordinator awaits it before the composers are saved and the engines stop):
-    /// the running recording and every one not collected end, their movies are finalized and moved
-    /// into their chat's Chat Uploads folder, and their files go on the clipboard, so a quit never
-    /// loses a clip. The stream's stop is under ``AgentPaneRecording/callLimit``.
+    /// The quit (QuitCoordinator awaits it after the composers are saved, before the engines
+    /// stop): the running recording and every one not collected end, their movies are finalized
+    /// and moved into their chat's Chat Uploads folder, and their files go on the clipboard, so a
+    /// quit never loses a clip. An incognito chat's is discarded with the chat, never kept or
+    /// copied. The stream's stop is under ``AgentPaneRecording/callLimit``.
     func finishForQuit() async {
-        var pending = leftovers.map { (recording: $0.recording, session: $0.session, model: $0.model) }
+        var pending = leftovers.map { (recording: $0.recording, session: $0.session, model: $0.model, incognito: $0.incognito) }
         leftovers = []
         if let running = current {
-            pending.append((running, recordingSession, recordingModel))
+            pending.append((running, recordingSession, recordingModel, recordingIncognito))
             current = nil
             removeObservers()
         }
         var kept: [NSURL] = []
         for item in pending {
+            if item.incognito {
+                await item.recording.discard()
+                continue
+            }
             guard let made = await item.recording.finish() else { continue }
             let movie = URL(fileURLWithPath: made.path)
             let upload = (item.model?.chatUploadFolders ?? ChatUploadFolders.standard)?.freshUpload(session: item.session)

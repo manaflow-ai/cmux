@@ -209,7 +209,7 @@ final class QuitCoordinator {
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
-                    agentComposers: { await AgentPaneCaptureBar.finishForQuit(); await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)) },
+                    agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: incognito.contains)); await AgentPaneCaptureBar.finishForQuit() },
                     agentImages: { await services.agentTabs.launchImages.save(AgentQuitFiles.images(services.agentTabs, isIncognito: incognito.contains)) },
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
