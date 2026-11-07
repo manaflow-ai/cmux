@@ -723,14 +723,16 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, any>) => block._meta?.cmux?.pasted !== true)
           .map((block: Record<string, string>) => block.text)
           .join("");
-        // What acpmux records (hub/session.rs prompt_text_parts): the pasted blocks' text too, each
-        // a range in it, so the sent row draws them as acpmux's echo does.
+        // What acpmux records when something was pasted (hub/session.rs prompt_text_parts): every
+        // text block, pasted ones too, one per line, and each paste's range in UTF-16 units, so the
+        // sent row draws them as acpmux's echo does.
         const recorded = { text: "", pasted: [] as { start: number; end: number }[] };
-        for (const block of blocks) {
+        blocks.forEach((block: Record<string, any>, index: number) => {
+          if (index > 0) recorded.text += "\n";
           const start = recorded.text.length;
           recorded.text += block.text;
           if (block._meta?.cmux?.pasted === true) recorded.pasted.push({ start, end: recorded.text.length });
-        }
+        });
         const promptId = params._meta?.acpmux?.promptId;
         // acpmux keeps each image once and names it in the prompt's user_message.
         const images = (Array.isArray(params.prompt) ? params.prompt : [])
