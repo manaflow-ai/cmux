@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { TurnFooter } from "./TurnRows";
 import { SummaryRow } from "../rows/SummaryRow";
-import { sameRowFrame } from "../VirtualTranscript";
+import { sameRowFrame } from "../virtualTranscriptModel";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";

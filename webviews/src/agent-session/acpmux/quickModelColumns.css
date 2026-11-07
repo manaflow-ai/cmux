@@ -12,7 +12,8 @@
      never clipped (Lawrence 2026-11-05: "cant see full model name"). It only grows while open
      (frameRef), so a search never shrinks it under the pointer. */
   width: max-content;
-  min-width: min(28.5em, var(--available-width, calc(100vw - 24px)));
+  --acpmux-cols-min-width: 28.5em;
+  min-width: min(var(--acpmux-cols-min-width), var(--available-width, calc(100vw - 24px)));
   max-width: min(40em, var(--available-width, calc(100vw - 24px)));
   padding: 0;
   /* The account card draws past the columns, never clipped by them. */
