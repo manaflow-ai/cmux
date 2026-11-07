@@ -295,7 +295,12 @@ async fn a_copy_that_cannot_be_read_holds_the_peer_and_says_so() {
     move_to_a_fresh_machine(Fault::ReadsFail).await;
 }
 
+/// The moves run one at a time: their test seams are the process's, and each machine is "b".
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn move_to_a_fresh_machine(fault: Fault) {
+    let _one = ONE_AT_A_TIME.lock().await;
+    acpmux::hub::peer_snapshot_reads_fail("b", 0);
     let fail_midway = fault == Fault::AppendMidway;
     let _ = HERMETIC;
     let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
