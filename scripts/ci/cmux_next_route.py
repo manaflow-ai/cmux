@@ -143,17 +143,20 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
+    "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
     "cmux-tui/crates/cmux-rd-proto/",
     "cmux-tui/crates/cmux-rd-ffi/",
-    # The SDK's C ABI and the SDK it wraps (the app's daemon client).
+    # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
+    # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
-    "cmux-tui/bindings/rust/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -247,6 +250,7 @@ BUNDLE_INPUTS = (
     "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
     "schemas/layout-grid/layout-grid.json",
+    "schemas/type-scale/type-scale.json",
     # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
     "schemas/design-scale/design-scale.json",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).

@@ -188,6 +188,9 @@
             "text": "What happens to a command that still runs in a workspace that frees its terminals."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "WorkspaceFreeingRunningCommandsSetting"
+          },
           "choices": [
             {
               "value": "never",

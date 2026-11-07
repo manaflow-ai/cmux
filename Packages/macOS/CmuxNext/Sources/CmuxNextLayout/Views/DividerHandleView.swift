@@ -50,6 +50,8 @@ final class DividerHandleView: NSView {
     let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
+    /// Hovered or dragged with a line shown.
+    private var isActive: Bool { (isHovered || isDragging) && showsActiveLine }
     /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
     /// would hear neither. Installed on the press, removed when the drag ends.
     private var keyMonitor: Any?
@@ -153,12 +155,14 @@ final class DividerHandleView: NSView {
     /// must show above Chromium pages (an occlusion hole), unlike the rest
     /// of the hit area.
     var lineFrameInSuperview: CGRect {
-        // A lit band reaches past the line: the page must leave its halo uncovered too.
+        // A lit band is wider than a thin line: the page must leave the whole band uncovered.
         convert(glow.isLit ? lineFrame.union(glow.extent) : lineFrame, to: superview)
     }
 
     private var lineFrame: CGRect {
-        let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
+        // At rest a column edge's line is as thin as a split's (the faint line between panes); hovered or dragged
+        // it is the edge line, at least 2 pt, so the edge of a whole column reads as one.
+        let t = isColumnEdge && (isHovered || isDragging) ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
         case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
@@ -174,9 +178,11 @@ final class DividerHandleView: NSView {
     var isLineVisible: Bool {
         if glow.isLit { return true }
         // Use the presentation color while the hover fade is running. The
-        // page must remain covered until the last visible native pixel fades.
-        guard let color = (line.presentation() ?? line).backgroundColor else { return false }
-        return color.alpha > 0.001 && line.opacity > 0.001
+        // page must remain covered until the last visible native pixel fades,
+        // and uncovered from the first frame of a line fading in (its
+        // presentation is still clear when the overlay reports it).
+        guard line.opacity > 0.001 else { return false }
+        return [line.backgroundColor, line.presentation()?.backgroundColor].contains { ($0?.alpha ?? 0) > 0.001 }
     }
 
     /// Set only by the owning screen's hover pass.
@@ -273,14 +279,18 @@ final class DividerHandleView: NSView {
         // look): it is the drag's cue, not a separator. Hover lights it only where hover shows a line.
         glow.set(isDragging ? .dragging : isHovered && showsActiveLine ? .hovered : .rest)
         let isEdge = isEdgeHandle
+        if isColumnEdge, line.frame != lineFrame { needsLayout = true } // its line widens on hover and drag
         performWithTheme {
-            let active = (isHovered || isDragging) && showsActiveLine
+            let active = isActive
             let color: NSColor
             if isEdge {
                 if active {
                     color = Palette.focusRing.withAlphaComponent(isRowEdge ? 0.6 : 0.45)
                 } else if isRowEdge, showsIdleLine {
                     color = Palette.separator.withAlphaComponent(0.32)
+                } else if showsIdleLine {
+                    // A column edge between two columns: the split's line at rest.
+                    color = Palette.surfaceOverride(.splitDivider) ?? Palette.separator
                 } else {
                     color = .clear
                 }

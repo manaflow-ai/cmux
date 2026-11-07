@@ -812,6 +812,16 @@
               "key" : "settings.pageGroup.terminalBehavior",
               "text" : "Behavior"
             }
+          },
+          {
+            "key" : "settings.group.terminalCompatibility",
+            "rows" : [
+              "terminal.term"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCompatibility",
+              "text" : "Compatibility"
+            }
           }
         ],
         "id" : "terminal",
@@ -18592,7 +18602,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -31439,7 +31449,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
@@ -80373,7 +80383,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -80436,7 +80446,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -80448,9 +80458,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -87124,7 +87136,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockEdge.help",
-        "text" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+        "text" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.edge",
@@ -87256,7 +87268,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",
@@ -87264,7 +87276,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockOpenBeside.help",
-        "text" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+        "text" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.openBeside",
@@ -87379,7 +87391,7 @@
       },
       "title" : {
         "key" : "settings.home.chiefDockOpenBeside",
-        "text" : "Keep Chief Docked When Opening Workspaces"
+        "text" : "Show Chief When Opening Workspaces"
       },
       "validation" : "portable"
     },

@@ -1,5 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
-import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -24,7 +24,7 @@ import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -47,6 +47,7 @@ import {
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { continueTargets } from "./cmuxCommands";
+import { clearHeldFork, holdFork, useHeldFork } from "./forkHold";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
@@ -181,9 +182,11 @@ type Props = {
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
-  /// Forks a started chat into a new chat on another harness (see ModelPickerProps.fork): with it,
-  /// a started chat's model menu keeps the whole harness rail, each other harness a Fork to row.
-  fork?: { to(harness: string): void; ready: boolean };
+  /// A started chat can fork into a new chat on another harness (see ModelPickerProps.fork): with
+  /// it, its model menus list the models of every harness Continue In… can take (continueTargets),
+  /// and a pick of another harness's model is held as the next message's target (forkHold.ts),
+  /// which the composer's send forks to.
+  fork?: boolean;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
@@ -259,10 +262,12 @@ export function ComposerPickers({
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
   // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
-  // never a pick. Where the chat can fork (`fork`), the compact menu keeps the whole rail again
-  // (Leo 2026-10-22: "why did you guys even remove the fucking harness model picker"), its other
-  // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
-  // (`harnessSwitch`) keeps the whole rail and its switch.
+  // never a pick. Where the chat can fork (`fork`), the menus keep the rail again (Leo 2026-10-22:
+  // "why did you guys even remove the fucking harness model picker"), every harness Continue In…
+  // can take listing its models; a pick of another harness's is held for the next message, which
+  // forks (Leo 2026-11-06: "it should only need to necessarily fork when you enter a message on
+  // that new model"). Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
+  // keeps the whole rail and its switch.
   // A message, not the session's start row: the deferred chat a New Tab pick or typed prompt starts
   // behind the page draws its start row before any prompt (Leo 2026-10-31: "IM SAYING I CANT
   // FUCKING SEE ANY HARNESS"), and a New Tab never fixes the harness.
@@ -273,8 +278,8 @@ export function ComposerPickers({
     ((summary.turnCount ?? 0) > 0 || snapshot.rows.some((row) => row.kind !== "sessionStart"));
   const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
-  // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
-  // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
+  // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
+  // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
   const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
   const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
   // Installed launch configurations are separate from route-backed accounts in the model menu.
@@ -506,12 +511,37 @@ export function ComposerPickers({
         rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, folder ?? summary?.cwd);
       switchHarness(picked, pickedModel, options);
     });
-  // A fork onto another harness (a started chat's account pick) is that harness's pick too.
-  const forkTo = (picked: string) => {
-    if (remembers) rememberPick({ harness: picked }, folder ?? summary?.cwd);
-    fork?.to(picked);
+  // A started chat that can fork holds a pick of another harness's model as its next message's
+  // target (forkHold.ts; Leo 2026-11-06: "it should only need to necessarily fork when you enter a
+  // message on that new model"). Leaving the chat, the composer closing, or the chat losing its
+  // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
+  const sessionId = summary?.sessionId;
+  const forks = locked && fork === true && !!sessionId;
+  const forkTargets = forks ? continueTargets(snapshot.catalog, summary?.harness, summary?.family) : [];
+  // One set per list of targets, so the menus' lists are not rebuilt on every render.
+  const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
+  const targetSet = useMemo(() => new Set(targetsKey ? targetsKey.split("\u0000") : []), [targetsKey]);
+  const held = useHeldFork(forks ? sessionId : undefined);
+  useEffect(() => {
+    if (!forks || !sessionId) return;
+    return () => clearHeldFork(sessionId);
+  }, [forks, sessionId]);
+  // A harness Continue In… can't take is never held.
+  const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean; name?: string }) => {
+    if (!forks || !sessionId || !forkTargets.some((target) => target.id === picked.harness)) return;
+    holdFork({
+      sessionId,
+      harness: picked.harness,
+      ...(picked.model ? { model: picked.model } : {}),
+      ...(picked.effort ? { effort: picked.effort } : {}),
+      ...(picked.fast ? { fast: true } : {}),
+      ...(picked.name ? { name: picked.name } : {}),
+    });
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
+    // A pick of the chat's own harness drops another harness's held pick: the next message stays
+    // in this chat.
+    if (forks) clearHeldFork(sessionId);
     // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
     // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
     const waiting =
@@ -555,6 +585,11 @@ export function ComposerPickers({
     crossing.current = undefined;
     fastWanted.current = undefined;
     if (picked.harness !== harness) {
+      // A started chat that can fork holds the pick for its next message: nothing forks yet.
+      if (forks) {
+        hold(picked);
+        return;
+      }
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
@@ -1029,6 +1064,39 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
+  // A held pick of another harness's model: the chip names it, with its effort (the typed one, else
+  // the model's own default level) and a fork mark (ModelPicker), as the next message runs it.
+  const heldEntry = held ? allEntries.find((entry) => entry.id === held.harness) : undefined;
+  const heldCatalog = held
+    ? pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === held.harness)
+    : undefined;
+  const heldRow = held?.model ? catalogRow(heldCatalog?.models, held.model) : undefined;
+  const heldListed = held?.model ? heldEntry?.models.find((choice) => choice.id === held.model) : undefined;
+  const heldName = held
+    ? held.model
+      ? (heldRow?.name ?? heldListed?.name ?? modelIdName(held.model, t))
+      : (held.name ?? heldEntry?.name ?? held.harness)
+    : undefined;
+  const heldEffort = held?.effort ?? (held?.model ? heldRow?.defaultEffort : undefined);
+  const heldEffortKey = heldEffort ? LEVEL_KEYS[heldEffort] : undefined;
+  const heldDetail = heldEffortKey ? t(heldEffortKey) : undefined;
+  const pickerFork: ModelPickerProps["fork"] = forks
+    ? {
+        targets: targetSet,
+        hold: (target, name) => hold({ harness: target, ...(name ? { name } : {}) }),
+        ...(held
+          ? {
+              held: {
+                harness: held.harness,
+                ...(held.model ? { model: held.model } : {}),
+                ...(held.effort ? { effort: held.effort } : {}),
+                ...(held.fast ? { fast: true } : {}),
+                name: held.name ?? heldEntry?.name ?? heldCatalog?.name ?? held.harness,
+              },
+            }
+          : {}),
+      }
+    : undefined;
   const picksModel =
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
@@ -1039,11 +1107,11 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           {...(predictedModel ? { predictedModel } : {})}
-          label={modelName ?? t(PICKER_LABELS.model)}
+          label={heldName ?? modelName ?? t(PICKER_LABELS.model)}
           sessionAuth={signIn?.sessionAuth}
           onSessionLogin={signIn?.loginSession}
           onSessionAuthRefresh={signIn?.recheckSession}
-          {...(modelChip ? { chip: modelChip } : {})}
+          {...(modelChip && !held ? { chip: modelChip } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
           effort={currentEffort}
@@ -1054,17 +1122,7 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={pickHarness}
-          {...(locked && fork
-            ? {
-                fork: {
-                  ready: fork.ready,
-                  to: forkTo,
-                  targets: new Set(
-                    continueTargets(snapshot.catalog, summary?.harness, summary?.family).map((target) => target.id),
-                  ),
-                },
-              }
-            : {})}
+          {...(pickerFork ? { fork: pickerFork } : {})}
           {...(profiles ? { profiles } : {})}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
@@ -1081,8 +1139,14 @@ export function ComposerPickers({
           }
           usage={usageNote}
           quick={quick}
-          {...(quickDetail ? { detail: quickDetail } : {})}
-          {...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {})}
+          {...(held
+            ? heldDetail
+              ? { detail: heldDetail }
+              : {}
+            : {
+                ...(quickDetail ? { detail: quickDetail } : {}),
+                ...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {}),
+              })}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as

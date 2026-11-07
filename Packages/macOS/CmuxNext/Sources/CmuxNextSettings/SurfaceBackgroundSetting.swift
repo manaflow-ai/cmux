@@ -20,11 +20,6 @@ public nonisolated struct SurfaceBackgroundSetting {
     /// `appearance.surfaces.<surface>.opacity`.
     public static func opacityPath(_ kind: SurfaceKind) -> [String] { rootPath + [kind.rawValue, "opacity"] }
 
-    /// Every dotted key, color and opacity per surface.
-    public static var keys: [String] {
-        SurfaceKind.allCases.flatMap { [colorPath($0), opacityPath($0)] }.map { $0.joined(separator: ".") }
-    }
-
     /// A bad value keeps that field's default and adds a diagnostic at its
     /// key; unknown surfaces and fields are reported too.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> SurfaceBackgrounds {

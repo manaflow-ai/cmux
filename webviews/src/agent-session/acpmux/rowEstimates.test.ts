@@ -91,14 +91,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
     const live = turnView(source as never, new Set(), {
       now: 3_000,
       working: true,
-      lineBelow: true,
-      liveRuns: true,
       sessionStatus: true,
     });
     const settled = turnView(
       [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
       new Set(),
-      { now: 4_000, lineBelow: true, liveRuns: true, sessionStatus: true },
+      { now: 4_000, sessionStatus: true },
     );
     expect(live.at(-1)).toMatchObject({ below: true });
     expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
@@ -123,8 +121,6 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   const live = turnView(liveSource as never, new Set(), {
     now: 5_000,
     working: true,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   const settledSource = [
@@ -137,25 +133,12 @@ test("a live footer slot keeps short, long, and tool-ending turns at the settled
   ];
   const settled = turnView(settledSource as never, new Set(), {
     now: 6_000,
-    lineBelow: true,
-    liveRuns: true,
     sessionStatus: true,
   });
   expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
   expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
   expect(layoutConversation(live, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
   expect(layoutConversation(settled, 720).heights.at(-1)).toBe(TRANSCRIPT_FOOTER_CONTROL);
-
-  const legacy = turnView(liveSource as never, new Set(), {
-    now: 5_000,
-    working: true,
-    lineBelow: false,
-    liveRuns: false,
-    sessionStatus: true,
-  });
-  expect(legacy.at(-1)).toMatchObject({ kind: "activityLine" });
-  expect(legacy.at(-1)?.below).toBeUndefined();
-  expect(layoutConversation(legacy, 720).heights.at(-1)).toBe(28);
 });
 
 test("the chat's last footer is placed again when a prompt follows it", () => {
@@ -585,4 +568,103 @@ test("an unlabeled card's first line keeps room for its corner actions (cmux#306
   expect(scrollbar(`short\n${line}`, "")).toBe(0);
   // A labeled card's actions sit in its header row, so its first line has the full width.
   expect(scrollbar(`${line}\nshort`, "python")).toBe(0);
+});
+
+const permissionAsk = (overrides: Partial<NonNullable<AcpmuxRow["permission"]>> = {}): AcpmuxRow => ({
+  id: "permission",
+  version: 1,
+  at: 0,
+  kind: "permission",
+  permission: {
+    permissionId: "ask",
+    pending: true,
+    title: "Read project files",
+    kind: "read",
+    options: [{ id: "allow_once", kind: "allow_once", name: "Allow once", allow: true }],
+    ...overrides,
+  },
+});
+const questionAsk = (count: number, description?: string): AcpmuxRow =>
+  permissionAsk({
+    question: {
+      id: "question",
+      source: { harness: "claude", session: "fixture" },
+      state: { kind: "pending" },
+      items: [
+        {
+          id: "item",
+          prompt: "Choose a format",
+          multiSelect: false,
+          allowsOther: false,
+          options: Array.from({ length: count }, (_, index) => ({
+            id: String(index),
+            label: `Format ${index}`,
+            detail: description,
+          })),
+        },
+      ],
+    },
+  });
+
+test("permission estimates use the grid frame and reserve a command preview only when drawn", () => {
+  const plain = heightsOf([permissionAsk()])[0]!;
+  // 16px around the 18px title, then 12px above and 16px below a 28px button row.
+  expect(plain).toBeCloseTo(16 + 18 + 16 + 12 + 28 + 16);
+  const command = heightsOf([permissionAsk({ command: "pwd" })])[0]!;
+  // The details band's 12px, then the preview's 8px insets around one 12px/1.5 line.
+  expect(command - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8);
+  const scope = heightsOf([permissionAsk({ scope: { kind: "directory", value: "/project" } })])[0]!;
+  expect(scope - plain).toBeCloseTo(12 + 11 * 1.3);
+  const both = heightsOf([permissionAsk({ command: "pwd", scope: { kind: "directory", value: "/project" } })])[0]!;
+  expect(both - plain).toBeCloseTo(12 + 8 + 12 * 1.5 + 8 + 8 + 11 * 1.3);
+});
+
+test("the first layout reserves every question option before placing the reply below", () => {
+  const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
+  const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
+  expect(two.heights[0]).toBeCloseTo(32 + 1 + 24 + 18 + 0.5 + 8 + 2 * 36 + 44);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 36);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 36);
+});
+
+test("question estimates follow description wrapping at the actual column width", () => {
+  const row = questionAsk(3, "The format retains the original metadata and supports every project export.");
+  const wide = layoutConversation([row], 720);
+  const narrow = layoutConversation([row], 220);
+  expect(narrow.heights[0]!).toBeGreaterThan(wide.heights[0]!);
+  expect(heightsOf([questionAsk(3)])[0]!).toBeLessThan(wide.heights[0]!);
+});
+
+test("narrow permission action rows and two-line commands reserve their extra height", () => {
+  const row = permissionAsk({
+    command: "printf '%s' ".repeat(12),
+    options: [
+      { id: "allow_once", kind: "allow_once", name: "Allow once", allow: true },
+      { id: "allow_always", kind: "allow_always", name: "Always allow", allow: true },
+      { id: "deny", kind: "reject_once", name: "Deny", allow: false },
+    ],
+  });
+  expect(layoutConversation([row], 180).heights[0]!).toBeGreaterThan(layoutConversation([row], 720).heights[0]!);
+});
+
+test("plan and blocked-read asks reserve the parts their cards draw", () => {
+  const plain = heightsOf([permissionAsk()])[0]!;
+  const plan = heightsOf([permissionAsk({ plan: "## Plan\n\n" + "1. Step through the change.\n".repeat(4) })])[0]!;
+  expect(plan).toBeGreaterThan(plain + 8 + 16);
+  const long = heightsOf([permissionAsk({ plan: "1. Step.\n".repeat(200) })])[0]!;
+  // The plan scrolls inside the card past 320px.
+  expect(long - plain).toBeLessThanOrEqual(8 + 320);
+  const external = heightsOf([
+    permissionAsk({
+      scope: { kind: "directory", value: "/Users/you/Documents" },
+      externalAccess: {
+        kind: "files_and_folders",
+        target: "/Users/you/Documents/report.txt",
+        operation: "read_text_file",
+        platform: "macos",
+      },
+    }),
+  ])[0]!;
+  // Its macOS detail line shows, and no scope line under the buttons.
+  expect(external).toBeGreaterThan(plain + 8);
 });

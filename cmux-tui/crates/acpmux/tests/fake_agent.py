@@ -390,6 +390,28 @@ def handle_prompt(rid, params):
         }})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
+    # its context before it goes on, hub/auto_resume/compact_first.rs). FAKE_COMPACT=fail
+    # reports it failed and ends the prompt as Claude Code does; FAKE_COMPACT=hold runs it until
+    # session/cancel.
+    if text == "/compact":
+        mode = os.environ.get("FAKE_COMPACT", "")
+        update(sid, {"sessionUpdate": "compaction", "state": "running"})
+        if mode == "hold":
+            for _ in range(600):
+                if sid in cancelled:
+                    cancelled.discard(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.05)
+        if mode == "fail":
+            update(sid, {"sessionUpdate": "compaction", "state": "failed", "error": "Prompt is too long"})
+        else:
+            update(sid, {"sessionUpdate": "compaction", "state": "completed"})
+        # Echoed as any other prompt is, so a test can see where the command went in.
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
