@@ -66,7 +66,9 @@ impl Id {
     pub(crate) fn hash_with(&mut self, salt: &[u8]) {
         use sha2::{Digest, Sha256};
         let mut raw = std::mem::take(&mut self.0);
-        raw.truncate(ID_MAX);
+        // At most ID_MAX bytes, cut at a character boundary (`truncate` panics inside one).
+        let cut = (0..=ID_MAX.min(raw.len())).rev().find(|&i| raw.is_char_boundary(i)).unwrap_or(0);
+        raw.truncate(cut);
         let mut digest = Sha256::new();
         digest.update(salt);
         digest.update(raw.as_bytes());
@@ -263,6 +265,21 @@ mod tests {
         assert_eq!(ta.as_str().len(), 24);
         assert_ne!(ta, tb);
         assert!(!ta.as_str().contains("tab-1"));
+    }
+
+    /// A long id is cut at a character boundary before hashing (Codex review of 4cf46c11):
+    /// `String::truncate` inside a multi-byte character panicked.
+    #[test]
+    fn a_long_multibyte_id_hashes_without_panicking() {
+        let raw = format!("a{}", "é".repeat(200));
+        let mut ev = Event::View { session: Id::new(raw.clone()), on: true };
+        ev.hash_ids(b"salt");
+        let Event::View { session, .. } = ev else { panic!("view") };
+        assert_eq!(session.as_str().len(), 24);
+        let mut same = Event::View { session: Id::new(raw[..ID_MAX - 1].to_owned()), on: true };
+        same.hash_ids(b"salt");
+        let Event::View { session: cut, .. } = same else { panic!("view") };
+        assert_eq!(session, cut);
     }
 
     #[test]

@@ -54,6 +54,10 @@ public final class UsageRecorder {
         var setEnabled: @Sendable (Bool) async throws -> Void
         /// `usage-record`: the source stem and the events text.
         var record: @Sendable (String, String) async throws -> Void
+        /// The wait before the `attempt`th retry of a failed switch-off (1, 2, 4 ... capped at 60 s).
+        var offRetryDelay: @Sendable (Int) async -> Void = { attempt in
+            try? await Task.sleep(for: .seconds(min(1 << min(attempt - 1, 6), 60)))
+        }
     }
 
     /// What to do with the setting's value and this Mac's record.
@@ -92,6 +96,10 @@ public final class UsageRecorder {
     /// The one switch on its way to the daemon, not yet answered. Switches go one at a time, so an
     /// answer never lands after a newer switch and leaves the marker on after the person's off.
     private var switchInFlight: Bool?
+    /// The wait before sending a failed switch-off again, and how many have failed in a row. It ends
+    /// when the daemon confirms off, or when the decision turns on.
+    private var offRetry: Task<Void, Never>?
+    private var offFailures = 0
     private var launchRecorded = false
     private var askedThisLaunch = false
 
@@ -206,6 +214,7 @@ public final class UsageRecorder {
         if on, queue == nil { begin() }
         if !on, queue != nil { end() }
         switchWanted = on
+        if on { cancelOffRetry() }
         sendSwitch()
     }
 
@@ -236,14 +245,43 @@ public final class UsageRecorder {
     /// decision sends a failed one again. A failed switch-on (an older daemon, or none) ends this
     /// on-period: nothing would be written, so nothing is kept or tapped. A decision that changed
     /// while the switch was on its way is sent now.
+    ///
+    /// A failed switch-off is sent again after a backoff until the daemon confirms it: the marker
+    /// would otherwise stay on and acpmux keep recording after the person turned recording off.
+    /// Each launch sends its first decision either way (``switchSent`` starts nil).
     private func switched(_ on: Bool, queue: UsageEventQueue?, ok: Bool) {
         switchInFlight = nil
         if ok {
             switchSent = on
+            if !on { cancelOffRetry() }
         } else if on, let queue, queue === self.queue {
             end()
+        } else if !on, switchWanted == false {
+            retryOff()
         }
         if switchWanted != on { sendSwitch() }
+    }
+
+    /// Sends the switch-off again after the next backoff.
+    private func retryOff() {
+        offFailures += 1
+        let attempt = offFailures
+        let delay = ports.offRetryDelay
+        offRetry?.cancel()
+        // task-owner: one wait before the next switch-off; cancelled once off is confirmed or the
+        // decision turns on (cancelOffRetry), and ends with the recorder.
+        offRetry = Task { [weak self] in
+            await delay(attempt)
+            guard !Task.isCancelled, let self, switchWanted == false else { return }
+            offRetry = nil
+            sendSwitch()
+        }
+    }
+
+    private func cancelOffRetry() {
+        offRetry?.cancel()
+        offRetry = nil
+        offFailures = 0
     }
 
     private func begin() {
