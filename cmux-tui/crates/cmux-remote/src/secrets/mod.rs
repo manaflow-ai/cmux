@@ -41,6 +41,8 @@ pub struct MachineSecrets {
     home: PathBuf,
     state: PathBuf,
     max_live: usize,
+    /// How long a request waits for the machine config applier's lock.
+    config_wait: std::time::Duration,
     clock: Clock,
     log: LogSink,
 }
@@ -80,6 +82,7 @@ impl MachineSecrets {
             home,
             state,
             max_live: replay::MAX_LIVE,
+            config_wait: replay::CONFIG_WAIT,
             clock: Arc::new(seal::unix_now),
             log: Arc::new(|line| eprintln!("{line}")),
         }
@@ -90,6 +93,13 @@ impl MachineSecrets {
     fn with_clock(mut self, clock: Clock, max_live: usize) -> Self {
         self.clock = clock;
         self.max_live = max_live;
+        self
+    }
+
+    /// Tests: another wait for the machine config applier's lock.
+    #[cfg(all(test, any(target_os = "linux", target_os = "android")))]
+    fn with_config_wait(mut self, wait: std::time::Duration) -> Self {
+        self.config_wait = wait;
         self
     }
 
@@ -175,6 +185,15 @@ impl MachineSecrets {
         if items.len() > MAX_ITEMS {
             return Err(refused("too-large", "machine-secrets.env"));
         }
+        // The applier's lock first, then the request lock (the applier never
+        // takes ours): no apply runs between reading the declared names and
+        // writing the file, so an apply never sees a name it just removed.
+        let _config =
+            replay::lock_machine_config(&self.home, self.config_wait).map_err(|error| {
+                let code =
+                    if error.kind() == std::io::ErrorKind::WouldBlock { "busy" } else { "write" };
+                refused(code, "machine-secrets.env")
+            })?;
         let (lock, mut replay, now) = self.begin("machine-secrets.env")?;
         let replay = &mut replay;
         let declared = self.declared_names();

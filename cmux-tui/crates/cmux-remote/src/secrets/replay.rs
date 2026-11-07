@@ -54,6 +54,70 @@ struct Stored {
 /// Every write takes a `&Lock`, so none happens outside a request.
 pub struct Lock(#[allow(dead_code, reason = "held only to keep the flock")] std::fs::File);
 
+/// How long a request waits for the machine config applier's lock before it
+/// answers the retryable `busy`.
+pub const CONFIG_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The machine config applier's lock (`applier.py` takes it for a whole apply).
+const CONFIG_LOCK: &str = ".cmux/machine-config/lock";
+
+/// Take the machine config applier's lock under `home`, trying for up to
+/// `wait` (`WouldBlock` after that). `None` when the machine has no config
+/// folder: then there is no apply and no declared name either.
+#[cfg(unix)]
+pub fn lock_machine_config(
+    home: &Path,
+    wait: std::time::Duration,
+) -> std::io::Result<Option<std::fs::File>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let path = home.join(CONFIG_LOCK);
+    let folder = path.parent().unwrap_or(home);
+    match std::fs::symlink_metadata(folder) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Err(std::io::Error::other("the machine config folder is not a folder")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&path)?;
+    let meta = file.metadata()?;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    if !meta.is_file() || meta.uid() != unsafe { libc::geteuid() } {
+        return Err(std::io::Error::other("the machine config lock is not a file of this user"));
+    }
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        // SAFETY: `file` is an open descriptor for the whole call.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(Some(file));
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::WouldBlock
+            && error.kind() != std::io::ErrorKind::Interrupted
+        {
+            return Err(error);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[cfg(not(unix))]
+pub fn lock_machine_config(
+    _: &Path,
+    _: std::time::Duration,
+) -> std::io::Result<Option<std::fs::File>> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
+}
+
 /// Take the state folder's lock, waiting for another request to finish.
 #[cfg(unix)]
 pub fn lock(state: &Path) -> std::io::Result<Lock> {

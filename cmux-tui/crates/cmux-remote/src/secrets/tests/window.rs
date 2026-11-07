@@ -245,3 +245,61 @@ fn two_daemons_on_one_machine_share_the_lock_and_the_window() {
     .unwrap();
     assert_eq!(stored["taken"].as_object().unwrap().len(), values.len() + 1);
 }
+
+/// Hold the machine config applier's lock, as a running apply does.
+fn hold_applier_lock(fixture: &super::Fixture) -> std::fs::File {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(fixture.home.join(".cmux/machine-config/lock"))
+        .unwrap();
+    // SAFETY: `file` is an open descriptor.
+    assert_eq!(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) }, 0);
+    file
+}
+
+#[test]
+fn a_write_waits_for_a_running_apply_and_honors_what_it_declared() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let held = hold_applier_lock(&fixture);
+    let item = fixture.seal(Purpose::Secret, "DEMO_KEY", &random_hex(16));
+    let status = fixture.home.join(files::MACHINE_CONFIG_STATUS_FILE);
+    let result = std::thread::scope(|scope| {
+        let write =
+            scope.spawn(|| fixture.secrets.replace_machine_secrets(std::slice::from_ref(&item)));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!write.is_finished(), "the write didn't wait for the apply");
+        // The apply removes the name, then lets go of its lock.
+        std::fs::write(
+            &status,
+            serde_json::to_vec(&serde_json::json!({
+                "state": "done",
+                "secrets": { "declared": ["OTHER_KEY"] },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        drop(held);
+        write.join().unwrap()
+    });
+    let error = result.unwrap_err();
+    assert!(error.message.starts_with("bad-name"), "{error}");
+    assert!(!fixture.home.join(files::MACHINE_SECRETS_FILE).exists());
+}
+
+#[test]
+fn a_write_behind_a_long_apply_answers_busy_and_can_be_sent_again() {
+    let fixture = fixture(&["DEMO_KEY"]);
+    let secrets = restarted(&fixture, &Arc::new(AtomicU64::new(NOW)), 16)
+        .with_config_wait(std::time::Duration::from_millis(100));
+    let item = seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW);
+    let held = hold_applier_lock(&fixture);
+    let error = secrets.replace_machine_secrets(std::slice::from_ref(&item)).unwrap_err();
+    assert!(error.message.starts_with("busy") && error.retryable, "{error}");
+    assert!(!fixture.home.join(files::MACHINE_SECRETS_FILE).exists());
+    drop(held);
+    assert_eq!(secrets.replace_machine_secrets(std::slice::from_ref(&item)).unwrap(), 1);
+}
