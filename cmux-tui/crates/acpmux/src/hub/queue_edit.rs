@@ -234,19 +234,19 @@ const SENDER_FIELDS: [&str; 14] = [
     crate::prompt_provenance::FORWARDED_BY,
 ];
 
-/// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it as
-/// it was: still theirs, under the same rules. Another session's message keeps who sent it and
-/// names its editor (`prompt_provenance::edited_by`), and nothing else: no kind or field that
-/// acts on a queued prompt (a restart's or a cleanup's skip of a notice, a retry, an announcement
-/// or a trigger, a family or lane report's gate, a delegator's first work, a goal's mark, a
-/// digest's members) reaches the person's words. Any other prompt is the editor's own.
+/// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it
+/// whole, still theirs under the same rules, and names its editor. Another session's message keeps
+/// who sent it and names its editor (`prompt_provenance::edited_by`), and nothing else: no kind or
+/// field that acts on a queued prompt (a restart's or a cleanup's skip of a notice, a retry, an
+/// announcement or a trigger, a family or lane report's gate, a delegator's first work, a goal's
+/// mark, a digest's members) reaches the person's words. Any other prompt is the editor's own.
 fn edited_provenance(
     provenance: Option<&Value>,
     editor: crate::author::Editor<'_>,
 ) -> Option<Value> {
     let p = provenance?;
     if crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id))) {
-        return Some(p.clone());
+        return Some(crate::prompt_provenance::edited_by(p.clone(), editor));
     }
     let kind = p.get("kind").and_then(Value::as_str)?;
     // Each draws as a session's message (`incomingMessage.ts`); `agent_message` as its own.
