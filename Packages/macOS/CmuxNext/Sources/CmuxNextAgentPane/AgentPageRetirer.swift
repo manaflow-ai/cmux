@@ -54,8 +54,11 @@ public final class AgentPageRetirer {
 
     /// Moves `view` out of its pane into its window's parking (one reparent, as the detach was), still
     /// in the window, so its page keeps its drawn frame; a view in no window only leaves its superview.
+    /// Only a Chromium page is parked: a parked page shows again through the moved-page path
+    /// (`AgentTabContent.coverMove`), which covers a WebKit page with a New Tab frame, never a chat's own.
+    /// A WebKit page leaves the tree, as every kept page did before the parking.
     private func park(_ view: AgentPaneView) {
-        guard let window = view.window, let content = window.contentView else { return view.removeFromSuperview() }
+        guard view.pageDrawsOverCovers, let window = view.window, let content = window.contentView else { return view.removeFromSuperview() }
         // A parked page never holds the keyboard.
         if let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) { window.makeFirstResponder(nil) }
         let parking = parkings.first { $0.superview === content } ?? {
