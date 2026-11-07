@@ -46,7 +46,9 @@ struct PaneGroundCoversPaneTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(_ layout: ScreenLayout, focused: PaneID) {
+        /// `host`: puts the layout in a window of the caller's (the app's window and its root view, for the window's own
+        /// pass); by default a borderless window whose content view is the layout.
+        init(_ layout: ScreenLayout, focused: PaneID, host: ((LayoutRootView) -> NSWindow)? = nil) {
             _ = NSApplication.shared
             _ = GhosttyRuntime.shared
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
@@ -54,10 +56,14 @@ struct PaneGroundCoversPaneTests {
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+            if let host {
+                window = host(root)
+            } else {
+                window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = root
+            }
             window.isReleasedWhenClosed = false
-            window.contentView = root
-            root.layoutSubtreeIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
             root.driver.isManual = true
             root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
         }
