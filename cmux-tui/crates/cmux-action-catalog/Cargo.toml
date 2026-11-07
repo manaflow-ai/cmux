@@ -10,5 +10,9 @@ description = "cmux NEXT's action catalog: every action descriptor (id, title in
 [dependencies]
 serde_json.workspace = true
 
+# build.rs turns strings.json into a static table.
+[build-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
