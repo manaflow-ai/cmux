@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42368922566",
+  "recorded_at": "2026-11-07T11:47:02Z",
+  "reason": "cmux-tui 1df296dc05b9 changes the image's cmux-tui (pinned cf93f74884b8)",
+  "dry_run": false,
+  "cmux_tui": "1df296dc05b972b4034ee56e8bde3380cf7a047b",
+  "fixes": [
+    {
+      "sha": "1df296dc05b972b4034ee56e8bde3380cf7a047b",
+      "mergedAt": "2026-11-07T11:20:07Z",
+      "subject": "palette.rank: the Channels palette ranks on the daemon's shared Rust ranker (#37283)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-07T11:47:02Z",
+    "snapshot_id": "sh-9d57b8a1ef5c438f959c5da503c37a9e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42368922566): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f75b7ac77f5237f461f3c0919b12a8c5e97f17c9",
+    "image": "cloud-native-auto-1df296dc-42368922566-1",
+    "revision": "ci-42368922566-1",
+    "at": "2026-11-07T11:47:02Z"
+  },
+  "rolled_back": false
+}
