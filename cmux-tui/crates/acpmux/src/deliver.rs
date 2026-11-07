@@ -61,6 +61,7 @@ pub async fn deliver(
         from_harness: None,
         attachments: Vec::new(),
         notice: None,
+        relay: None,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

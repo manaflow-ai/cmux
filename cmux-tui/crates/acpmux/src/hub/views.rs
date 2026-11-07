@@ -474,6 +474,7 @@ impl Hub {
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
             spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
+            created_by: m.created_by.clone(),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),

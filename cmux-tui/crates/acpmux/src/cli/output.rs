@@ -154,6 +154,8 @@ pub(crate) struct PromptId {
     pub attachments: Vec<Value>,
     /// `--notice`: a tool's notice (`_meta.acpmux.notice`, `prompt_provenance::notice_of`).
     pub notice: Option<Value>,
+    /// `--relay`: a relay's `fromRelay` and `fromHarness` (`cli/run/standard.rs` `relay_fields`).
+    pub relay: Option<Value>,
 }
 
 impl PromptId {
@@ -171,6 +173,7 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -184,6 +187,7 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
             },
         }
     }
@@ -224,6 +228,11 @@ impl PromptId {
         }
         if let Some(notice) = &self.notice {
             mux.set("notice", notice.clone());
+        }
+        if let Some(Value::Object(relay)) = &self.relay {
+            for (key, value) in relay {
+                mux.set(key, value.clone());
+            }
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());

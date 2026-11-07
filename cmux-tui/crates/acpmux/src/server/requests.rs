@@ -1376,6 +1376,24 @@ async fn dispatch_request_with_identity(
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
+                // Who creates it, as this daemon decides it (`hub/created_by.rs`): the peer
+                // takes it from this link only.
+                let by = hub.creator_of(crate::hub::created_by::Creator {
+                    person: person_asks(conn),
+                    caller: conn.caller(),
+                    control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    meta: mux_meta(&params),
+                    workspace: crate::session_env::workspace_id(
+                        mux_meta(&params),
+                        &Default::default(),
+                    )
+                    .ok()
+                    .flatten(),
+                });
+                crate::hub::merge_mux_meta(
+                    &mut p,
+                    json!({crate::hub::created_by::FIELD: serde_json::to_value(by).unwrap_or_default()}),
+                );
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).
                 if peer.vm_boundary()
@@ -1390,11 +1408,7 @@ async fn dispatch_request_with_identity(
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
                 }
-                let asked = p.clone();
-                let mut result =
-                    super::remote_guard::hint::new_on(&peer, &params, p).await.map_err(|e| {
-                        crate::hub::full_access_children::refused_by(&peer.name, &asked, e)
-                    })?;
+                let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
@@ -1496,6 +1510,17 @@ async fn dispatch_request_with_identity(
             let copy = succ.as_ref().and_then(|s| s.copy.clone()).unwrap_or_default();
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
+            let workspace_id = crate::session_env::workspace_id(meta, &env)?;
+            // Who creates it (`hub/created_by.rs`), from what this connection proved.
+            let created_by = (!adopting).then(|| {
+                hub.creator_of(crate::hub::created_by::Creator {
+                    person: person_asks(conn),
+                    caller: conn.caller(),
+                    control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    meta,
+                    workspace: workspace_id.clone(),
+                })
+            });
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1505,7 +1530,7 @@ async fn dispatch_request_with_identity(
                 model: copy.model.or_else(|| pick("model")),
                 effort: copy.effort.or_else(|| pick("effort")),
                 adopt,
-                workspace_id: crate::session_env::workspace_id(meta, &env)?,
+                workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
@@ -1519,6 +1544,7 @@ async fn dispatch_request_with_identity(
                 route,
                 subsession: None,
                 lineage,
+                created_by,
                 disallowed_tools,
                 checked_cwd: None,
                 additional_directories,
@@ -1654,7 +1680,15 @@ async fn dispatch_request_with_identity(
                 }
                 (provenance, _) => provenance,
             };
-            let declared = crate::hub::declared_sender(&params)?;
+            // A relay on this machine outside any session (the lane-gh broker) names its sender by
+            // the relay record when it gave no `--from`: always another agent's message, never the
+            // person's (`prompt_provenance::FROM_RELAY`).
+            let relayed = (conn.origin == super::Origin::Local && conn.caller().is_none())
+                .then(|| crate::prompt_provenance::relay_sender(&params))
+                .flatten()
+                .and_then(|sender| sender.relay)
+                .map(|relay| relay.name());
+            let declared = crate::hub::declared_sender(&params)?.or(relayed);
             // Keep a caller's `--from` label beside authenticated caller provenance. The label
             // is display-only; `fromSessionId` is still stamped below from the caller token.
             let provenance = provenance.map(|provenance| {
@@ -3098,7 +3132,8 @@ async fn queue_text(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
 
 /// An agent message's provenance with which session sent it and on what harness, for display
 /// only (`prompt_provenance::FROM_SESSION_ID`): the session this connection proved, else what a
-/// peer daemon said of its own proven caller; a client's claim is dropped. A person's prompt and
+/// peer daemon said of its own proven caller, else what a relay on this machine's unix socket
+/// said of the machine it relays for (`prompt_provenance::FROM_RELAY`); a client's claim is dropped. A person's prompt and
 /// none are left as they are. Out of `dispatch_request`, whose future must stay small.
 /// How a prompt reached this daemon, as it saw it (`prompt_provenance::TRANSPORT`).
 fn transport_of(conn: &Conn) -> &'static str {
@@ -3179,6 +3214,11 @@ fn stamp_bound_sender(
             .ok()
             .map(|from| crate::prompt_provenance::BoundSender::of_session(&from.id, &from.meta())),
         _ if conn.origin == super::Origin::Peer => crate::prompt_provenance::peer_sender(params),
+        // A relay on this machine (the lane-gh broker's `acpmux send`), outside any session: its
+        // word on the machine and session it took the message from (`prompt_provenance::FROM_RELAY`).
+        None if conn.origin == super::Origin::Local => {
+            crate::prompt_provenance::relay_sender(params)
+        }
         _ => None,
     };
     let caller_bound = conn.caller().is_some_and(|caller| !conn.is_person() && caller != to)

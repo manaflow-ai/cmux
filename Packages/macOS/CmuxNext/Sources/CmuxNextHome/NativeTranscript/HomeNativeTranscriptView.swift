@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's

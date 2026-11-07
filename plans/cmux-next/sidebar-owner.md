@@ -1,5 +1,28 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-07: the Updated card's hover preview, review follow-ups of #37615 (Leo: "a quick access scroll through of
+  what's new"). A card that a higher-priority card hides in the slot clears its hover and tells its page the pointer
+  left (`SidebarUpdatedCardHost.isHidden`), so the preview closes, hands its room back, and the card comes back
+  closed. With motion reduced or off the room goes back as the preview closes, with no 240 ms wait. The preview lists
+  every change (no 40-row cap), a build's commits only when it has no reviewed entries, and no generic "Fixes and
+  improvements" row in any language. Regression: `UpdatedCardHoverPreviewTests`, webviews
+  `updated-card-hover-preview.test.tsx`.
+- 2026-11-07: after the upgrade the Updated card's host holds no height the two-line card remembered (64 and 77 pt
+  under the old `cmux.sidebar.updatedCard.height[s]` keys): the composer-height card remembers its own under `.v2`
+  keys and the old ones go at the first write, so the host is the 48 pt card from its first frame (review F1 of
+  #37615, Leo: "the heights never match up with anything"). The doodle-decorated card paints the same composer
+  material, now that no native glass sits under the page.
+- 2026-11-07: the Updated card is the agent composer's twin, and resting on it opens a scrollable What's New preview.
+  Leo, verbatim: "the border styles, the glass intensity is different. For two, it's like the heights never match up
+  with anything" and "where is the hover for the What's New area? ... you hover over it and you get to, like, scroll
+  through the thing if you want" / "Right in that bottom left of the sidebar area." The card's page paints the
+  composer's material (webviews `ui/glass/composerMaterial.css`), at the composer's one-line height (48) and corner;
+  `SidebarUpdatedCardHost` lays no `CardSurfaceView` under it any more. "Updated to Nightly · What's New ↗" is one
+  line; the button row is gone. The host forwards its pointer to the page (`setPointerInside`), and while the
+  preview is open it grows upward over the list by the page's `overlayHeight`, never moving the list or the slot
+  (`SidebarBottomCardSlot.place`). Gallery: `pages.changelog.update-surfaces` `card` (chosen), `card-whats-new-top-right`,
+  `card-whats-new-button`, `card-beside-composer`, `card-hover-preview`. Regression: `UpdatedCardHoverPreviewTests`,
+  webviews `updated-card-hover-preview.test.tsx`, `updated-card-composer-material.test.ts`.
 - 2026-11-06: the workspace group editor bubble is a React page (webviews/src/pages/group-editor) in one warm native
   glass panel (`GroupEditorService`, CmuxNextSidebar). Leo, verbatim (all-hands move of NEXT's Swift to React/Rust):
   "ok we need to go all hands on deck here. don't just do baby steps. we can just... do it". The look is the native
@@ -1507,6 +1530,29 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `SidebarHoverCardMetrics`), read on every configure so a change applies to the next card.
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
+
+## A drag's start moves no row: Pinned opens at the top edge (2026-11-07)
+
+- Leo 2026-11-07: "did we not remove or find adifferent solution for the drag here to pin yet in the sidebar? it's
+  super weird how when you drag ANY workspace, it shifts imediately due to that..."
+- Every workspace drag (and every drag on the document) turned on `showEmptyPinned` as it lifted: an empty Pinned
+  drew its header and "Drop here to pin" row at the top, and every empty document section its drop row, so every row
+  moved down the moment a drag started.
+- Now the lift shows no new row. `SidebarEmptyZones` makes, at the lift, the zones the drag can open: an empty
+  Pinned's opens once the pointer, moving up, reaches the top half of the row it opens above (or above it); an empty
+  titled section's once the pointer reaches its title. One opens at a time, on the drag's spring (rows move, the zone
+  fades in), takes the drop, and closes half a row past it. A group drag on the document rebuilds its plan when one
+  opens or closes. A section the drag empties still keeps its drop row in the dragged rows' place, and a list Pinned
+  the drag empties keeps its header and row for the whole drag (`keepsPinned`), so the row can go back.
+- A drag the document does not take (a workspace it places nowhere yet) resolves on the list, which drops into no
+  document section: it opens none of their zones (it never could drop there).
+- Tests: `SidebarDragStartKeepsRowsTests` (list and document), red commit first.
+- A block tile's drag opens zones too; a Pinned that keeps items opens none (the drop goes among its items); the
+  half-row reach is the height of the row the zone opens above (density, status and detail lines).
+- A collapsed empty section opens its zone too (its title is all it draws). A section the document refuses the drag
+  into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
+- A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
+  moves the zone's reach by as much.
 
 ## Reviewed behavior-only commits
 

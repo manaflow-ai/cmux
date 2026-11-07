@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The people under New Message's To: field (Messages' suggestion list):
 /// each row an avatar, the full name and under it what the recipient is
