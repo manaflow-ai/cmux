@@ -78,8 +78,8 @@ impl Hub {
                     if !exact_all.is_empty() {
                         (None, exact_all)
                     } else if names_hosts
-                        && !(crate::beads::is_bead_id(query)
-                            && !by_bead(&summaries, query).is_empty())
+                        && (!crate::beads::is_bead_id(query)
+                            || by_bead(&summaries, query).is_empty())
                         && let Some(route) = self.key_route(query)?.filter(|route| route != query)
                     {
                         // No exact name or id, and no session carries it as a bead (`by_key`
