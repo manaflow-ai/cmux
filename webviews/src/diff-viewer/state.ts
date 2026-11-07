@@ -55,6 +55,11 @@ export type AppState = {
    * swapped in one commit (`replace-items`), so the reader is never sent back to the top.
    */
   reconciling: boolean;
+  /**
+   * The render generation whose reconcile failed: the precomputed diff is still on screen, so the
+   * freshness check compares against its fingerprint again (and shows the notice), not the tree's.
+   */
+  reconcileFailedGeneration: number | null;
   /** Bumped by each `replace-items`; the viewer puts the reader's place back after it. */
   replaceCount: number;
   status: DiffViewerStatus;
@@ -92,7 +97,7 @@ export type AppAction =
   | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reconcile" }
   | { type: "end-reconcile" }
-  | { type: "replace-items"; items: DiffItem[] }
+  | { type: "replace-items"; items: DiffItem[]; renames?: readonly { oldId: string; newId: string }[] }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -156,6 +161,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     optionsOpen: false,
     renderGeneration: 0,
     reconciling: false,
+    reconcileFailedGeneration: null,
     replaceCount: 0,
     status: initialStatus,
     streamComplete: false,
@@ -360,15 +366,29 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "reconcile":
       return { ...state, reconciling: true, renderGeneration: state.renderGeneration + 1 };
     case "end-reconcile":
-      return state.reconciling ? { ...state, reconciling: false } : state;
+      return state.reconciling
+        ? { ...state, reconciling: false, reconcileFailedGeneration: state.renderGeneration }
+        : state;
     case "replace-items": {
       // The new diff's files in one commit, prepared as appended ones; the reader's file stays active
       // when it is still in the diff (ids come from paths, so an unchanged file keeps its id).
-      const next = reducer({ ...state, items: [], languages: ["text"] }, { type: "append-items", items: action.items });
-      const kept = next.items.some((item) => item.id === state.activeItemId);
+      // The inner append starts with no active file, so a reader's file that left the diff yields to the first.
+      // A path's second entry renames its first (`a.ts` to `a.ts?deleted`): the reader and the draft follow,
+      // as they do while a diff streams in place (`rename-item`).
+      let activeItemId = state.activeItemId;
+      let draft = state.draft;
+      for (const { oldId, newId } of action.renames ?? []) {
+        if (activeItemId === oldId) activeItemId = newId;
+        if (draft?.itemId === oldId) draft = { ...draft, itemId: newId };
+      }
+      const next = reducer(
+        { ...state, activeItemId: "", draft, items: [], languages: ["text"] },
+        { type: "append-items", items: action.items },
+      );
+      const kept = next.items.some((item) => item.id === activeItemId);
       return {
         ...next,
-        activeItemId: kept ? state.activeItemId : next.activeItemId,
+        activeItemId: kept ? activeItemId : next.activeItemId,
         activeTreePath: kept ? state.activeTreePath : "",
         reconciling: false,
         replaceCount: state.replaceCount + 1,
@@ -410,6 +430,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         streamComplete: false,
         treeSource: null,
         whitespaceHidden: null,
+        // Another source: a reconcile of the old one is over, and its failure says nothing about this one.
+        reconciling: false,
+        reconcileFailedGeneration: null,
       };
     case "remove-comment": {
       const comments = state.comments.filter((comment) => comment.id !== action.id);
