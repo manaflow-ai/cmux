@@ -78,7 +78,9 @@ struct KeyResizeFirstTickPinTests {
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let grids = try await Self.grids(pane, rig)
-            #expect(grids == [final], "\(pane.rawValue): two presses before one tick sent \(grids), not the final grid \(final) once")
+            // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
+            #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
+                    "\(pane.rawValue): two presses before one tick sent \(grids), not at most the first frame's grid and then the final grid \(final)")
         }
 
         var sizes: [PaneID: CGSize] = [:]
