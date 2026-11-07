@@ -29,7 +29,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 A section source is {"$comment", "lists": [list]}. A list is one `static var` of the schema type:
 {name, section, group: text, note?, rows: [row]}; SettingsSchema.all concatenates the lists, so a
-group whose rows are not contiguous in the export is two lists with the same group text. A text is
+group whose rows are not contiguous in the export is two lists with the same group text. A section
+whose rows span several groups may name a `joined` var in SECTIONS: the generator writes it as the
+concatenation of every list in source order, so its readers keep one var (`descriptors`). A text is
 {key, text}: key is the string catalog key, or null for text that is not translated (a product
 name, a syntax example). A row:
 
@@ -153,7 +155,8 @@ extension SettingsSchema {{
 
 
 # Swift names per section source: the schema type, and each list's static var and the type that
-# owns its rows' constants (None: every row of the list names its own `swift_owner`). A choice
+# owns its rows' constants (None: every row of the list names its own `swift_owner`). `joined`
+# (optional) names a static var that concatenates every list in source order. A choice
 # row's Swift enum is the row's `swift_enum` (see the module docstring).
 SCHEMA_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema"
 SECTIONS_SOURCE = "schemas/settings/source/sections.json"
@@ -279,7 +282,7 @@ SECTIONS = [
         "source": "schemas/settings/source/appearance.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Appearance.generated.swift",
         "type": "AppearanceSettingsSchema",
-        "lists": {"appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
+        "lists": {"iconTheme": ("iconTheme", None), "appTheme": ("appTheme", None), "windowBackground": ("windowBackground", None), "tuning": ("tuning", None),
                   "look": ("look", None), "chromeStyle": ("chromeStyle", None), "lookMotion": ("lookMotion", None),
                   "panes": ("panes", None), "focusRing": ("focusRing", None)},
     },
@@ -321,6 +324,65 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+    },
+    {
+        "source": "schemas/settings/source/diff-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+DiffViewer.generated.swift",
+        "type": "DiffViewerSettingsSchema",
+        "lists": {"diffViewer": ("descriptors", "DiffViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/markdown-viewer.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+MarkdownViewer.generated.swift",
+        "type": "MarkdownViewerSettingsSchema",
+        "lists": {"markdownViewer": ("descriptors", "MarkdownViewerSettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/agent-pane-display.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentPaneDisplay.generated.swift",
+        "type": "AgentPaneDisplaySettingsSchema",
+        "lists": {"agentPaneDisplay": ("descriptors", "AgentPaneDisplaySettingsSchema")},
+    },
+    {
+        "source": "schemas/settings/source/terminal.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Terminal.generated.swift",
+        "type": "TerminalSettingsSchema",
+        "lists": {"terminalFont": ("fontRows", None), "openingLinks": ("linkRows", None),
+                  "terminalCompatibility": ("compatibilityRows", None)},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/editor.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Editor.generated.swift",
+        "type": "EditorSettingsSchema",
+        "lists": {"editorFont": ("fontRows", "EditorSettingsSchema"), "editorText": ("textRows", "EditorSettingsSchema"),
+                  "editorDisplay": ("displayRows", "EditorSettingsSchema"), "editorCursor": ("cursorRows", "EditorSettingsSchema"),
+                  "editorEditing": ("editingRows", "EditorSettingsSchema"), "editorSaving": ("savingRows", "EditorSettingsSchema"),
+                  "editorDefaults": ("defaultsRows", "EditorSettingsSchema")},
+        "joined": "descriptors",
+    },
+    {
+        "source": "schemas/settings/source/browser.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Browser.generated.swift",
+        "type": "BrowserSettingsSchema",
+        "joined": "descriptors",
+        "lists": {"toolbar": ("toolbar", "BrowserToolbarButtonsSetting"), "engine": ("engine", "BrowserDefaultEngine"),
+                  "bookmarks": ("bookmarks", "BookmarksBarSetting"), "browserImport": ("browserImport", "BrowserImportSetting"),
+                  "agentInput": ("agentInput", "AgentMouseSetting"), "extensions": ("extensions", "BuiltInAdBlockerSetting"),
+                  "memory": ("memory", "BrowserHibernationSetting"), "remote": ("remote", "RemoteLocalhostSetting"),
+                  "addressBar": ("addressBar", "BrowserOmnibarSetting"), "links": ("links", "BrowserLinkClickSetting"),
+                  "openingLinks": ("openingLinks", "LinkRouting"), "files": ("files", "TextEditorSetting"),
+                  "passwords": ("passwords", "BrowserPasswordsSetting"),
+                  "verificationAutofill": ("verificationAutofill", "BrowserVerificationAutofillSetting")},
+    },
+    {
+        "source": "schemas/settings/source/browser-app.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+BrowserApp.generated.swift",
+        "type": "BrowserAppSettingsSchema",
+        "joined": "descriptors",
+        "lists": {"toolbar": ("toolbar", "BrowserAppSettingsSchema"), "addressBar": ("addressBar", "BrowserAppSettingsSchema"),
+                  "columns": ("columns", "BrowserAppSettingsSchema"), "window": ("window", "BrowserAppSettingsSchema"),
+                  "sidebar": ("sidebar", "BrowserAppSettingsSchema")},
     },
     {
         "source": "schemas/settings/source/machines.json",
@@ -628,6 +690,9 @@ def check_section(section, data, seen_keys, section_ids, src):
     names = [entry["name"] for entry in data["lists"]]
     if sorted(names) != sorted(section["lists"]):
         fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+    list_vars = [var for var, _ in section["lists"].values()]
+    if len(set(list_vars)) != len(list_vars) or section.get("joined") in list_vars:
+        fail(src, "each list has its own var in SECTIONS, and the joined var is none of them")
     for entry in data["lists"]:
         if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])
@@ -835,6 +900,17 @@ def list_var_swift(var, entry, rows, list_owner):
     return out + ["        ]", "    }"]
 
 
+def joined_var_swift(section, data):
+    """`static var <joined>`: every list of the section in source order (SECTIONS `joined`)."""
+    names = [section["lists"][entry["name"]][0] for entry in data["lists"]]
+    if section["joined"] in names:
+        raise SystemExit("%s: joined var %s is also a list's var" % (section["source"], section["joined"]))
+    return ["    /// Every list of %s, in order." % section["source"],
+            "    static var %s: [SettingDescriptor] {" % section["joined"],
+            "        [%s].flatMap { $0 }" % ", ".join(names),
+            "    }"]
+
+
 def line_count(lines):
     return sum(line.count("\n") + 1 for line in lines)
 
@@ -861,6 +937,8 @@ def section_swift(section, data):
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         lists.append((["    /// " + entry["note"]] if entry.get("note") else []) + list_var_swift(var, entry, entry["rows"], list_owner))
+    if section.get("joined"):
+        lists.append(joined_var_swift(section, data))
     intro = ["/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).",
              "nonisolated enum %s {" % section["type"]]
     single = header + [line for block in constant_blocks for line in block] + intro
@@ -890,6 +968,8 @@ def section_swift(section, data):
         pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
         for n, rows in enumerate(parts):
             pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
+    if section.get("joined"):
+        pieces.append(("list", joined_var_swift(section, data)))
     files, current, declared = [], list(header), False
     for piece in pieces:
         if isinstance(piece, tuple):

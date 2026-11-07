@@ -414,3 +414,19 @@
 .wn-preview-title { font-size: var(--wn-title); }
 .wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
 .wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+
+/* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted
+   to"): held, it takes the grabbing cursor and its words do not select. Dropped at the top of the
+   list, the card rests on its top edge: the preview opens below its two lines, its rows standing on
+   the preview's top, with the hairline between them there. */
+.wn-updated[data-dragging],
+.wn-updated[data-dragging] * {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.wn-updated[data-anchor="top"] { flex-direction: column-reverse; }
+.wn-updated[data-anchor="top"] .wn-preview { justify-content: flex-start; }
+.wn-updated[data-anchor="top"][data-preview="open"] .wn-preview {
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
+}
