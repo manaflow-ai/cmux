@@ -14,7 +14,6 @@
 //! is joined by account.
 
 use super::*;
-use cmux_json::JsonSet as _;
 use zeroize::Zeroizing;
 
 /// `agent-session-share-invite-chat`.
