@@ -417,7 +417,7 @@ USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
   cmux cloud <action> --help
 
-These actions run through the cmux app, signed in (`cmux cloud sign-in`).
+These actions run through the cmux app, signed in (`cmux login`).
 An action on one machine needs --target machine:MACHINE_ID, even with one
 machine: `cmux cloud list-machines` prints each machine's target. Without the
 app (CI, a headless agent), `cmux machine --help` talks to the cmux VM API
@@ -449,7 +449,7 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
   cmux cloud <アクション> --help
 
-これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
+これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux login`）。
 特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
 （CI、画面のないエージェント）は、`cmux machine --help` で cmux VM API を直接使えます。

@@ -312,7 +312,7 @@ fn a_signed_out_app_says_how_to_sign_in() {
         panic!()
     };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.signed_out"), 1));
-    assert!(error["message"].as_str().unwrap().contains("cmux cloud sign-in"));
+    assert!(error["message"].as_str().unwrap().contains("cmux login"));
 }
 
 #[test]

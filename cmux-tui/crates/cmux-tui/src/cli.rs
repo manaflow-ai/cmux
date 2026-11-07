@@ -509,6 +509,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `login` and `logout` are the app's `cloud sign-in` and `cloud sign-out`.
+    #[cfg(unix)]
+    let account_args;
+    #[cfg(unix)]
+    let args = match auth_token::account_alias(args) {
+        Some(rewritten) => {
+            account_args = rewritten;
+            account_args.as_slice()
+        }
+        None => args,
+    };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
     #[cfg(unix)]
     let list_args;
@@ -544,6 +555,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
+        .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
