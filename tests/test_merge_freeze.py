@@ -323,6 +323,28 @@ class CheckApiCalls(unittest.TestCase):
         status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": ""})
         self.assertEqual(status, 3)  # no fallback: rate-limited, not checked, never clear
 
+    def test_a_graphql_refusal_of_the_app_token_falls_back_to_the_workflow_token(self):
+        # GraphQL names no HTTP status: the REST list this replaced got a 403 here and fell back.
+        calls = []
+
+        def fake(args, **kwargs):
+            token = (kwargs.get("env") or os.environ).get("GH_TOKEN")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args, "", "GraphQL: Resource not accessible by integration (repository)")
+            return subprocess.CompletedProcess(args, 0, json.dumps(freeze_list([])), "")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}), \
+                mock.patch.object(freeze.subprocess, "run", fake):
+            self.assertEqual(freeze.open_freeze_issues(self.REPO), [])
+        self.assertEqual(calls, ["app", "workflow"])
+
+    def test_a_freeze_list_answer_with_graphql_errors_is_never_read_as_complete(self):
+        answer = {**freeze_list([]), "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        with mock.patch.object(freeze, "gh", lambda *args, write=False: json.dumps(answer)):
+            with self.assertRaises(ValueError):
+                freeze.open_freeze_issues(self.REPO)
+
     def test_a_write_is_never_retried_with_the_fallback(self):
         with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}):
             fake = FakeGh({}, refuse_token="app")
