@@ -375,15 +375,16 @@
    the pointer, in its own small box (Leo: "simply don't highlight and have a thing you can click"). */
 .acpmux-session-info-section {
   position: relative;
-  /* The grip's dots (5.5px) and the gap before the count. */
-  --acpmux-session-info-grip-room: calc(5.5px + var(--grid-base) * 1.5);
+  /* The grip's dots (ReorderHandle's 5.5px wide glyph), and with the gap before the count, its room. */
+  --acpmux-session-info-grip-dots: 5.5px;
+  --acpmux-session-info-grip-room: calc(var(--acpmux-session-info-grip-dots) + var(--grid-base) * 1.5);
 }
 .acpmux-session-info-section__handle {
   position: absolute;
   z-index: var(--layer-raised);
   top: calc((var(--grid-row) - var(--grid-pill)) / 2);
   /* The dots' right edge on the rows' text edge, one grid gap in from the section's. */
-  right: calc(var(--grid-gap) - (var(--grid-icon-box) - 5.5px) / 2);
+  right: calc(var(--grid-gap) - (var(--grid-icon-box) - var(--acpmux-session-info-grip-dots)) / 2);
   width: var(--grid-icon-box);
   height: var(--grid-pill);
   display: flex;

@@ -238,7 +238,11 @@ export function SubagentsSection({
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <SessionInfoFold className="acpmux-session-info-subagents__more" open={more} onToggle={() => moreFold.toggle(!more, setMore)}>
+        <SessionInfoFold
+          className="acpmux-session-info-subagents__more"
+          open={more}
+          onToggle={() => moreFold.toggle(!more, setMore)}
+        >
           {more
             ? t("sessionInfo.subagents.less")
             : t("sessionInfo.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}

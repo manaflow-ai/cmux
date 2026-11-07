@@ -339,7 +339,11 @@ export function SessionInfoSectionList({
             // Open, it reads Show less with a hairline to the row's end, over the sections it holds.
             // It has no handle: sections drag across it, into view or under it.
             <div key={id} className="acpmux-session-info-slot" data-slot={id}>
-              <SessionInfoFold className="acpmux-session-info-more" open={more} onToggle={() => onMoreChange && moreFold.toggle(!more, onMoreChange)}>
+              <SessionInfoFold
+                className="acpmux-session-info-more"
+                open={more}
+                onToggle={() => onMoreChange && moreFold.toggle(!more, onMoreChange)}
+              >
                 <span>{t(more ? "sessionInfo.changes.showLess" : "sessionInfo.changes.showMore")}</span>
                 {more && <span className="acpmux-session-info-more__rule" aria-hidden="true" />}
               </SessionInfoFold>

@@ -106,13 +106,7 @@ export function SessionInfoSection({
         <Icon name={icon} size={ROW_ICON} row fit className="acpmux-session-info-section__icon acpmux-row-glyph" />
       )}
       <span className="acpmux-session-info-section__title">{title}</span>
-      {foldable && (
-        <Icon
-          name="disclosure.collapsed"
-          size={12}
-          className="acpmux-session-info-section__fold"
-        />
-      )}
+      {foldable && <Icon name="disclosure.collapsed" size={12} className="acpmux-session-info-section__fold" />}
       {meta && <span className="acpmux-session-info-section__meta">{meta}</span>}
     </>
   );

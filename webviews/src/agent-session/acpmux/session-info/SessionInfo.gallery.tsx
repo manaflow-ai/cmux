@@ -63,7 +63,8 @@ const FOLD_LOOKS = {
   "head-hover-fill":
     ".acpmux-session-info-section .ui-disclosure-trigger:hover{background:var(--acpmux-session-info-row-hover)}",
   /// The folds on the flat ease-out of the motion scale (--cmux-ease-out over its standard step).
-  "flat-ease": ".acpmux-session-info{--cmux-ease-settle:var(--cmux-ease-out);--cmux-motion-settle:var(--cmux-motion-standard)}",
+  "flat-ease":
+    ".acpmux-session-info{--cmux-ease-settle:var(--cmux-ease-out);--cmux-motion-settle:var(--cmux-motion-standard)}",
 } as const;
 
 /// Compared section grips (sessionInfo.css `__handle`), as style overrides on the shipped one.
@@ -1931,7 +1932,7 @@ export default componentEntry<Props>({
       play: gripRightOfEveryHead,
     },
     "heads-plain": {
-      note: 'Chosen. A section head under the pointer, Changes with its count: no fill and no pill, the chevron and count lit in the text\'s color, and the grip a small control of its own at the head\'s right end, its dots on the rows\' right text edge and the count just left of it; the title on the rows\' icon column (Leo, 2026-11-07: "simply don\'t highlight and have a thing you can click").',
+      note: "Chosen. A section head under the pointer, Changes with its count: no fill and no pill, the chevron and count lit in the text's color, and the grip a small control of its own at the head's right end, its dots on the rows' right text edge and the count just left of it; the title on the rows' icon column (Leo, 2026-11-07: \"simply don't highlight and have a thing you can click\").",
       props: { ...full, placement: "push" },
       play: plainHead,
     },
@@ -1966,7 +1967,7 @@ export default componentEntry<Props>({
       play: panelMoreAndLess,
     },
     "edge-hairline": {
-      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's strong border color (--agent-border-strong, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\"; 2026-11-07: \"but the border on session info is way too faint\").",
+      note: 'Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane\'s strong border color (--agent-border-strong, 0.5px) on its rounded corners (Leo, 2026-11-03: "maybe it\'s ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full },
       play: hairlineEdge,
     },
