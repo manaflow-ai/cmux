@@ -363,7 +363,8 @@ final class CEFDevToolsController {
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
         // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // too (fork API 26).
+        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
+        // at the next open).
         if docked {
             views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
         }

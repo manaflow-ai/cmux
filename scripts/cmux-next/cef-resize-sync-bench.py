@@ -6,12 +6,13 @@ wait runs inside the window's Core Animation commit on the main thread, on every
 column spring, so it must be measured as commit time and dropped frames, light and STRESS, before it is called a fix.
 
 Modes, on one tagged build (each checked first with cef-layer-verify.py --checks hosted --tunables build, which also
-checks with debug.layers that the fork really moved the page's pixels, `hosted.fork`). Every page is layer hosted: no
-switch turns hosting off, so there is no `off` mode.
+checks with debug.layers that the fork really moved the page's pixels, `hosted.fork`):
 
-  on      layer hosting, `browserResize.syncDeadline` set to 8 ms (the default until cmux-ad m19, 2026-11-05; the
+  off     layer hosting off: the page is a child window. API 26 and older: Chromium's own wait (up to 500 ms per
+          page resize); API 27: no wait
+  on      layer hosting on, `browserResize.syncDeadline` set to 8 ms (the default until cmux-ad m19, 2026-11-05; the
           default is 0 now), capped at half a display frame by CEFResizeSyncDeadline: 4 ms at 120 Hz
-  on0     layer hosting, syncDeadline 0 (the default since cmux-ad m19): the page never holds the commit (it
+  on0     layer hosting on, syncDeadline 0 (the default since cmux-ad m19): the page never holds the commit (it
           shows its last frame until Chromium draws the new size)
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
@@ -30,15 +31,16 @@ Not a gate: it never fails on a number. Exit 1 when a mode is not what it says o
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+HOSTING_KEY = "browserResize.layerHosting"
 DEADLINE_KEY = "browserResize.syncDeadline"
-MODES = {"on": ("on", 0.008), "on0": ("on", 0.0)}
+MODES = {"off": ("off", None), "on": ("on", 0.008), "on0": ("on", 0.0)}
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--label", default="", help="names this build's run in summary.json (api26, api27)")
-parser.add_argument("--modes", default="on,on0")
+parser.add_argument("--modes", default="off,on,on0")
 parser.add_argument("--benches", default="light,stress")
 parser.add_argument("--actions", default="split,close,column,drag")
 parser.add_argument("--rounds", type=int, default=3)
@@ -132,7 +134,8 @@ for mode in opts.modes.split(","):
                                          "rows": rows or {"error": "no report"}}
 if tunables_file:
     data = load(tunables_file) or {}
-    data.setdefault("values", {}).pop(DEADLINE_KEY, None)
+    for key in (HOSTING_KEY, DEADLINE_KEY):
+        data.setdefault("values", {}).pop(key, None)
     try:
         with open(tunables_file, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True)
