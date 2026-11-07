@@ -573,6 +573,8 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(["sessionId": onMiniSubject().map { $0 as Any } ?? NSNull()])
         case .showInMini(let session):
             guard let onShowInMini else { return Self.unsupported("agent.mini.show") }
+            // Only the person's click: the mini can open its reply box, which takes the keyboard.
+            guard userGesture || transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             onShowInMini(session)
             return AgentPaneReply.success()
         case .chiefFace(let chief):

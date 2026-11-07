@@ -33,10 +33,12 @@ struct AgentPaneShowInMiniTests {
         model.onMiniSubject = { subject }
         model.onShowInMini = { shown = .some($0); subject = $0 }
         #expect(((await model.respond(to: .miniSubject))["value"] as? [String: Any])?["sessionId"] is NSNull, "the Chief: null")
-        _ = await model.respond(to: .showInMini("s1"))
+        #expect((await model.respond(to: .showInMini("s1")))["ok"] as? Bool != true, "no click: refused")
+        #expect(shown == .none)
+        _ = await model.respond(to: .showInMini("s1"), userGesture: true)
         #expect(shown == .some("s1"))
         #expect(((await model.respond(to: .miniSubject))["value"] as? [String: Any])?["sessionId"] as? String == "s1")
-        _ = await model.respond(to: .showInMini(nil))
+        _ = await model.respond(to: .showInMini(nil), userGesture: true)
         #expect(shown == .some(nil))
     }
 }
