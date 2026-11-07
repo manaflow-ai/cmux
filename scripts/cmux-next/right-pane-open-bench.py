@@ -105,6 +105,9 @@ parser.add_argument("--vdisplay", type=float, default=120,
 parser.add_argument("--drag", action="store_true",
                     help="instead of the opens: the chat's header Terminal, that terminal split down, then --runs drags of the "
                          "divider between the chat and the right column, one debug.mouse move per display frame (DRAG below)")
+parser.add_argument("--drag-right", choices=("terminal", "browser"), default="terminal",
+                    help="--drag: what the header opens first on the chat's right: terminal (then split down) or browser "
+                         "(then the header's Terminal, which splits below it)")
 parser.add_argument("--drag-step", type=float, default=4, help="--drag: points per move")
 parser.add_argument("--drag-moves", type=int, default=40, help="--drag: moves of each leg (left, right twice as far, left)")
 parser.add_argument("--tag", default="rpopen")
@@ -576,18 +579,25 @@ def divider_x(sample):
 
 
 def drag_layout(run, chat):
-    """The chat, a terminal on its right (the header's Terminal) and that terminal split down: three panes."""
+    """The chat, a terminal (or with --drag-right=browser a browser) on its right from the header, and below it a
+    terminal (split down, or the header's Terminal, which splits below a browser): three panes."""
     chat.repane()
     before = {p.get("id") for p in chat.stress.panes(chat.stress.workspace(chat.workspace))}
-    clicked = run.rpc("debug.agent_pane", {"action": "click", "selector": '[data-quick-action="terminal"]', "pane": chat.pane}) or {}
+    first = "browser" if opts.drag_right == "browser" else "terminal"
+    clicked = run.rpc("debug.agent_pane", {"action": "click", "selector": f'[data-quick-action="{first}"]', "pane": chat.pane}) or {}
     if clicked.get("error"):
-        raise SystemExit(f"right-pane-open: drag: the header's Terminal: {clicked['error']}")
+        raise SystemExit(f"right-pane-open: drag: the header's {first}: {clicked['error']}")
     right = STRESS.wait(lambda: next((p.get("id") for p in chat.stress.panes(chat.stress.workspace(chat.workspace))
                                       if p.get("id") not in before), None), 15, step=0.1)
     if not right:
         raise SystemExit("right-pane-open: drag: the header's Terminal opened no pane")
     time.sleep(1.0)  # test script: the open's motion lands
-    chat.stress.action("splitDown", target=f"pane:{right}", focus=False)
+    if opts.drag_right == "browser":
+        clicked = run.rpc("debug.agent_pane", {"action": "click", "selector": '[data-quick-action="terminal"]', "pane": chat.pane}) or {}
+        if clicked.get("error"):
+            raise SystemExit(f"right-pane-open: drag: the header's Terminal: {clicked['error']}")
+    else:
+        chat.stress.action("splitDown", target=f"pane:{right}", focus=False)
     if not STRESS.wait(lambda: len(chat.stress.panes(chat.stress.workspace(chat.workspace))) >= 3, 15, step=0.1):
         raise SystemExit("right-pane-open: drag: the terminal did not split down")
     time.sleep(1.5)  # test script: the split's motion lands and the page lays out at its size
