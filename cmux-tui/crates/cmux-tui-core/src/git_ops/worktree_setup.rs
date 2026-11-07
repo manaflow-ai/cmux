@@ -43,6 +43,9 @@ use super::worktree_recipe::Recipe;
 
 const STATUS_FILE: &str = "cmux-setup.json";
 const LOG_FILE: &str = "cmux-setup.log";
+/// Left by a session host that removes the worktree while another one
+/// copies its files: the copy stops at its next file.
+const CANCEL_FILE: &str = "cmux-setup.cancel";
 const SETUP_DEADLINE: Duration = Duration::from_secs(30 * 60);
 const TEARDOWN_DEADLINE: Duration = Duration::from_secs(60);
 /// How long a stopped setup has after SIGTERM before SIGKILL.
@@ -150,6 +153,8 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
 
 fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run) {
     let status_path = place.git_dir.join(STATUS_FILE);
+    let cancel_path = place.git_dir.join(CANCEL_FILE);
+    let cancelled = || handle.is_cancelled() || cancel_path.exists();
     let mut log =
         match OpenOptions::new().create(true).append(true).open(place.git_dir.join(LOG_FILE)) {
             Ok(log) => log,
@@ -159,9 +164,7 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run) {
         let _ = writeln!(log, "Copying files listed in {} ...", worktree_include::FILE_NAME);
         let patterns = worktree_include::parse(recipe.include.iter().map(String::as_str));
         let report = match &place.main_root {
-            Some(main) => {
-                worktree_include::copy(main, &place.root, &patterns, &|| handle.is_cancelled())
-            }
+            Some(main) => worktree_include::copy(main, &place.root, &patterns, &cancelled),
             None => Report::default(),
         };
         let _ =
@@ -174,7 +177,7 @@ fn run(place: &Place, recipe: &Recipe, status: &mut Status, handle: &Run) {
         }
         status.include = Some(report);
     }
-    if handle.is_cancelled() {
+    if cancelled() {
         let _ = writeln!(log, "Stopped: the worktree is being removed.");
         return finish(status, &status_path, "failed", None);
     }
@@ -268,7 +271,7 @@ fn shell(
         // keeps it from starting.
         Some((handle, _)) => {
             let mut pid = handle.pid.lock().unwrap_or_else(PoisonError::into_inner);
-            if handle.is_cancelled() {
+            if handle.is_cancelled() || place.git_dir.join(CANCEL_FILE).exists() {
                 return Outcome::Exited(None);
             }
             command.spawn().inspect(|child| *pid = Some(child.id()))
@@ -421,10 +424,24 @@ fn tail(path: &Path, since: u64, limit: u64) -> (String, u64, u64) {
 /// A copy stops at its next file and a setup that has not started never
 /// does; a running setup's group gets SIGTERM, then SIGKILL for whatever is
 /// left. A setup another session host started (or one from before a
-/// restart) is stopped by the process group its status file names.
+/// restart) is told to stop copying by a file, and stopped by the process
+/// group its status file names once it runs.
 fn stop(place: &Place) {
     let handle = running().lock().unwrap_or_else(PoisonError::into_inner).get(&place.root).cloned();
     let Some(handle) = handle else {
+        // Copying, or about to start the setup: no process to signal yet.
+        let starting = |status: Option<Status>| {
+            status.is_some_and(|status| {
+                status.state == "copying" || (status.state == "running" && status.pid.is_none())
+            })
+        };
+        if starting(read_status(&place.git_dir)) {
+            let _ = fs::write(place.git_dir.join(CANCEL_FILE), b"");
+            let deadline = Instant::now() + STOP_GRACE;
+            while starting(read_status(&place.git_dir)) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
         if let Some(pid) = read_status(&place.git_dir)
             .filter(|status| status.state == "running")
             .and_then(|status| status.pid)

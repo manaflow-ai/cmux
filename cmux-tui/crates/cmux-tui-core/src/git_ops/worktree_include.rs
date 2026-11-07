@@ -150,16 +150,26 @@ pub(crate) fn copy(
     };
     let mut copier =
         Copier { source_root, destination_root, report, patterns: &patterns.patterns, cancelled };
-    for path in select(&copier.source_root, &patterns.patterns) {
+    let (paths, ran_out) = select(&copier.source_root, &patterns.patterns);
+    if ran_out {
+        Report::note(
+            &mut copier.report.problems,
+            format!(
+                "stopped looking after {MAX_VISITED_DIRECTORIES} folders: some matches are not copied"
+            ),
+        );
+    }
+    for path in paths {
         copier.entry(&path);
     }
     copier.report
 }
 
 /// The paths (relative to `root`) the patterns select: each positive
-/// pattern's matches whose last matching pattern is not a `!`.
-pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> Vec<PathBuf> {
-    let mut budget = MAX_VISITED_DIRECTORIES;
+/// pattern's matches whose last matching pattern is not a `!`, and whether
+/// the walk stopped at its folder budget before it was done.
+pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> (Vec<PathBuf>, bool) {
+    let mut budget = Budget { left: MAX_VISITED_DIRECTORIES, ran_out: false };
     let mut found = BTreeSet::new();
     for pattern in patterns.iter().filter(|pattern| !pattern.negated) {
         expand(
@@ -171,13 +181,14 @@ pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> Vec<PathBuf> {
             &mut found,
         );
     }
-    found
+    let selected = found
         .into_iter()
         .filter(|(path, is_directory)| {
             last_match(patterns, path, *is_directory).is_some_and(|pattern| !pattern.negated)
         })
         .map(|(path, _)| path)
-        .collect()
+        .collect();
+    (selected, budget.ran_out)
 }
 
 /// The last pattern that matches `path`: the one that decides it.
@@ -195,7 +206,7 @@ fn expand(
     relative: &Path,
     segments: &[String],
     directory_only: bool,
-    budget: &mut usize,
+    budget: &mut Budget,
     found: &mut BTreeSet<(PathBuf, bool)>,
 ) {
     let Some((segment, rest)) = segments.split_first() else { return };
@@ -244,13 +255,20 @@ fn expand(
     }
 }
 
+/// The folders a walk may still visit.
+struct Budget {
+    left: usize,
+    ran_out: bool,
+}
+
 /// A folder's entries, with whether each is a real folder (a symlink to one
 /// is not), while the budget lasts.
-fn children(root: &Path, relative: &Path, budget: &mut usize) -> Vec<(String, bool)> {
-    if *budget == 0 {
+fn children(root: &Path, relative: &Path, budget: &mut Budget) -> Vec<(String, bool)> {
+    if budget.left == 0 {
+        budget.ran_out = true;
         return Vec::new();
     }
-    *budget -= 1;
+    budget.left -= 1;
     let Ok(entries) = fs::read_dir(root.join(relative)) else { return Vec::new() };
     let mut listed: Vec<(String, bool)> = entries
         .flatten()
