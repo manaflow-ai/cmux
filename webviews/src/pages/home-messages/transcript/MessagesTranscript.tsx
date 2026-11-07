@@ -39,6 +39,8 @@ import { MessageComposer, dragOffersFiles, type DictationCall, type MessageCompo
 import { estimateRow, RowCache, transcriptRows, type TranscriptData, type TranscriptRow } from "./rows";
 import { TranscriptHeader, alsoHereNames, type HeaderPanelItem } from "./TranscriptHeader";
 import { TranscriptRowView, type RowActions, type RowLinks } from "./TranscriptRows";
+import type { BubbleContext, BubbleHostFacts, FileAction, FileTarget } from "./bubbleMenu";
+import { NO_BUBBLE_HOST } from "./bubbleMenu";
 import "./transcript.css";
 
 /** The room the header takes over the rows (its avatar, pill and padding). */
@@ -85,10 +87,20 @@ export interface MessagesTranscriptProps extends TranscriptData {
   /** Cancel Upload on a send still going (its row's menu). */
   canCancelUpload?(key: string): boolean;
   onCancelUpload?(key: string): void;
-  onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
+  onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   onCopy?(text: string): void;
   /** Reply… on a message (its thread opens, the reply answering it); absent: no Reply. */
   onReply?(message: HomeMessage): void;
+  /** Delete on my committed message in a Chief chat (bubbleMenu `canDeleteMessage`). */
+  onDelete?(message: HomeMessage): void;
+  /** Retry Reply: the Chief answers my message again. */
+  onRetryReply?(message: HomeMessage): void;
+  onForward?(text: string): void;
+  onShare?(item: { text: string } | { url: string }): void;
+  /** A path link's or an attachment's file row (the host runs it). */
+  onFile?(action: FileAction, target: FileTarget): void;
+  /** What the app offers the bubbles' menus (Copy Link's scheme, Forward…, Share…, Retry Reply, file rows). */
+  bubbleHost?: BubbleHostFacts;
   /** The composer's placeholder (a thread's says Reply). */
   composerPlaceholder?: string;
   /** The message box checks spelling (Settings). */
@@ -190,6 +202,15 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
   const stack = useRef<HTMLDivElement | null>(null);
   const [dropping, setDropping] = useState(false);
 
+  // The menus read the conversation's facts as they open: a typing change or a reconnect re-renders no row.
+  const facts = useRef<BubbleContext>(undefined as unknown as BubbleContext);
+  facts.current = {
+    me,
+    conversation,
+    online: connection === "online",
+    typing: (props.typing ?? []).some((person) => person !== me) || props.draft !== undefined,
+    host: props.bubbleHost ?? NO_BUBBLE_HOST,
+  };
   const actions = useMemo<RowActions>(
     () => ({
       onRetry: props.onRetry,
@@ -199,8 +220,14 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       onReact: props.onReact,
       onCopy: props.onCopy ?? ((text) => void navigator.clipboard?.writeText(text)),
       ...(props.onReply ? { onReply: props.onReply } : {}),
+      ...(props.onDelete ? { onDelete: props.onDelete } : {}),
+      ...(props.onRetryReply ? { onRetryReply: props.onRetryReply } : {}),
+      ...(props.onForward ? { onForward: props.onForward } : {}),
+      ...(props.onShare ? { onShare: props.onShare } : {}),
+      ...(props.onFile ? { onFile: props.onFile } : {}),
       ...(links ? { links } : {}),
       ...(props.approvals ? { approvals: props.approvals } : {}),
+      context: () => facts.current,
     }),
     [
       props.onRetry,
@@ -210,6 +237,11 @@ export function MessagesTranscript(props: MessagesTranscriptProps) {
       props.onReact,
       props.onCopy,
       props.onReply,
+      props.onDelete,
+      props.onRetryReply,
+      props.onForward,
+      props.onShare,
+      props.onFile,
       links,
       props.approvals,
     ],

@@ -112,7 +112,8 @@ public final class HomeMessagesKept {
         return Int(number)
     }
 
-    static func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
+    /// The `conversation` field's id; refused when it is not one.
+    public static func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
         guard let id = fields["conversation"]?.stringValue, !id.isEmpty, id.count <= 256 else {
             throw PageError.invalidParams("conversation must be a conversation id")
         }

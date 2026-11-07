@@ -1002,18 +1002,67 @@ export class HomeChannelsStore {
     this.set({ conversations: new Map(this.snapshot.conversations).set(id, next) });
   }
 
-  /** Deletes my message for everyone (the owner keeps a "deleted" row). */
-  async retract(message: HomeMessage): Promise<void> {
-    if (!this.client) return;
+  /** Deletes my message for everyone (the owner keeps a "deleted" row). It shows retracted at once
+   * (the native transcript's Delete, HomeProjection+Delete): until the owner's echo says so, every
+   * copy that arrives stays retracted; a refusal brings it back. Resolves true when the owner took it. */
+  async retract(message: HomeMessage): Promise<boolean> {
+    if (!this.client || message.retracted || this.retracting.has(message.id)) return false;
+    this.retracting.add(message.id);
+    this.showRetracting();
     try {
       await this.client.call(HomeOps.retract, {
         conversation: message.conversation,
         message: message.id,
         idempotencyKey: this.key("retract"),
       });
+      return true;
     } catch (error) {
+      // The row comes back as the owner has it: the copy before the delete, or a newer one.
+      if (this.retracting.delete(message.id)) this.restoreRetracted(message);
       this.set({ error: describe(error) });
+      return false;
     }
+  }
+
+  /** The messages deleted here whose retraction the owner has not echoed yet. */
+  private readonly retracting = new Set<string>();
+
+  /** `messages` with the ones being deleted shown retracted; a copy the owner retracted leaves the set. */
+  private withRetracting(messages: readonly HomeMessage[]): readonly HomeMessage[] {
+    if (this.retracting.size === 0) return messages;
+    let changed = false;
+    const out = messages.map((message) => {
+      if (!this.retracting.has(message.id)) return message;
+      if (message.retracted) {
+        this.retracting.delete(message.id);
+        return message;
+      }
+      changed = true;
+      return { ...message, retracted: true, parts: [], reactions: [] };
+    });
+    return changed ? out : messages;
+  }
+
+  private showRetracting(): void {
+    const view = this.snapshot.threadView;
+    const messages = this.withRetracting(this.snapshot.messages);
+    const thread = view && this.withRetracting(view.messages);
+    const patch: Partial<HomeSnapshot> = {};
+    if (messages !== this.snapshot.messages) patch.messages = messages;
+    if (view && thread && thread !== view.messages) patch.threadView = { ...view, messages: thread };
+    if (Object.keys(patch).length) this.set(patch);
+  }
+
+  /** A refused delete: `original` back in place of the retracted copy shown for it. */
+  private restoreRetracted(original: HomeMessage): void {
+    const back = (messages: readonly HomeMessage[]) =>
+      messages.some((m) => m.id === original.id && m.retracted && m.parts.length === 0)
+        ? messages.map((m) => (m.id === original.id && m.retracted ? original : m))
+        : messages;
+    const view = this.snapshot.threadView;
+    const patch: Partial<HomeSnapshot> = { messages: back(this.snapshot.messages) };
+    if (view) patch.threadView = { ...view, messages: back(view.messages) };
+    this.set(patch);
   }
 
   dismissError(): void {
@@ -1152,7 +1201,8 @@ export class HomeChannelsStore {
     if (conversations) patch.conversations = conversations;
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
-    if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
+    if (incoming.length > 0)
+      patch.messages = this.withRetracting(mergeMessages(this.snapshot.messages, incoming, WINDOW));
     const left = this.settled(batch.messages ?? []);
     if (left) patch.pending = left;
     const activity = this.activityAfter(batch);
@@ -1169,7 +1219,10 @@ export class HomeChannelsStore {
       const tail = view.hasMore
         ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq))
         : threadIncoming;
-      patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
+      patch.threadView = {
+        ...view,
+        messages: this.withRetracting(mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER)),
+      };
     }
     if (batch.presence)
       for (const entry of batch.presence) {

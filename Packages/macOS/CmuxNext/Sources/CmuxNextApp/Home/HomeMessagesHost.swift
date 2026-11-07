@@ -48,7 +48,8 @@ final class HomeMessagesHostProvider: PageProvider {
     /// The ops this provider answers, under ``HomeMessagesPageRoute/prefix`` (the router picks the
     /// longest prefix, so these win over the route's own `menu`, `perform` and `chrome`).
     static let prefixes = ["selected", "drafts.", "attachments.", "outbox.", "hidden", "requests.", "group.", "contacts", "chief.", "invite.", "teamInvite.", "start",
-                           "linkPreview", "openLink", "headerPanels", "appearance", "approval."].map { HomeMessagesPageRoute.prefix + $0 }
+                           "linkPreview", "openLink", "headerPanels", "appearance", "approval.", HomeMessagesBubbleOps.prefix].map { HomeMessagesPageRoute.prefix + $0 }
+    private static let personOnly: Set<String> = ["chief.create", "invite.send", "teamInvite.send", "openLink", "headerPanels.toggle"]  // a click only
 
     private weak var services: AppServices?
     /// What the page shows, as it last said (``HomeMessagesShown``: New Message keeps the conversation open before it).
@@ -60,6 +61,7 @@ final class HomeMessagesHostProvider: PageProvider {
     let hidden = HomeMessagesHiddenFeed()
     private var previewProvider: HomeLinkPreviewProvider?
     private var keeping: HomeMessagesKept?
+    private var bubbleOps: HomeMessagesBubbleOps?
     /// The first run of an empty Chief chat (``HomeMessagesFirstRunProvider``): it follows ``shown``.
     var firstRun: HomeMessagesFirstRunProvider?
     private var appearanceListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
@@ -85,6 +87,9 @@ final class HomeMessagesHostProvider: PageProvider {
         let fields = params.objectValue ?? [:]
         let name = op.hasPrefix(HomeMessagesPageRoute.prefix) ? String(op.dropFirst(HomeMessagesPageRoute.prefix.count)) : op
         if let answer = try await kept(home).call(name, fields, context: context) { return answer }
+        let userOnly = context.userGesture ? nil : PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        if let answer = try await bubbles(services).call(name, fields, refusal: userOnly) { return answer }
+        if let userOnly, Self.personOnly.contains(name) { throw userOnly }
         switch name {
         case "selected":
             let id = fields["conversation"]?.stringValue.flatMap { Self.isID($0) ? ConversationID($0) : nil }
@@ -128,13 +133,11 @@ final class HomeMessagesHostProvider: PageProvider {
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
             return HomeContact.pageAnswer(home.contacts(), inviteTeam: team, rows: home.homeStore.rows, roster: home.chiefRoster, harnesses: home.directory.chiefHarnesses)
         case "chief.create":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { throw PageError.invalidParams("name must not be empty") }
             let backend = fields["backend"]?.stringValue.flatMap(ChiefBackend.init(id:)) ?? .claude
             return (await home.createChief(named: name, backend: backend)).pageOutcome
         case "invite.send":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let text = fields["email"]?.stringValue ?? ""
             guard let address = ContactAddress.parse(text), address.isEmail else { return HomeComposeOutcome.invalidAddress(text).pageOutcome }
             return (await home.invite(address)).pageOutcome
@@ -142,12 +145,11 @@ final class HomeMessagesHostProvider: PageProvider {
             guard let team = services.cloud.auth.activeTeam.team else { return .object(["impact": .object(["kind": .string("unknown")])]) }
             return .object(["impact": await HomeTeamInviteRun.seatImpact(of: team.id, auth: services.cloud.auth).pageJSON])
         case "teamInvite.send":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let team = services.cloud.auth.activeTeam.team else { return .object(["result": .object(["kind": .string("notAllowed")])]) }
             let text = fields["email"]?.stringValue ?? ""
             guard let address = ContactAddress.parse(text), address.isEmail else { return .object(["result": .object(["kind": .string("sendFailed")])]) }
             let answer = await services.cloud.auth.inviteOne(address.description, toTeam: team.id)
-            return .object(["result": .object(["kind": .string(Self.kind(answer))])])
+            return .object(["result": .object(["kind": .string(answer.rawValue)])])
         case "start":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             return await HomeMessagesFirstSend(store: home.homeStore, contacts: home.contacts(), start: { await home.startConversation($0, title: "", firstMessage: $1) },
@@ -163,7 +165,6 @@ final class HomeMessagesHostProvider: PageProvider {
             return (fields["details"]?.boolValue == true ? await previews.details(for: url, preview: quick) : quick).pageJSON(maxLines: HomeLinkPreviewProvider.maxLines)
         case "openLink":
             // A chip's app link or path: the Home workspace's right side opens it, as a click in Channels does.
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let text = fields["url"]?.stringValue,
                   let url = URL(string: text).flatMap({ $0.scheme == nil ? nil : $0 }) ?? (text.hasPrefix("/") ? URL(fileURLWithPath: text) : nil) else {
                 throw PageError.invalidParams("url must name a link or a path")
@@ -171,7 +172,6 @@ final class HomeMessagesHostProvider: PageProvider {
             home.dock.openLink(url, on: services.daemon.connection)
             return .object(["opened": .bool(true)])
         case "headerPanels.toggle":
-            guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             guard let id = fields["id"]?.stringValue else { throw PageError.invalidParams("id must name a panel") }
             return .object(["ran": .bool(HomeHeaderPanels.toggle(id, panelContext(services)))])
         default:
@@ -287,6 +287,19 @@ final class HomeMessagesHostProvider: PageProvider {
         }
     }
 
+    /// The bubble menus' app rows (``HomeMessagesBubbleOps``): Retry Reply through the Chief's control, Forward… as Send To…, the file rows.
+    private func bubbles(_ services: AppServices) -> HomeMessagesBubbleOps {
+        if let bubbleOps { return bubbleOps }
+        let files = HomeFileActions(services: services), registry = services.registry, home = HomeBrainHost.muxHome(tag: services.environment.tag)
+        let made = HomeMessagesBubbleOps(store: services.home.homeStore, host: .init(linkScheme: services.linkScheme, retryReply: { [weak services] id in
+            guard let control = services.map({ HomeChiefControl(services: $0, conversation: id, muxHome: home).turnControl }), !control.isHosted else { return nil }
+            return { if case .success = await control.retryChief(message: $0) { true } else { false } }
+        }, forward: { registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string($0)], origin: .user)) },
+            openFile: { files.open($0) }, fileMenu: { files.menuItems(forFileNamed: $0, resolve: $1) }))
+        bubbleOps = made
+        return made
+    }
+
     /// The drafts, staged files and unsent sends kept in HomeStore (``HomeMessagesKept``).
     private func kept(_ home: HomeService) -> HomeMessagesKept {
         if let keeping { return keeping }
@@ -297,20 +310,7 @@ final class HomeMessagesHostProvider: PageProvider {
 
     // MARK: Wire
 
-    private func conversation(_ fields: [String: JSONValue]) throws -> ConversationID {
-        guard let id = fields["conversation"]?.stringValue, Self.isID(id) else { throw PageError.invalidParams("conversation must be a conversation id") }
-        return ConversationID(id)
-    }
+    private func conversation(_ fields: [String: JSONValue]) throws -> ConversationID { try HomeMessagesKept.conversation(fields) }
 
     static func isID(_ text: String) -> Bool { !text.isEmpty && text.count <= 256 }
-
-    static func kind(_ answer: CloudTeamInviteAnswer) -> String {
-        switch answer {
-        case .sent: "sent"
-        case .alreadyMember: "alreadyMember"
-        case .sendFailed: "sendFailed"
-        case .notAllowed: "notAllowed"
-        case .unreachable: "unreachable"
-        }
-    }
 }

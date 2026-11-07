@@ -603,3 +603,14 @@
 .mt-media.highlighted {
   box-shadow: 0 0 0 2px var(--cmux-app-accent, var(--mt-imessage-blue));
 }
+
+/* Tapback Details…: who reacted, with what (the native popover's lines). */
+.mt-tapback-details ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mt-tapback-details p {
+  margin: 0;
+}

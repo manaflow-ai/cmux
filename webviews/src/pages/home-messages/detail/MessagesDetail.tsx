@@ -32,12 +32,17 @@ import { RequestsSheet } from "../sheets/RequestsSheet";
 import sheetsTable from "../sheets/generated/strings.json";
 import { isGone, MessagesDataOps, parseContactsAnswer, parseGroupInfoAnswer, parseRequests } from "../sheets/wire";
 import { MessageComposer, type DictationCall, type MessageComposerHandle } from "../transcript/MessageComposer";
-import { MessagesTranscript, type MessagesTranscriptHandle } from "../transcript/MessagesTranscript";
+import {
+  MessagesTranscript,
+  type MessagesTranscriptHandle,
+  type MessagesTranscriptProps,
+} from "../transcript/MessagesTranscript";
 import { createTranscriptStrings } from "../transcript/strings";
 import type { HeaderPanelItem } from "../transcript/TranscriptHeader";
 import type { RowLinks } from "../transcript/TranscriptRows";
 import type { MessagesDetailProps } from "../types";
 import {
+  bubbleHostActions,
   chatAppearance,
   DEFAULT_APPEARANCE,
   DetailOps,
@@ -47,6 +52,7 @@ import {
   parseAppearance,
   parseFirstRun,
   parseHeaderPanels,
+  useBubbleFacts,
   useHostDictation,
   useHostStream,
   type FirstRunFacts,
@@ -373,6 +379,17 @@ function ConversationView(
   // Reply… on a message (the native transcript's): its thread opens over the conversation, and a
   // send there answers that message (the root's own thread when it is the root).
   const [replying, setReplying] = useState<{ root: string; parent: string }>();
+  // The bubbles' menus: what the app offers here, and the runs of their rows (both views share them).
+  const bubbleHost = useBubbleFacts(host, conversation.id);
+  const hostRuns = useMemo(() => bubbleHostActions(host), [host]);
+  const menus: BubbleMenuProps = {
+    bubbleHost,
+    onDelete: (message) => void store.retract(message),
+    onRetryReply: (message) => hostRuns.retryReply(message.conversation, message.id),
+    onForward: hostRuns.forward,
+    onShare: hostRuns.share,
+    onFile: hostRuns.file,
+  };
   if (!me) return null;
   const { look, colors } = props.appearance(conversation);
   const id = conversation.id;
@@ -393,6 +410,7 @@ function ConversationView(
       <ThreadView
         {...props}
         me={me}
+        menus={menus}
         root={root}
         onReply={onReply}
         onSend={(text, files) => store.send(text, root, parent, files)}
@@ -444,6 +462,7 @@ function ConversationView(
         onCancelUpload={(key) => store.cancel(key)}
         onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
         onReply={onReply}
+        {...menus}
         {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
         links={props.links}
         {...(props.approvals ? { approvals: props.approvals } : {})}
@@ -482,6 +501,7 @@ function ThreadView(
   props: ConversationViewProps & {
     conversation: HomeConversation;
     me: HomeParticipant;
+    menus: BubbleMenuProps;
     root: string;
     onReply(message: HomeMessage): void;
     onSend(text: string, files?: readonly HomeAttachment[]): Promise<boolean>;
@@ -551,12 +571,19 @@ function ThreadView(
       onCancelUpload={(key) => store.cancel(key)}
       onReact={(message, partIndex, value, tapback) => void store.react(message, value, { partIndex, tapback })}
       onReply={props.onReply}
+      {...props.menus}
       {...(snapshot.highlight ? { highlight: snapshot.highlight } : {})}
       links={props.links}
       {...(props.approvals ? { approvals: props.approvals } : {})}
     />
   );
 }
+
+/** The bubble menu's props both the conversation and its thread pass to their transcript. */
+type BubbleMenuProps = Pick<
+  MessagesTranscriptProps,
+  "bubbleHost" | "onDelete" | "onRetryReply" | "onForward" | "onShare" | "onFile"
+>;
 
 /** New Message's people already have this conversation: it shows under the field, and a send there
  * ends the draft on it. */

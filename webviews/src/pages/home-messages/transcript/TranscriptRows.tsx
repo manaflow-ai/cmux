@@ -1,34 +1,36 @@
 // One transcript row as the Swift transcript draws it (RowDrawing): a centered time label, a group
 // chat's sender name, a bubble (mine on the right in the sent colour, theirs on the left in the
 // received one, the group's last with its tail), the Edited and Not Delivered labels, the Read and
-// Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu has Copy,
-// the tapbacks, and on a failed send Try Again and Delete.
-import { memo, type ReactNode } from "react";
+// Delivered receipts, an unsent line and the typing bubble. A bubble's right-click menu is the
+// native transcript's (bubbleMenu.ts), built from what was under the pointer when it opened.
+import { memo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Markdown } from "../../../agent-session/acpmux/conversation/Markdown";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Popover } from "../../../ui/Popover";
+import type { EmojiTable } from "../../../icon-picker/emojiData";
 import { MessageAttachments } from "../../home-channels/AttachmentViews";
+import { EmojiPicker, loadEmoji } from "../../home-channels/EmojiPicker";
 import { Avatar } from "../../home-channels/Avatar";
-import { partText } from "../../home-channels/model";
-import type { HomeAttachment, HomeMessage, HomeParticipant } from "../../home-channels/types";
+import type { HomeAttachment, HomeMessage, HomePart, HomeParticipant } from "../../home-channels/types";
 import type { Strings } from "../../shared/i18n";
 import { ApprovalCard } from "../cards/approval/ApprovalCard";
 import type { ApprovalDecisions } from "../cards/approval/approval";
 import { HomeLinkChip } from "../cards/links/HomeLinkChip";
-import { LinkPreviewCard, LocationCard, locationCopyText, mentionedText } from "../cards/parts/PartCards";
+import { LinkPreviewCard, LocationCard, mentionedText } from "../cards/parts/PartCards";
 import type { LinkPreviewFetch } from "../cards/links/linkPreview";
 import { formatDay, formatTime } from "./format";
+import {
+  bubbleCopyText,
+  bubbleMenuItems,
+  type BubbleContext,
+  type BubbleMenuActions,
+  type BubblePointer,
+  NO_BUBBLE_HOST,
+} from "./bubbleMenu";
 import type { TranscriptRow } from "./rows";
 
-/** The tapbacks, in Messages' order: the name sent back (`HomeReaction.tapback`) and its emoji. */
-export const TAPBACKS = [
-  { tapback: "love", value: "❤️" },
-  { tapback: "like", value: "👍" },
-  { tapback: "dislike", value: "👎" },
-  { tapback: "laugh", value: "😂" },
-  { tapback: "emphasize", value: "‼️" },
-  { tapback: "question", value: "❓" },
-] as const;
+export { TAPBACKS, bubbleCopyText } from "./bubbleMenu";
 
 /** Link chips in people's plain text (Swift `HomeLinkChip`): the app's facts and opening. */
 export interface RowLinks {
@@ -36,18 +38,18 @@ export interface RowLinks {
   onOpen(href: string): void;
 }
 
-export interface RowActions {
-  onRetry?(key: string): void;
-  onDiscard?(key: string): void;
-  /** Cancel Upload on a send still going (MessagesLab PaneMenu's `canCancelSend`/`cancelSend`). */
-  canCancelUpload?(key: string): boolean;
-  onCancelUpload?(key: string): void;
-  /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back). */
-  onReact?(message: HomeMessage, partIndex: number, value: string, tapback: string): void;
-  onCopy?(text: string): void;
+export interface RowActions extends Omit<
+  BubbleMenuActions,
+  "onTapbackDetails" | "onSticker" | "onVideo" | "onOpenLink"
+> {
+  /** A tapback on a part: `value` is its emoji, `tapback` its name (sent again: taken back); an
+   * emoji from Attach Sticker… has no name. */
+  onReact?(message: HomeMessage, partIndex: number, value: string, tapback?: string): void;
   /** Reply… (the native menu's): the message's thread opens, and a send there answers it. */
   onReply?(message: HomeMessage): void;
   links?: RowLinks;
+  /** The conversation's facts as the menu opens (read then, so a change re-renders no row). */
+  context?(): BubbleContext;
   /** A Chief's permission cards: their state and the app's decision (absent: no buttons). */
   approvals?: ApprovalDecisions;
 }
@@ -137,6 +139,7 @@ export const TranscriptRowView = memo(function TranscriptRowView({
           me={me}
           strings={strings}
           actions={actions}
+          people={people}
           highlighted={highlight !== undefined && row.message.id === highlight}
         />
       );
@@ -148,12 +151,14 @@ function BubbleRow({
   me,
   strings,
   actions,
+  people,
   highlighted,
 }: {
   row: Extract<TranscriptRow, { kind: "bubble" }>;
   me: string;
   strings: Strings;
   actions: RowActions;
+  people: ReadonlyMap<string, HomeParticipant>;
   highlighted: boolean;
 }) {
   const { t } = strings;
@@ -163,48 +168,47 @@ function BubbleRow({
   const text = bubbleCopyText(row);
   const pendingKey = message.id.startsWith(PENDING) ? message.id.slice(PENDING.length) : undefined;
   const failed = delivery?.state === "failed";
-  const committed = !pendingKey && !row.streaming;
-  const items: ContextMenuItem[] = [];
-  if (failed && pendingKey) {
-    items.push({ id: "retry", label: t("home.menu.tryAgain"), onSelect: () => actions.onRetry?.(pendingKey) });
-    items.push({
-      id: "discard",
-      label: t("home.menu.deleteFailed"),
-      destructive: true,
-      onSelect: () => actions.onDiscard?.(pendingKey),
-    });
-  } else if (pendingKey && actions.canCancelUpload?.(pendingKey)) {
-    items.push({
-      id: "cancelUpload",
-      label: t("home.menu.cancelUpload"),
-      onSelect: () => actions.onCancelUpload?.(pendingKey),
-    });
-  }
-  if (committed && actions.onReply)
-    items.push({
-      id: "reply",
-      label: t("menu.replyEllipsis"),
-      separatorBefore: items.length > 0,
-      onSelect: () => actions.onReply?.(message),
-    });
-  if (text)
-    items.push({
-      id: "copy",
-      label: t("menu.copy"),
-      separatorBefore: items.length > 0 && items.at(-1)?.id !== "reply",
-      onSelect: () => actions.onCopy?.(text),
-    });
-  if (committed && actions.onReact)
-    TAPBACKS.forEach((entry, index) => {
-      const mine = row.reactions.some((reaction) => reaction.author === me && reaction.tapback === entry.tapback);
-      items.push({
-        id: `tapback.${entry.tapback}`,
-        label: `${entry.value}  ${t(`tapback.${entry.tapback}`)}`,
-        checked: mine,
-        separatorBefore: index === 0 && items.length > 0,
-        onSelect: () => actions.onReact?.(message, row.partIndex, entry.value, entry.tapback),
-      });
-    });
+  // What was under the pointer when the menu opened (read in the capture phase, before the menu's
+  // own handler reads its rows), and the popover a row opened (Tapback Details…, Attach Sticker…).
+  const [pointer, setPointer] = useState<BubblePointer>({});
+  const [popover, setPopover] = useState<"details" | "sticker">();
+  const [emoji, setEmoji] = useState<EmojiTable>();
+  const box = useRef<HTMLDivElement | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const context = actions.context?.() ?? {
+    me,
+    conversation: { id: message.conversation, kind: "direct", participants: [] },
+    online: true,
+    typing: false,
+    host: NO_BUBBLE_HOST,
+  };
+  const items = bubbleMenuItems(
+    row,
+    pointer,
+    context,
+    {
+      ...actions,
+      onOpenLink: actions.links?.onOpen,
+      onTapbackDetails: () => setPopover("details"),
+      onSticker: () => {
+        setPopover("sticker");
+        void loadEmoji().then(setEmoji, () => undefined);
+      },
+      onVideo: (action) => {
+        const element = video.current;
+        if (!element) return;
+        if (action === "larger") void element.requestFullscreen?.().catch(() => undefined);
+        else if (element.paused) void element.play().catch(() => undefined);
+        else element.pause();
+      },
+    },
+    strings,
+  );
+  const onContextMenuCapture = (event: ReactMouseEvent) => {
+    const read = readPointer(event.target, box.current, row.parts);
+    video.current = read.element;
+    setPointer(read.pointer);
+  };
   const reactions = row.reactions.length > 0 && (
     <span className={`mt-tapbacks ${outgoing ? "out" : "in"}`} aria-label={t("menu.tapback")}>
       {[...new Set(row.reactions.map((reaction) => reaction.value))].map((value) => (
@@ -217,11 +221,58 @@ function BubbleRow({
       ))}
     </span>
   );
+  // Tapback Details… and Attach Sticker…: their popover at the bubble.
+  const popovers = (
+    <>
+      {popover === "details" && (
+        <Popover
+          open
+          onOpenChange={(open) => !open && setPopover(undefined)}
+          anchor={box.current}
+          side="top"
+          label={t("tapback.details.title")}
+          className="mt-tapback-details"
+        >
+          <strong>{t("tapback.details.title")}</strong>
+          {row.reactions.length === 0 ? (
+            <p>{t("tapback.details.none")}</p>
+          ) : (
+            <ul>
+              {row.reactions.map((reaction, index) => (
+                <li key={`${reaction.author}:${reaction.value}:${index}`}>
+                  {reaction.value}
+                  {"  "}
+                  {people.get(reaction.author)?.name ?? reaction.author}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover>
+      )}
+      {popover === "sticker" && (
+        <EmojiPicker
+          anchor={box.current}
+          {...(emoji ? { emoji } : {})}
+          strings={strings}
+          onPick={(value) => {
+            setPopover(undefined);
+            actions.onReact?.(message, row.partIndex, value);
+          }}
+          onClose={() => setPopover(undefined)}
+        />
+      )}
+    </>
+  );
   const card = cardOf(row, strings, actions);
   if (card)
     return bubbleRow(
       row,
-      <div className={`mt-card${highlighted ? " highlighted" : ""}`} data-message={message.id}>
+      <div
+        className={`mt-card${highlighted ? " highlighted" : ""}`}
+        data-message={message.id}
+        ref={box}
+        onContextMenuCapture={onContextMenuCapture}
+      >
         {reactions}
         {card}
       </div>,
@@ -229,6 +280,7 @@ function BubbleRow({
       failed && pendingKey ? pendingKey : undefined,
       actions,
       t,
+      popovers,
     );
   // Text with mentions shows as written, its mentions marked (their offsets index it): never Markdown.
   const mentions = head?.type === "text" && head.mentions?.length ? head.mentions : undefined;
@@ -266,22 +318,16 @@ function BubbleRow({
         .filter(Boolean)
         .join(" ")}
       data-message={message.id}
+      ref={box}
+      // The menu's subject, read before the menu host's own handler builds its rows (React renders
+      // the capture phase's update first).
+      onContextMenuCapture={onContextMenuCapture}
     >
       {reactions}
       {body}
     </div>
   );
-  return bubbleRow(row, bubble, items, failed && pendingKey ? pendingKey : undefined, actions, t);
-}
-
-/** What a bubble's Copy copies (Swift `HomeContentMenu.partItems`): its text; a link card its
- * address, a place its name and coordinates; media and a permission card nothing. */
-export function bubbleCopyText(row: Extract<TranscriptRow, { kind: "bubble" }>): string {
-  const head = row.parts[0];
-  if (!head || head.type === "attachment" || row.approval) return "";
-  if (head.type === "link_preview") return head.url;
-  if (head.type === "location") return locationCopyText(head);
-  return row.parts.map(partText).join("\n");
+  return bubbleRow(row, bubble, items, failed && pendingKey ? pendingKey : undefined, actions, t, popovers);
 }
 
 /** A bubble (or a card) in its row: the avatar column, the right-click menu, a failed send's mark. */
@@ -292,6 +338,7 @@ function bubbleRow(
   failedKey: string | undefined,
   actions: RowActions,
   t: Strings["t"],
+  popovers: ReactNode,
 ) {
   return (
     <div
@@ -303,7 +350,14 @@ function bubbleRow(
           {row.avatar && <Avatar participant={row.avatar} size={28} />}
         </span>
       )}
-      {items.length ? <ContextMenu items={items}>{bubble}</ContextMenu> : bubble}
+      {items.length ? (
+        <ContextMenu items={items} selection="menu">
+          {bubble}
+        </ContextMenu>
+      ) : (
+        bubble
+      )}
+      {popovers}
       {failedKey && (
         <button
           type="button"
@@ -342,6 +396,41 @@ function cardOf(row: Extract<TranscriptRow, { kind: "bubble" }>, strings: String
     );
   if (head?.type === "location") return <LocationCard part={head} />;
   return undefined;
+}
+
+/** What the right-click landed on inside a bubble: a link or path, the words selected in it, the
+ * attachment and a video there. */
+export function readPointer(
+  target: EventTarget | null,
+  bubble: HTMLElement | null,
+  parts: readonly HomePart[],
+): { pointer: BubblePointer; element: HTMLVideoElement | null } {
+  const element = target instanceof Element ? target : null;
+  const pointer: BubblePointer = {};
+  const anchor = element?.closest<HTMLAnchorElement>("a[href]:not([download])");
+  const href = anchor?.getAttribute("href") ?? "";
+  if (href.startsWith("file://")) {
+    try {
+      pointer.path = decodeURIComponent(new URL(href).pathname);
+    } catch {
+      // Not a path the host can open: no file rows.
+    }
+  } else if (href.startsWith("/")) pointer.path = href;
+  else if (href && !href.startsWith("#") && !href.startsWith("blob:") && !href.startsWith("data:")) pointer.href = href;
+  const selection = typeof window !== "undefined" ? window.getSelection() : null;
+  if (bubble && selection && !selection.isCollapsed && selection.anchorNode && bubble.contains(selection.anchorNode)) {
+    const words = selection.toString();
+    if (words.trim()) pointer.selection = words;
+  }
+  const tile = element?.closest<HTMLElement>("[data-attachment]");
+  const hash = tile?.dataset.attachment;
+  const attachment = hash
+    ? parts.find((part): part is HomeAttachment => part.type === "attachment" && part.hash === hash)
+    : undefined;
+  if (attachment) pointer.attachment = attachment;
+  const player = tile?.querySelector("video") ?? null;
+  if (player) pointer.video = { playing: !player.paused };
+  return { pointer, element: player };
 }
 
 /** Links in people's text: http(s) and cmux app links, without the punctuation that ends a sentence. */

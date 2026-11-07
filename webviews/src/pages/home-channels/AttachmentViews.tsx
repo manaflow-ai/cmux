@@ -128,6 +128,7 @@ function ImageTile({
       type="button"
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
+      data-attachment={part.hash}
       aria-label={part.name}
       /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
@@ -182,7 +183,7 @@ function VideoPlayer({
     service.url(conversation, part.hash, "original", part.name, true).then(setSrc, () => undefined);
   };
   return (
-    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }}>
+    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }} data-attachment={part.hash}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
         src={src}
@@ -262,7 +263,7 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
     anchor.click();
   };
   return (
-    <div className="hc-att-file ui-reveal-host">
+    <div className="hc-att-file ui-reveal-host" data-attachment={part.hash}>
       <span className="hc-att-file-mark" aria-hidden>
         {extension.slice(0, 4) || <HomeIcon name="attach" />}
       </span>

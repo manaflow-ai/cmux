@@ -9,6 +9,10 @@
 //   openLink {url}: an app link or a path a chip opened (the host opens it, never the system)
 //   firstRun (stream) {introKind?, memoryOffer?, petShown?, shortcuts?, agents?, switchKeys?,
 //                      starters?}: the empty Chief chat's host facts (HomeHostView's setFirstRun*)
+//   bubble.facts {conversation} -> {linkScheme?, forward, share, retryReply, files}: what a bubble's
+//                      menu may offer in this conversation (bubbleMenu.ts)
+//   bubble.retryReply {conversation, message}, bubble.forward {text}, bubble.share {text | url},
+//   bubble.file {action, path | attachment {conversation, message, partIndex, part}}: its rows' runs
 import { useEffect, useMemo, useState } from "react";
 import type { DictationUpdate } from "../../../agent-session/acpmux/dictationText";
 import { deliverDictation } from "../../../agent-session/acpmux/dictation";
@@ -26,6 +30,7 @@ import type {
 } from "../cards/firstRun/firstRunModel";
 import { LINK_PREVIEW_OP } from "../cards/links/linkPreview";
 import { BUBBLE_LOOKS, type BubbleLook, type ChatColors } from "../transcript/colors";
+import { NO_BUBBLE_HOST, type BubbleHostFacts, type FileAction, type FileTarget } from "../transcript/bubbleMenu";
 import type { DictationCall } from "../transcript/MessageComposer";
 
 export const DetailOps = {
@@ -36,6 +41,11 @@ export const DetailOps = {
   linkPreview: LINK_PREVIEW_OP,
   openLink: "cmux.home.messages.openLink",
   firstRun: "cmux.home.messages.firstRun",
+  bubbleFacts: "cmux.home.messages.bubble.facts",
+  bubbleRetryReply: "cmux.home.messages.bubble.retryReply",
+  bubbleForward: "cmux.home.messages.bubble.forward",
+  bubbleShare: "cmux.home.messages.bubble.share",
+  bubbleFile: "cmux.home.messages.bubble.file",
 } as const;
 
 type Json = Record<string, unknown>;
@@ -290,5 +300,67 @@ export function parseFirstRun(event: unknown): FirstRunFacts {
       ...(strings(starters?.failures) ? { failures: strings(starters?.failures) } : {}),
       ...(strings(starters?.pullRequests) ? { pullRequests: strings(starters?.pullRequests) } : {}),
     },
+  };
+}
+
+// ---------- Bubble menus ----------
+
+const SCHEME = /^cmux(?:-[a-z0-9]+)*$/;
+
+/** The host's answer to `bubble.facts`; anything else offers nothing. */
+export function parseBubbleFacts(value: unknown): BubbleHostFacts {
+  const raw = record(value);
+  if (!raw) return NO_BUBBLE_HOST;
+  const scheme = typeof raw.linkScheme === "string" && SCHEME.test(raw.linkScheme) ? raw.linkScheme : undefined;
+  return {
+    ...(scheme ? { linkScheme: scheme } : {}),
+    forward: raw.forward === true,
+    share: raw.share === true,
+    retryReply: raw.retryReply === true,
+    files: raw.files === true,
+  };
+}
+
+/** What the open conversation's bubble menus offer: read once per conversation (none without a host). */
+export function useBubbleFacts(host: PageClient | null, conversation: string): BubbleHostFacts {
+  const [facts, setFacts] = useState<{ conversation: string; facts: BubbleHostFacts }>();
+  useEffect(() => {
+    if (!host) return;
+    let live = true;
+    void host
+      .call<unknown>(DetailOps.bubbleFacts, { conversation })
+      .then(parseBubbleFacts, () => NO_BUBBLE_HOST)
+      .then((read) => {
+        if (live) setFacts({ conversation, facts: read });
+      });
+    return () => {
+      live = false;
+    };
+  }, [host, conversation]);
+  return facts?.conversation === conversation ? facts.facts : NO_BUBBLE_HOST;
+}
+
+/** The runs of a bubble's host rows; each is the person's click (a refusal changes nothing). */
+export function bubbleHostActions(host: PageClient | null) {
+  const call = (op: string, params: Record<string, unknown>) => void host?.call(op, params).catch(() => undefined);
+  return {
+    retryReply: (conversation: string, message: string) => call(DetailOps.bubbleRetryReply, { conversation, message }),
+    forward: (text: string) => call(DetailOps.bubbleForward, { text }),
+    share: (item: { text: string } | { url: string }) => call(DetailOps.bubbleShare, item),
+    file: (action: FileAction, target: FileTarget) =>
+      call(
+        DetailOps.bubbleFile,
+        "path" in target
+          ? { action, path: target.path }
+          : {
+              action,
+              attachment: {
+                conversation: target.conversation,
+                message: target.message,
+                partIndex: target.partIndex,
+                part: target.attachment,
+              },
+            },
+      ),
   };
 }
