@@ -325,6 +325,39 @@ test("Retry stays for a chat not known to be local, and comes back when carried 
   expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
 });
 
+// Review (Sol) at 3c7e1e46: a failure in a chat on this Mac is still recorded, so a draft carried to
+// a chat on another machine shows Retry there; and nothing uploads on its own, so a key in another
+// chat never sends this image to that chat's machine.
+test("a local failure carried to another machine shows Retry there, and nothing uploads on its own", async () => {
+  const uploads: string[] = [];
+  const options = (scope: string, localChat: boolean): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    localChat,
+    upload: async () => {
+      uploads.push(scope);
+      return { error: "The disk is full." };
+    },
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("local", true)} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => uploads.length === 1 && handle.current!.attachments.length === 1);
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+  act(() => root!.render(<Harness options={options("cloud", false)} handle={handle} />));
+  for (const type of ["keydown", "pointerdown"]) document.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
+  // An upload that should never start has no event to wait for; one task turn lets a listener's
+  // zero-delay try again run if one were armed.
+  // fixed-wait: waits on the absence of an upload, which no event signals.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(uploads).toEqual(["local"]);
+  expect(host.querySelector(".acpmux-attachment-original-retry")).not.toBeNull();
+});
+
 // Review (Astra): Retry's upload stops once its chip leaves the strip, also after the chip moved
 // with the composer to another chat, and a chip out of the strip keeps no file for a Retry it
 // cannot show, also when it left with a switch to another chat.
