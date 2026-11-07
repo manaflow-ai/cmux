@@ -1206,7 +1206,19 @@ def _validate_catalog_type(
                 context.startswith("types.")
                 and context.endswith(".fields.extra.values")
             )
-            if context not in allowed_json_contexts and not is_explicit_extra:
+            # The Cloud API calls (server/cloud_api.rs): each call's args and
+            # answer are the cmux-cloud-api crate's and the Cloud API's,
+            # passed through unchanged (the crate validates every argument).
+            is_cloud_api_call = re.fullmatch(
+                r"operations\.cloud\.(vm|runs|owner|previews|machine)\.[a-z_]+"
+                r"\.(params\.fields\.args\.values|result|result\.arguments\[0\])",
+                context,
+            ) is not None
+            if (
+                context not in allowed_json_contexts
+                and not is_explicit_extra
+                and not is_cloud_api_call
+            ):
                 fail("JsonValue reference is not an audited extension-point exception", "JsonValue")
         return
     if kind == "parameter":
