@@ -159,6 +159,36 @@ fn reads_and_mutations_go_through_the_sdk() {
 }
 
 #[test]
+fn a_key_that_is_not_utf8_is_refused_never_read_as_absent() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    // A request that reached the daemon would get a closed stream: an error envelope, not a refusal.
+    let server = thread::spawn(move || drop(listener.accept().unwrap()));
+    let client = connect(&path);
+    let op = CString::new("conversation.list").unwrap();
+    let key = [0xffu8, 0xfe, 0];
+    for kind in [CMUX_SDK_KIND_READ, CMUX_SDK_KIND_MUTATION] {
+        let mut out = empty();
+        let status = unsafe {
+            cmux_sdk_call(
+                client.0,
+                op.as_ptr(),
+                kind,
+                key.as_ptr().cast(),
+                std::ptr::null(),
+                0,
+                &mut out,
+            )
+        };
+        assert_eq!(status, CMUX_SDK_ERR_INVALID, "kind {kind}");
+        assert!(out.ptr.is_null());
+    }
+    drop(client);
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn command_lines_return_data_and_whole_refusals() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

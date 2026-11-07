@@ -151,6 +151,23 @@ test("a signed-out failure keeps the prompt card and offers inline sign-in", () 
   expect(html).toContain("Sign in to use Cloud.");
 });
 
+test("a start waiting on its browser sign-in says so, not starting or Thinking", () => {
+  const variant = cloudStartGallery.variants["signing-in"]!;
+  for (const showSteps of [false, true]) {
+    const html = renderToStaticMarkup(<CloudStartView {...variant.props} showSteps={showSteps} />);
+    expect(html).toContain(variant.props.start.task);
+    expect(html).toContain('data-signing-in="true"');
+    expect(html).toContain("Waiting for you to sign in in your browser");
+    expect(html).not.toContain("cv-thinking");
+    expect(html).not.toContain("Preparing machine");
+  }
+  // Once signed in, the start reads as any start again.
+  const { signingIn: _signingIn, ...started } = variant.props.start;
+  const html = renderToStaticMarkup(<CloudStartView start={started} />);
+  expect(html).toContain("cv-thinking");
+  expect(html).not.toContain("data-signing-in");
+});
+
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
   const rows = startupChecklist({
     key: "k",

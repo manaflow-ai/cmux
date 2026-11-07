@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import CmuxMobileDesign
+import CmuxSpinner
 import NaturalLanguage
 import Observation
 import SwiftUI
@@ -126,7 +127,7 @@ struct ChatCopyChoicesSheet: View {
                                 Label(row.title, systemImage: row.systemImage)
                                 Spacer()
                                 if copying == row {
-                                    ProgressView()
+                                    CmuxSpinner()
                                 } else if copied == row {
                                     Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityLabel("Copied")
                                 }

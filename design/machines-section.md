@@ -38,6 +38,7 @@ Leo: "we ought to have a lot of that ui in react and not swift".
 | Link down | `Offline`, `Paused`, `Failed` or `Deleted` at the trailing edge | Connected: the word goes |
 | Pointer, keyboard focus, or its menu open | New Workspace (and a joined machine's …) at opacity 0 | at opacity 1, the button's own hover fill only; back to 0 when all three end |
 | Revoke or Rotate running | the … button | a spinner in its place until the list read after it lands |
+| Remove (joined machine) | the remove button (revealed with the others) | a question inside the section: Cancel (Escape) or Remove (Return, danger ink). Remove takes the row out in the same frame, the rows below close up in that frame; the host revokes it if it still can join and records it in cmux-tui's devices state, so every machine list leaves it out. A refusal brings the row back with "Could not remove it" |
 | Last check | nothing | a check (success) or a dot (warning, danger) after the name; its tooltip names the step |
 
 The trailing controls keep their slot at opacity 0, so revealing them moves nothing.
@@ -54,7 +55,7 @@ Shipped: `compact`, which is already the default. It shows the most machines in 
 and a connected machine needs no word: the state appears exactly when there is something to read.
 `grouped` doubles each row's height for the same information, and `flat` loses the kind headers
 that tell a Cloud machine from an SSH one. The gallery also shows joined rows (busy, failed, menu
-open), a long name, this Mac alone and 300 machines.
+open), the Remove question and a refused Remove, a long name, this Mac alone and 300 machines.
 
 ## Host and cost
 

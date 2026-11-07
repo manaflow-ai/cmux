@@ -6,8 +6,9 @@
  * {"item": ...} | {"end": ...} | {"timed_out": true} | an error. Free every
  * *out with cmux_sdk_bytes_free. Return codes: 0 OK (read *out), -1 a null
  * pointer, -2 invalid input (not UTF-8, params not a JSON object, a kind
- * without its key), -4 a panic inside (caught); on any code but 0, *out is
- * empty. Every function may run on any thread.
+ * without its key), -3 a conversation rule this build does not know, -4 a
+ * panic inside (caught); on any code but 0, *out is empty. Every function
+ * may run on any thread.
  * cmux_sdk_ffi_abi_version() returns CMUX_SDK_FFI_ABI_VERSION (src/lib.rs). */
 
 #ifndef CMUX_SDK_FFI_H
@@ -24,13 +25,18 @@
  The ABI version `cmux_sdk_ffi_abi_version` returns; bump it when a type
  or function changes.
  */
-#define CMUX_SDK_FFI_ABI_VERSION 1
+#define CMUX_SDK_FFI_ABI_VERSION 2
 
 #define CMUX_SDK_OK 0
 
 #define CMUX_SDK_ERR_NULL -1
 
 #define CMUX_SDK_ERR_INVALID -2
+
+/*
+ `cmux_sdk_conversation_rule` was given a rule this build does not know.
+ */
+#define CMUX_SDK_ERR_UNKNOWN_RULE -3
 
 #define CMUX_SDK_ERR_PANIC -4
 
@@ -112,6 +118,23 @@ int32_t cmux_sdk_command(const CmuxSdkClient *client,
                          const uint8_t *params,
                          size_t params_len,
                          CmuxSdkBytes *out);
+
+/*
+ One conversation client rule, `op` (`policy`, `clamp_page`,
+ `runs_key_batches`, `runs_next`, `upload_plan`, `upload_chunk`,
+ `read_next`, `run_tool`, `plain_text`, `inbox_op`, ...), on `request` (a
+ JSON object, or empty): [`cmux::conversation_rules::call`]. No connection.
+ `*out` is `{"ok": true, "result": ...}`, or `{"ok": false, "error":
+ {"code", "message"}}` when the rule refuses its request (`code` is the
+ rule's: `invalid`, `poster_needed`, `preview_needed`, `unknown_piece`,
+ `no_progress`). A rule this build does not know returns
+ `CMUX_SDK_ERR_UNKNOWN_RULE` with `*out` empty.
+
+ # Safety
+ `op` is NULL or NUL-terminated; `request` points to `request_len`
+ readable bytes (or is NULL with 0); `out` is NULL or valid for writes.
+ */
+int32_t cmux_sdk_conversation_rule(const char *op, const uint8_t *request, size_t request_len, CmuxSdkBytes *out);
 
 /*
  Opens the stream `operation` with `params` (a JSON object, or empty) on
