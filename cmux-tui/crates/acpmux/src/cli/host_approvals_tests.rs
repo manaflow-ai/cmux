@@ -143,7 +143,11 @@ impl Io for Fake {
         macs.retain(|m| m["id"] != id.as_str());
         // The peer's file holds at most MAX_APPROVERS (`host approvals add`'s `change`).
         if macs.len() >= crate::hub::approvers::MAX_APPROVERS {
-            return Ran { ok: false, stdout: String::new(), stderr: "error: at most 16 Macs".into() };
+            return Ran {
+                ok: false,
+                stdout: String::new(),
+                stderr: "error: at most 16 Macs".into(),
+            };
         }
         macs.push(json!({"id": id, "name": name, "fingerprint": fingerprint}));
         Ran { ok: true, stdout: "{}".into(), stderr: String::new() }
@@ -401,7 +405,11 @@ fn fix_makes_room_on_a_full_peer_by_removing_unpaired_phones_first() {
     assert_eq!(run(&fake, true).state, StepState::Fixed);
     // The peer is full: this Mac, its old phone and 14 other Macs.
     for n in 0..crate::hub::approvers::MAX_APPROVERS - 2 {
-        fake.remote.borrow_mut().as_mut().unwrap().push(json!({"id": format!("other-{n}"), "fingerprint": "x"}));
+        fake.remote
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .push(json!({"id": format!("other-{n}"), "fingerprint": "x"}));
     }
     // The old phone unpaired, a new one paired: --fix converges in one run.
     fake.unpair("iphone-old");

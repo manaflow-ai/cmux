@@ -351,8 +351,9 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
     // A daemon from before phone enrollment lists no phones at all (not an empty list): its
     // phones are unknown, never up to date.
     let old_daemon = !view.get("thisMacPhones").is_some_and(Value::is_array);
-    let too_old = |state: StepState| {
-        step(
+    let too_old =
+        |state: StepState| {
+            step(
             StepState::Warn,
             format!(
                 "{} on {host}, but this Mac's acpmux is too old to enroll its paired phones there",
@@ -362,7 +363,7 @@ pub(crate) async fn approvals_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
         .with_fix(format!(
             "Update acpmux on this Mac, then run `acpmux machine doctor {name} --fix` again."
         ))
-    };
+        };
     if enrolled && phones.is_empty() {
         if old_daemon {
             return too_old(StepState::Ok);
