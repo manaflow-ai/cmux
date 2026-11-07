@@ -248,9 +248,8 @@ test("Find highlights an edit step's original full path without changing its nor
   const { createRoot } = await import("react-dom/client");
   const { FindReveal, findMatches, paintFindHighlights } =
     await import("../src/agent-session/acpmux/conversation/chatFind");
-  const { resetTranscriptDisclosure } = await import(
-    "../src/agent-session/acpmux/conversation/transcriptDisclosureModel"
-  );
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const work = row("find-edit-path", "activity", { foldRun: true, items: [edit("src/client.ts"), command("pwd")] });
   const view = (
