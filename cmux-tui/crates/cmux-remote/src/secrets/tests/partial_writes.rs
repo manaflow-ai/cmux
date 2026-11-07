@@ -125,3 +125,83 @@ fn machine_secrets_that_fail_to_write_keep_the_file_and_can_be_sent_again() {
     let error = fixture.secrets.replace_machine_secrets(&items).unwrap_err();
     assert!(error.message.starts_with("replay"), "{error}");
 }
+
+#[test]
+fn a_login_failing_on_a_rename_never_clobbers_a_concurrent_one() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    std::fs::write(fixture.home.join(".claude/settings.json"), r#"{"theme":"dark"}"#).unwrap();
+    // Three files: steps 0-2 stage them, 3-5 rename them. Each run fails
+    // one login on a different rename while another goes through.
+    for failing_rename in 3..6 {
+        let good = format!("sk-ant-oat01-{}", random_hex(24));
+        let bad = format!("sk-ant-oat01-{}", random_hex(24));
+        let good_item = fixture.seal(Purpose::HarnessLogin, "claude", &good);
+        let bad_item = fixture.seal(Purpose::HarnessLogin, "claude", &bad);
+        let (good_result, bad_result) = std::thread::scope(|scope| {
+            let secrets = &fixture.secrets;
+            let bad = scope.spawn(|| {
+                let _fail = FailAt::set(Some(failing_rename));
+                secrets.install_harness_login(&bad_item)
+            });
+            let good = scope.spawn(|| secrets.install_harness_login(&good_item));
+            (good.join().unwrap(), bad.join().unwrap())
+        });
+        assert_eq!(good_result.unwrap(), "claude");
+        let error = bad_result.unwrap_err();
+        assert!(error.message.starts_with("write"), "rename {failing_rename}: {error}");
+        let files = snapshot(&fixture.home);
+        let settings: serde_json::Value =
+            serde_json::from_slice(&files[".claude/settings.json"]).unwrap();
+        assert_eq!(settings["theme"], "dark");
+        assert_eq!(settings["env"]["CLAUDE_CODE_OAUTH_TOKEN"], good.as_str());
+        let credentials: serde_json::Value =
+            serde_json::from_slice(&files[".claude/.credentials.json"]).unwrap();
+        assert_eq!(credentials["claudeAiOauth"]["accessToken"], good.as_str());
+        assert_eq!(files[".config/cmux/agent-auth/claude"], b"own\n");
+        assert!(
+            files.keys().all(|name| !name.contains(".tmp") && !name.contains(".bak")),
+            "a temporary or backup was left: {:?}",
+            files.keys()
+        );
+        // The failed one can be sent again, and then wins.
+        assert_eq!(fixture.secrets.install_harness_login(&bad_item).unwrap(), "claude");
+        let credentials: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture.home.join(".claude/.credentials.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(credentials["claudeAiOauth"]["accessToken"], bad.as_str());
+    }
+}
+
+#[test]
+fn a_codex_config_changed_before_the_commit_is_checked_again() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".codex")).unwrap();
+    let config = fixture.home.join(".codex/config.toml");
+    std::fs::write(&config, "model_provider = \"openai\"\n").unwrap();
+    let auth = serde_json::json!({
+        "OPENAI_API_KEY": null,
+        "tokens": {
+            "access_token": random_hex(16),
+            "refresh_token": random_hex(16),
+            "id_token": random_hex(16),
+        },
+    })
+    .to_string();
+    // Swapped to a custom provider after the check: the login is taken
+    // back and, read again, refused.
+    let path = config.clone();
+    super::super::commit::BEFORE_COMMIT.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            std::fs::write(&path, "openai_base_url = \"https://example.invalid\"\n").unwrap();
+        }));
+    });
+    let item = fixture.seal(Purpose::HarnessLogin, "codex", &auth);
+    let refused = fixture.secrets.install_harness_login(&item);
+    super::super::commit::BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
+    let error = refused.unwrap_err();
+    assert!(error.message.starts_with("conflict"), "{error}");
+    assert!(!fixture.home.join(".codex/auth.json").exists());
+    assert!(!fixture.home.join(".config/cmux/agent-auth/codex").exists());
+}

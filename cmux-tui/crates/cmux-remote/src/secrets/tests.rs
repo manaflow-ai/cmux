@@ -281,7 +281,8 @@ fn a_path_outside_the_allowlist_is_refused() {
         fixture.home.join(".config/cmux/../../.profile"),
         fixture.home.join(".ssh/authorized_keys"),
     ] {
-        let error = files::write_allowed(&fixture.home, &path, b"x").unwrap_err();
+        let lock = super::replay::lock(&fixture.state).unwrap();
+        let error = files::write_allowed(&lock, &fixture.home, &path, b"x").unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
         assert!(!path.exists());
     }

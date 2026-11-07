@@ -214,6 +214,14 @@ pub struct Planned<'a> {
     pub expect: Expect<'a>,
 }
 
+/// A file a change reads but never writes: it must still hold `expect`
+/// (`None`: no file) once every file is in place, or the change is undone.
+#[derive(Clone, Copy)]
+pub struct Guard<'a> {
+    pub relative: &'a Path,
+    pub expect: Option<&'a [u8]>,
+}
+
 /// The error of a write whose [`Expect`] no longer held.
 #[derive(Debug)]
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -233,31 +241,56 @@ pub fn is_changed(error: &io::Error) -> bool {
 }
 
 /// Replace each `(path, bytes, expect)`, all or none, mode 0600 (see
-/// [`super::commit`]), only when every path is one [`allowed_paths`] lists.
-pub fn write_all_allowed(home: &Path, writes: &[(&Path, &[u8], Expect<'_>)]) -> io::Result<()> {
-    let allowed = allowed_paths(home);
-    let mut planned = Vec::with_capacity(writes.len());
-    for (path, bytes, expect) in writes {
-        if !allowed.iter().any(|allowed| allowed == path) {
+/// [`super::commit`]), while each `(path, bytes)` guard below `home` still
+/// holds, only when every written path is one [`allowed_paths`] lists. `_lock` is the request
+/// lock: every write of `secrets-v1` happens under it.
+pub fn write_all_allowed(
+    _lock: &super::Lock,
+    home: &Path,
+    writes: &[(&Path, &[u8], Expect<'_>)],
+    guards: &[(&Path, Option<&[u8]>)],
+) -> io::Result<()> {
+    let relative = |path: &Path| -> io::Result<PathBuf> {
+        if !allowed_paths(home).iter().any(|allowed| allowed == path) {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"));
         }
-        let relative = path.strip_prefix(home).map_err(|_| {
-            io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1")
-        })?;
-        planned.push(Planned { relative, bytes, expect: *expect });
-    }
-    replace_all(home, &planned)
+        path.strip_prefix(home)
+            .map(Path::to_path_buf)
+            .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1"))
+    };
+    let write_paths =
+        writes.iter().map(|(path, ..)| relative(path)).collect::<io::Result<Vec<_>>>()?;
+    // A guard is only read: any file below `home`.
+    let guard_paths = guards
+        .iter()
+        .map(|(path, _)| {
+            path.strip_prefix(home).map(Path::to_path_buf).map_err(|_| {
+                io::Error::new(io::ErrorKind::PermissionDenied, "path outside secrets-v1")
+            })
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    let planned: Vec<_> = writes
+        .iter()
+        .zip(&write_paths)
+        .map(|((_, bytes, expect), relative)| Planned { relative, bytes, expect: *expect })
+        .collect();
+    let guards: Vec<_> = guards
+        .iter()
+        .zip(&guard_paths)
+        .map(|((_, expect), relative)| Guard { relative, expect: *expect })
+        .collect();
+    replace_all(home, &planned, &guards)
 }
 
 /// [`write_all_allowed`] for one file, whatever is there now.
-pub fn write_allowed(home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_all_allowed(home, &[(path, bytes, Expect::Anything)])
+pub fn write_allowed(lock: &super::Lock, home: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_all_allowed(lock, home, &[(path, bytes, Expect::Anything)], &[])
 }
 
 #[cfg(unix)]
 use super::commit::replace_all;
 
 #[cfg(not(unix))]
-fn replace_all(_: &Path, _: &[Planned<'_>]) -> io::Result<()> {
+fn replace_all(_: &Path, _: &[Planned<'_>], _: &[Guard<'_>]) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "secrets-v1 writes need Unix"))
 }

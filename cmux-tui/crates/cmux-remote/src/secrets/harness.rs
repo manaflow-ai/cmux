@@ -155,41 +155,61 @@ eval "value=\${$auth:-}"
 
 /// Write `value` (already validated) where `login`'s harness reads it and
 /// mark the harness as using its own login, as one change: every file or
-/// none.
-pub fn install(home: &Path, login: HarnessLogin, value: &[u8]) -> Result<(), LoginRefusal> {
+/// none, under the request `lock`. A file the change read (Claude's
+/// `settings.json`, Codex's `config.toml`) must still be what it was read
+/// as when the change commits: an edit in between is read again once, and a
+/// second one refuses the login.
+pub fn install(
+    lock: &super::Lock,
+    home: &Path,
+    login: HarnessLogin,
+    value: &[u8],
+) -> Result<(), LoginRefusal> {
     let marker = home.join(".config/cmux/agent-auth").join(login.name());
     match login {
         HarnessLogin::Claude => {
             let token = std::str::from_utf8(value).map_err(|_| LoginRefusal::InvalidCredential)?;
-            // `settings.json` is the person's file too: the token is merged
-            // into what was read, and the write goes ahead only while the
-            // file is still that. An edit in between is merged once more;
-            // a second one refuses the login.
-            for _ in 0..2 {
-                match install_claude(home, token, &marker) {
-                    Err(Install::Changed) => continue,
-                    Err(Install::Refused(refusal)) => return Err(refusal),
-                    Ok(()) => return Ok(()),
-                }
-            }
-            Err(LoginRefusal::Conflict)
+            twice(|| install_claude(lock, home, token, &marker))
         }
         HarnessLogin::Codex => {
-            check_codex_config(&home.join(".codex/config.toml"))?;
             let auth: serde_json::Value =
                 serde_json::from_slice(value).map_err(|_| LoginRefusal::InvalidCredential)?;
             let auth = Zeroizing::new(serde_json::to_vec(&auth).map_err(|_| LoginRefusal::Write)?);
-            let auth_path = home.join(".codex/auth.json");
-            write(
-                home,
-                &[
-                    (auth_path.as_path(), auth.as_slice(), Expect::Anything),
-                    (marker.as_path(), b"own\n".as_slice(), Expect::Anything),
-                ],
-            )
-            .map_err(Install::refusal)
+            twice(|| install_codex(lock, home, &auth, &marker))
         }
     }
+}
+
+/// Run `attempt` again once when a file it read changed under it.
+fn twice(mut attempt: impl FnMut() -> Result<(), Install>) -> Result<(), LoginRefusal> {
+    for _ in 0..2 {
+        match attempt() {
+            Err(Install::Changed) => {}
+            Err(Install::Refused(refusal)) => return Err(refusal),
+            Ok(()) => return Ok(()),
+        }
+    }
+    Err(LoginRefusal::Conflict)
+}
+
+fn install_codex(
+    lock: &super::Lock,
+    home: &Path,
+    auth: &[u8],
+    marker: &Path,
+) -> Result<(), Install> {
+    let config_path = home.join(".codex/config.toml");
+    let config = check_codex_config(&config_path)?;
+    let auth_path = home.join(".codex/auth.json");
+    write(
+        lock,
+        home,
+        &[
+            (auth_path.as_path(), auth, Expect::Anything),
+            (marker, b"own\n".as_slice(), Expect::Anything),
+        ],
+        &[(config_path.as_path(), config.as_deref().map(Vec::as_slice))],
+    )
 }
 
 /// Why one write of a login didn't go ahead.
@@ -199,22 +219,18 @@ enum Install {
     Refused(LoginRefusal),
 }
 
-impl Install {
-    fn refusal(self) -> LoginRefusal {
-        match self {
-            Self::Changed => LoginRefusal::Conflict,
-            Self::Refused(refusal) => refusal,
-        }
-    }
-}
-
 impl From<LoginRefusal> for Install {
     fn from(refusal: LoginRefusal) -> Self {
         Self::Refused(refusal)
     }
 }
 
-fn install_claude(home: &Path, token: &str, marker: &Path) -> Result<(), Install> {
+fn install_claude(
+    lock: &super::Lock,
+    home: &Path,
+    token: &str,
+    marker: &Path,
+) -> Result<(), Install> {
     let settings_path = home.join(".claude/settings.json");
     let (live, mut settings) = read_json_object(&settings_path)?;
     if settings.contains_key("apiKeyHelper") {
@@ -234,6 +250,7 @@ fn install_claude(home: &Path, token: &str, marker: &Path) -> Result<(), Install
     );
     let credentials_path = home.join(".claude/.credentials.json");
     write(
+        lock,
         home,
         &[
             (
@@ -244,12 +261,19 @@ fn install_claude(home: &Path, token: &str, marker: &Path) -> Result<(), Install
             (credentials_path.as_path(), credentials.as_slice(), Expect::Anything),
             (marker, b"own\n".as_slice(), Expect::Anything),
         ],
+        &[],
     )
 }
 
-/// All of them or none, only to paths [`HarnessLogin::paths`] lists.
-fn write(home: &Path, writes: &[(&Path, &[u8], Expect<'_>)]) -> Result<(), Install> {
-    super::files::write_all_allowed(home, writes).map_err(|error| {
+/// All of them or none, only to paths [`HarnessLogin::paths`] lists, while
+/// every guard holds.
+fn write(
+    lock: &super::Lock,
+    home: &Path,
+    writes: &[(&Path, &[u8], Expect<'_>)],
+    guards: &[(&Path, Option<&[u8]>)],
+) -> Result<(), Install> {
+    super::files::write_all_allowed(lock, home, writes, guards).map_err(|error| {
         if super::files::is_changed(&error) {
             Install::Changed
         } else {
@@ -297,14 +321,16 @@ fn read_json_object(path: &Path) -> Result<JsonObject, LoginRefusal> {
 /// any with `--profile`) name only `openai` or `cmux` and store logins in a
 /// file, no base URL is overridden, and no `model_providers` entry redefines
 /// `openai` or asks for the OpenAI login (`requires_openai_auth`).
-fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
+/// Returns the bytes it checked (`None`: no file).
+fn check_codex_config(path: &Path) -> Result<Option<Zeroizing<Vec<u8>>>, LoginRefusal> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.file_type().is_file() => return Err(LoginRefusal::Conflict),
         Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(LoginRefusal::Write),
     }
-    let text = std::fs::read_to_string(path).map_err(|_| LoginRefusal::Conflict)?;
+    let bytes = Zeroizing::new(std::fs::read(path).map_err(|_| LoginRefusal::Conflict)?);
+    let text = std::str::from_utf8(&bytes).map_err(|_| LoginRefusal::Conflict)?;
     let config: toml::Table = text.parse().map_err(|_| LoginRefusal::Conflict)?;
     let profiles = match config.get("profiles") {
         None => toml::Table::new(),
@@ -325,7 +351,7 @@ fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
         }
     }
     match config.get("model_providers") {
-        None => Ok(()),
+        None => Ok(Some(bytes)),
         Some(toml::Value::Table(providers)) => {
             // The image's own `cmux` provider (agent-config.sh, agent-auth.sh) says
             // `requires_openai_auth = false`: the login never reaches it.
@@ -335,7 +361,7 @@ fn check_codex_config(path: &Path) -> Result<(), LoginRefusal> {
                         .get("requires_openai_auth")
                         .is_none_or(|value| value.as_bool() == Some(false))
             });
-            if plain { Ok(()) } else { Err(LoginRefusal::Conflict) }
+            if plain { Ok(Some(bytes)) } else { Err(LoginRefusal::Conflict) }
         }
         Some(_) => Err(LoginRefusal::Conflict),
     }

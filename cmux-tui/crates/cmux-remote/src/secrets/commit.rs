@@ -4,17 +4,22 @@
 //! they are put in place puts back the ones already replaced.
 //!
 //! Each folder below `home` is opened relative to the one above it with
-//! `O_NOFOLLOW` (made 0700 when missing), must be a folder this user owns,
-//! and the last is set to 0700. Each new file is a fresh 0600 file in its
-//! folder, written and synced, then renamed over its target by the folder's
-//! descriptor, so a reader sees the old file or the new one and no path is
-//! resolved twice. Before the first rename each live file is hard-linked
-//! aside in its own folder, which is what a rollback renames back.
+//! `O_NOFOLLOW` (made 0700 when missing, its parent synced), must be a
+//! folder this user owns, and the last is set to 0700. Each new file is a
+//! fresh 0600 file in its folder, written and synced, then renamed over its
+//! target by the folder's descriptor, so a reader sees the old file or the
+//! new one and no path is resolved twice. Before the first rename each live
+//! file is hard-linked aside in its own folder, which is what a rollback
+//! renames back.
 //!
-//! A write may name the live bytes it was computed from ([`Expect`]): when
-//! the live file differs once everything is staged, nothing is replaced and
-//! the error is [`super::files::is_changed`]. The caller serializes its own requests; this
-//! only catches an edit from outside them.
+//! A write may name the live bytes it was computed from ([`Expect`]). On
+//! Linux it is put in place with `RENAME_EXCHANGE` and the file it swapped
+//! out is compared: anything else (an outside edit at any moment before the
+//! swap) is swapped straight back and the error is
+//! [`super::files::is_changed`]. A [`Guard`] names a file that is read,
+//! never written, and must still hold its bytes once every file is in place.
+//! The caller holds the request lock ([`super::Lock`]); this only catches
+//! edits from outside it.
 
 use std::ffi::{CString, OsStr};
 use std::io::{self, Read as _, Write as _};
@@ -22,17 +27,29 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path};
 
-use super::files::{Changed, Expect, Planned};
+use zeroize::Zeroizing;
+
+use super::files::{Changed, Expect, Guard, Planned};
 
 #[cfg(test)]
 thread_local! {
     /// Tests only: fail the step with this index (each staged write and
     /// each rename is one step, in order).
     pub(super) static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    /// Tests only: run after every file is staged and before the live files
-    /// are compared, as an outside edit would.
+    /// Tests only: run after every file is staged and before any is put in
+    /// place, as an outside edit would.
     pub(super) static BEFORE_COMMIT: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
         const { std::cell::RefCell::new(None) };
+}
+
+/// How a staged file was put in place, which is how a rollback undoes it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placed {
+    No,
+    /// Renamed over the target; the old file, if any, is at `backup`.
+    Renamed,
+    /// Swapped with the target; the old file is at `temporary` now.
+    Exchanged,
 }
 
 /// One file staged next to its target.
@@ -42,21 +59,26 @@ struct Staged {
     temporary: CString,
     /// The live file's hard link, when there was a live file.
     backup: Option<CString>,
-    /// The new file is in place.
-    placed: bool,
+    placed: Placed,
 }
 
-/// Replace each planned file, all or none (see the module doc).
-pub fn replace_all(home: &Path, writes: &[Planned<'_>]) -> io::Result<()> {
-    replace_all_with(home, writes, true)
+/// Replace each planned file, all or none, while every guard still holds
+/// (see the module doc).
+pub fn replace_all(home: &Path, writes: &[Planned<'_>], guards: &[Guard<'_>]) -> io::Result<()> {
+    replace_all_with(home, writes, guards, true)
 }
 
 /// [`replace_all`] for the daemon's own state: no test fault applies.
 pub fn replace_state(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<()> {
-    replace_all_with(home, &[Planned { relative, bytes, expect: Expect::Anything }], false)
+    replace_all_with(home, &[Planned { relative, bytes, expect: Expect::Anything }], &[], false)
 }
 
-fn replace_all_with(home: &Path, writes: &[Planned<'_>], faults: bool) -> io::Result<()> {
+fn replace_all_with(
+    home: &Path,
+    writes: &[Planned<'_>],
+    guards: &[Guard<'_>],
+    faults: bool,
+) -> io::Result<()> {
     let mut step = faults.then_some(0_usize);
     let mut staged = Vec::with_capacity(writes.len());
     for write in writes {
@@ -72,38 +94,26 @@ fn replace_all_with(home: &Path, writes: &[Planned<'_>], faults: bool) -> io::Re
     if faults {
         BEFORE_COMMIT.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
     }
-    let unchanged = staged.iter().zip(writes).try_for_each(|(file, write)| match write.expect {
-        Expect::Anything => Ok(()),
-        Expect::Exactly(expected) => {
-            if live_bytes(file)?.as_deref().map(Vec::as_slice) == expected {
-                Ok(())
-            } else {
-                Err(io::Error::other(Changed))
-            }
-        }
-    });
-    if let Err(error) = unchanged {
-        discard(&staged);
-        return Err(error);
-    }
     if let Err(error) = staged.iter_mut().try_for_each(keep_backup) {
         discard(&staged);
         return Err(error);
     }
     let mut failed = None;
-    for file in &mut staged {
-        if let Err(error) = fault(&mut step).and_then(|()| place(file)) {
+    for (file, write) in staged.iter_mut().zip(writes) {
+        let (placed, result) = match fault(&mut step) {
+            Ok(()) => place(file, write.expect),
+            Err(error) => (Placed::No, Err(error)),
+        };
+        file.placed = placed;
+        if let Err(error) = result {
             failed = Some(error);
             break;
         }
-        file.placed = true;
     }
+    let failed = failed
+        .or_else(|| guards.iter().find_map(|guard| check_guard(home, guard).err()))
+        .or_else(|| staged.iter().find_map(|file| sync_dir(&file.directory).err()));
     if let Some(error) = failed {
-        roll_back(&staged);
-        discard(&staged);
-        return Err(error);
-    }
-    if let Some(error) = staged.iter().find_map(|file| sync_dir(&file.directory).err()) {
         roll_back(&staged);
         discard(&staged);
         return Err(error);
@@ -200,6 +210,9 @@ fn stage(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<Staged> {
             if error.kind() != io::ErrorKind::AlreadyExists {
                 return Err(error);
             }
+        } else {
+            // A new folder's entry is durable only once its parent is synced.
+            sync_dir(&directory)?;
         }
         directory = open_dir_at(directory.as_raw_fd(), name)?;
         owned_by_us(&directory)?;
@@ -215,7 +228,7 @@ fn stage(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<Staged> {
     })?;
     // SAFETY: `fd` was just opened and is owned by nobody else.
     let mut file = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let staged = Staged { directory, file_name, temporary, backup: None, placed: false };
+    let staged = Staged { directory, file_name, temporary, backup: None, placed: Placed::No };
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
         discard(std::slice::from_ref(&staged));
         return Err(error);
@@ -223,12 +236,12 @@ fn stage(home: &Path, relative: &Path, bytes: &[u8]) -> io::Result<Staged> {
     Ok(staged)
 }
 
-/// The live file's bytes, or `None` when there is none. A symlink in its
-/// place counts as changed.
-fn live_bytes(file: &Staged) -> io::Result<Option<zeroize::Zeroizing<Vec<u8>>>> {
+/// The bytes of `name` in `directory`, or `None` when there is none. A
+/// symlink in its place counts as changed.
+fn read_at(directory: &OwnedFd, name: &CString) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
     let flags = libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
-    // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
-    let fd = unsafe { libc::openat(file.directory.as_raw_fd(), file.file_name.as_ptr(), flags) };
+    // SAFETY: `name` is NUL-terminated and relative to the open folder.
+    let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
     if fd < 0 {
         let error = io::Error::last_os_error();
         return match error.kind() {
@@ -239,9 +252,38 @@ fn live_bytes(file: &Staged) -> io::Result<Option<zeroize::Zeroizing<Vec<u8>>>> 
     }
     // SAFETY: `fd` was just opened and is owned by nobody else.
     let mut live = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    let mut bytes = Zeroizing::new(Vec::new());
     live.read_to_end(&mut bytes)?;
     Ok(Some(bytes))
+}
+
+/// A guard's file must still hold its bytes. It is opened the way
+/// [`stage`] opens a target: folder by folder, never through a symlink.
+fn check_guard(home: &Path, guard: &Guard<'_>) -> io::Result<()> {
+    let mut names = Vec::new();
+    for component in guard.relative.components() {
+        match component {
+            Component::Normal(name) => names.push(c_name(name)?),
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a plain path")),
+        }
+    }
+    let file_name =
+        names.pop().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
+    let mut directory = open_dir_at(libc::AT_FDCWD, &c_name(home.as_os_str())?)?;
+    for name in &names {
+        directory = match open_dir_at(directory.as_raw_fd(), name) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == io::ErrorKind::NotFound && guard.expect.is_none() => {
+                return Ok(());
+            }
+            Err(_) => return Err(io::Error::other(Changed)),
+        };
+    }
+    if read_at(&directory, &file_name)?.as_deref().map(Vec::as_slice) == guard.expect {
+        Ok(())
+    } else {
+        Err(io::Error::other(Changed))
+    }
 }
 
 /// Hard-link the live file (if any) aside, so a rollback can put it back.
@@ -260,25 +302,94 @@ fn keep_backup(file: &mut Staged) -> io::Result<()> {
     if error.kind() == io::ErrorKind::NotFound { Ok(()) } else { Err(error) }
 }
 
-fn place(file: &Staged) -> io::Result<()> {
+/// Put `file` in place: renamed over its target, or, when `expect` names
+/// the bytes it must replace, swapped with it and checked (see the module
+/// doc). Says how far it got, so a rollback can undo even a failed step.
+fn place(file: &Staged, expect: Expect<'_>) -> (Placed, io::Result<()>) {
     let directory = file.directory.as_raw_fd();
-    // SAFETY: both names are NUL-terminated and relative to the same open folder.
-    check(unsafe {
-        libc::renameat(directory, file.temporary.as_ptr(), directory, file.file_name.as_ptr())
-    })
-    .map(|_| ())
+    let rename =
+        |flags: libc::c_uint| rename_at(directory, &file.temporary, &file.file_name, flags);
+    let renamed = |result: io::Result<()>| match result {
+        Ok(()) => (Placed::Renamed, Ok(())),
+        Err(error) => (Placed::No, Err(error)),
+    };
+    let Expect::Exactly(expected) = expect else {
+        return renamed(rename(0));
+    };
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let changed = |error: io::Error, kind| {
+            if error.kind() == kind { io::Error::other(Changed) } else { error }
+        };
+        let Some(expected) = expected else {
+            // Only where there is no file: an outside create wins.
+            return renamed(
+                rename(libc::RENAME_NOREPLACE)
+                    .map_err(|error| changed(error, io::ErrorKind::AlreadyExists)),
+            );
+        };
+        if let Err(error) = rename(libc::RENAME_EXCHANGE) {
+            return (Placed::No, Err(changed(error, io::ErrorKind::NotFound)));
+        }
+        // The file swapped out is exactly what was live at the swap.
+        let swapped = read_at(&file.directory, &file.temporary);
+        if matches!(&swapped, Ok(Some(bytes)) if bytes.as_slice() == expected) {
+            return (Placed::Exchanged, Ok(()));
+        }
+        let error = swapped.err().unwrap_or_else(|| io::Error::other(Changed));
+        match rename(libc::RENAME_EXCHANGE) {
+            Ok(()) => (Placed::No, Err(error)),
+            // Still swapped: the rollback puts the old file back.
+            Err(_) => (Placed::Exchanged, Err(error)),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        // No atomic swap here: compare, then rename, under the caller's
+        // request lock (a writer outside it can still race the rename).
+        match read_at(&file.directory, &file.file_name) {
+            Ok(live) if live.as_deref().map(Vec::as_slice) == expected => renamed(rename(0)),
+            Ok(_) => (Placed::No, Err(io::Error::other(Changed))),
+            Err(error) => (Placed::No, Err(error)),
+        }
+    }
 }
 
-/// Put back every file already replaced: the backup over it, or remove it
-/// when there was no live file. Best effort, newest first.
+/// `renameat`, or `renameat2` with `flags` where there are any.
+fn rename_at(
+    directory: libc::c_int,
+    from: &CString,
+    to: &CString,
+    flags: libc::c_uint,
+) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if flags != 0 {
+        // SAFETY: both names are NUL-terminated and relative to the same open folder.
+        return check(unsafe {
+            libc::renameat2(directory, from.as_ptr(), directory, to.as_ptr(), flags)
+        })
+        .map(|_| ());
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    let _ = flags;
+    // SAFETY: both names are NUL-terminated and relative to the same open folder.
+    check(unsafe { libc::renameat(directory, from.as_ptr(), directory, to.as_ptr()) }).map(|_| ())
+}
+
+/// Put back every file already replaced: the old file over it, or remove it
+/// when there was none. Best effort, newest first.
 fn roll_back(staged: &[Staged]) {
-    for file in staged.iter().rev().filter(|file| file.placed) {
+    for file in staged.iter().rev() {
         let directory = file.directory.as_raw_fd();
-        match &file.backup {
-            // SAFETY: both names are NUL-terminated and relative to the same open folder.
-            Some(backup) => unsafe {
-                libc::renameat(directory, backup.as_ptr(), directory, file.file_name.as_ptr());
-            },
+        let old = match file.placed {
+            Placed::No => continue,
+            Placed::Renamed => file.backup.as_ref(),
+            Placed::Exchanged => Some(&file.temporary),
+        };
+        match old {
+            Some(old) => {
+                let _ = rename_at(directory, old, &file.file_name, 0);
+            }
             // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
             None => unsafe {
                 libc::unlinkat(directory, file.file_name.as_ptr(), 0);

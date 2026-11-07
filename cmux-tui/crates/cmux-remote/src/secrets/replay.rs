@@ -49,7 +49,8 @@ struct Stored {
     floor: u64,
 }
 
-/// The exclusive lock of one request; released when dropped.
+/// The exclusive lock of one `secrets-v1` request; released when dropped.
+/// Every write takes a `&Lock`, so none happens outside a request.
 pub struct Lock(#[allow(dead_code, reason = "held only to keep the flock")] std::fs::File);
 
 /// Take the state folder's lock, waiting for another request to finish.
@@ -58,7 +59,11 @@ pub fn lock(state: &Path) -> std::io::Result<Lock> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let folder = state.join(FOLDER);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+    if !folder.is_dir() {
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&folder)?;
+        // The new folder's entry is durable only once its parent is synced.
+        std::fs::File::open(state)?.sync_all()?;
+    }
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -85,7 +90,6 @@ pub fn lock(_: &Path) -> std::io::Result<Lock> {
 }
 
 pub struct Replay {
-    _lock: Lock,
     state: PathBuf,
     taken: BTreeMap<String, u64>,
     /// Items sealed before this are refused: set when the saved set could
@@ -96,10 +100,10 @@ pub struct Replay {
 }
 
 impl Replay {
-    /// The set saved under `state`, read under `lock`, without the nonces
-    /// whose window has passed. A saved set that can't be read refuses
-    /// every item sealed before `now`.
-    pub fn load(lock: Lock, state: PathBuf, now: u64, max_live: usize) -> Self {
+    /// The set saved under `state`, read under the request `_lock`, without
+    /// the nonces whose window has passed. A saved set that can't be read
+    /// refuses every item sealed before `now`.
+    pub fn load(_lock: &Lock, state: PathBuf, now: u64, max_live: usize) -> Self {
         let (taken, floor) = match std::fs::read(state.join(FILE)) {
             Ok(bytes) => match serde_json::from_slice::<Stored>(&bytes) {
                 Ok(stored) => (stored.taken, stored.floor),
@@ -108,7 +112,7 @@ impl Replay {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (BTreeMap::new(), 0),
             Err(_) => (BTreeMap::new(), now),
         };
-        let mut replay = Self { _lock: lock, state, taken, floor, max_live };
+        let mut replay = Self { state, taken, floor, max_live };
         replay.prune(now);
         replay
     }
