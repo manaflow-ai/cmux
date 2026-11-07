@@ -11,8 +11,9 @@ import Foundation
 /// report. A frame that never played posts nothing. `actionsScript` runs in the page's world: it records the page's
 /// `mediaSession` action handlers so Previous and Next can call them
 /// (handlers live in the page's world only); a page can see that wrapper,
-/// so those two are best effort. Media elements outside the document (a
-/// detached `new Audio()`) are not seen. A `cmux-media-mute` event mutes
+/// so those two are best effort. Sound outside the document (a detached
+/// `new Audio()`, a shadow root's element, Web Audio) comes from the page
+/// world's `hiddenSoundScript` (`BrowserMediaState+HiddenSound`). A `cmux-media-mute` event mutes
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
@@ -70,10 +71,24 @@ nonisolated extension BrowserMediaState {
             const best = list[list.length - 1];
             try { return best ? new URL(best.src, location.href).href : ''; } catch (_) { return ''; }
           };
+          // What `hiddenSoundScript` (the page's world) hears outside the document: it answers the ask at once.
+          let hiddenSound = null;
+          document.addEventListener('cmux-media-hidden', (event) => {
+            try { hiddenSound = typeof event.detail === 'string' ? JSON.parse(event.detail) : null; } catch (_) { hiddenSound = null; }
+          }, true);
+          const askHidden = () => {
+            hiddenSound = null;
+            document.dispatchEvent(new CustomEvent('cmux-media-hidden-ask'));
+            return hiddenSound && typeof hiddenSound === 'object' ? hiddenSound : null;
+          };
           const look = () => {
             playing = false;
             const element = active();
-            if (!element) {
+            // An element in the document that plays wins; else what plays outside it (a detached
+            // `new Audio()`, a shadow root's element, Web Audio), else the document's paused one.
+            const other = element && !element.paused && !element.ended ? null : askHidden();
+            const outside = other && (other.playing || !element) ? other : null;
+            if (!element && !outside) {
               if (reported && send(null)) { reported = false; last = ''; held = null; }
               return;
             }
@@ -81,24 +96,30 @@ nonisolated extension BrowserMediaState {
             const state = {
               title: (meta && meta.title) || document.title || '',
               artist: (meta && meta.artist) || '', album: (meta && meta.album) || '',
-              artwork: artwork(meta), playing: !element.paused && !element.ended,
-              muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', pip: floating() === element,
+              artwork: artwork(meta),
+              playing: outside ? !!outside.playing : !element.paused && !element.ended,
+              muted: outside ? !!outside.muted : element.muted || element.volume === 0,
+              video: outside ? !!outside.video : element.tagName === 'VIDEO',
+              pip: !outside && floating() === element, soundOnly: !!(outside && outside.soundOnly),
               tabMuted, actions,
             };
             playing = state.playing;
+            const position = outside ? (typeof outside.position === 'number' ? outside.position : null) : element.currentTime;
+            const duration = outside ? (typeof outside.duration === 'number' ? outside.duration : null)
+              : isFinite(element.duration) ? element.duration : null;
             // The position leaves the key: the heartbeat corrects its drift, and a seek reports at once.
-            const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
-              + (seeked ? '#' + Math.round(element.currentTime) : '');
+            const key = JSON.stringify(state) + '#' + (duration === null ? '' : Math.round(duration))
+              + (seeked && position !== null ? '#' + Math.round(position) : '');
             seeked = false;
-            state.position = element.currentTime;
-            state.duration = isFinite(element.duration) ? element.duration : null;
-            state.rate = element.playbackRate;
+            state.position = position;
+            state.duration = duration;
+            state.rate = outside ? (typeof outside.rate === 'number' ? outside.rate : 1) : element.playbackRate;
             // Again every few seconds while it plays: the position the app runs on may have drifted.
             if (key === last && !heartbeat) return;
             if (!send(state)) return;
             last = key;
             reported = true;
-            held = element;
+            held = outside ? null : element;
           };
           // Metadata changes fire no event: look again every second while what this frame reported
           // plays (every third look sends it again with its position), and for at most `maxRetries`
@@ -173,6 +194,7 @@ nonisolated extension BrowserMediaState {
             const data = event.data;
             if (window !== top && data && typeof data.cmuxMediaMute === 'boolean') muteTab(data.cmuxMediaMute);
           });
+          document.addEventListener('cmux-media-hidden-changed', schedule, true);
           document.addEventListener('cmux-media-actions', (event) => {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
@@ -208,21 +230,27 @@ nonisolated extension BrowserMediaState {
 nonisolated extension BrowserMediaCommand {
     /// The script that runs the command, and the world it needs.
     var script: (source: String, world: BrowserScriptWorld) {
-        let element = "const all = Array.from(document.querySelectorAll('video, audio')); "
-            + "const e = all.find((m) => !m.paused && !m.ended) || all.find((m) => m.currentTime > 0) || all[0]; "
-            + "if (!e) return false; "
+        // The document's playing element, else what plays outside the document (`hiddenSoundScript`
+        // acts on it and cancels the event), else the document's element that played, or its first.
+        func element(_ hidden: String) -> String {
+            "const all = Array.from(document.querySelectorAll('video, audio')); "
+                + "const p = all.find((m) => !m.paused && !m.ended); "
+                + "if (!p && !document.dispatchEvent(new CustomEvent('cmux-media-hidden-command', { detail: '\(hidden)' + (all.some((m) => m.currentTime > 0) ? '|started' : ''), cancelable: true }))) return true; "
+                + "const e = p || all.find((m) => m.currentTime > 0) || all[0]; "
+                + "if (!e) return false; "
+        }
         switch self {
         case .playPause:
-            return ("(() => { \(element)if (e.paused) { e.play().catch(() => {}); } else { e.pause(); } return true; })()", .isolated)
+            return ("(() => { \(element("playPause"))if (e.paused) { e.play().catch(() => {}); } else { e.pause(); } return true; })()", .isolated)
         case .play:
-            return ("(() => { \(element)e.play().catch(() => {}); return true; })()", .isolated)
+            return ("(() => { \(element("play"))e.play().catch(() => {}); return true; })()", .isolated)
         case .pause:
-            return ("(() => { \(element)e.pause(); return true; })()", .isolated)
+            return ("(() => { \(element("pause"))e.pause(); return true; })()", .isolated)
         case .toggleMute:
-            return ("(() => { \(element)e.muted = !e.muted; return true; })()", .isolated)
+            return ("(() => { \(element("toggleMute"))e.muted = !e.muted; return true; })()", .isolated)
         case .seek(let seconds):
             let to = seconds.isFinite ? max(0, seconds) : 0
-            return ("(() => { \(element)e.currentTime = \(to); return true; })()", .isolated)
+            return ("(() => { \(element("seek:\(to)"))e.currentTime = \(to); return true; })()", .isolated)
         case .muteTab(let on):
             return ("(() => { document.dispatchEvent(new CustomEvent('cmux-media-mute', { detail: \(on) })); return true; })()", .isolated)
         case .previousTrack:

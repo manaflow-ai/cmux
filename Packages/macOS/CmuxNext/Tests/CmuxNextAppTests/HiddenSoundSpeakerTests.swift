@@ -17,6 +17,7 @@ import Testing
         try await rig.pressDown(page)
         try await Self.until(rig, page, "the detached audio plays", "!!window.a && !a.paused && a.currentTime > 0")
         try await rig.until("the tab shows its speaker") { BrowserTabAudio.badge(page.state) == .playing }
+        #expect(page.state.media?.isSoundOnly == false, "a detached element is media the hub can pause")
         _ = try await page.evaluate("a.pause(); true", world: .page, gesture: .cmux)
         try await rig.until("the speaker clears once the audio stops") { BrowserTabAudio.badge(page.state) == nil }
     }
@@ -59,6 +60,7 @@ import Testing
         try await rig.pressDown(page)
         try await Self.until(rig, page, "the audio context runs", "window.synth?.state === 'running'")
         try await rig.until("the tab shows its speaker") { BrowserTabAudio.badge(page.state) == .playing }
+        #expect(page.state.media?.isSoundOnly == true)
         let key = page.id.rawValue
         rig.keys.append(key)
         rig.services.cache.install(page, for: key)

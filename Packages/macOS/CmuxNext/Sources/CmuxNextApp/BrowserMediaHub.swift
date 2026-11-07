@@ -15,7 +15,8 @@ final class BrowserMediaHub {
     func sessions(in cache: TabContentCache) -> [(entry: BrowserEntry, media: BrowserMediaState)] {
         _ = tabsVersion
         return cache.browsers.values
-            .compactMap { entry in entry.tab.state.media.map { (entry: entry, media: $0) } }
+            // Web Audio has nothing to play, pause or seek: the tab's speaker shows it, not the hub.
+            .compactMap { entry in entry.tab.state.media.flatMap { $0.isSoundOnly ? nil : (entry: entry, media: $0) } }
             .sorted { first, second in
                 first.media.isPlaying != second.media.isPlaying
                     ? first.media.isPlaying : first.entry.tab.id.rawValue < second.entry.tab.id.rawValue
