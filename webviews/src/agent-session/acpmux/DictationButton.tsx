@@ -3,7 +3,7 @@
 // DictationListening's. When the person dictates with an app (`agentPane.dictationSource`,
 // dictationSources.ts), the button wears that app's icon and its press sends the app's shortcut.
 import React from "react";
-import { useSourceIcon } from "./composer/SourceBadge";
+import { useSourceIcon } from "./composer/sourceBadgeModel";
 import { MicIcon, StopIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
 import { useComposerSettings } from "./composerSettings";
