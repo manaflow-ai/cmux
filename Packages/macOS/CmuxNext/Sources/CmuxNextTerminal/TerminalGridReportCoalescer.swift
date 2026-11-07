@@ -52,7 +52,13 @@ final class TerminalGridReportCoalescer {
     let interval: Duration
 
     /// The grid the open window will send when it fires; nil while no window is open.
-    private(set) var pending: TerminalGridSize?
+    private(set) var pending: TerminalGridSize? {
+        didSet { if pending == nil { pendingIsJustShown = false } }
+    }
+
+    /// The waiting grid is a just-shown view's (``viewSized(_:waitsForRefresh:)``): the next grid of a size that shows
+    /// replaces it and goes at once when this refresh sent nothing.
+    private var pendingIsJustShown = false
 
     /// The last grid handed to `send`; nil before the first send.
     private(set) var lastSent: TerminalGridSize?
@@ -89,10 +95,17 @@ final class TerminalGridReportCoalescer {
 
     /// The view's fit grid is now `grid`: while frames run and this refresh sent nothing, it goes at once; else it waits
     /// for the open window, or opens one. `waitsForRefresh`: a grid of a size no frame shows yet (a view shown into a
-    /// key hold, before its pane's layout gives it its frame) never goes at once; the layout's grid replaces it.
+    /// key hold, before its pane's layout gives it its frame) never goes at once; the layout's grid replaces it, and goes at
+    /// once by the same rule as any grid of a size that shows (review of #37964, finding 1).
     func viewSized(_ grid: TerminalGridSize, waitsForRefresh: Bool = false) {
         if pending != nil {
-            pending = grid
+            guard pendingIsJustShown, !waitsForRefresh, !spent, ticks() != nil else {
+                pending = grid
+                return
+            }
+            // The just-shown grid was never shown: it is dropped, and the grid of the size that shows goes now.
+            close()
+            deliver(grid)
             return
         }
         guard grid != lastSent else { return }
@@ -103,6 +116,7 @@ final class TerminalGridReportCoalescer {
             return
         }
         pending = grid
+        pendingIsJustShown = waitsForRefresh
         window &+= 1
         armBackstop()
         source?.tickGridReports(self)
