@@ -130,14 +130,16 @@ impl ChatClient {
         }
     }
 
-    /// One page of run summaries, newest first, started before `before`
-    /// (`conversation-runs`; a Cloud chat reads `agent`'s runs through
-    /// `cloud-conversation-runs`); the runs and whether older ones remain.
+    /// One page of run summaries (`page` at most; default the owner's most),
+    /// newest first, started before `before` (`conversation-runs`; a Cloud
+    /// chat reads `agent`'s runs through `cloud-conversation-runs`); the runs
+    /// and whether older ones remain.
     pub(super) fn runs(
         &mut self,
         conversation: &str,
         agent: &str,
         before: Option<u64>,
+        page: Option<u32>,
     ) -> Result<(Vec<Value>, bool), LinkError> {
         let mut params = json!({"conversation": conversation});
         if let Some(before) = before {
@@ -145,12 +147,12 @@ impl ChatClient {
         }
         let value = match self.owner {
             Owner::Local => {
-                params["limit"] = json!(200);
+                params["limit"] = json!(page.unwrap_or(200).min(200));
                 self.link.command("conversation-runs", params)?
             }
             Owner::Cloud => {
                 params["agent"] = json!(agent);
-                params["limit"] = json!(100);
+                params["limit"] = json!(page.unwrap_or(100).min(100));
                 self.link.command("cloud-conversation-runs", params)?
             }
         };

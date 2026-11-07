@@ -386,15 +386,15 @@ fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
     let (server, _home, conversation, _token) = chief_daemon("chief-script-runs");
     let mut home = super::conversation_runs::Unix::open(&server.socket);
     let mut chief = super::conversation_runs::bound(&server, &mut home, "agent_mux");
-    // More runs than one `conversation-runs` page (200), so the verb pages.
-    let total = 205_u64;
+    // Pages of 7 (`--page`), with start-time ties across a page boundary.
+    let total = 30_u64;
     for index in 0..total {
         chief.request(
             "conversation-run-append",
             super::conversation_runs::append(
                 &conversation,
                 json!({"id": format!("turn:runs:{index}"), "status": "done",
-                       "started_at": 1_000 + index, "title": format!("run {index}")}),
+                       "started_at": 1_000 + index / 2 * 2, "title": format!("run {index}")}),
                 json!([]),
             ),
         );
@@ -406,32 +406,36 @@ fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
             json!({"id": "turn:runs:steps", "status": "done", "started_at": 5_000}),
             json!([{"id": "tool:1", "kind": "tool", "status": "done",
                     "tool": {"name": "Bash", "kind": "execute", "title": "ls"}},
-                   {"id": "text:1", "kind": "text", "text": "listed"}]),
+                   {"id": "talk:1", "kind": "talk", "text": "listed"}]),
         ),
     );
 
     let ids = |value: &Value| -> Vec<String> {
         value.as_array().unwrap().iter().map(|run| run["id"].as_str().unwrap().to_owned()).collect()
     };
-    let all = json_of(&chief_cli(&server, &["runs", "--last", "500", "--json"], ""));
+    let all = json_of(&chief_cli(&server, &["runs", "--page", "7", "--last", "500", "--json"], ""));
     let all = ids(&all);
     assert_eq!(all.len(), total as usize + 1, "{all:?}");
     assert_eq!(all[0], "turn:runs:steps");
-    assert_eq!(all[1], format!("turn:runs:{}", total - 1));
-    assert_eq!(all.last().unwrap(), "turn:runs:0");
+    let mut sorted = all[1..].to_vec();
+    sorted.sort();
+    let mut expected: Vec<String> = (0..total).map(|i| format!("turn:runs:{i}")).collect();
+    expected.sort();
+    assert_eq!(sorted, expected, "{all:?}");
     let unique: std::collections::HashSet<&String> = all.iter().collect();
     assert_eq!(unique.len(), all.len(), "a page repeated a run");
 
-    let newest = json_of(&chief_cli(&server, &["runs", "--last", "2", "--json"], ""));
-    assert_eq!(ids(&newest), ["turn:runs:steps", &format!("turn:runs:{}", total - 1)]);
-    let older = json_of(&chief_cli(&server, &["runs", "--before", "1002", "--json"], ""));
-    assert_eq!(ids(&older), ["turn:runs:1", "turn:runs:0"]);
+    let newest = json_of(&chief_cli(&server, &["runs", "--last", "1", "--json"], ""));
+    assert_eq!(ids(&newest), ["turn:runs:steps"]);
+    let mut older = ids(&json_of(&chief_cli(&server, &["runs", "--before", "1002", "--json"], "")));
+    older.sort();
+    assert_eq!(older, ["turn:runs:0", "turn:runs:1"]);
 
     let run = json_of(&chief_cli(&server, &["runs", "turn:runs:steps", "--json"], ""));
     assert_eq!(run["run"]["id"], "turn:runs:steps", "{run}");
     let kinds: Vec<&str> =
         run["steps"].as_array().unwrap().iter().map(|s| s["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["tool", "text"], "{run}");
+    assert_eq!(kinds, ["tool", "talk"], "{run}");
 
     let plain = chief_cli(&server, &["runs", "--last", "1"], "");
     assert_success(&plain);

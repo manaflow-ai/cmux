@@ -138,6 +138,8 @@ pub(super) struct Request {
     pub class: Option<String>,
     /// `runs --agent ID`: whose runs a Cloud chat lists (default: its Chief).
     pub agent: Option<String>,
+    /// `runs --page N`: summaries per owner read (default: the owner's most).
+    pub page: Option<u32>,
 }
 
 /// Parses `cmux chief WORD …`.
@@ -174,6 +176,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             "--to" | "--chief" => request.target.chat = Some(value()?),
             "--as" => request.sender_name = Some(value()?),
             "--agent" => request.agent = Some(value()?),
+            "--page" => request.page = Some(number(flag, &value()?)?.clamp(1, 200) as u32),
             "--class" => request.class = Some(value()?),
             "--chief-home" => request.chief_home = Some(value()?.into()),
             "--last" => request.last = Some(number(flag, &value()?)?.min(500) as usize),
@@ -503,12 +506,14 @@ fn runs(session: &mut Session, request: &Request, json: bool) -> Outcome {
         return run_steps(session, &conversation, &agent, run, json);
     }
     let limit = request.last.unwrap_or(RUNS_DEFAULT).max(1);
-    let cloud = session.client.owner == super::backend::Owner::Cloud;
+    let cloud = session.client.owner == backend::Owner::Cloud;
     let mut all: Vec<Value> = Vec::new();
     let mut before = request.before;
     loop {
-        let (page, has_more) =
-            session.client.runs(&conversation, &agent, before).map_err(|e| session.failed(e))?;
+        let (page, has_more) = session
+            .client
+            .runs(&conversation, &agent, before, request.page)
+            .map_err(|e| session.failed(e))?;
         let started_at: Vec<f64> =
             page.iter().filter_map(|run| run.get("started_at").and_then(Value::as_f64)).collect();
         all.extend(page);
