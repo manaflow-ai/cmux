@@ -154,7 +154,7 @@ struct BookmarkBrowserImport {
             }
             let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
             do {
-                let undo = services.bookmarks.importUndo(sourceKey: profile.id, profile: target)
+                let undo = try await services.bookmarks.importUndo(sourceKey: profile.id, profile: target)
                 let counts = try await services.bookmarks.routed.importSource(items, title: Self.folderTitle(profile), sourceKey: profile.id,
                                                                        profile: target)
                 outcome.added += counts.added
@@ -188,10 +188,9 @@ struct BookmarkBrowserImport {
 }
 
 extension BookmarkService {
-    /// How to put one source's folder back as it is now, before its import replaces it.
-    func importUndo(sourceKey: String, profile: String) -> BookmarkBrowserImport.Undo {
-        let previous = tree(profile).folder(sourceKey: sourceKey).flatMap { tree(profile).draft(of: $0.id) }
-        return BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: previous)
+    /// How to put one source's folder back as the home daemon stores it now, before its import replaces it.
+    func importUndo(sourceKey: String, profile: String) async throws -> BookmarkBrowserImport.Undo {
+        BookmarkBrowserImport.Undo(profile: profile, sourceKey: sourceKey, previous: try await routed.sourceDraft(sourceKey, profile: profile))
     }
 
     /// Puts each source's folder back as it was before the import, newest first.
@@ -201,8 +200,8 @@ extension BookmarkService {
                 if let previous = step.previous {
                     try apply(.importDrafts(parent: BookmarkRoot.bar.rawValue, index: nil, sourceKey: step.sourceKey, replace: true,
                                             drafts: [previous]), profile: step.profile)
-                } else if let folder = tree(step.profile).folder(sourceKey: step.sourceKey) {
-                    try apply(.delete(id: folder.id), profile: step.profile)
+                } else {
+                    routed.removeSource(step.sourceKey, profile: step.profile)
                 }
             } catch {
                 logger.error("undo bookmarks import \(step.sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")

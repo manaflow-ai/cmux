@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import Foundation
+import os
 
 /// The home daemon's routed `bookmarks.*` ops (cmux-tui spec/page-router.md, owner
 /// `bookmarks.tree`): the Netscape file, the imports, the search and the omnibar rank run there
@@ -66,6 +67,32 @@ public nonisolated struct BookmarkRoutedClient: Sendable {
         ], mutation: true)
         return SourceCounts(added: Int(result["added"]?.doubleValue ?? 0), duplicates: Int(result["duplicates"]?.doubleValue ?? 0))
     }
+
+    /// `profile`'s stored tree, as the daemon has it now (`bookmarks.list`).
+    public func tree(profile: String) async throws -> BookmarkTree {
+        let result = try await send("bookmarks.list", ["browser_profile_id": .string(profile)])
+        return BookmarkTree(ordered: try Self.nodes(result["bookmarks"]))
+    }
+
+    /// One browser source's folder as the daemon stores it now, as a draft that puts it back;
+    /// nil when it has none. Throws when the daemon cannot be read.
+    public func sourceDraft(_ sourceKey: String, profile: String) async throws -> BookmarkDraft? {
+        let stored = try await tree(profile: profile)
+        return stored.folder(sourceKey: sourceKey).flatMap { stored.draft(of: $0.id) }
+    }
+
+    /// Removes one browser source's folder in the daemon (one transaction), whatever the app's
+    /// tree shows yet. A failure is logged.
+    public func removeSource(_ sourceKey: String, profile: String) {
+        // task-owner: one routed removal per undone source; ends with its reply
+        Task {
+            do { try await importSource([], title: "", sourceKey: sourceKey, profile: profile) } catch {
+                Self.logger.error("undo bookmarks import \(sourceKey, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "bookmarks")
 
     /// Nodes whose title or URL holds every term of `text`, in tree order (folders by title).
     public func search(_ text: String, profile: String, limit: Int? = nil) async throws -> [BookmarkNode] {

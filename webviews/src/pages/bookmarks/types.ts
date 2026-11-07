@@ -24,7 +24,7 @@ export const HostOps = {
   /** `{ids}` → `{icons: {id: dataURL}, masks: [id]}`: favicons and folder icons of the rows on
    * screen; an id in `masks` is a symbol the page tints. */
   icons: "cmux.bookmarkPage.icons",
-  /** `{bookmark, disposition}`. */
+  /** `{bookmark, url?, disposition}`: `url` is the row as the page shows it. */
   open: "cmux.bookmarkPage.open",
   /** `{folder}`: every URL bookmark directly in the folder, in new tabs. */
   openAll: "cmux.bookmarkPage.openAll",
