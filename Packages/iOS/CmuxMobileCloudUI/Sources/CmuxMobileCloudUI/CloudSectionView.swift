@@ -370,13 +370,13 @@ struct CloudCreateMachineSheet: View {
 
     private var availableMemoryOptions: [Int] {
         let options = limits?.memoryOptionsMb ?? []
-        let validOptions = options.filter { Self.diskMb(for: $0) != nil }.sorted()
+        let validOptions = options.filter { Self.diskMb(for: $0, limits: limits) != nil }.sorted()
         return validOptions.isEmpty ? [Self.fallbackMemoryMb] : validOptions
     }
 
     private var lockedMemoryOptions: [Int] {
         (limits?.lockedMemoryOptionsMb ?? [])
-            .filter { Self.diskMb(for: $0) != nil }
+            .filter { Self.diskMb(for: $0, limits: limits) != nil }
             .sorted()
     }
 
@@ -469,7 +469,7 @@ struct CloudCreateMachineSheet: View {
             "mobile.cloud.create.size.menu",
             defaultValue: "%1$d GB RAM · %2$d GB disk"
         )
-        return String(format: format, memoryMb / 1024, (Self.diskMb(for: memoryMb) ?? memoryMb) / 1024)
+        return String(format: format, memoryMb / 1024, (Self.diskMb(for: memoryMb, limits: limits) ?? memoryMb) / 1024)
     }
 
     private func lockedSizeMenuTitle(_ memoryMb: Int) -> String {
@@ -516,12 +516,35 @@ struct CloudCreateMachineSheet: View {
 
     private static func defaultMemoryMb(for limits: CloudMachineLimits?) -> Int {
         let available = (limits?.memoryOptionsMb ?? [])
-            .filter { diskMb(for: $0) != nil }
+            .filter { memoryMb in
+                guard let diskByMemoryMb = limits?.diskByMemoryMb else {
+                    guard limits?.vcpusByMemoryMb == nil else {
+                        return limits?.maxDiskMb != nil || memoryMb > 0
+                    }
+                    return legacyDiskMb(for: memoryMb) != nil || limits?.maxDiskMb != nil || memoryMb > 0
+                }
+                return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? true
+            }
             .sorted()
         return available.contains(fallbackMemoryMb) ? fallbackMemoryMb : (available.first ?? fallbackMemoryMb)
     }
 
-    private static func diskMb(for memoryMb: Int) -> Int? {
+    static func diskMb(for memoryMb: Int, limits: CloudMachineLimits?) -> Int? {
+        guard memoryMb > 0 else { return nil }
+        guard let diskByMemoryMb = limits?.diskByMemoryMb else {
+            if limits?.vcpusByMemoryMb != nil {
+                return limits?.maxDiskMb ?? memoryMb
+            }
+            return legacyDiskMb(for: memoryMb) ?? limits?.maxDiskMb ?? memoryMb
+        }
+        if let served = diskByMemoryMb[String(memoryMb)] {
+            return served > 0 ? served : nil
+        }
+        return limits?.maxDiskMb ?? memoryMb
+    }
+
+    /// Compatibility fallback for control planes that predate `diskByMemoryMb`.
+    private static func legacyDiskMb(for memoryMb: Int) -> Int? {
         switch memoryMb {
         case 4096: return 16384
         case 8192: return 32768

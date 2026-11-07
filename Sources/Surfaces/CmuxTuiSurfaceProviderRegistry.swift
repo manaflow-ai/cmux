@@ -893,7 +893,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
             var summary = fetchedSummary ?? VMSummary(
-                id: machineID, provider: "freestyle", status: info?.status ?? "running",
+                id: machineID, provider: ManagedCloudVMConstants.legacyProviderID, status: info?.status ?? "running",
                 image: info?.image ?? "", createdAt: 0,
                 kind: info?.hasDesktop == false ? .base : .desktop,
                 capabilities: .all, displayName: info?.name ?? "Cloud machine",

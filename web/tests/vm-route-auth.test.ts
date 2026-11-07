@@ -2366,6 +2366,7 @@ describe("VM REST auth", () => {
       id: "provider-vm-status",
       image: MANIFEST_DESKTOP_DEFAULT.imageId,
       kind: "desktop",
+      runtime: { desktopPort: 6901 },
       capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
       cmuxTuiContract: "snapshot-v2",

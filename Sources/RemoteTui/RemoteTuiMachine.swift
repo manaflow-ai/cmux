@@ -28,6 +28,7 @@ enum RemoteTuiMachine: Sendable {
     var provider: String { cloudSummary?.provider ?? "ssh" }
     var image: String { cloudSummary?.image ?? "" }
     var resolvedKind: VMMachineKind { cloudSummary?.resolvedKind ?? .base }
+    var desktopPort: Int? { cloudSummary?.runtime?.desktopPort }
     var preferredPrivateAddress: String? { machine.isSSH ? "127.0.0.1" : cloudSummary?.preferredPrivateAddress }
     var capabilities: VMCapabilities {
         cloudSummary?.capabilities ?? VMCapabilities(snapshot: false, restore: false, fork: false, exec: true, stats: false, ports: true, desktop: false, sizing: false, persistentHome: true, attachTransports: ["ssh"])

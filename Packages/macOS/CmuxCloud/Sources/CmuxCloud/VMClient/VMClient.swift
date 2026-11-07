@@ -293,6 +293,16 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
     return String(singleLine[..<index]) + "..."
 }
 
+public struct VMRuntimeMetadata: Equatable, Sendable {
+    /// The noVNC listener for the machine's desktop image. This is supplied by
+    /// the Cloud service; nil keeps older control planes compatible.
+    public let desktopPort: Int?
+
+    public init(desktopPort: Int? = nil) {
+        self.desktopPort = desktopPort
+    }
+}
+
 public struct VMSummary: Equatable, Sendable {
     public init(
         id: String,
@@ -309,6 +319,7 @@ public struct VMSummary: Equatable, Sendable {
         addressIPv4: String? = nil,
         addressIPv6: String? = nil,
         cmuxTuiContract: String? = nil,
+        runtime: VMRuntimeMetadata? = nil,
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil,
         createAttach: VMCmuxRemoteEndpoint? = nil,
@@ -329,6 +340,7 @@ public struct VMSummary: Equatable, Sendable {
         self.addressIPv4 = addressIPv4
         self.addressIPv6 = addressIPv6
         self.cmuxTuiContract = cmuxTuiContract
+        self.runtime = runtime
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
         self.createAttach = createAttach
@@ -352,6 +364,7 @@ public struct VMSummary: Equatable, Sendable {
             addressIPv4: addressIPv4,
             addressIPv6: addressIPv6,
             cmuxTuiContract: cmuxTuiContract,
+            runtime: runtime,
             createdBy: createdBy,
             agentUpdates: agentUpdates,
             createAttach: createAttach,
@@ -390,6 +403,9 @@ public struct VMSummary: Equatable, Sendable {
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
     /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
+    /// Deployment metadata resolved by the Cloud service for this image.
+    /// Missing metadata falls back to the legacy client contract.
+    public var runtime: VMRuntimeMetadata?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
     /// A create-only dial receipt from snapshot-v2. List and status responses leave this nil.
@@ -434,6 +450,7 @@ public struct VMPlanLimits: Sendable {
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
+        diskByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = [],
         resourcePool: CloudVMResourcePool? = nil
@@ -450,6 +467,7 @@ public struct VMPlanLimits: Sendable {
         self.memoryUpgradePlanId = memoryUpgradePlanId
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.vcpusByMemoryMb = vcpusByMemoryMb
+        self.diskByMemoryMb = diskByMemoryMb
         self.activeVmCount = activeVmCount
         self.imageKinds = imageKinds
         self.resourcePool = resourcePool
@@ -479,6 +497,9 @@ public struct VMPlanLimits: Sendable {
     public var memoryUpgradePlanId: String? = nil
     public var memoryUpgradePlansByMb: [String: String]? = nil
     public var vcpusByMemoryMb: [String: Int]? = nil
+    /// Disk per advertised memory size, keyed by the memory value in MB.
+    /// Nil means the control plane predates the server-owned disk contract.
+    public var diskByMemoryMb: [String: Int]? = nil
     var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
@@ -1555,6 +1576,16 @@ public actor VMClient {
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
+    /// `runtime.desktopPort` is optional deployment metadata. Ignore malformed
+    /// values so an older or partially rolled-out control plane still behaves
+    /// exactly as before.
+    static func decodeRuntimeMetadata(_ raw: Any?) -> VMRuntimeMetadata? {
+        guard let object = raw as? [String: Any],
+              let desktopPort = decodePositiveInt(object["desktopPort"]),
+              (1...65_535).contains(desktopPort) else { return nil }
+        return VMRuntimeMetadata(desktopPort: desktopPort)
+    }
+
     /// Decodes the optional snapshot-v2 dial receipt carried by `POST /api/vm`.
     /// Older control planes omit it and continue through the existing attach path.
     static func decodeCreateAttach(_ raw: Any?) -> VMCmuxRemoteEndpoint? {
@@ -1743,6 +1774,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.runtime = Self.decodeRuntimeMetadata(obj["runtime"])
             summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             summary.createAttach = Self.decodeCreateAttach(obj["attach"])
             // The create route returns both names. Keep the explicit
@@ -1804,6 +1836,7 @@ public actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: Self.decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(vmResponse: obj)
+        summary.runtime = Self.decodeRuntimeMetadata(obj["runtime"])
         machineCache.record(hasAnyMachine: true)
         return summary
     }
@@ -1838,6 +1871,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.runtime = Self.decodeRuntimeMetadata(obj["runtime"])
             return summary
         }
     }
@@ -2091,6 +2125,7 @@ public actor VMClient {
                 base: nil
             )
             forked.capabilities = VMCapabilities(vmResponse: obj)
+            forked.runtime = Self.decodeRuntimeMetadata(obj["runtime"])
             machineCache.record(hasAnyMachine: true)
             return (
                 snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
@@ -2123,6 +2158,7 @@ public actor VMClient {
             let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
             restored.capabilities = VMCapabilities(vmResponse: obj)
+            restored.runtime = Self.decodeRuntimeMetadata(obj["runtime"])
             machineCache.record(hasAnyMachine: true)
             return restored
         }

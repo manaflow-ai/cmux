@@ -48,7 +48,7 @@ import {
   type VmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
-import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
+import { diskByMemoryMb, vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
   findVmImageManifestEntry,
   inferVmProviderForImage,
@@ -61,6 +61,7 @@ import {
   listVmImageKinds,
   VM_IMAGE_KINDS,
   vmImageKindFor,
+  vmRuntimeMetadataFor,
   type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
@@ -222,6 +223,7 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         kind: vmImageKindFor(entry.provider, entry.image),
+        ...vmRuntimeMetadataFor(entry.provider, entry.image),
         // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
         // the app when false; the CLI errors before calling).
         capabilities: vmCapabilitiesFor(entry.provider),
@@ -309,6 +311,13 @@ export async function GET(request: Request): Promise<Response> {
             })),
           // vCPUs for every size above, so a client labels a size without its own table.
           vcpusByMemoryMb: vcpusByMemoryMb([
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+          ]),
+          // Disk follows the server's image-size catalog, not a client-side
+          // memory ladder. Include locked sizes so upgrade rows can still be
+          // labeled before the caller changes plans.
+          diskByMemoryMb: diskByMemoryMb([
             ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
             ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
           ]),
@@ -467,6 +476,7 @@ export async function POST(request: Request): Promise<Response> {
         image: created.image,
         imageVersion: created.imageVersion,
         kind: vmImageKindFor(created.provider, created.image),
+        ...vmRuntimeMetadataFor(created.provider, created.image),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
         createdAt: created.createdAt,
         capabilities: vmCapabilitiesFor(created.provider),

@@ -3390,19 +3390,35 @@ struct RestorableAgentSessionIndex: Sendable {
                }) {
                 return matched
             }
-        }
 
-        // Probe the config directory for the candidate that holds the transcript on disk.
-        let roots = lookup.configRoots(for: record)
-        if !roots.isEmpty {
-            for candidate in candidates {
-                let projectDirName = encodeClaudeProjectDir(candidate)
-                for root in roots where lookup.transcriptPath(
-                    configRoot: root,
-                    projectDirName: projectDirName,
-                    sessionId: sessionId
-                ) != nil {
-                    return candidate
+            // Probe the config directory for the candidate that holds the transcript on disk.
+            if !roots.isEmpty {
+                for candidate in candidates {
+                    let projectDirName = encodeClaudeProjectDir(candidate)
+                    for root in roots where lookup.transcriptPath(
+                        configRoot: root,
+                        projectDirName: projectDirName,
+                        sessionId: sessionId
+                    ) != nil {
+                        return candidate
+                    }
+                }
+            }
+
+            // Legacy records may point at a config root that is no longer available. In that
+            // case, use the nested transcript's own `projects/<slug>` segment as a final
+            // fallback. Do this only after root-aware parsing so an outer directory named
+            // `projects` in the config-root path cannot win over Claude's project directory.
+            let transcriptComponents = (expandedTranscriptPath as NSString)
+                .standardizingPath
+                .split(separator: "/")
+            if let projectsIndex = transcriptComponents.lastIndex(of: "projects"),
+               projectsIndex + 1 < transcriptComponents.endIndex {
+                let transcriptProjectDir = String(transcriptComponents[projectsIndex + 1])
+                if let matched = candidates.first(where: {
+                    encodeClaudeProjectDir($0) == transcriptProjectDir
+                }) {
+                    return matched
                 }
             }
         }

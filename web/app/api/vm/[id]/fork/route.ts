@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
+import { vmRuntimeMetadataFor } from "../../../../../services/vms/images/resolver";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   jsonResponse,
@@ -111,6 +112,7 @@ export async function POST(
         provider: result.fork.provider,
         image: result.fork.image,
         imageVersion: result.fork.imageVersion,
+        ...vmRuntimeMetadataFor(result.fork.provider, result.fork.image),
         status: result.fork.status,
         createdAt: result.fork.createdAt,
         capabilities: vmCapabilitiesFor(result.fork.provider),

@@ -11,6 +11,11 @@ let package = Package(
         .target(
             name: "CmuxCloudResizeCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(
+            name: "CmuxCloudResizeCoreTests",
+            dependencies: ["CmuxCloudResizeCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
