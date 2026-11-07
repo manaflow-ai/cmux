@@ -150,6 +150,104 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testSavedSocketPasswordSurvivesLaunchAndRelaunch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-password-launch-\(UUID().uuidString)", isDirectory: true)
+        temporaryRoots.append(root)
+        let configDirectory = root.appendingPathComponent(".config/cmux", isDirectory: true)
+        let configURL = configDirectory.appendingPathComponent("cmux.json")
+        let passwordURL = root.appendingPathComponent(".local/state/cmux/socket-control-password")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try #"{"automation":{"socketControlMode":"allowAll"}}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+
+        let app = configuredApp(mode: "allowAll")
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["HOME"] = root.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = root.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = root.appendingPathComponent(".config").path
+        app.launchEnvironment["CMUX_SOCKET_PASSWORD"] = ""
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = ""
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        launchAllowingHeadlessBackground(app)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForSocketPong(timeout: 20, allowDiagnosticsFallback: false))
+
+        // Add the password while running, as in the report. This also exercises
+        // the managed-setting backup created before the first password is set.
+        let configured = """
+        {
+          // Keep this authored configuration across launches.
+          "automation": {
+            "socketControlMode": "password",
+            "socketPassword": "issue-8372-saved-secret",
+          },
+          "app": { "appearance": "dark" },
+        }
+        """
+        try configured.write(to: configURL, atomically: true, encoding: .utf8)
+        let imported = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (try? String(contentsOf: passwordURL, encoding: .utf8)) == "issue-8372-saved-secret"
+        }, object: NSObject())
+        XCTAssertEqual(XCTWaiter().wait(for: [imported], timeout: 15), .completed)
+        XCTAssertEqual(try runPasswordLaunchCLI(["list-windows"], home: root).status, 0)
+        app.terminate()
+
+        // Use password mode at both cold starts. Neither an explicit CLI password
+        // nor an environment credential can hide a lost persisted credential.
+        app.launchArguments = ["-\(modeKey)", "password", "-NSAppSleepDisabled", "YES"]
+        for launch in 1...2 {
+            launchAllowingHeadlessBackground(app)
+            XCTAssertTrue(ensureRunningAfterLaunch(app, timeout: 12))
+            XCTAssertNotNil(resolveSocketPath(timeout: 15, allowTmpFallback: false))
+            let result = try runPasswordLaunchCLI(["list-windows"], home: root)
+            XCTAssertEqual(result.status, 0, "Launch \(launch): \(result.output)")
+            XCTAssertEqual(try String(contentsOf: passwordURL, encoding: .utf8), "issue-8372-saved-secret")
+            XCTAssertEqual(try String(contentsOf: configURL, encoding: .utf8), configured)
+            XCTAssertEqual(try runPasswordLaunchCLI(["reload-config"], home: root).status, 0)
+            app.terminate()
+        }
+    }
+
+    private func runPasswordLaunchCLI(_ arguments: [String], home: URL) throws -> (status: Int32, output: String) {
+        // The XCTest bundle lives in <products>/<runner>.app/Contents/PlugIns.
+        let products = Bundle(for: Self.self).bundleURL
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: products, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "app" }
+                .map { $0.appendingPathComponent("Contents/Resources/bin/cmux") }
+                .first { FileManager.default.isExecutableFile(atPath: $0.path) },
+            "Expected the test application's bundled CLI"
+        )
+        let outputURL = home.appendingPathComponent("cli-output.txt")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let output = try FileHandle(forWritingTo: outputURL)
+        defer { try? output.close() }
+        let process = Process()
+        process.executableURL = cli
+        process.arguments = ["--socket", socketPath] + arguments
+        process.environment = [
+            "HOME": home.path,
+            "CFFIXED_USER_HOME": home.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_TAG": launchTag,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "10",
+        ]
+        process.standardOutput = output
+        process.standardError = output
+        let finished = expectation(description: "bundled CLI completed")
+        process.terminationHandler = { _ in finished.fulfill() }
+        try process.run()
+        let completion = XCTWaiter().wait(for: [finished], timeout: 20)
+        if process.isRunning { process.terminate() }
+        XCTAssertEqual(completion, .completed, "Bundled CLI timed out")
+        guard !process.isRunning else { throw NSError(domain: "SocketLaunchTest", code: 1) }
+        return (process.terminationStatus, try String(contentsOf: outputURL, encoding: .utf8))
+    }
+
     func testCaffeineMenuAndSocketShareState() throws {
         let app = configuredApp(mode: "allowAll")
         app.launchArguments += [
