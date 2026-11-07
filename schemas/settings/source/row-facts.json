@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED per-row facts of the settings schema that are not a row's own definition. kept_on_reset_all: keys Reset All Settings leaves alone, the look picked at onboarding (the app theme and the terminal font), which each row still resets (SettingsController.resetAllSettings). shared_with_browser: cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json); their consumers are cmux-next and cmux-browser (the appearance.metrics.* rows say so themselves). validation: how another validator checks a row's value: portable (the export's fixed rule and samples), or domain:<name> when only the app knows the valid values (theme names, installed fonts, system sounds) or the value has its own shape; keys wins over kinds. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RowFacts.generated.swift); the schema export writes kept_on_reset_all, consumers and validation per row from it.",
+  "$comment": "HAND-EDITED per-row facts of the settings schema that are not a row's own definition. kept_on_reset_all: keys Reset All Settings leaves alone, the look picked at onboarding (the app theme and the terminal font), which each row still resets (SettingsController.resetAllSettings). shared_with_browser: cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json); their consumers are cmux-next and cmux-browser (rows moved to schemas/settings/source say so themselves, in their consumers). validation: how another validator checks a row's value: portable (the export's fixed rule and samples), or domain:<name> when only the app knows the valid values (theme names, installed fonts, system sounds) or the value has its own shape; keys wins over kinds. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RowFacts.generated.swift); the schema export writes kept_on_reset_all, consumers and validation per row from it.",
   "kept_on_reset_all": [
     "appearance.theme",
     "appearance.appTheme",
@@ -7,18 +7,9 @@
     "terminal.fontSize"
   ],
   "shared_with_browser": [
-    "appearance.theme",
-    "appearance.backgroundBlur",
-    "ui.animationSpeed",
-    "focusRing.enabled",
-    "focusRing.width",
-    "focusRing.color",
     "layout.defaultColumnWidth",
     "layout.minimumPaneWidth",
-    "app.quitBehavior",
-    "appearance.surfaces.tabBar.color",
-    "appearance.surfaces.browserChrome.color",
-    "appearance.surfaces.sidebar.color"
+    "app.quitBehavior"
   ],
   "validation": {
     "keys": {

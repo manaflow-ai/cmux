@@ -157,7 +157,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       default: {
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
-        const value = state.native?.[message.method ?? ""] ?? null;
+        const fixture = state.native?.[message.method ?? ""];
+        const value = (typeof fixture === "function" ? fixture(message.params) : fixture) ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)
           return { ok: false, error: (value as { nativeError: unknown }).nativeError };
@@ -199,6 +200,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
+  if (state.sessionInfoOpen)
+    (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
   const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab

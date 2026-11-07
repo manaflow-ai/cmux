@@ -75,6 +75,33 @@ fn parse_takes_the_session_the_prompt_and_the_wait() {
     assert_eq!(parse(&strings(&["--help"]), true), Ok(Parsed::Help));
 }
 
+/// The send `args` makes, and the output it asks for.
+fn typed(args: &[&str]) -> (Send, OutputMode) {
+    let (mut global, command) = super::super::parse_globals(&strings(args)).ok().unwrap();
+    let words = words_of(&command).unwrap();
+    let words = cloud_start_chat::lift_output_of(words, &mut global.output, TAKES_VALUE);
+    match parse(&words, command.get(1).map(String::as_str) == Some("send")) {
+        Ok(Parsed::Run(send)) => (send, global.output),
+        other => panic!("{args:?}: {other:?}"),
+    }
+}
+
+/// An output flag sets the output; after `--` it is the prompt.
+#[test]
+fn an_output_flag_after_the_separator_is_the_prompt() {
+    let (send, output) = typed(&["chat", "send", "s-1", "hi", "--json"]);
+    assert_eq!((send.text.as_str(), output), ("hi", OutputMode::Json));
+    for flag in ["--json", "--jsonl", "--quiet"] {
+        let (send, output) = typed(&["chat", "send", "s-1", "--", flag]);
+        assert_eq!((send.text.as_str(), output), (flag, OutputMode::Human), "{flag}");
+        let (send, _) = typed(&["chat", "--resume", "s-1", "--", flag]);
+        assert_eq!(send.text, flag);
+        // `--wait` takes no value: the `--` after it is still the separator.
+        let (send, output) = typed(&["chat", "send", "s-1", "--wait", "--", flag]);
+        assert_eq!((send.text.as_str(), send.wait, output), (flag, true, OutputMode::Human));
+    }
+}
+
 /// The app's topology: a chat here, one in a Cloud VM's workspace, one on an SSH host.
 fn topology() -> Value {
     let tab = |session: &str| json!({"tabs": [{"kind": "conversation", "agent_session": session}]});
@@ -125,4 +152,18 @@ fn on_names_the_place_without_the_lookup() {
     assert_eq!(no_lookup("vm:gone").unwrap_err()["code"], "chat_target.unknown_vm");
     assert_eq!(no_lookup("vm:new").unwrap_err()["code"], "chat_target.no_route");
     assert_eq!(no_lookup("cloud").unwrap_err()["code"], "chat_target.no_route");
+}
+
+/// `--timeout 0` is refused as `cloud start-chat` refuses it: a send with no time would run on the machine and
+/// only then answer that the time ran out (the seventh review of #37159).
+#[test]
+fn a_zero_timeout_is_refused() {
+    for words in [&["s-1", "--timeout", "0", "hi"][..], &["s-1", "--timeout=0", "hi"]] {
+        let refused = parse(&strings(words), true);
+        assert!(
+            matches!(&refused, Err(error) if format!("{error:?}").contains("--timeout")),
+            "{words:?}: {refused:?}"
+        );
+    }
+    assert_eq!(sent(&["s-1", "--timeout", "5", "hi"], true).timeout, Some(Duration::from_secs(5)));
 }

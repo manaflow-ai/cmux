@@ -301,7 +301,8 @@
               "agents.chats.enabled",
               "agents.chats.discovery",
               "agents.chats.roots",
-              "agents.chats.sessionRecap"
+              "agents.chats.sessionRecap",
+              "chat.on"
             ],
             "title" : {
               "key" : "settings.group.chats",
@@ -812,6 +813,16 @@
               "key" : "settings.pageGroup.terminalBehavior",
               "text" : "Behavior"
             }
+          },
+          {
+            "key" : "settings.group.terminalCompatibility",
+            "rows" : [
+              "terminal.term"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCompatibility",
+              "text" : "Compatibility"
+            }
           }
         ],
         "id" : "terminal",
@@ -1075,6 +1086,7 @@
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.openSignInPagesInCmux",
+              "browser.openPullRequestsInGitHubPage",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
@@ -1893,7 +1905,7 @@
         ],
         "id" : "privacy",
         "lead" : [
-
+          "sharedLinks"
         ],
         "symbol" : "hand.raised",
         "title" : {
@@ -21406,6 +21418,142 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.on.help",
+        "text" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "chat.on",
+      "keywords" : [
+        "chat",
+        "cli",
+        "target",
+        "on",
+        "device",
+        "vm",
+        "cloud",
+        "default"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "chat",
+        "on"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:chat.on"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.on",
+        "text" : "Default Chat Target"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -23287,6 +23435,156 @@
       "title" : {
         "key" : "settings.tasks.layout",
         "text" : "Tasks Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "neko"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Neko"
+          },
+          "value" : "neko"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.iconTheme",
+        "text" : "Icon Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.iconTheme.help",
+        "text" : "The icon drawings used by cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.iconTheme",
+      "keywords" : [
+        "icons",
+        "icon",
+        "theme",
+        "neko",
+        "cat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "iconTheme"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "reserved until the Neko artwork passes light/dark 1x/2x review",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.iconTheme",
+        "text" : "Icon Theme"
       },
       "validation" : "portable"
     },
@@ -31439,7 +31737,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.panes",
@@ -84283,6 +84581,141 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openPullRequestsInGitHubPage.help",
+        "text" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openPullRequestsInGitHubPage",
+      "keywords" : [
+        "github",
+        "github.com",
+        "pull request",
+        "pr",
+        "link",
+        "native page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openPullRequestsInGitHubPage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.openPullRequestsInGitHubPage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.openPullRequestsInGitHubPage",
+        "text" : "Open Pull Requests in cmux GitHub Page"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -87126,7 +87559,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockEdge.help",
-        "text" : "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick."
+        "text" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.edge",
@@ -87258,7 +87691,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",
@@ -87266,7 +87699,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefDockOpenBeside.help",
-        "text" : "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position."
+        "text" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefDock.openBeside",
@@ -87381,7 +87814,7 @@
       },
       "title" : {
         "key" : "settings.home.chiefDockOpenBeside",
-        "text" : "Keep Chief Docked When Opening Workspaces"
+        "text" : "Show Chief When Opening Workspaces"
       },
       "validation" : "portable"
     },

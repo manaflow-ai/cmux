@@ -12,13 +12,13 @@ import { nestAgents } from "../../subagents/AgentsPill";
 import { elapsed } from "../../subagents/SubagentGroup";
 import { subagentProgress } from "../../subagents/subagentProgress";
 import { retrying } from "../../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateText } from "../ChildSessionRows";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../../summary/subagentStatusListModel";
+import { orderedSessions, sessionStatus, sessionStateText } from "../childSessionRowsModel";
 import type { SubsessionLimits } from "../../model";
 import type { StartedSession } from "../../started/startedSessions";
 import type { Subagent } from "../../subagents/subagentFold";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../../subsessionLimits";
-import { SUBAGENTS_SHOWN, subagentCounts } from "../SubagentsSection";
+import { SUBAGENTS_SHOWN, subagentCounts } from "../subagentsSectionModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeInfoWave } from "./wave";
 
