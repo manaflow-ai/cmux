@@ -24,7 +24,9 @@ export function leaders(sessions: readonly (Record<string, any> & { sessionId: s
   for (const entry of entries) {
     if (!entry.reportsTo || entry.reportsTo === entry.sessionId) continue;
     const at = key(entry.peer, entry.reportsTo);
-    reports.set(at, [...(reports.get(at) ?? []), entry]);
+    const group = reports.get(at);
+    if (group) group.push(entry);
+    else reports.set(at, [entry]);
   }
   const seen = new Set<string>();
   const out: Lead[] = [];
