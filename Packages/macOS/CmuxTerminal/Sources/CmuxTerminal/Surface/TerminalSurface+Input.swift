@@ -6,6 +6,27 @@ internal import Carbon.HIToolbox
 internal import CMUXDebugLog
 #endif
 
+#if DEBUG
+private extension TerminalSurface {
+    static let ptyInputTraceEnabled =
+        ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1"
+
+    /// Logs one opt-in PTY input trace record in DEBUG builds.
+    @inline(__always)
+    func logPTYInputTrace(_ message: @autoclosure () -> String) {
+        guard Self.ptyInputTraceEnabled else { return }
+        logDebugEvent(message())
+    }
+
+    /// Formats a Ghostty surface handle for diagnostic logging.
+    @inline(__always)
+    static func ghosttySurfacePointerDescription(_ surface: ghostty_surface_t?) -> String {
+        guard let surface else { return "nil" }
+        return String(describing: surface)
+    }
+}
+#endif
+
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
@@ -188,12 +209,24 @@ extension TerminalSurface {
         return sendKeyText(text, to: liveSurface)
     }
 
+    /// Sends text as one synthetic key event through the live Ghostty surface.
     @MainActor
     private func sendKeyText(
         _ text: String,
         to liveSurface: ghostty_surface_t
     ) -> Bool {
         TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
+
+#if DEBUG
+        let pointer = Self.ghosttySurfacePointerDescription(liveSurface)
+        let generation = runtimeSurfaceGeneration
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logPTYInputTrace(
+            "surface.input.dispatch surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.keyText pointer=\(pointer) generation=\(generation) " +
+            "bytes=\(text.utf8.count)"
+        )
+#endif
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -208,6 +241,14 @@ extension TerminalSurface {
                 ghostty_surface_key(liveSurface, keyEvent)
             }
         }
+#if DEBUG
+        logPTYInputTrace(
+            "surface.input.native_return surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.keyText pointer=\(pointer) generation=\(generation) " +
+            "handled=\(handled ? 1 : 0) " +
+            "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000_000))"
+        )
+#endif
         if handled {
             didAcceptExplicitInput()
         }
@@ -671,6 +712,7 @@ extension TerminalSurface {
         canonicalKeyCharacter(keycode: keycode)?.unicodeScalars.first?.value
     }
 
+    /// Sends a named or synthetic key event through Ghostty.
     @MainActor
     func sendKeyEvent(
         surface: ghostty_surface_t,
@@ -692,6 +734,16 @@ extension TerminalSurface {
             ?? 0
         let generation = runtimeSurfaceGeneration
 
+#if DEBUG
+        let pointer = Self.ghosttySurfacePointerDescription(surface)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logPTYInputTrace(
+            "surface.input.dispatch surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.key action=press pointer=\(pointer) generation=\(generation) " +
+            "keycode=\(keycode) mods=\(mods.rawValue)"
+        )
+#endif
+
         let handled: Bool
         if let canonicalText {
             // Mirror the desktop `keyDown` path's C-string lifetime: the text
@@ -709,6 +761,15 @@ extension TerminalSurface {
             }
         }
 
+#if DEBUG
+        logPTYInputTrace(
+            "surface.input.native_return surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.key action=press pointer=\(pointer) generation=\(generation) " +
+            "handled=\(handled ? 1 : 0) " +
+            "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000_000))"
+        )
+#endif
+
         // A named key is a complete stroke. Let Ghostty decide whether the
         // negotiated protocol reports its release. A press can run a binding
         // that tears down or replaces the runtime, so never release into a
@@ -716,7 +777,22 @@ extension TerminalSurface {
         if self.surface == surface, runtimeSurfaceGeneration == generation {
             keyEvent.action = GHOSTTY_ACTION_RELEASE
             keyEvent.text = nil
+#if DEBUG
+            let releaseStartedAt = ProcessInfo.processInfo.systemUptime
+            logPTYInputTrace(
+                "surface.input.dispatch surface=\(id.uuidString.prefix(8)) " +
+                "channel=socket.key action=release pointer=\(pointer) generation=\(generation) " +
+                "keycode=\(keycode) mods=\(mods.rawValue)"
+            )
+#endif
             _ = ghostty_surface_key(surface, keyEvent)
+#if DEBUG
+            logPTYInputTrace(
+                "surface.input.native_return surface=\(id.uuidString.prefix(8)) " +
+                "channel=socket.key action=release pointer=\(pointer) generation=\(generation) " +
+                "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - releaseStartedAt) * 1_000_000))"
+            )
+#endif
         }
 
 #if DEBUG
@@ -734,22 +810,56 @@ extension TerminalSurface {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    /// Sends text bytes through Ghostty's text API.
     @MainActor
     func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
+#if DEBUG
+        let pointer = Self.ghosttySurfacePointerDescription(surface)
+        let generation = runtimeSurfaceGeneration
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logPTYInputTrace(
+            "surface.input.dispatch surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.text pointer=\(pointer) generation=\(generation) bytes=\(data.count)"
+        )
+#endif
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
+#if DEBUG
+        logPTYInputTrace(
+            "surface.input.native_return surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.text pointer=\(pointer) generation=\(generation) " +
+            "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000_000))"
+        )
+#endif
     }
 
+    /// Sends committed text bytes through Ghostty's text-input API.
     @MainActor
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
         TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
+#if DEBUG
+        let pointer = Self.ghosttySurfacePointerDescription(surface)
+        let generation = runtimeSurfaceGeneration
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logPTYInputTrace(
+            "surface.input.dispatch surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.textInput pointer=\(pointer) generation=\(generation) bytes=\(data.count)"
+        )
+#endif
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
         }
+#if DEBUG
+        logPTYInputTrace(
+            "surface.input.native_return surface=\(id.uuidString.prefix(8)) " +
+            "channel=socket.textInput pointer=\(pointer) generation=\(generation) " +
+            "durationUs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000_000))"
+        )
+#endif
     }
 
     /// Sends bytes through Ghostty's PTY-output parser so OSC commands affect terminal state.
