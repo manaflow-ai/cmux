@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::super::commit::{AFTER_PLACE, FAIL_AT};
+use super::super::commit::{AFTER_PLACE, BEFORE_COMMIT, BETWEEN_SWAPS, FAIL_AT};
 use super::super::files;
 use super::super::seal::Purpose;
 use super::{fixture, random_hex};
@@ -240,5 +240,112 @@ fn a_save_after_a_file_went_in_place_survives_a_later_failure() {
         files.keys().all(|name| !name.contains(".tmp") && !name.contains(".bak")),
         "a temporary or backup was left: {:?}",
         files.keys()
+    );
+}
+
+/// An editor's save: a new file renamed over `path`.
+fn save_by_rename(path: &Path, text: &str) {
+    let fresh = path.with_extension("editor-save");
+    std::fs::write(&fresh, text).unwrap();
+    std::fs::rename(&fresh, path).unwrap();
+}
+
+/// Every file in `.claude` but the credentials, by contents.
+fn claude_texts(home: &Path) -> Vec<String> {
+    snapshot(home)
+        .into_iter()
+        .filter(|(name, _)| name.starts_with(".claude/") && !name.ends_with(".credentials.json"))
+        .map(|(_, bytes)| String::from_utf8(bytes).unwrap())
+        .collect()
+}
+
+/// `hook` runs once, the first time its slot calls it.
+fn once(mut hook: impl FnMut() + 'static) -> Box<dyn FnMut()> {
+    let mut done = false;
+    Box::new(move || {
+        if !done {
+            done = true;
+            hook();
+        }
+    })
+}
+
+#[test]
+fn a_save_between_the_swap_and_its_undo_is_never_lost() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    let settings = fixture.home.join(".claude/settings.json");
+    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
+    // Save A lands before the swap (so the check fails), save B between the
+    // swap and the swap back.
+    let path = settings.clone();
+    BEFORE_COMMIT.with(|hook| {
+        *hook.borrow_mut() = Some(once(move || std::fs::write(&path, r#"{"theme":"a"}"#).unwrap()));
+    });
+    let path = settings.clone();
+    BETWEEN_SWAPS.with(|hook| {
+        *hook.borrow_mut() = Some(once(move || save_by_rename(&path, r#"{"theme":"b"}"#)));
+    });
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    let result = fixture.secrets.install_harness_login(&item);
+    BEFORE_COMMIT.with(|hook| hook.borrow_mut().take());
+    BETWEEN_SWAPS.with(|hook| hook.borrow_mut().take());
+    // The newest save is live and merged into; the older one is kept.
+    assert_eq!(result.unwrap(), "claude");
+    let live: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
+    assert_eq!(live["theme"], "b");
+    assert_eq!(live["env"]["CLAUDE_CODE_OAUTH_TOKEN"], token.as_str());
+    let texts = claude_texts(&fixture.home);
+    assert!(texts.iter().any(|text| text == r#"{"theme":"a"}"#), "save A was lost: {texts:?}");
+    let names: Vec<_> = snapshot(&fixture.home).into_keys().collect();
+    assert!(
+        names.iter().all(|name| !name.ends_with(".tmp") && !name.ends_with(".bak")),
+        "a temporary or backup was left: {names:?}"
+    );
+}
+
+#[test]
+fn saves_racing_a_rollback_are_never_lost() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    let settings = fixture.home.join(".claude/settings.json");
+    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
+    // Save A right after settings.json goes in, save B while the rollback
+    // swaps it back, and the credentials rename (step 4) fails.
+    let path = settings.clone();
+    AFTER_PLACE.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |index| {
+            if index == 0 {
+                std::fs::write(&path, r#"{"theme":"a"}"#).unwrap();
+            }
+        }));
+    });
+    let path = settings.clone();
+    BETWEEN_SWAPS.with(|hook| {
+        *hook.borrow_mut() = Some(once(move || save_by_rename(&path, r#"{"theme":"b"}"#)));
+    });
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    let result = {
+        let _fail = FailAt::set(Some(4));
+        fixture.secrets.install_harness_login(&item)
+    };
+    AFTER_PLACE.with(|hook| hook.borrow_mut().take());
+    BETWEEN_SWAPS.with(|hook| hook.borrow_mut().take());
+    let error = result.unwrap_err();
+    assert!(error.message.starts_with("write"), "{error}");
+    let live = std::fs::read_to_string(&settings).unwrap();
+    assert!(live == r#"{"theme":"a"}"# || live == r#"{"theme":"b"}"#, "{live}");
+    let texts = claude_texts(&fixture.home);
+    for save in [r#"{"theme":"a"}"#, r#"{"theme":"b"}"#] {
+        assert!(texts.iter().any(|text| text == save), "{save} was lost: {texts:?}");
+    }
+    assert!(!texts.iter().any(|text| text.contains(&token)), "the login is still in place");
+    let names: Vec<_> = snapshot(&fixture.home).into_keys().collect();
+    assert!(
+        names.iter().all(|name| !name.ends_with(".tmp") && !name.ends_with(".bak")),
+        "a temporary or backup was left: {names:?}"
     );
 }
