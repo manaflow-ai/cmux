@@ -97,6 +97,7 @@ import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { type UsageEntry } from "./usageEntries";
+import type { ChatPlace } from "../chatMachine";
 import { samePanelProps } from "./samePanelProps";
 import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
@@ -318,6 +319,7 @@ export function SessionInfo({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable,
   made,
@@ -379,6 +381,8 @@ export function SessionInfo({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
@@ -636,6 +640,7 @@ export function SessionInfo({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}

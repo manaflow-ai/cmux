@@ -52,7 +52,7 @@ import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
-import { machineOf } from "../environmentSectionModel";
+import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
 import { cloudEnvironmentRequest, openCloudEnvironment, subscribeCloudEnvironment } from "../../cloudEnvironment";
 import { copyText } from "../../conversation/clipboard";
@@ -93,6 +93,8 @@ export type NativeSessionInfoProps = {
   usage?: { used: number; size: number };
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links: readonly OutputLink[];
@@ -195,7 +197,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
-    props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"
+    props.cloudRepositoryAvailable &&
+    chatMachine(summary, props.machineName, props.peerKinds, props.place).kind === "cloud"
       ? summary?.sessionId
       : undefined;
   const cloud = useCloudRepositories(cloudSession, shown);
@@ -333,6 +336,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           summary,
           machineName: props.machineName,
           peerKinds: props.peerKinds,
+          place: props.place,
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,

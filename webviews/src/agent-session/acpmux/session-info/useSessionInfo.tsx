@@ -76,6 +76,7 @@ import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computer
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
+import { chatPlace } from "../chatMachine";
 import { useAlsoHere } from "./alsoHereSectionModel";
 
 /// How long after an output click a narrowing counts as that diff's split.
@@ -950,6 +951,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
   const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
+  // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
+  const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
@@ -1098,6 +1101,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
+          place={place}
           repository={repository}
           grants={scope ? undefined : grants}
           cloudRepositoryAvailable={cloudRepositoryAvailable}
@@ -1176,6 +1180,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}

@@ -16,6 +16,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
 
+import { chatMachine, type ChatPlace } from "../chatMachine";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 import { Counts } from "../changes/Counts";
@@ -24,7 +25,7 @@ import { Switch } from "../../../ui/Switch";
 import "../../../ui/controls.css";
 import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
 import { loadAttachedCloudRepos, type AttachedCloudRepo, type PendingCloudRepo } from "./cloudRepositoryPickerModel";
-import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS, machineOf } from "./environmentSectionModel";
+import { type Summary, REMOTE_CONTROL_ICON, MACHINE_KIND_LABELS } from "./environmentSectionModel";
 /// Something the chat was granted (App.tsx `accessGrants`): its label, and how Revoke takes it back.
 export type AccessGrant = {
   id: string;
@@ -95,6 +96,7 @@ export function EnvironmentSection({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable = false,
   remoteControl,
@@ -108,6 +110,8 @@ export function EnvironmentSection({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   /// The chat folder's GitHub repository, `owner/name`.
   repository?: string;
   /// Native says whether this pane has an authenticated Cloud repository route.
@@ -134,7 +138,7 @@ export function EnvironmentSection({
   const [pendingRepos, setPendingRepos] = useState<PendingCloudRepo[]>([]);
   const addRepositoryButton = useRef<HTMLButtonElement>(null);
   const pending = useRef(false);
-  const machine = machineOf(summary, machineName, peerKinds);
+  const machine = chatMachine(summary, machineName, peerKinds, place);
   const cloudSession = machine.kind === "cloud" ? summary?.sessionId : undefined;
   const canUseCloudRepositories = Boolean(cloudSession && cloudRepositoryAvailable);
   const branch = summary?.branch;
