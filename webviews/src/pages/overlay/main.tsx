@@ -4,6 +4,7 @@
 import "../shared/desktop";
 import { createPageClient } from "../shared/pageClient";
 import { mountDialog } from "./dialog";
+import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./overlay.css";
 
