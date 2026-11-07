@@ -1500,6 +1500,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).",
+      "keys": [
+        "chief.permissionMode"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Which subagents show in the sidebar is the person's to shape, not an agent's.",
       "keys": [
         "chief.subagentSidebar",

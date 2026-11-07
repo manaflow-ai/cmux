@@ -170,6 +170,8 @@ extension SettingsSchema {
         "browser.customSearchEngine.suggest": .privacy, "browser.omnibar.remoteSuggestions": .privacy,
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         "chief.autoRouteSubagents": .userOnly,
+        // How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).
+        "chief.permissionMode": .userOnly,
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
         "chief.subagentSidebar": .userOnly, "chief.subagentSidebarShowWords": .userOnly,
         "chief.subagentSidebarHideWords": .userOnly, "chief.subagentSidebarMinWords": .userOnly,

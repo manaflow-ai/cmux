@@ -278,6 +278,7 @@ export function CloudStartView({
   bubble = true,
   showSteps = false,
   onOpenEnvironment,
+  onSignIn,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
@@ -285,6 +286,7 @@ export function CloudStartView({
   /// local first turn and only a failure shows them.
   showSteps?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  onSignIn?: () => void | Promise<unknown>;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -293,6 +295,8 @@ export function CloudStartView({
   // checklist out of the way until someone asks for it. A failure is the one time we open it
   // automatically: the failed row and its log tail explain what needs attention.
   const [expanded, setExpanded] = useState(failed);
+  const signInRequired = failed && start.code === "not_signed_in" && onSignIn;
+  const [signingIn, setSigningIn] = useState(false);
   const now = usePageNow(!start.initialized && start.state !== "failed");
   useEffect(() => {
     if (failed) setExpanded(true);
@@ -309,6 +313,11 @@ export function CloudStartView({
     };
     if (onOpenEnvironment) onOpenEnvironment(options);
     else window.dispatchEvent(new CustomEvent("cmux:open-cloud-environment", { detail: options }));
+  };
+  const signIn = () => {
+    if (!onSignIn || signingIn) return;
+    setSigningIn(true);
+    void Promise.resolve(onSignIn()).finally(() => setSigningIn(false));
   };
   // A start that is on its way reads as a local chat's first turn: the message, then the normal
   // Thinking line, with no Cloud machine, clone or setup rows (Leo, 2026-11-04: "You actually see
@@ -432,9 +441,20 @@ export function CloudStartView({
         )}
       </div>
       {failed && (
-        <output className="acpmux-cloud-start__status" role="alert">
-          {start.message ?? t("sandbox.failed")}
-        </output>
+        <div className="acpmux-cloud-start__failure" role="alert">
+          <output className="acpmux-cloud-start__status">{start.message ?? t("sandbox.failed")}</output>
+          {signInRequired && (
+            <button
+              type="button"
+              className="acpmux-cloud-start__sign-in"
+              onClick={signIn}
+              disabled={signingIn}
+              aria-busy={signingIn}
+            >
+              {t("cloudStart.signInToContinue")}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );
