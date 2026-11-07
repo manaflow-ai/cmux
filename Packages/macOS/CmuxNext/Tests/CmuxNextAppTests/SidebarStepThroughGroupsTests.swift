@@ -98,6 +98,7 @@ import Testing
             let shown = SidebarModel(sections: Self.doneSections(Self.withDone), activeWorkspaceID: WorkspaceID("work-2"))
             let order = shown.itemOrder
             #expect(order.rows == SidebarModel(sections: Self.doneSections(Self.withDone)).itemOrder.rows)
+            #expect(order.stop(for: .workspace(WorkspaceID("work-2"))) == nil, "the folded Done member is a number stop")
             // The selected Done member draws in its place: the walk goes on from there.
             #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
             #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))

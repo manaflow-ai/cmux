@@ -31,8 +31,7 @@ extension SidebarModel {
         }
         // As the list draws its rows, without the selection: the active workspace keeps its place in a fold when the
         // list draws it, but it is no stop of its own, so no number moves when it is selected.
-        var options = rowOptions()
-        options.hidesWorkspaces = false // Cmd-1…9 reach workspaces with the Projects list hidden, as before
+        var options = rowOptions() // hidesWorkspaces stays off: Cmd-1…9 reach workspaces with the Projects list hidden
         // The session tree moves a started workspace under its parent: the numbers follow the drawn order.
         options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
@@ -65,19 +64,23 @@ extension SidebarModel {
         }
         let topItems = top.filter { item in !listed.contains(inBlock.first { $0.value.contains(item) }?.key ?? "") }
         return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops,
-                                places: places(of: selectableWorkspaces.map(\.id), rows: rows, stops: stops))
+                                places: places(of: selectableWorkspaces, rows: rows, stops: stops, options: options))
     }
 
     /// Where each workspace with no stop (folded into "Done (N)", behind "Show N more") sits among `rows`: the index
     /// after the last stop before it in the model's order. Selected, it draws there, so stepping goes on from there.
-    private func places(of ids: [WorkspaceID], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem]) -> [WorkspaceID: Int] {
+    /// A Done or archived row an opened fold lists at the end of its list is not in its model place: it moves nothing.
+    private func places(of workspaces: [SidebarWorkspace], rows: [SidebarItem], stops: [WorkspaceID: SidebarItem],
+                        options o: SidebarLayoutOptions) -> [WorkspaceID: Int] {
         var index: [SidebarItem: Int] = [:]
         for (i, item) in rows.enumerated() where index[item] == nil { index[item] = i }
         var next = rows.firstIndex { if case .topItem = $0 { false } else { true } } ?? rows.count
         var places: [WorkspaceID: Int] = [:]
-        for id in ids {
+        for ws in workspaces {
+            let id = ws.id
             if let at = index[.workspace(id)] ?? stops[id].flatMap({ index[$0] }) {
-                next = at + 1
+                let folds = ws.isArchived || (o.foldsDone && ws.taskStatus == .done)
+                if !folds || stops[id] != nil { next = at + 1 }
             } else {
                 places[id] = next
             }
