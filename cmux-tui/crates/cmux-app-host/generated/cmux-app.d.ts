@@ -167,13 +167,19 @@ declare namespace Cmux {
   type GitFileMatch = { path: string; matches: Array<number> }
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
+  type GitIncludeReport = { copied: number; kept: number; outside: Array<string>; problems: Array<string> }
   type GitPatchPage = { offset: string; next_offset: string; total_bytes: string; revision: string; data_base64: string; complete: boolean }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
-  type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string }
-  type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean }
+  type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }
+  type GitWorktreeRecipe = { setup: string | null; teardown: string | null; run: string | null; include: Array<string>; repository: Cmux.WorktreeRecipe; saved?: Cmux.WorktreeRecipe; files: Array<string>; problems?: Array<string> }
+  type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean; teardown?: Cmux.GitWorktreeTeardown }
+  type GitWorktreeSetupResult = { root: string; main_root?: string; recipe: Cmux.GitWorktreeRecipe; run: Cmux.GitWorktreeSetupRun }
+  type GitWorktreeSetupRun = { state: string; port?: number | null; setup?: string; exit_code?: number | null; include?: Cmux.GitIncludeReport; started_ms?: string; finished_ms?: string; output: string; output_start: string; output_end: string }
+  type GitWorktreeSetupStart = { state: string; port?: number }
+  type GitWorktreeTeardown = { state: string; exit_code?: number | null; output: string }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = string
@@ -332,7 +338,7 @@ declare namespace Cmux {
   type ProjectChange = { changed: Array<string> }
   type ProjectList = { projects: Array<Cmux.ProjectSnapshot>; sources: Array<Cmux.ProjectSourceSummary> }
   type ProjectObservation = { path: string; last_used_ms: string }
-  type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
+  type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number; worktree?: Cmux.WorktreeRecipe }
   type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
   type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
   type ProjectSourceSummary = { id: string; enabled: boolean; projects: number }
@@ -522,6 +528,7 @@ declare namespace Cmux {
   type WorkspaceStatusSnapshot = { workspace_id: string /* workspace_… */; entries: Array<Cmux.WorkspaceStatusEntry>; progress: Cmux.WorkspaceProgress | null; log_count: number; last_log: Cmux.WorkspaceLogLine | null }
   type WorkspaceStatusState = "busy" | "success" | "error" | "waiting" | "info"
   type WorkspaceStatusStyle = "arc" | "native" | "dot" | "none"
+  type WorktreeRecipe = { setup?: string; teardown?: string; run?: string; include?: Array<string> }
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
@@ -1015,6 +1022,8 @@ interface CmuxGlobal {
       create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; name?: string; base?: string }, Cmux.MutationResult<Cmux.GitWorktreeCreateResult>>
       /** `git.worktree.remove` (mutation, scope `git:execute`) */
       remove: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; discard?: boolean }, Cmux.MutationResult<Cmux.GitWorktreeRemoveResult>>
+      /** `git.worktree.setup` (read, scope `git:read`) */
+      setup: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; since?: string }, Cmux.GitWorktreeSetupResult>
     }
   }
   github: {
@@ -1271,7 +1280,7 @@ interface CmuxGlobal {
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null }, Cmux.MutationResult<Cmux.ProjectChange>>
+    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null }, Cmux.MutationResult<Cmux.ProjectChange>>
   }
   push: {
     target: {

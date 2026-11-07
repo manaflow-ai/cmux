@@ -10498,6 +10498,14 @@
             "min_length": 1
           },
           "description": "The main checkout's folder; absent for a bare repository."
+        },
+        "setup": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupStart"
+          },
+          "description": "The new worktree's setup, which runs after the reply."
         }
       },
       "extra": false
@@ -10539,6 +10547,371 @@
             "name": "boolean"
           },
           "description": "The branch was deleted with it: git.worktree.create made it, and it got no new commits git could not find elsewhere (or discard)."
+        },
+        "teardown": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeTeardown"
+          },
+          "description": "The project's teardown, run in the worktree before it went; absent when the recipe has none or on a retry."
+        }
+      },
+      "extra": false
+    },
+    "WorktreeRecipe": {
+      "kind": "object",
+      "fields": {
+        "setup": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Runs in a new worktree once its files are copied. Empty turns the repository's off."
+        },
+        "teardown": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Runs in a worktree before it is removed. Empty turns the repository's off."
+        },
+        "run": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Starts the project in a worktree (its dev server), on CMUX_PORT."
+        },
+        "include": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": ".worktreeinclude lines: what a new worktree copies from the main checkout. Saved lines come after the repository's; a ! line takes one back."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeSetupStart": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "none (the recipe copies and runs nothing) or copying (started; git.worktree.setup follows it)."
+        },
+        "port": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint16"
+          },
+          "description": "CMUX_PORT: the first of ten ports the worktree keeps until it is removed."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeTeardown": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "succeeded, failed or timed_out (after one minute). A failed teardown does not keep the worktree."
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "Its exit code; null when a signal ended it."
+        },
+        "output": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "What it printed (at most its last 16 KiB)."
+        }
+      },
+      "extra": false
+    },
+    "GitIncludeReport": {
+      "kind": "object",
+      "fields": {
+        "copied": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Files and links made in the worktree."
+        },
+        "kept": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths left alone because the worktree already had them."
+        },
+        "outside": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Links left out because they point outside the repository (at most 20)."
+        },
+        "problems": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Lines that are not patterns and paths that could not be copied (at most 20)."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeSetupRun": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "none, copying, running, succeeded, failed, timed_out (after 30 minutes) or interrupted (the session host restarted meanwhile)."
+        },
+        "port": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint16"
+            }
+          },
+          "description": "CMUX_PORT of the worktree."
+        },
+        "setup": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The setup command that ran."
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          },
+          "description": "The setup's exit code once it finished; null when a signal ended it."
+        },
+        "include": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitIncludeReport"
+          },
+          "description": "What the .worktreeinclude copy did."
+        },
+        "started_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "finished_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "output": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Setup output from since (at most its last 64 KiB)."
+        },
+        "output_start": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The byte offset output starts at."
+        },
+        "output_end": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The byte offset output ends at; pass it as since to read on."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeRecipe": {
+      "kind": "object",
+      "fields": {
+        "setup": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The setup command a new worktree runs."
+        },
+        "teardown": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The teardown command a removal runs."
+        },
+        "run": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The command that starts the project in a worktree."
+        },
+        "include": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The .worktreeinclude lines a new worktree copies by."
+        },
+        "repository": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorktreeRecipe"
+          },
+          "description": "The repository's own recipe: .worktreeinclude and .cmux/worktree.toml."
+        },
+        "saved": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorktreeRecipe"
+          },
+          "description": "The user's saved recipe (project.update worktree)."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The repository's recipe files that were read."
+        },
+        "problems": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "What was wrong with them."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeSetupResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level the path is in."
+        },
+        "main_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout; absent for a bare repository."
+        },
+        "recipe": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeRecipe"
+          }
+        },
+        "run": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupRun"
+          },
+          "description": "The setup of a worktree git.worktree.create made; state none in the main checkout."
         }
       },
       "extra": false
@@ -12570,6 +12943,14 @@
             "name": "int32"
           },
           "description": "The user's order among pinned projects."
+        },
+        "worktree": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorktreeRecipe"
+          },
+          "description": "The user's worktree recipe; a command set here wins over the repository's, and include lines are added after its own."
         }
       },
       "extra": false
@@ -26273,6 +26654,63 @@
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, absent for a detached HEAD, and extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
+    "git.worktree.setup": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "since": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The output byte offset to read from: the previous read's output_end. Default 0."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitWorktreeSetupResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The recipe is read from the main checkout: .worktreeinclude, and setup, run, teardown and include in .cmux/worktree.toml; the project's saved recipe (project.update worktree) wins command by command, and its include lines come after the repository's.",
+        "git.worktree.create starts the setup after its reply: it copies the .worktreeinclude files (never overwriting, never following a link out of the repository), then runs setup in the user's login shell in the worktree with CMUX_ROOT_PATH, CMUX_WORKSPACE_PATH, CMUX_WORKSPACE_NAME and CMUX_PORT (also as CONDUCTOR_*). A failed setup keeps the worktree.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
     "history.backups.purge": {
       "class": "mutation",
       "idempotency": "required",
@@ -30063,6 +30501,17 @@
               }
             },
             "description": "The order among pinned projects; null clears it."
+          },
+          "worktree": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "WorktreeRecipe"
+              }
+            },
+            "description": "The project's worktree recipe (setup, teardown, run, include); null clears it. Commands are at most 64 KiB, include at most 1000 lines."
           }
         },
         "extra": false,

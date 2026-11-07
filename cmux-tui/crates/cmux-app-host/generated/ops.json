@@ -191,6 +191,7 @@
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
+    "git.worktree.setup",
     "github.issue.comment",
     "group.add_workspace",
     "group.archive",

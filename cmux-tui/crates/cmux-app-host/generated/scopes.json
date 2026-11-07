@@ -761,6 +761,10 @@
       "scope": "git:execute",
       "class": "mutation"
     },
+    "git.worktree.setup": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "github.issue.comment": {
       "scope": "github:external",
       "class": "mutation"

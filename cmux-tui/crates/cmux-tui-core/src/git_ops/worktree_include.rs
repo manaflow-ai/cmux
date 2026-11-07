@@ -1,0 +1,506 @@
+//! `.worktreeinclude`: the files a new worktree needs that git does not
+//! give it (`.env`, a local settings file, an installed dependency folder).
+//! `git.worktree.create` copies them from the main checkout.
+//!
+//! The syntax is close to `.gitignore`, with the rules of the earlier
+//! worktree-seed reader:
+//!
+//! - Every pattern is a path from the repository root: `.env` is the root's
+//!   `.env` and nothing else, so no pattern walks the whole tree unless it
+//!   writes `**`. A leading `/`, a `~` or a `..` segment is a problem, not a
+//!   pattern: copying never reaches outside the repository.
+//! - `*` and `?` match within one name, `**` any number of folders; a
+//!   trailing `/` matches folders only; `!` takes back what an earlier
+//!   pattern selected (the last match wins); `#` starts a comment and `\`
+//!   escapes a leading `!` or `#`.
+//! - A matched folder is copied whole, less what a later `!` takes back.
+//! - A symlink is a leaf, as git reads one: the walk never goes through
+//!   one, and one is copied (as a link) only when what it points at
+//!   resolves inside the repository.
+//! - Nothing in the new worktree is overwritten, so a tracked file stays as
+//!   the branch has it, and nothing is written through a symlink out of it.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// The file at the repository root that lists what to copy.
+pub(crate) const FILE_NAME: &str = ".worktreeinclude";
+/// The folders the walk may visit, for every pattern together.
+const MAX_VISITED_DIRECTORIES: usize = 20_000;
+/// The paths a report lists in each of its lists.
+const MAX_LISTED: usize = 20;
+
+/// One pattern line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Pattern {
+    segments: Vec<String>,
+    negated: bool,
+    directory_only: bool,
+}
+
+/// The patterns of some lines, and the lines that are not patterns.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Patterns {
+    pub patterns: Vec<Pattern>,
+    pub problems: Vec<String>,
+}
+
+/// Reads pattern lines (the file's, or a saved list's).
+pub(crate) fn parse<'a>(lines: impl IntoIterator<Item = &'a str>) -> Patterns {
+    let mut parsed = Patterns::default();
+    for (index, line) in lines.into_iter().enumerate() {
+        match pattern(line) {
+            Ok(Some(pattern)) => parsed.patterns.push(pattern),
+            Ok(None) => {}
+            Err(reason) => {
+                parsed.problems.push(format!("line {}: {}: {reason}", index + 1, line.trim()));
+            }
+        }
+    }
+    parsed
+}
+
+fn pattern(line: &str) -> Result<Option<Pattern>, &'static str> {
+    let text = trim_line(line);
+    if text.is_empty() || text.starts_with('#') {
+        return Ok(None);
+    }
+    let (negated, rest) = match text.strip_prefix('!') {
+        Some(rest) => (true, rest.trim_start()),
+        None => (false, text.as_str()),
+    };
+    let rest = match rest.strip_prefix('\\') {
+        Some(escaped) if escaped.starts_with(['!', '#']) => escaped,
+        _ => rest,
+    };
+    if rest.starts_with('/') {
+        return Err("patterns start at the repository root already; drop the leading /");
+    }
+    if rest.starts_with('~') {
+        return Err("a pattern cannot start at the home folder");
+    }
+    let directory_only = rest.ends_with('/');
+    let segments: Vec<String> =
+        rest.split('/').filter(|segment| !segment.is_empty()).map(str::to_string).collect();
+    if segments.is_empty() {
+        return Err("nothing is left of this line to match");
+    }
+    if segments.iter().any(|segment| segment == ".." || segment == ".") {
+        return Err("a pattern cannot contain . or ..; copying stays inside the repository");
+    }
+    Ok(Some(Pattern { segments, negated, directory_only }))
+}
+
+/// Leading whitespace goes; trailing whitespace too, except one a `\`
+/// escaped (a name can end in a space).
+fn trim_line(line: &str) -> String {
+    let mut text: Vec<char> = line.trim_start().chars().collect();
+    while matches!(text.last(), Some(' ' | '\t' | '\r')) {
+        let escapes = text[..text.len() - 1].iter().rev().take_while(|c| **c == '\\').count();
+        if escapes % 2 == 1 {
+            text.remove(text.len() - 2);
+            break;
+        }
+        text.pop();
+    }
+    text.into_iter().collect()
+}
+
+/// What a copy did, for the setup output and the status.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Report {
+    /// Files and links made in the new worktree.
+    pub copied: u64,
+    /// Paths left alone because the worktree already has them.
+    pub kept: u64,
+    /// Links left out because they point outside the repository.
+    pub outside: Vec<String>,
+    /// Lines that are not patterns, and paths that could not be copied.
+    pub problems: Vec<String>,
+}
+
+impl Report {
+    fn note(list: &mut Vec<String>, entry: String) {
+        if list.len() < MAX_LISTED {
+            list.push(entry);
+        }
+    }
+}
+
+/// Copies what `patterns` select from `source` (the main checkout) into
+/// `destination` (the new worktree), until `cancelled` says to stop.
+pub(crate) fn copy(
+    source: &Path,
+    destination: &Path,
+    patterns: &Patterns,
+    cancelled: &dyn Fn() -> bool,
+) -> Report {
+    let mut report = Report::default();
+    for problem in &patterns.problems {
+        Report::note(&mut report.problems, problem.clone());
+    }
+    let (Ok(source_root), Ok(destination_root)) =
+        (fs::canonicalize(source), fs::canonicalize(destination))
+    else {
+        Report::note(&mut report.problems, "the checkout or the worktree is gone".into());
+        return report;
+    };
+    let mut copier =
+        Copier { source_root, destination_root, report, patterns: &patterns.patterns, cancelled };
+    for path in select(&copier.source_root, &patterns.patterns) {
+        copier.entry(&path);
+    }
+    copier.report
+}
+
+/// The paths (relative to `root`) the patterns select: each positive
+/// pattern's matches whose last matching pattern is not a `!`.
+pub(crate) fn select(root: &Path, patterns: &[Pattern]) -> Vec<PathBuf> {
+    let mut budget = MAX_VISITED_DIRECTORIES;
+    let mut found = BTreeSet::new();
+    for pattern in patterns.iter().filter(|pattern| !pattern.negated) {
+        expand(
+            root,
+            Path::new(""),
+            &pattern.segments,
+            pattern.directory_only,
+            &mut budget,
+            &mut found,
+        );
+    }
+    found
+        .into_iter()
+        .filter(|(path, is_directory)| {
+            last_match(patterns, path, *is_directory).is_some_and(|pattern| !pattern.negated)
+        })
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// The last pattern that matches `path`: the one that decides it.
+fn last_match<'a>(patterns: &'a [Pattern], path: &Path, is_directory: bool) -> Option<&'a Pattern> {
+    let names: Vec<String> = path.iter().map(|name| name.to_string_lossy().into_owned()).collect();
+    patterns.iter().rev().find(|pattern| {
+        (!pattern.directory_only || is_directory) && matches(&pattern.segments, &names)
+    })
+}
+
+/// Adds to `found` the paths under `relative` that `segments` reach, with
+/// whether each is a folder. Never goes through a symlink or into `.git`.
+fn expand(
+    root: &Path,
+    relative: &Path,
+    segments: &[String],
+    directory_only: bool,
+    budget: &mut usize,
+    found: &mut BTreeSet<(PathBuf, bool)>,
+) {
+    let Some((segment, rest)) = segments.split_first() else { return };
+    if segment == "**" {
+        // A trailing `**` is everything under the folder: each entry, a
+        // folder copied whole.
+        if rest.is_empty() {
+            for (name, is_directory) in children(root, relative, budget) {
+                if !directory_only || is_directory {
+                    found.insert((relative.join(name), is_directory));
+                }
+            }
+            return;
+        }
+        expand(root, relative, rest, directory_only, budget, found);
+        for (name, is_directory) in children(root, relative, budget) {
+            if is_directory {
+                expand(root, &relative.join(name), segments, directory_only, budget, found);
+            }
+        }
+        return;
+    }
+    let candidates: Vec<(String, bool)> = if is_glob(segment) {
+        children(root, relative, budget)
+            .into_iter()
+            .filter(|(name, _)| glob(segment.as_bytes(), name.as_bytes()))
+            .collect()
+    } else {
+        match fs::symlink_metadata(root.join(relative).join(segment)) {
+            Ok(metadata) => vec![(segment.clone(), metadata.is_dir())],
+            Err(_) => Vec::new(),
+        }
+    };
+    for (name, is_directory) in candidates {
+        if name == ".git" {
+            continue;
+        }
+        let path = relative.join(&name);
+        if rest.is_empty() {
+            if !directory_only || is_directory {
+                found.insert((path, is_directory));
+            }
+        } else if is_directory {
+            expand(root, &path, rest, directory_only, budget, found);
+        }
+    }
+}
+
+/// A folder's entries, with whether each is a real folder (a symlink to one
+/// is not), while the budget lasts.
+fn children(root: &Path, relative: &Path, budget: &mut usize) -> Vec<(String, bool)> {
+    if *budget == 0 {
+        return Vec::new();
+    }
+    *budget -= 1;
+    let Ok(entries) = fs::read_dir(root.join(relative)) else { return Vec::new() };
+    let mut listed: Vec<(String, bool)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let is_directory = entry.file_type().ok()?.is_dir();
+            (name != ".git").then_some((name, is_directory))
+        })
+        .collect();
+    listed.sort();
+    listed
+}
+
+/// Whether a path's names match a pattern's segments.
+fn matches(segments: &[String], names: &[String]) -> bool {
+    match segments.split_first() {
+        None => names.is_empty(),
+        Some((segment, rest)) if segment == "**" => {
+            (0..=names.len()).any(|skip| matches(rest, &names[skip..]))
+        }
+        Some((segment, rest)) => names.split_first().is_some_and(|(name, names)| {
+            glob(segment.as_bytes(), name.as_bytes()) && matches(rest, names)
+        }),
+    }
+}
+
+fn is_glob(segment: &str) -> bool {
+    segment.contains(['*', '?'])
+}
+
+/// `*` (any run) and `?` (one byte) within one name.
+fn glob(pattern: &[u8], name: &[u8]) -> bool {
+    let (mut p, mut n) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while n < name.len() {
+        match pattern.get(p) {
+            Some(b'*') => {
+                star = Some((p, n));
+                p += 1;
+            }
+            Some(b'?') => {
+                p += 1;
+                n += 1;
+            }
+            Some(byte) if *byte == name[n] => {
+                p += 1;
+                n += 1;
+            }
+            _ => match star {
+                Some((star_p, star_n)) => {
+                    p = star_p + 1;
+                    n = star_n + 1;
+                    star = Some((star_p, star_n + 1));
+                }
+                None => return false,
+            },
+        }
+    }
+    pattern[p..].iter().all(|byte| *byte == b'*')
+}
+
+struct Copier<'a> {
+    source_root: PathBuf,
+    destination_root: PathBuf,
+    report: Report,
+    /// A `!` pattern takes a path back inside a selected folder too.
+    patterns: &'a [Pattern],
+    cancelled: &'a dyn Fn() -> bool,
+}
+
+impl Copier<'_> {
+    fn entry(&mut self, relative: &Path) {
+        let source = self.source_root.join(relative);
+        let destination = self.destination_root.join(relative);
+        if (self.cancelled)() {
+            return;
+        }
+        let Ok(metadata) = fs::symlink_metadata(&source) else { return };
+        if last_match(self.patterns, relative, metadata.is_dir()).is_some_and(|last| last.negated) {
+            return;
+        }
+        let link_there =
+            fs::symlink_metadata(&destination).is_ok_and(|there| there.file_type().is_symlink());
+        if !self.writable(&destination) || (metadata.is_dir() && link_there) {
+            let entry = format!("{}: the worktree has a link there", relative.display());
+            Report::note(&mut self.report.problems, entry);
+            return;
+        }
+        if metadata.is_dir() {
+            if let Err(error) = fs::create_dir_all(&destination) {
+                Report::note(&mut self.report.problems, format!("{}: {error}", relative.display()));
+                return;
+            }
+            let Ok(entries) = fs::read_dir(&source) else { return };
+            let mut names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
+            names.sort();
+            for name in names.into_iter().filter(|name| name != ".git") {
+                self.entry(&relative.join(name));
+            }
+            return;
+        }
+        if fs::symlink_metadata(&destination).is_ok() {
+            self.report.kept += 1;
+            return;
+        }
+        let made = if metadata.file_type().is_symlink() {
+            if !fs::canonicalize(&source).is_ok_and(|target| target.starts_with(&self.source_root))
+            {
+                Report::note(&mut self.report.outside, relative.display().to_string());
+                return;
+            }
+            fs::read_link(&source).and_then(|target| symlink(&target, &destination))
+        } else {
+            fs::copy(&source, &destination).map(|_| ())
+        };
+        match made {
+            Ok(()) => self.report.copied += 1,
+            Err(error) => {
+                Report::note(&mut self.report.problems, format!("{}: {error}", relative.display()));
+            }
+        }
+    }
+
+    /// Makes `destination`'s folder when its deepest existing folder is
+    /// inside the worktree: a tracked symlink there must not carry a copy
+    /// (or a new folder) out of it.
+    fn writable(&self, destination: &Path) -> bool {
+        let Some(parent) = destination.parent() else { return false };
+        let existing = parent.ancestors().find(|path| fs::symlink_metadata(path).is_ok());
+        existing
+            .and_then(|path| fs::canonicalize(path).ok())
+            .is_some_and(|path| path.starts_with(&self.destination_root))
+            && fs::create_dir_all(parent).is_ok()
+    }
+}
+
+#[cfg(unix)]
+fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn symlink(_target: &Path, _link: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("links are not copied on this platform"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(text: &str) -> Patterns {
+        parse(text.lines())
+    }
+
+    #[test]
+    fn parses_like_gitignore_from_the_root() {
+        let parsed =
+            lines("# env\n.env\n\n!.env.test\nconfig/*.local/\n\\#hash\n/abs\n../out\n~/x\n");
+        assert_eq!(parsed.patterns.len(), 4);
+        assert!(parsed.patterns[1].negated);
+        assert!(parsed.patterns[2].directory_only);
+        assert_eq!(parsed.patterns[3].segments, ["#hash"]);
+        assert_eq!(parsed.problems.len(), 3);
+        assert!(parsed.problems[0].starts_with("line 7"));
+    }
+
+    #[test]
+    fn keeps_an_escaped_trailing_space() {
+        assert_eq!(trim_line("  name\\  "), "name ");
+        assert_eq!(trim_line("name \t"), "name");
+    }
+
+    #[test]
+    fn globs_within_one_name() {
+        assert!(glob(b"*.env", b"dev.env"));
+        assert!(glob(b".env*", b".env"));
+        assert!(glob(b"a?c", b"abc"));
+        assert!(!glob(b"*.env", b"dev.env.bak"));
+        assert!(matches(&["**".into(), ".env".into()], &["a".into(), "b".into(), ".env".into()]));
+        assert!(matches(&["**".into(), ".env".into()], &[".env".into()]));
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let path = std::env::temp_dir().join(format!("cmux-include-{name}-{hex}"));
+        fs::create_dir_all(&path).unwrap();
+        fs::canonicalize(path).unwrap()
+    }
+
+    #[test]
+    fn copies_what_is_selected_and_overwrites_nothing() {
+        let source = scratch("source");
+        let destination = scratch("destination");
+        fs::write(source.join(".env"), "SECRET=1").unwrap();
+        fs::write(source.join(".env.test"), "x").unwrap();
+        fs::create_dir_all(source.join("app/config")).unwrap();
+        fs::write(source.join("app/config/local.json"), "{}").unwrap();
+        fs::create_dir_all(source.join("node_modules/pkg")).unwrap();
+        fs::write(source.join("node_modules/pkg/index.js"), "1").unwrap();
+        fs::write(source.join("tracked.txt"), "main's edit").unwrap();
+        fs::write(destination.join("tracked.txt"), "branch").unwrap();
+        fs::create_dir_all(source.join("config/deep")).unwrap();
+        fs::write(source.join("config/deep/a.json"), "a").unwrap();
+        fs::write(source.join("config/private.env"), "p").unwrap();
+        fs::create_dir_all(source.join("keys")).unwrap();
+        fs::write(source.join("keys/k"), "k").unwrap();
+        let patterns = lines(
+            ".env*\n!.env.test\n**/local.json\nnode_modules/\ntracked.txt\nconfig/\n!config/private.env\nkeys/**\n",
+        );
+        let report = copy(&source, &destination, &patterns, &|| false);
+        assert_eq!(fs::read_to_string(destination.join(".env")).unwrap(), "SECRET=1");
+        assert!(!destination.join(".env.test").exists());
+        assert!(destination.join("app/config/local.json").is_file());
+        assert!(destination.join("node_modules/pkg/index.js").is_file());
+        assert_eq!(fs::read_to_string(destination.join("tracked.txt")).unwrap(), "branch");
+        assert!(destination.join("config/deep/a.json").is_file());
+        assert!(!destination.join("config/private.env").exists());
+        assert!(destination.join("keys/k").is_file());
+        assert_eq!(report.copied, 5);
+        assert_eq!(report.kept, 1);
+        fs::remove_dir_all(source).unwrap();
+        fs::remove_dir_all(destination).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_follows_a_link_out_of_the_repository() {
+        let outside = scratch("outside");
+        fs::write(outside.join("secret"), "s").unwrap();
+        let source = scratch("source");
+        let destination = scratch("destination");
+        std::os::unix::fs::symlink(outside.join("secret"), source.join(".env")).unwrap();
+        std::os::unix::fs::symlink(&outside, source.join("shared")).unwrap();
+        fs::write(source.join("real"), "r").unwrap();
+        std::os::unix::fs::symlink("real", source.join("alias")).unwrap();
+        // A tracked link in the worktree must not carry a copy out of it.
+        fs::create_dir_all(source.join("out")).unwrap();
+        fs::write(source.join("out/file"), "f").unwrap();
+        std::os::unix::fs::symlink(&outside, destination.join("out")).unwrap();
+        let patterns = lines(".env\nshared/**/secret\nalias\nout/\n");
+        let report = copy(&source, &destination, &patterns, &|| false);
+        assert!(fs::symlink_metadata(destination.join(".env")).is_err());
+        assert_eq!(report.outside, [".env"]);
+        assert_eq!(fs::read_link(destination.join("alias")).unwrap(), Path::new("real"));
+        assert!(!outside.join("file").exists());
+        assert_eq!(report.problems.len(), 1);
+        for path in [outside, source, destination] {
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+}

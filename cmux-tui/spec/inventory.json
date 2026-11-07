@@ -131,6 +131,7 @@
     "git.worktree.apply",
     "git.worktree.create",
     "git.worktree.remove",
+    "git.worktree.setup",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",

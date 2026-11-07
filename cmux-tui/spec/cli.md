@@ -675,6 +675,7 @@ git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set
 git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
+git worktree setup [TARGET] [--since <offset>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -971,6 +972,38 @@ refused as `not_a_worktree`, and other worktrees are never touched. The result
 is the removed `root`, `main_root`, the `branch` and whether it was deleted
 (`branch_deleted`). A retry after a timeout finishes what the first attempt
 started; once the folder is gone, a request naming it finds no repository.
+Before the folder goes, a setup still running there is stopped and the project's
+teardown runs in it, once, for at most a minute; the result carries its `state`,
+`exit_code` and `output` as `teardown`. A failed teardown does not keep the
+worktree. The worktree's ports go back once it is gone.
+
+A project's worktree recipe is what a new worktree copies and runs. The
+repository says it in `.worktreeinclude` (the files to copy from the main
+checkout: `.gitignore`-style lines, each a path from the root; `**` walks
+folders, `!` takes back, a trailing `/` matches folders; a matched folder is
+copied whole; nothing in the worktree is overwritten and no link out of the
+repository is followed or copied) and in `.cmux/worktree.toml` (`setup` and
+`teardown` commands, `run`, the command that starts the project there on its
+port, and `include`, more `.worktreeinclude` lines). The user's
+saved recipe (`project update` field `worktree`) wins command by command (an
+empty command turns the repository's off), and its include lines come after the
+repository's, so a `!` line takes one back. `git worktree create` answers once git made
+the worktree, then copies the files and runs `setup` in the worktree in the
+background, in the user's login shell, with `CMUX_ROOT_PATH` (the main
+checkout), `CMUX_WORKSPACE_PATH` (the worktree), `CMUX_WORKSPACE_NAME` and
+`CMUX_PORT` (the first of ten ports the worktree keeps until it is removed), each
+also as `CONDUCTOR_*`. Its result's `setup` has the `state` (`none`, `copying`)
+and the `port`. A failed setup keeps the worktree.
+
+`git worktree setup` (`git.worktree.setup`, capability `git-worktree-setup-v1`)
+reads the `recipe` of the repository a path names (`setup`, `run`, `teardown`,
+`include`, the `repository` one, the `saved` one, the `files` read and their
+`problems`) and its `run`: `state` (`none`, `copying`, `running`, `succeeded`,
+`failed`, `timed_out`, or `interrupted` when the session host restarted
+meanwhile), `port`, `exit_code`, what `include` copied, and the `output` from
+byte `--since` (at most its last 64 KiB) with `output_start` and `output_end`
+(decimal strings); the next read passes `output_end` as `--since`. Setup stops
+after 30 minutes.
 
 ## Local sidebar plugins
 
