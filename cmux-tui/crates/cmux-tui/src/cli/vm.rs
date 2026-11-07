@@ -115,6 +115,18 @@ fn help() -> String {
     )
 }
 
+/// What `cmux vm --help` adds under the Cloud verbs: `vm` is also `machine`'s old name.
+fn vm_machine_note(japanese: bool) -> &'static str {
+    if japanese {
+        "MACHINE の動詞（new、show、pause、resume、rm、run、key、access …）は `cmux vm` でも使えます。\n\
+         `cmux machine --help` で一覧できます。`cmux cloud` は `cmux vm` の旧名で、どちらも使えます。"
+    } else {
+        "The machine verbs (new, show, pause, resume, rm, run, key, access, ...) work as\n\
+         `cmux vm VERB` too: `cmux machine --help` lists them. `cmux cloud` is the old\n\
+         name of `cmux vm`; both work."
+    }
+}
+
 fn usage(message: impl AsRef<str>) -> UsageError {
     UsageError::new(format!("{}\n\n{}", message.as_ref(), help()))
 }
@@ -167,12 +179,17 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "run" | "creation" => {
             (verb.as_str(), tail.to_vec())
         }
+        "start-chat" | "chat" => {
+            return Err(usage(
+                "a chat on a Cloud machine is `cmux chat --vm MACHINE|machine:ID|new` (`cmux chat --help`)",
+            ));
+        }
         "resize" => {
-            return Err(usage("`cmux machine resize` is `cmux cloud resize-machine`"));
+            return Err(usage("`cmux machine resize` is `cmux vm resize-machine`"));
         }
         "workspace" => {
             return Err(usage(
-                "a machine opens as a workspace through the app: run `cmux cloud new-workspace`",
+                "a machine opens as a workspace through the app: run `cmux vm new-workspace`",
             ));
         }
         other => return Err(usage(format!("unknown machine verb \"{other}\"; verbs: {VERBS}"))),
@@ -321,6 +338,75 @@ pub(super) fn machine_alias(args: &[String]) -> Option<Vec<String>> {
     rewritten.push("machine".to_owned());
     rewritten.extend(rest);
     Some(rewritten)
+}
+
+/// `vm VERB …` as `cloud VERB …`: `cmux cloud` is now `cmux vm` (Linear CMUX-43). `vm` keeps
+/// every verb it had as `machine`'s old name; any other word is a Cloud verb. `exec` and
+/// `client-session` are both: with `--target` (the Cloud form, `--target machine:ID`) they are
+/// Cloud's. `vm start-chat` and `vm chat` are not verbs: a Cloud chat is `cmux chat --vm`.
+/// `None` for anything else.
+pub(super) fn cloud_alias(args: &[String]) -> Option<Vec<String>> {
+    let (_, scope, after) = split_raw(args)?;
+    if scope != Scope::Vm {
+        return None;
+    }
+    let (rest, _) = without_json(after);
+    let verb = rest.first()?.as_str();
+    let targeted = || {
+        rest.iter()
+            .take_while(|word| *word != "--")
+            .any(|word| word == "--target" || word.starts_with("--target="))
+    };
+    let machine_owned = MACHINE_VERBS.contains(&verb)
+        || OTHER_MACHINE_VERBS.contains(&verb)
+        || VM_OWN_WORDS.contains(&verb)
+        || verb.starts_with('-');
+    let cloud_form = matches!(verb, "exec" | "client-session") && targeted();
+    if machine_owned && !cloud_form {
+        return None;
+    }
+    let before = args.get(..args.len().checked_sub(after.len())?.checked_sub(1)?)?;
+    let mut rewritten = before.to_vec();
+    rewritten.push("cloud".to_owned());
+    rewritten.extend(after.iter().cloned());
+    Some(rewritten)
+}
+
+/// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
+/// pointers of [`plan`].
+const VM_OWN_WORDS: &[&str] = &["ls", "list", "help", "resize", "workspace", "start-chat", "chat"];
+
+/// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
+/// terminal on stderr) and this binary's own steps read nothing new.
+pub(super) fn cloud_rename_note(args: &[String]) {
+    use std::io::IsTerminal as _;
+    let Ok((_, command)) = super::parse_globals(args) else { return };
+    let [scope, rest @ ..] = command.as_slice() else { return };
+    if scope != "cloud" || !std::io::stderr().is_terminal() {
+        return;
+    }
+    let japanese = crate::localization::catalog().is_japanese();
+    eprintln!("{}", rename_note(rest.first().map(String::as_str), japanese));
+}
+
+/// The note [`cloud_rename_note`] prints for `cmux cloud VERB`.
+pub(super) fn rename_note(verb: Option<&str>, japanese: bool) -> String {
+    match (verb, japanese) {
+        (Some("start-chat"), false) => {
+            "cmux: `cmux cloud start-chat` is now `cmux chat --vm MACHINE|new`; both work.".into()
+        }
+        (Some("start-chat"), true) => {
+            "cmux: `cmux cloud start-chat` は `cmux chat --vm MACHINE|new` になりました。どちらも使えます。".into()
+        }
+        (Some(verb), false) if !verb.starts_with('-') => {
+            format!("cmux: `cmux cloud` is now `cmux vm` (`cmux vm {verb}`); both work.")
+        }
+        (Some(verb), true) if !verb.starts_with('-') => {
+            format!("cmux: `cmux cloud` は `cmux vm` になりました（`cmux vm {verb}`）。どちらも使えます。")
+        }
+        (_, false) => "cmux: `cmux cloud` is now `cmux vm`; both work.".into(),
+        (_, true) => "cmux: `cmux cloud` は `cmux vm` になりました。どちらも使えます。".into(),
+    }
 }
 
 /// The words after `vm` without the `--json` flags before any `--`, and
@@ -558,7 +644,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
     {
         if scope == Scope::Vm {
-            println!("`cmux vm` is the old name of `cmux machine`; both work.\n");
+            // `cmux vm` is Cloud's name, and still `cmux machine`'s old one.
+            let japanese = crate::localization::catalog().is_japanese();
+            print!("{}", super::cloud_help::overview(japanese));
+            println!("\n{}", vm_machine_note(japanese));
+            return Some(0);
         }
         println!("{}", help());
         return Some(0);
