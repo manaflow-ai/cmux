@@ -52,6 +52,7 @@
     "CmuxNextAgentUpdates": {"layer": "service"},
     "CmuxNextAgentIntegrations": {"layer": "service"},
     "CmuxNextWorkspaceRepair": {"layer": "service"},
+    "CmuxNextWindowRules": {"layer": "service"},
     "CmuxNextWebUpdates": {"layer": "service", "plan": "drop Updater UI and AgentPane"},
     "CmuxNextFiles": {"layer": "service"},
     "CmuxNextCLIInstall": {"layer": "service"},

@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
+import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
@@ -58,7 +59,9 @@ import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgen
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
+import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -87,6 +90,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
+  timeHoverWording,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
@@ -123,6 +127,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,
+  pastePlaceholderLook,
+  sendStopMorph,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
