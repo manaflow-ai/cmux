@@ -369,6 +369,7 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "machine.share.self": self = .shareMachineWithMe
+        case "share.op": self = AgentPaneShareOp(params: params).map(Self.shareOp) ?? .unsupported(method)
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),

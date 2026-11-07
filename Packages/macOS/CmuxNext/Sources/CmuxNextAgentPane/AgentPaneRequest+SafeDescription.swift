@@ -58,6 +58,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .useFolder: "useFolder"
         case .chooseChatFolder: "chooseChatFolder"
         case .shareMachineWithMe: "shareMachineWithMe"
+        case .shareOp: "shareOp"
         case .chooseAttachments: "chooseAttachments"
         case .attachDropped: "attachDropped"
         case .attachSource: "attachSource"

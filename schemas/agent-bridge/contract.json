@@ -186,6 +186,7 @@
     "sandbox.run": "sandbox.run",
     "sandbox.state": "sandbox.state",
     "session.persist": "chat.persistSession",
+    "share.op": "share.op",
     "shell.read": "shell.read",
     "shell.run": "shell.run",
     "shell.stop": "shell.stop",

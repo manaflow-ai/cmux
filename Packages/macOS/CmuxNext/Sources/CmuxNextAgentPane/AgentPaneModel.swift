@@ -262,6 +262,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
     /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
     @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
+    /// The Share dialog's ops on this pane's chat; the app answers for the tab it shows (``AgentPaneShareOp``).
+    @ObservationIgnored public var onShareOp: (@MainActor (AgentPaneShareOp) async -> AgentPaneShareReply?)?
     /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
     /// false when it shows no such notice with an enabled button.
     @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
@@ -525,6 +527,7 @@ public final class AgentPaneModel {
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
         case .shareMachineWithMe: return await shareMachineWithMe(userGesture: userGesture)
+        case .shareOp(let op): return await shareOp(op, userGesture: userGesture)
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()

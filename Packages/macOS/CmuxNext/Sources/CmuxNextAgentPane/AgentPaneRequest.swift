@@ -120,6 +120,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Share with Me on a teammate's Cloud machine's refused start (`machine.share.self`): the app
     /// grants the signed-in person chats there, after a real gesture (``AgentPaneMachineShare``).
     case shareMachineWithMe
+    /// The Share dialog's op on this pane's own chat (`share.op {op, ...}`, ``AgentPaneShareOp``).
+    case shareOp(AgentPaneShareOp)
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
