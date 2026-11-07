@@ -7,6 +7,7 @@ import {
   AUTO_PREFIX,
   KEEP_AUTO,
   ROLLBACK_DEPLOYS,
+  SERVICES,
   approve,
   locate,
   modeOf,
@@ -19,8 +20,13 @@ import {
 } from "../../images/cmux-vm/auto-roll";
 import { runChild, runChildOk } from "./helpers/run-child";
 
-// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc; these run on that file.
-const wrangler = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+// images/cmux-vm/auto-roll.ts edits the checked-in workers/cmux-vm/wrangler.jsonc. The roll bot pushes to it
+// on its own, so the checked-in lists carry whatever auto-rolled images are live right now. Most cases run on
+// that file with the auto-rolled entries cut out (only the hand-approved lists), so a new roll never changes
+// what they expect; "auto-roll on the checked-in file" below runs on the file exactly as the bot left it.
+const checkedIn = readFileSync(new URL("../../workers/cmux-vm/wrangler.jsonc", import.meta.url), "utf8");
+const handOnly = (list: BootImage[]) => list.filter((i) => !i.id.startsWith(AUTO_PREFIX));
+const wrangler = (["production", "staging"] as const).reduce((text, env) => replaceList(text, env, handOnly(locate(text, env).images)), checkedIn);
 const candidate = { snapshot_id: `sh-${"a".repeat(32)}`, lock_sha256: "0".repeat(64), run: 1 };
 const tui = "1234567890abcdef1234567890abcdef12345678";
 const entry = (run: string, attempt = "1"): BootImage => rolledImage(candidate, `ci-${run}-${attempt}`, tui, run, attempt);
@@ -124,6 +130,49 @@ describe("auto-roll rollback", () => {
     const result = rollback(wrangler, first);
     expect(result.rolledBack).toBe(false);
     expect(result.reason).toMatch(/not an auto-rolled image/);
+  });
+});
+
+// The file as the roll bot left it: whatever rolls are live, the lists keep the shape approve and rollback make.
+describe("auto-roll on the checked-in file", () => {
+  const live = { prod: locate(checkedIn, "production").images, staging: locate(checkedIn, "staging").images };
+  const autoIds = (list: BootImage[]) => list.filter((i) => i.id.startsWith(AUTO_PREFIX)).map((i) => i.id);
+
+  test("production and staging list the same auto-rolled images, newest first and newest last, at most KEEP_AUTO", () => {
+    expect(autoIds(live.prod)).toEqual(autoIds(live.staging).reverse());
+    expect(autoIds(live.prod).length).toBeLessThanOrEqual(KEEP_AUTO);
+    for (const i of live.prod.filter((i) => i.id.startsWith(AUTO_PREFIX))) expect(i.services).toEqual([...SERVICES.production]);
+    for (const i of live.staging.filter((i) => i.id.startsWith(AUTO_PREFIX))) expect(i.services).toEqual([...SERVICES.staging]);
+  });
+
+  test("a new roll goes first, trims to KEEP_AUTO, leaves every hand-approved entry, and its rollback undoes it", () => {
+    const { text, previousFirst } = approve(checkedIn, entry("600"));
+    const prod = locate(text, "production").images;
+    const staging = locate(text, "staging").images;
+    expect(previousFirst).toBe(live.prod[0]?.id ?? "");
+    expect(prod[0]!.id).toBe(entry("600").id);
+    expect(staging.at(-1)!.id).toBe(entry("600").id);
+    expect(autoIds(prod)).toEqual([entry("600").id, ...autoIds(live.prod)].slice(0, KEEP_AUTO));
+    expect(autoIds(prod)).toEqual(autoIds(staging).reverse());
+    expect(handOnly(prod)).toEqual(handOnly(live.prod));
+    expect(handOnly(staging)).toEqual(handOnly(live.staging));
+    expect(skeleton(text)).toBe(skeleton(checkedIn));
+
+    const back = rollback(text, entry("600").id);
+    expect(back.rolledBack).toBe(true);
+    expect(back.nowFirst).toBe(live.prod[0]?.id ?? "");
+    // The roll may have trimmed the oldest auto-rolled image; everything else is back as it was.
+    const kept = (list: BootImage[], after: BootImage[]) => list.filter((i) => after.some((a) => a.id === i.id));
+    expect(locate(back.text, "production").images).toEqual(kept(live.prod, prod));
+    expect(locate(back.text, "staging").images).toEqual(kept(live.staging, staging));
+  });
+
+  test("never rolls back a hand-approved image", () => {
+    for (const image of [...handOnly(live.prod), ...handOnly(live.staging)]) {
+      const result = rollback(checkedIn, image.id);
+      expect(result.rolledBack).toBe(false);
+      expect(result.text).toBe(checkedIn);
+    }
   });
 });
 
