@@ -31,7 +31,7 @@ fn listeners_are_listen_state_sockets_by_port() {
    2: 0100007F:0BB8 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 333 1 0\n";
     assert_eq!(
         parse_listeners(tcp),
-        vec![(3000, 111), (22, 222)],
+        Some(vec![(3000, 111), (22, 222)]),
         "an established socket is not one"
     );
 }
