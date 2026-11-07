@@ -12,40 +12,20 @@ import Foundation
 extension DaemonLauncher {
     /// `server ensure --replace-unresponsive` refused (exit 3, `server.replace_*`):
     /// the owner was not stopped.
-    public struct ReplaceRefusal: Error, Sendable, Equatable, CustomStringConvertible {
+    public struct ReplaceRefusal: Error, Sendable, Equatable, Decodable, CustomStringConvertible {
         public var code: String
         public var message: String?
         public var description: String { "\(message ?? "replace refused") [\(code)]" }
     }
 
-    /// The longest a replace stays silent on stdout before its first line:
-    /// the 10 s identify probe, 5 s after SIGTERM and 5 s after SIGKILL, plus margin.
-    static let replaceSilence: Duration = .seconds(30)
-
     /// Runs the app's `server ensure` with `--replace-unresponsive` and
     /// returns its result. Throws ``ReplaceRefusal`` when the owner was not
     /// stopped, and the usual ensure errors when the new owner did not start.
+    /// No progress line comes while the old owner is probed and stopped: the
+    /// launch rules' silence bound covers that, then restore progress bounds the rest.
     @concurrent public func replaceUnresponsive() async throws -> EnsureResult {
-        async let reapGrace = supportsReapGrace()
-        let environment = await ensureEnvironment()
-        let progress = configuration.binaryIsBundled
-        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
-            + ["--replace-unresponsive"]
-        // No progress line while the old owner is probed and stopped: the
-        // silence bound covers that, then restore progress bounds the rest.
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: Self.ensureRestoreCap + Self.replaceSilence,
-            progressIdle: progress ? Self.replaceSilence : nil,
-            clock: clock
-        )
-        if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {
-            throw ReplaceRefusal(code: failure.code, message: failure.message)
-        }
-        let ensured = try Self.parseEnsure(result)
+        let environment = try await ensureEnvironment().environment
+        let ensured = try await runEnsure(environment: environment, replace: true)
         ensureOutcome.note(nil, pid: ensured.pid)
         return ensured
     }
@@ -72,39 +52,25 @@ extension DaemonLauncher {
     public func probeOwner() async {
         _ = try? await ensureRecordingOutcome()
     }
-
-    /// The JSON error of a failed `server ensure` (the last JSON line on stderr).
-    static func ensureFailure(_ result: ProcessResult) -> EnsureFailure? {
-        let line = String(decoding: result.stderr, as: UTF8.self)
-            .split(whereSeparator: \.isNewline)
-            .last { $0.trimmingCharacters(in: .whitespaces).hasPrefix("{") }
-        return line.flatMap { try? JSONDecoder().decode(EnsureFailure.self, from: Data($0.utf8)) }
-    }
-
-    /// True for a plain ensure failure a stuck owner causes: the restore bound
-    /// passed (`server.restore_timeout`), the ensure itself got no answer in
-    /// time, no owner became ready (`server.unavailable`), or the owner refused
-    /// every connection at its connection limit (`server.busy`, issue 22311).
-    static func isStuckOwnerFailure(_ error: any Error) -> Bool {
-        switch error as? DaemonError {
-        case .sessionRestoreTimedOut?, .timedOut?: true
-        case .launchFailed(let detail)?:
-            detail.contains("\"server.unavailable\"") || detail.contains("\"server.busy\"")
-        default: false
-        }
-    }
 }
 
 /// How the launcher's last `server ensure` ended: whether it failed (``failure``, the gate of
 /// "Restart cmux-tui" while no daemon runs, restore fuzz h2) and whether it failed the way a stuck
-/// owner makes it fail (``DaemonLauncher/isStuckOwnerFailure(_:)``, the automatic restart's
-/// input). Shared by every copy of one launcher.
+/// owner makes it fail (the automatic restart's input). The gate's transition is cmux-daemon-launch-core's
+/// `note_outcome`. Shared by every copy of one launcher.
 public final class EnsureOutcome: Sendable {
-    private struct State {
+    /// The gate as the launch rules read and write it.
+    struct Gate: Codable, Equatable {
         var ownerLooksStuck = false
-        var failure: DaemonStartFailure?
+        var failure: Failure?
         /// Ensures that failed in a row since the last one that worked.
         var failedInARow = 0
+
+        struct Failure: Codable, Equatable { var kind: String, detail: String }
+    }
+
+    private struct State {
+        var gate = Gate()
         var observer: (@MainActor @Sendable () -> Void)?
         /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
         var watch: UnresponsiveOwnerWatch?
@@ -115,13 +81,15 @@ public final class EnsureOutcome: Sendable {
     public init() {}
 
     /// The last ensure failed as a stuck owner makes it fail; false after one that succeeded.
-    public var ownerLooksStuck: Bool { state.withLock { $0.ownerLooksStuck } }
+    public var ownerLooksStuck: Bool { state.withLock { $0.gate.ownerLooksStuck } }
 
     /// Why the last ensure failed; nil after one that succeeded (or before any ran).
-    public var failure: DaemonStartFailure? { state.withLock { $0.failure } }
+    public var failure: DaemonStartFailure? {
+        state.withLock { $0.gate.failure }.map { DaemonStartFailure(kind: .init(rawValue: $0.kind) ?? .failed, detail: $0.detail) }
+    }
 
     /// How many ensures failed in a row since the last one that worked (0 after one that worked).
-    public var failedInARow: Int { state.withLock { $0.failedInARow } }
+    public var failedInARow: Int { state.withLock { $0.gate.failedInARow } }
 
     /// Calls `observer` on the main actor after each change of ``ownerLooksStuck``, ``failure`` or
     /// ``failedInARow`` (so after every failed ensure).
@@ -137,19 +105,23 @@ public final class EnsureOutcome: Sendable {
     /// Records how an ensure ended (nil: it succeeded, finding or starting the owner `pid`).
     /// `freeBytes`: the free space on the state's volume after a failure (nil: unknown).
     func note(_ error: (any Error)?, pid: Int32? = nil, freeBytes: UInt64? = nil) {
-        let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
-        let failure = error.map { DaemonStartFailure($0, freeBytes: freeBytes) }
-        let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
-            let failedInARow = failure == nil ? 0 : state.failedInARow + 1
-            guard state.ownerLooksStuck != stuck || state.failure != failure || state.failedInARow != failedInARow else {
-                return (nil, state.watch)
+        struct Request: Encodable { var state: Gate, error: DaemonLaunchErrorInput?, pid: Int32?, freeBytes: UInt64? }
+        struct Reply: Decodable { var state: Gate, changed: Bool, watch: UnresponsiveOwnerWatch.Ensure }
+        let input = error.map(DaemonLaunchErrorInput.init)
+        let (observer, watch, ensure) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?, UnresponsiveOwnerWatch.Ensure) in
+            let request = Request(state: state.gate, error: input, pid: pid, freeBytes: freeBytes)
+            guard let reply = DaemonLaunchRules.call("note_outcome", request, as: Reply.self) else {
+                // A library that does not answer still counts the failure, so Restart cmux-tui is offered.
+                let failed = error != nil
+                state.gate = Gate(ownerLooksStuck: false,
+                                  failure: error.map { Gate.Failure(kind: "failed", detail: String(describing: $0)) },
+                                  failedInARow: failed ? state.gate.failedInARow + 1 : 0)
+                return (state.observer, state.watch, failed ? .failed : .ready(pid: pid))
             }
-            state.ownerLooksStuck = stuck
-            state.failure = failure
-            state.failedInARow = failedInARow
-            return (state.observer, state.watch)
+            state.gate = reply.state
+            return (reply.changed ? state.observer : nil, state.watch, reply.watch)
         }
-        watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))
+        watch?.note(ensure)
         guard let observer else { return }
         // task-owner: one main-actor hop per change; the observer reads the current value
         Task { @MainActor in observer() }

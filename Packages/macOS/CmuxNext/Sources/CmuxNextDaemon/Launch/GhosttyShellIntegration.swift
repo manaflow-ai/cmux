@@ -59,132 +59,60 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         self.ghosttyBinary = ghosttyBinary
     }
 
+    private struct Request: Encodable {
+        var integration: GhosttyShellIntegration
+        var env: [String: String] = [:]
+        var shell: String?
+        var home: String = NSHomeDirectory()
+    }
+
     /// `GHOSTTY_SHELL_FEATURES`: enabled names sorted, `cursor` with its
     /// blink state; nil when none is enabled (`setupFeatures`). The ssh
-    /// features need the Ghostty CLI and are left out without one.
+    /// features need the Ghostty CLI and are left out without one
+    /// (cmux-daemon-launch-core `shell_integration_features`).
     public var featuresValue: String? {
-        var features = features
-        if (ghosttyBinary ?? "").isEmpty { features.subtract([.sshEnv, .sshTerminfo]) }
-        var names: [String] = []
-        if features.contains(.cursor) { names.append((cursorBlink ?? true) ? "cursor:blink" : "cursor:steady") }
-        if features.contains(.path) { names.append("path") }
-        if features.contains(.sshEnv) { names.append("ssh-env") }
-        if features.contains(.sshTerminfo) { names.append("ssh-terminfo") }
-        if features.contains(.sudo) { names.append("sudo") }
-        if features.contains(.title) { names.append("title") }
-        return names.isEmpty ? nil : names.joined(separator: ",")
+        DaemonLaunchRules.call("shell_integration_features", Request(integration: self), as: String?.self) ?? nil
     }
 
     /// The shell Ghostty would integrate for `shell` (a path or name), or
-    /// nil (`detectShell`). A forced mode wins; `none` never integrates.
+    /// nil (`detectShell`). A forced mode wins; `none` never integrates; Apple's
+    /// `/bin/bash` is never detected (cmux-daemon-launch-core `shell_integration_shell`).
     public func shell(for shell: String?) -> Mode? {
-        switch mode {
-        case .none: return nil
-        case .detect: break
-        default: return mode
-        }
-        guard let shell, !shell.isEmpty else { return nil }
-        switch (shell as NSString).lastPathComponent {
-        case "bash": return shell == "/bin/bash" ? nil : .bash
-        case "elvish": return .elvish
-        case "fish": return .fish
-        case "nu": return .nushell
-        case "zsh": return .zsh
-        default: return nil
-        }
+        let name = DaemonLaunchRules.call("shell_integration_shell", Request(integration: self, shell: shell), as: String?.self) ?? nil
+        return name.flatMap(Mode.init(rawValue:))
     }
 
     /// `env` plus the integration for a terminal running `shell` (nil:
-    /// `env["SHELL"]`, the shell the daemon starts).
-    public func apply(
-        to env: [String: String],
-        shell: String? = nil,
-        isDirectory: (String) -> Bool = { path in
-            var directory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-        }
-    ) -> [String: String] {
-        var env = env
-        if let ghosttyBinary, !ghosttyBinary.isEmpty {
-            let binDirectory = (ghosttyBinary as NSString).deletingLastPathComponent
-            env["GHOSTTY_BIN"] = ghosttyBinary
-            env["GHOSTTY_BIN_DIR"] = binDirectory
-            // The bundled `cmux` goes first on PATH through
-            // `BundledCLIEnvironment`, with or without a Ghostty CLI.
-            let path = env["PATH"] ?? ""
-            if path.isEmpty {
-                env["PATH"] = binDirectory
-            } else if !path.split(separator: ":").contains(Substring(binDirectory)) {
-                env["PATH"] = path + ":" + binDirectory
-            }
-        }
-        if let resources = resourcesDirectory, !resources.isEmpty {
-            env["XDG_DATA_DIRS"] = Self.append(env["XDG_DATA_DIRS"] ?? Self.defaultXDGDataDirs, resources + "/..")
-            // Always with a leading colon: an empty MANPATH element keeps the
-            // system man path.
-            env["MANPATH"] = (env["MANPATH"] ?? "") + ":" + resources + "/../man"
-        }
-        if let features = featuresValue { env["GHOSTTY_SHELL_FEATURES"] = features }
-
-        guard let resources = resourcesDirectory, !resources.isEmpty,
-              let integrated = self.shell(for: shell ?? env["SHELL"]) else { return env }
-        let integration = resources + "/shell-integration"
-        switch integrated {
-        case .zsh:
-            let zsh = integration + "/zsh"
-            guard isDirectory(zsh) else { break }
-            if let old = env["ZDOTDIR"] { env["GHOSTTY_ZSH_ZDOTDIR"] = old }
-            env["ZDOTDIR"] = zsh
-        case .fish, .elvish, .nushell:
-            guard isDirectory(integration) else { break }
-            env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] = integration
-            env["XDG_DATA_DIRS"] = integration + ":" + (env["XDG_DATA_DIRS"] ?? Self.defaultXDGDataDirs)
-        case .bash:
-            // `setupBash`: POSIX mode reads the integration from `ENV`, which
-            // restores the user's `ENV`, rc files and history afterwards.
-            guard isDirectory(integration + "/bash") else { break }
-            if let old = env["ENV"] { env["GHOSTTY_BASH_ENV"] = old }
-            env["ENV"] = integration + Self.bashScript
-            env["GHOSTTY_BASH_INJECT"] = "1"
-            // POSIX mode defaults HISTFILE to ~/.sh_history.
-            if env["HISTFILE"] == nil {
-                let home = env["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-                env["HISTFILE"] = home + "/.bash_history"
-                env["GHOSTTY_BASH_UNEXPORT_HISTFILE"] = "1"
-            }
-        case .none, .detect:
-            break
-        }
-        return env
+    /// `env["SHELL"]`, the shell the daemon starts): Ghostty's CLI on `PATH`,
+    /// `XDG_DATA_DIRS`, `MANPATH`, the features, then zsh through `ZDOTDIR`, fish,
+    /// elvish and nushell through `XDG_DATA_DIRS`, bash through `ENV` in POSIX mode
+    /// (cmux-daemon-launch-core `shell_integration_apply`, which reads the bundle's
+    /// integration directories). Unchanged when the library does not answer.
+    public func apply(to env: [String: String], shell: String? = nil) -> [String: String] {
+        DaemonLaunchRules.call("shell_integration_apply", Request(integration: self, env: env, shell: shell), as: [String: String].self)
+            ?? env
     }
 
     /// The shell arguments Ghostty adds for the integration `apply` wrote
     /// into `env`, for the shell in `env["SHELL"]` (the one the daemon
     /// starts): bash `--posix`, nushell `--execute 'use ghostty *'`; nil for
-    /// every other shell or when no integration was applied.
+    /// every other shell or when no integration was applied (cmux-daemon-launch-core `shell_arguments`).
     public static func shellArguments(for env: [String: String]) -> [String]? {
-        guard let shell = env["SHELL"], !shell.isEmpty else { return nil }
-        switch (shell as NSString).lastPathComponent {
-        case "bash":
-            guard shell != "/bin/bash", env["GHOSTTY_BASH_INJECT"] != nil,
-                  env["ENV"]?.hasSuffix(bashScript) == true || BundledCLIEnvironment.wrapsGhosttyBash(env)
-            else { return nil }
-            return ["--posix"]
-        case "nu":
-            guard env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] != nil else { return nil }
-            return ["--execute", "use ghostty *"]
-        default:
-            return nil
-        }
+        struct Request: Encodable { var env: [String: String] }
+        return DaemonLaunchRules.call("shell_arguments", Request(env: env), as: [String]?.self) ?? nil
     }
+}
 
-    /// Ghostty's bash integration script, relative to `shell-integration`.
-    static let bashScript = "/bash/ghostty.bash"
+/// `{mode, features, cursorBlink, resourcesDirectory, ghosttyBinary}`, as the launch rules read it.
+extension GhosttyShellIntegration: Encodable {
+    private enum CodingKeys: String, CodingKey { case mode, features, cursorBlink, resourcesDirectory, ghosttyBinary }
 
-    /// The XDG base-directory default when `XDG_DATA_DIRS` is unset.
-    static let defaultXDGDataDirs = "/usr/local/share:/usr/share"
-
-    private static func append(_ current: String, _ value: String) -> String {
-        current.isEmpty ? value : current + ":" + value
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode.rawValue, forKey: .mode)
+        try container.encode(features.rawValue, forKey: .features)
+        try container.encodeIfPresent(cursorBlink, forKey: .cursorBlink)
+        try container.encodeIfPresent(resourcesDirectory, forKey: .resourcesDirectory)
+        try container.encodeIfPresent(ghosttyBinary, forKey: .ghosttyBinary)
     }
 }

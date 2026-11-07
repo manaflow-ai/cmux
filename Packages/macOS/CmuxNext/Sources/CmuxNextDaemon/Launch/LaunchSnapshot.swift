@@ -119,26 +119,14 @@ public struct LaunchSnapshotLocation: Sendable {
 
     /// The newest launch snapshot of `session` in a daemon state directory
     /// (`CMUX_TUI_STATE_DIR`), where cmux-tui keeps each registry in
-    /// `<session>-<id>/`: the path when the defaults lost it. Nil without a
-    /// directory or a snapshot.
-    public static func find(session: String, in stateDirectory: URL?, files: FileManager = .default) -> String? {
-        guard let stateDirectory,
-              let entries = try? files.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
-        // `<session>-<id>` with one id part, so `cmux-app-a` never takes `cmux-app-a-b`'s registry.
-        let ours = entries.filter { entry in
-            let name = entry.lastPathComponent
-            return name.hasPrefix(session + "-") && !name.dropFirst(session.count + 1).contains("-")
-        }
-        let candidates = ours.compactMap { directory -> (String, Date)? in
-            let file = directory.appendingPathComponent(fileName)
-            guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { return nil }
-            return (file.path, modified)
-        }
-        return candidates.max { $0.1 < $1.1 }?.0
+    /// `<session>-<id>/`: the path when the defaults lost it (cmux-daemon-launch-core
+    /// `find_launch_snapshot`, which reads the directory). Nil without a directory or a snapshot.
+    public static func find(session: String, in stateDirectory: URL?) -> String? {
+        struct Request: Encodable { var session: String, stateDirectory: String? }
+        guard let stateDirectory else { return nil }
+        return DaemonLaunchRules.call("find_launch_snapshot", Request(session: session, stateDirectory: stateDirectory.path),
+                                      as: String?.self) ?? nil
     }
-
-    /// The daemon's snapshot file name (`LAUNCH_SNAPSHOT_FILE`).
-    static let fileName = "launch-snapshot.json"
 
     /// Records what the handshake reported (nil forgets it).
     public func record(_ path: String?, session: String) {

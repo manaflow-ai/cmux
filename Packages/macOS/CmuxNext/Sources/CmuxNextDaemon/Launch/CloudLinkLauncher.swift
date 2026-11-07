@@ -352,10 +352,13 @@ public nonisolated struct CloudLinkLauncher: Sendable {
     /// that directory's `server.json`, so it never meets another build's link).
     static func linkStateRoot(build: BuildIdentity,
                               applicationSupport: URL = DaemonLauncher.applicationSupportDirectory()) -> (root: URL, own: Bool)? {
-        if let own = DaemonLauncher.appNames(build: build, applicationSupport: applicationSupport).stateDirectory {
-            return (own, true)
-        }
-        return defaultStateRoot().map { ($0, false) }
+        struct Request: Encodable { var own: String?, defaultRoot: String? }
+        struct Reply: Decodable { var root: String, own: Bool }
+        let own = DaemonLauncher.appNames(build: build, applicationSupport: applicationSupport).stateDirectory
+        let request = Request(own: own?.path, defaultRoot: defaultStateRoot()?.path)
+        // cmux-daemon-launch-core `cloud_link_state_root`; a library that does not answer runs no link.
+        guard let reply = DaemonLaunchRules.call("cloud_link_state_root", request, as: Reply?.self) ?? nil else { return nil }
+        return (URL(fileURLWithPath: reply.root, isDirectory: true), reply.own)
     }
 
     /// cmux-tui's default daemon state root on macOS
@@ -366,8 +369,26 @@ public nonisolated struct CloudLinkLauncher: Sendable {
             .appendingPathComponent("cmux-tui/sessions", isDirectory: true)
     }
 
+    /// The launcher's settings as the link rules read them (cmux-daemon-launch-core `cloud_link`).
+    private struct Link: Encodable {
+        var stateRoot: String?
+        var credentialSocket: String?
+        var tagged: Bool
+        var install = ""
+        var base: [String: String] = [:]
+        var runtimeBase = ""
+        var stdout = ""
+        var needsPid = false
+    }
+
+    private var link: Link {
+        Link(stateRoot: stateRoot?.path, credentialSocket: credentialSocket?.path, tagged: tagged)
+    }
+
     /// The link's state directory.
-    public var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
+    public var stateDirectory: URL? {
+        (DaemonLaunchRules.call("cloud_link_state_directory", link, as: String?.self) ?? nil).map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
 
     /// The private credential socket passed to `cmux-tui link`; it carries no
     /// token and is only useful while this app's relay is serving.
@@ -386,40 +407,31 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         CloudLinkCredentialServer.acceptsRequestForTesting(data)
     }
 
-    /// The `link ensure` command line for `install` (pure). `--handoff`
-    /// goes only with an explicit `--state-dir`.
-    func ensureArguments(install: String) -> [String] {
-        guard let stateDirectory else { return ["link", "ensure", "--install", install] }
-        var arguments = ["link", "ensure", "--install", install, "--handoff", "--state-dir", stateDirectory.path]
-        if let credentialSocket { arguments += ["--credential-socket", credentialSocket.path] }
-        if tagged, let stateRoot {
-            arguments += ["--port", "0", "--server-config", stateRoot.appendingPathComponent("server.json").path]
-        }
-        return arguments
+    /// The `link ensure` command line for `install`; `--handoff` goes only with an explicit `--state-dir`.
+    func ensureArguments(install: String) throws -> [String] {
+        var request = link
+        request.install = install
+        return try DaemonLauncher.rule(DaemonLaunchRules.call("cloud_link_ensure_arguments", request, as: [String].self))
     }
 
-    func stopArguments() -> [String] {
-        ["link", "stop"] + (stateDirectory.map { ["--state-dir", $0.path] } ?? [])
+    func stopArguments() throws -> [String] {
+        try DaemonLauncher.rule(DaemonLaunchRules.call("cloud_link_stop_arguments", link, as: [String].self))
     }
 
     /// `link archive`: after a sign-out, the signed-out install's key and
     /// peers go into its archive and the config goes, so no later ensure
     /// without `--install` starts the link as that account.
-    func archiveArguments() -> [String] {
-        ["link", "archive"] + (stateDirectory.map { ["--state-dir", $0.path] } ?? [])
+    func archiveArguments() throws -> [String] {
+        try DaemonLauncher.rule(DaemonLaunchRules.call("cloud_link_archive_arguments", link, as: [String].self))
     }
 
-    /// The variables the link may get from the app's environment; nothing
-    /// else (no `CMUX_NEXT_*`, no `DYLD_*`, no credentials) reaches it.
-    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
-
-    /// The link's environment: the allow-listed variables of `base`, the
-    /// state root and the fixed runtime base.
-    func environment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = base.filter { Self.inheritedKeys.contains($0.key) }
-        if let stateRoot { environment["CMUX_TUI_STATE_DIR"] = stateRoot.path }
-        environment["TMPDIR"] = runtimeBase.path
-        return environment
+    /// The link's environment: the allow-listed variables of `base` (no `CMUX_NEXT_*`, no `DYLD_*`, no
+    /// credentials), the state root and the fixed runtime base.
+    func environment(_ base: [String: String] = ProcessInfo.processInfo.environment) throws -> [String: String] {
+        var request = link
+        request.base = base
+        request.runtimeBase = runtimeBase.path
+        return try DaemonLauncher.rule(DaemonLaunchRules.call("cloud_link_environment", request, as: [String: String].self))
     }
 
     /// Starts the link unless one of this build runs. Off the main actor.
@@ -427,10 +439,15 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         do { try await credentialServer?.start() }
         catch { throw Failure.failed("credential socket unavailable") }
         let result = try await run(ensureArguments(install: install))
-        guard let ensured = try? JSONDecoder().decode(Ensured.self, from: Self.lastLine(result.stdout)) else {
+        struct Reply: Decodable { var ok: Ensured?, error: String? }
+        var request = link
+        request.stdout = String(decoding: result.stdout, as: UTF8.self)
+        request.needsPid = credentialServer != nil
+        let reply = DaemonLaunchRules.call("cloud_link_parse_ensure", request, as: Reply.self)
+        guard let ensured = reply?.ok else {
+            if let error = reply?.error, error != "bad_answer" { throw Failure.failed(error) }
             throw Failure.badAnswer
         }
-        if credentialServer != nil, ensured.pid == nil { throw Failure.failed("link did not report a pid") }
         credentialServer?.expect(pid: ensured.pid, install: install)
         if ensured.status != "running" {
             Self.logger.info("cloud link \(ensured.status, privacy: .public) pid \(ensured.pid ?? 0)")
@@ -463,16 +480,10 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: environment(),
                                                  timeout: Self.timeout, clock: clock)
         guard result.status == 0 else {
-            let detail = String(decoding: Self.lastLine(result.stderr), as: UTF8.self)
-            throw Failure.failed(detail)
+            let stderr = DaemonLaunchRules.Text(text: String(decoding: result.stderr, as: UTF8.self))
+            throw Failure.failed(DaemonLaunchRules.call("cloud_link_last_line", stderr, as: String.self) ?? "")
         }
         return result
-    }
-
-    static func lastLine(_ data: Data) -> Data {
-        let text = String(decoding: data, as: UTF8.self)
-        let line = text.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
-        return Data(line.utf8)
     }
 }
 

@@ -6,35 +6,28 @@ import os
 /// exists yet), so the launcher reads the binary's startup help. Older
 /// clients put those options in root help; current clients use `help start`.
 extension DaemonLauncher {
-    static let reapGraceOption = "--terminal-reap-grace-seconds"
-
-    /// True when the binary's help lists `--terminal-reap-grace-seconds`.
-    /// False when it does not, or when the probe fails: an owner without
-    /// the grace never reaps (a closed tab's terminal lives on), which is
-    /// better than an app that cannot start its daemon at all. The bundled
-    /// binary always has the option (`Configuration.binaryIsBundled`), so
-    /// only an external binary is probed.
+    /// True when the binary's help lists `--terminal-reap-grace-seconds` (cmux-daemon-launch-core
+    /// `reap_grace_probes` and `lists_reap_grace`). False when it does not, or when the probe fails: an owner
+    /// without the grace never reaps (a closed tab's terminal lives on), which is better than an app that
+    /// cannot start its daemon at all. The bundled binary always has the option
+    /// (`Configuration.binaryIsBundled`), so only an external binary is probed.
     func supportsReapGrace() async -> Bool {
         if configuration.binaryIsBundled { return true }
-        for arguments in [["--help"], ["help", "start"]] {
+        let probes = DaemonLaunchRules.call("reap_grace_probes", [String: String](), as: [[String]].self) ?? []
+        for arguments in probes {
             do {
                 let result = try await ProcessRunner.run(executable: configuration.binary, arguments: arguments,
                                                          environment: nil, timeout: .seconds(5), clock: clock)
-                if result.status == 0 && Self.listsReapGrace(String(decoding: result.stdout, as: UTF8.self)) {
+                let help = DaemonLaunchRules.Text(text: String(decoding: result.stdout, as: UTF8.self))
+                if result.status == 0, DaemonLaunchRules.call("lists_reap_grace", help, as: Bool.self) == true {
                     return true
                 }
             } catch {
                 Self.capabilityLogger.error("cmux-tui \(arguments.joined(separator: " "), privacy: .public) failed (\(String(describing: error), privacy: .public))")
             }
         }
-        Self.capabilityLogger.notice("cmux-tui does not list \(Self.reapGraceOption, privacy: .public); starting the owner without a reap grace")
+        Self.capabilityLogger.notice("cmux-tui does not list the terminal reap grace; starting the owner without one")
         return false
-    }
-
-    static func listsReapGrace(_ help: String) -> Bool {
-        help.split(whereSeparator: \.isNewline).contains { line in
-            line.split(whereSeparator: \.isWhitespace).first.map(String.init) == reapGraceOption
-        }
     }
 
     static let capabilityLogger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")

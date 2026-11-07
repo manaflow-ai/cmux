@@ -23,11 +23,11 @@ public final class BundledExecutable: Sendable {
     ///   - work: The app's blocking-work lanes: the one file system read runs on `.files`.
     ///   - override: An executable to run instead of the bundled one; nil or empty keeps the bundle's.
     public init(resources: URL?, name: String, work: BackgroundWork, override: String? = nil) {
-        if let override, !override.isEmpty {
-            candidate = URL(fileURLWithPath: override)
-        } else {
-            candidate = resources?.appendingPathComponent("bin", isDirectory: true).appendingPathComponent(name)
-        }
+        // cmux-daemon-launch-core `bundled_executable`: the override when set, else `<Resources>/bin/<name>`.
+        struct Request: Encodable { var resources: String?, name: String, `override`: String? }
+        let path = DaemonLaunchRules.call("bundled_executable", Request(resources: resources?.path, name: name, override: override),
+                                          as: String?.self) ?? nil
+        candidate = path.map { URL(fileURLWithPath: $0) }
         self.work = work
     }
 

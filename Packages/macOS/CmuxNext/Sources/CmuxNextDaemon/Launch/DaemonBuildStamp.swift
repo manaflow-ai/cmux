@@ -25,20 +25,14 @@ public struct DaemonBuildStamp: Sendable, Hashable {
     }
 
     /// The build in `cmux --version --json` output (`build_commit`, `build_identity`); nil when the
-    /// output is not that JSON object.
+    /// output is not that JSON object (cmux-daemon-launch-core `build_stamp_from_version_json`).
     public init?(versionJSON data: Data) {
-        guard let report = try? JSONDecoder().decode(VersionReport.self, from: data) else { return nil }
-        self.init(commit: report.buildCommit, id: report.buildIdentity)
-    }
-
-    /// The fields of `cmux --version --json` this type reads.
-    private struct VersionReport: Decodable {
-        var buildCommit: String?
-        var buildIdentity: String?
-
-        enum CodingKeys: String, CodingKey {
-            case buildCommit = "build_commit"
-            case buildIdentity = "build_identity"
-        }
+        let text = String(decoding: data, as: UTF8.self)
+        guard let stamp = DaemonLaunchRules.call("build_stamp_from_version_json", DaemonLaunchRules.Text(text: text),
+                                                 as: DaemonBuildStamp?.self) ?? nil else { return nil }
+        self = stamp
     }
 }
+
+/// `{commit, id}`, the stamp as the launch rules read and write it.
+extension DaemonBuildStamp: Codable {}

@@ -46,7 +46,7 @@ public struct DaemonLauncher: Sendable {
         /// True when `binary` is the app bundle's own `bin/cmux-tui`, built from this tree. That build always accepts
         /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the launcher passes it without the `--help` probe,
         /// which can time out on a loaded machine and start an owner that never reaps. An external binary
-        /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (``pageListenerArguments(_:)``).
+        /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (`ensure_arguments`).
         public var binaryIsBundled: Bool
         public var webSocketPageOrigins: [String] // the page origins the owner's loopback WebSocket admits; empty: no listener
         /// `server ensure --exit-with-pid`: an owner `ensure` spawns ends its terminals and stops when this process
@@ -88,12 +88,6 @@ public struct DaemonLauncher: Sendable {
         }
     }
 
-    /// `server ensure --json` error output on stderr.
-    struct EnsureFailure: Decodable {
-        var code: String
-        var message: String?
-    }
-
     /// Environment variable that overrides the bundled binary (dev builds).
     public static let binaryOverrideKey = "CMUX_NEXT_TUI_BIN"
 
@@ -109,10 +103,6 @@ public struct DaemonLauncher: Sendable {
     public let ensureOutcome = EnsureOutcome()
     let clock: any Clock<Duration>
     private let ensureTimeout: Duration
-    /// Hard cap on one `server ensure`. The daemon bounds a restore itself
-    /// (2 minutes, then `server.restore_timeout`), so this only has to be
-    /// longer than that bound plus the time to reach the owner.
-    static let ensureRestoreCap: Duration = .seconds(150)
     private let environmentProvider: @Sendable () async -> [String: String]
 
     public init(
@@ -194,22 +184,13 @@ public struct DaemonLauncher: Sendable {
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }
 
-    /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
-    /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
-    /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
+    /// The Chief owner's `server ensure` environment (cmux-daemon-launch-core `chief_environment`): the user's
+    /// basic variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and what the
+    /// owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`); and the R-DAEMON-STATE input lane
+    /// switch from the app's launch knobs, since the Chief owner follows the app daemon's rules. A library that
+    /// does not answer gives the owner nothing of the base (never a build's identity).
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
-        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
-        var environment = base.filter { kept.contains($0.key) }
-        let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
-        for name in DaemonDiagnosticKnobs.chiefOwnerDaemonNames {
-            if let value = knobs[name] {
-                environment[name] = value
-            }
-        }
-        return environment
+        DaemonLaunchRules.call("chief_environment", DaemonLaunchRules.Environment(environment: base), as: [String: String].self) ?? [:]
     }
 
     /// The app launcher's `server ensure` environment: the login
@@ -237,20 +218,17 @@ public struct DaemonLauncher: Sendable {
 
     // MARK: - Resolution
 
-    /// `CMUX_NEXT_TUI_BIN`, then `Contents/Resources/bin/cmux-tui`.
+    /// `CMUX_NEXT_TUI_BIN` when executable, then `Contents/Resources/bin/cmux-tui` (cmux-daemon-launch-core
+    /// `resolve_binary`, which reads the disk).
     public static func resolveBinary(bundle: Bundle, environment: [String: String]) throws -> URL {
-        var searched: [String] = []
-        let fileManager = FileManager.default
-        if let override = environment[binaryOverrideKey], !override.isEmpty {
-            searched.append(override)
-            if fileManager.isExecutableFile(atPath: override) { return URL(fileURLWithPath: override) }
+        struct Request: Encodable { var `override`: String?, resources: String? }
+        struct Reply: Decodable { var binary: String?, searched: [String]? }
+        let request = Request(override: environment[binaryOverrideKey, default: ""], resources: bundle.resourceURL?.path)
+        guard let reply = DaemonLaunchRules.call("resolve_binary", request, as: Reply.self) else {
+            throw DaemonError.launchFailed("the daemon launch rules did not answer")
         }
-        if let resources = bundle.resourceURL {
-            let bundled = resources.appendingPathComponent("bin/cmux-tui")
-            searched.append(bundled.path)
-            if fileManager.isExecutableFile(atPath: bundled.path) { return bundled }
-        }
-        throw DaemonError.binaryNotFound(searched: searched)
+        if let binary = reply.binary { return URL(fileURLWithPath: binary) }
+        throw DaemonError.binaryNotFound(searched: reply.searched ?? [])
     }
 
     /// True when `binary` is `bundle`'s `Contents/Resources/bin/cmux-tui`.
@@ -262,35 +240,36 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The untagged channel builds (bundle id to channel), each with its own
-    /// daemon session and state. Mirrors `ControlSocketPath.channelBundleIDs`
-    /// and cmux-tui's `app_identity.rs` `CHANNELS`. Release
+    /// daemon session and state (cmux-daemon-launch-core `channel_bundle_ids`, cmux-tui's
+    /// `app_identity.rs` `CHANNELS`; `ControlSocketPath.channelBundleIDs` mirrors it). Release
     /// (`com.cmuxterm.app`) is not here: it keeps `cmux-app`.
-    public static let channelBundleIDs = [
-        ("com.cmuxterm.app.nightly", "nightly"),
-        ("com.cmuxterm.app.rc", "rc"),
-        ("com.cmuxterm.app.staging", "staging"),
-    ]
+    public static let channelBundleIDs: [(String, String)] = {
+        struct Channel: Decodable { var bundleId: String, channel: String }
+        let channels = DaemonLaunchRules.call("channel_bundle_ids", [String: String](), as: [Channel].self) ?? []
+        return channels.map { ($0.bundleId, $0.channel) }
+    }()
 
     /// `cmux-app`, or `cmux-app-<tag>` with the tag reduced to a safe single
-    /// path component (a kept name, ``BuildIdentity/appSession``).
+    /// path component (a kept name, ``BuildIdentity/appSession``; cmux-daemon-launch-core `session_name`).
     public static func sessionName(tag: String?) throws -> String {
-        guard let tag else { return "cmux-app" }
-        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-        let cleaned = String(tag.map { allowed.contains($0) ? $0 : "-" })
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        guard !cleaned.isEmpty else { throw DaemonError.invalidSessionName(tag) }
-        return "cmux-app-\(cleaned)"
+        struct Request: Encodable { var tag: String? }
+        guard let name = DaemonLaunchRules.call("session_name", Request(tag: tag), as: String?.self) ?? nil else {
+            throw DaemonError.invalidSessionName(tag ?? "")
+        }
+        return name
     }
 
-    /// `~/Library/Application Support/cmux/tags/<tag>/tui`.
-    public static func tagStateDirectory(tag: String) -> URL {
+    /// The tag's daemon state directory in the user's Application Support.
+    public static func tagStateDirectory(tag: String) -> URL? {
         tagStateDirectory(tag: tag, applicationSupport: applicationSupportDirectory())
     }
 
-    /// `<applicationSupport>/cmux/tags/<tag>/tui`.
-    public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL {
-        let component = (try? sessionName(tag: tag).dropFirst("cmux-app-".count)).map(String.init) ?? "default"
-        return applicationSupport.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
+    /// The tag's daemon state directory under `applicationSupport` (cmux-daemon-launch-core
+    /// `tag_state_directory`; an unusable tag is `default`); nil when the library does not answer.
+    public static func tagStateDirectory(tag: String, applicationSupport: URL) -> URL? {
+        struct Request: Encodable { var tag: String, applicationSupport: String }
+        return DaemonLaunchRules.call("tag_state_directory", Request(tag: tag, applicationSupport: applicationSupport.path),
+                                      as: String.self).map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
     /// The user's `~/Library/Application Support`.
@@ -315,22 +294,31 @@ public struct DaemonLauncher: Sendable {
 
     // MARK: - Ensure
 
-    /// Environment for `server ensure`: the provider's, plus the state
-    /// directory, config file and a fixed runtime base.
-    func ensureEnvironment() async -> [String: String] {
-        var environment = await environmentProvider()
-        // This authority is only for the app launcher's ensure call. The
-        // daemon strips it before spawning the detached owner, so terminals
-        // cannot later switch a shared owner back to their own backend.
-        if environment["CMUX_NEXT_CLOUD_RUNTIME"] == "1" {
-            environment["CMUX_NEXT_CLOUD_LAUNCHER"] = "1"
+    /// The launch rules' answer, or a launch failure when the library does not answer.
+    static func rule<Value>(_ value: Value?) throws -> Value {
+        guard let value else { throw DaemonError.launchFailed("the daemon launch rules did not answer") }
+        return value
+    }
+
+    /// Environment for `server ensure` (or, `forStatus`, `server status`) from `base`: plus the state
+    /// directory, config file and a fixed runtime base, without `XDG_RUNTIME_DIR`
+    /// (cmux-daemon-launch-core `ensure_environment`). `skipsStatus`: a NEXT Cloud runtime launch is
+    /// authoritative for backend selection, so it skips the status fast path and `server ensure` can replace a
+    /// daemon the previous launch left; only that ensure gets the one-shot launcher marker.
+    func ensureEnvironment(base: [String: String], forStatus: Bool = false) throws -> (environment: [String: String], skipsStatus: Bool) {
+        struct Request: Encodable {
+            var base: [String: String], stateDirectory: String?, configFile: String?, runtimeBase: String, forStatus: Bool
         }
-        if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
-        if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
-        // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
-        environment["XDG_RUNTIME_DIR"] = nil
-        environment["TMPDIR"] = configuration.runtimeBase.path
-        return environment
+        struct Reply: Decodable { var environment: [String: String], skipsStatus: Bool }
+        let request = Request(base: base, stateDirectory: configuration.stateDirectory?.path, configFile: configuration.configFile?.path,
+                              runtimeBase: configuration.runtimeBase.path, forStatus: forStatus)
+        let reply = try Self.rule(DaemonLaunchRules.call("ensure_environment", request, as: Reply.self))
+        return (reply.environment, reply.skipsStatus)
+    }
+
+    /// Environment for `server ensure`: the provider's, made fit by ``ensureEnvironment(base:forStatus:)``.
+    func ensureEnvironment() async throws -> (environment: [String: String], skipsStatus: Bool) {
+        try ensureEnvironment(base: await environmentProvider())
     }
 
     /// Returns the live endpoint: a running owner from `server status`
@@ -342,64 +330,73 @@ public struct DaemonLauncher: Sendable {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
-        // A NEXT app launch is authoritative for backend selection. Skip the
-        // status fast path so `server ensure` can replace a daemon left alive
-        // by the previous app launch; terminal processes never receive the
-        // one-shot launcher marker.
-        let environment = await ensureEnvironment()
-        if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
-           let running = await runningOwner() { return running }
-        async let reapGrace = supportsReapGrace()
-        // The bundled binary reports restore progress (`--restore-progress`): the app
-        // then waits while the owner restores and gives up only when the
-        // progress stops for `ensureTimeout` (cx-n3bs). An external binary
-        // may lack the option; the daemon's own restore bound ends it.
-        let progress = configuration.binaryIsBundled
-        let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let (environment, skipsStatus) = try await ensureEnvironment()
+        if !skipsStatus, let running = await runningOwner() { return running }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
+        return try await runEnsure(environment: environment, replace: false)
+    }
+
+    /// One `server ensure` (`replace`: with `--replace-unresponsive`) and its parsed answer. The bundled binary
+    /// reports restore progress (`--restore-progress`): the app then waits while the owner restores and gives
+    /// up only when the progress stops (cx-n3bs); an external binary may lack the option, and the restore cap
+    /// bounds it (cmux-daemon-launch-core `ensure_timing`).
+    func runEnsure(environment: [String: String], replace: Bool) async throws -> EnsureResult {
+        struct TimingRequest: Encodable { var binaryIsBundled: Bool, ensureTimeoutMs: UInt64, replace: Bool }
+        struct Timing: Decodable { var progress: Bool, timeoutMs: UInt64, progressIdleMs: UInt64? }
+        let timing = try Self.rule(DaemonLaunchRules.call(
+            "ensure_timing",
+            TimingRequest(binaryIsBundled: configuration.binaryIsBundled, ensureTimeoutMs: DaemonLaunchRules.milliseconds(ensureTimeout),
+                          replace: replace),
+            as: Timing.self))
+        let arguments = try Self.ensureArguments(configuration, reapGrace: await supportsReapGrace(), progress: timing.progress,
+                                                 replace: replace)
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
-            progressIdle: progress ? ensureTimeout : nil,
+            timeout: .milliseconds(Int64(clamping: timing.timeoutMs)),
+            progressIdle: timing.progressIdleMs.map { Duration.milliseconds(Int64(clamping: $0)) },
             clock: clock
         )
-        return try Self.parseEnsure(result)
+        return try Self.parseEnsure(result, replace: replace)
     }
 
-    /// The `server ensure` command line for `configuration`. `reapGrace`
-    /// says whether the binary accepts `--terminal-reap-grace-seconds`
-    /// (``supportsReapGrace()``); a client without it refuses the option.
+    /// The `server ensure` command line for `configuration` (cmux-daemon-launch-core `ensure_arguments`).
+    /// `reapGrace` says whether the binary accepts `--terminal-reap-grace-seconds` (``supportsReapGrace()``);
+    /// `replace` is "Restart cmux-tui"'s `--replace-unresponsive`.
     static func ensureArguments(_ configuration: Configuration, reapGrace: Bool = true,
-                                progress: Bool = false) -> [String] {
-        ["--session", configuration.session, "--json", "server", "ensure"]
-            + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
-            + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
-            + (configuration.exitWithProcess.map { ["--exit-with-pid", String($0)] } ?? [])
-            + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
+                                progress: Bool = false, replace: Bool = false) throws -> [String] {
+        struct Request: Encodable {
+            var session: String, reapGraceSeconds: UInt32, reapGrace: Bool, installKey: Bool, exitWithPid: Int32?
+            var progress: Bool, binaryIsBundled: Bool, pageOrigins: [String], replaceUnresponsive: Bool
+        }
+        let request = Request(session: configuration.session, reapGraceSeconds: configuration.terminalReapGraceSeconds,
+                              reapGrace: reapGrace, installKey: configuration.installKey != nil,
+                              exitWithPid: configuration.exitWithProcess, progress: progress,
+                              binaryIsBundled: configuration.binaryIsBundled, pageOrigins: configuration.webSocketPageOrigins,
+                              replaceUnresponsive: replace)
+        return try rule(DaemonLaunchRules.call("ensure_arguments", request, as: [String].self))
     }
 
     /// `server status`: the running owner, or nil when none runs (or the
     /// probe fails; `server ensure` then decides). It needs only the socket
     /// location (`TMPDIR`) and the state directory, never the login env.
     func runningOwner() async -> EnsureResult? {
-        var environment = ProcessInfo.processInfo.environment
-        if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
-        if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
-        environment["XDG_RUNTIME_DIR"] = nil
-        environment["TMPDIR"] = configuration.runtimeBase.path
+        struct Request: Encodable { var session: String }
+        guard let environment = try? ensureEnvironment(base: ProcessInfo.processInfo.environment, forStatus: true).environment,
+              let arguments = DaemonLaunchRules.call("status_arguments", Request(session: configuration.session), as: [String].self)
+        else { return nil }
         DaemonLaunchTimings.shared.mark("daemon.status_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
             executable: configuration.binary,
-            arguments: ["--session", configuration.session, "--json", "server", "status"],
+            arguments: arguments,
             environment: environment,
             timeout: ensureTimeout,
             clock: clock
-        ), let parsed = try? Self.parseEnsure(result), parsed.status == "running" else { return nil }
+        ), let parsed = try? Self.parseEnsure(result, replace: false), parsed.status == "running" else { return nil }
         return parsed
     }
 
@@ -411,29 +408,25 @@ public struct DaemonLauncher: Sendable {
         Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
     }
 
-    static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {
-        // The JSON object is the last non-empty stdout line.
-        let lines = String(decoding: result.stdout, as: UTF8.self)
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.hasPrefix("{") }
-        guard result.status == 0, let last = lines.last,
-              let parsed = try? JSONDecoder().decode(EnsureResult.self, from: Data(last.utf8)) else {
-            // The owner is alive but still restoring after the daemon's own
-            // bound: a typed error, so the window says so plainly.
-            let errorLine = String(decoding: result.stderr, as: UTF8.self)
-                .split(whereSeparator: \.isNewline)
-                .last { $0.trimmingCharacters(in: .whitespaces).hasPrefix("{") }
-            if let errorLine,
-               let failure = try? JSONDecoder().decode(EnsureFailure.self, from: Data(errorLine.utf8)),
-               failure.code == "server.restore_timeout" {
-                throw DaemonError.sessionRestoreTimedOut(failure.message ?? "")
-            }
-            let stderr = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            let stdout = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw DaemonError.launchFailed("exit \(result.status): \(stderr.isEmpty ? stdout : stderr)")
+    /// Reads one ensure's result (cmux-daemon-launch-core `parse_ensure`): the last stdout line that is a JSON
+    /// object on exit 0; else ``DaemonError/sessionRestoreTimedOut(_:)`` for an owner still restoring past the
+    /// daemon's bound, ``ReplaceRefusal`` for a refused `replace`, or ``DaemonError/launchFailed(_:)`` with
+    /// stderr (else stdout).
+    static func parseEnsure(_ result: ProcessResult, replace: Bool) throws -> EnsureResult {
+        struct Request: Encodable { var status: Int32, stdout: String, stderr: String, replace: Bool }
+        struct Reply: Decodable {
+            var ok: EnsureResult?
+            var restoreTimeout: String?
+            var launchFailed: String?
+            var replaceRefusal: ReplaceRefusal?
         }
-        return parsed
+        let request = Request(status: result.status, stdout: String(decoding: result.stdout, as: UTF8.self),
+                              stderr: String(decoding: result.stderr, as: UTF8.self), replace: replace)
+        let reply = try rule(DaemonLaunchRules.call("parse_ensure", request, as: Reply.self))
+        if let ok = reply.ok { return ok }
+        if let refusal = reply.replaceRefusal { throw refusal }
+        if let message = reply.restoreTimeout { throw DaemonError.sessionRestoreTimedOut(message) }
+        throw DaemonError.launchFailed(reply.launchFailed ?? "exit \(result.status)")
     }
 
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs

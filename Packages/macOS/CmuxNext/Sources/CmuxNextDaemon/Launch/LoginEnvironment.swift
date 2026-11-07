@@ -12,45 +12,33 @@ import os
 /// the full login env never leaves the app.
 public struct LoginEnvironment: Sendable {
     public static let shared = Self()
-    /// Printed before `env -0` so rc-file chatter on stdout is skipped.
-    let marker = "__CMUX_NEXT_LOGIN_ENV__"
 
-    /// Identity and terminal-session variables that must not leak from the
-    /// capturing shell or the app into the daemon and its shells.
-    public let excludedKeys: Set<String> = [
-        "_", "PWD", "OLDPWD", "SHLVL",
-        "TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "COLORTERM",
-        "XPC_SERVICE_NAME", "XPC_FLAGS", "__CFBundleIdentifier",
-        "CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "CMUX_TUI_SESSION",
-        "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_SOCKET_ENABLE", "CMUX_BUNDLE_ID",
-        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
-        "CMUXD_UNIX_PATH",
-    ]
-
-    /// Captures the login env, or returns nil on failure or timeout.
+    /// Captures the login env, or returns nil on failure or timeout. The shell, its arguments and its seed
+    /// environment (`HOME`, `USER`, `LOGNAME` right for rc files, a minimal `PATH`) and the reading of its
+    /// output are cmux-daemon-launch-core's (`login_capture_plan`, `cmux_daemon_launch_login_env_accept`).
     public func capture(
         shell: String? = nil,
         base: [String: String] = ProcessInfo.processInfo.environment,
         timeout: Duration = .seconds(5),
         clock: any Clock<Duration> = ContinuousClock()
     ) async -> [String: String]? {
+        struct Request: Encodable { var shell: String?, base: [String: String], userShell: String? }
+        struct Plan: Decodable { var shell: String, arguments: [String], environment: [String: String] }
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.env")
-        let shellPath = shell ?? base["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? userShell() ?? "/bin/zsh"
-        let script = "printf '\\n\(marker)\\n'; /usr/bin/env -0"
+        guard let plan = DaemonLaunchRules.call("login_capture_plan", Request(shell: shell, base: base, userShell: userShell()),
+                                                as: Plan.self) else {
+            logger.error("login env capture failed: the launch rules did not answer")
+            return nil
+        }
         do {
-            // HOME/USER/LOGNAME must be right for rc files; the rest comes from the shell.
-            var seed: [String: String] = [:]
-            for key in ["HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL"] { seed[key] = base[key] }
-            seed["SHELL"] = shellPath
-            seed["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
             let result = try await ProcessRunner.run(
-                executable: URL(fileURLWithPath: shellPath),
-                arguments: ["-l", "-i", "-c", script],
-                environment: seed,
+                executable: URL(fileURLWithPath: plan.shell),
+                arguments: plan.arguments,
+                environment: plan.environment,
                 timeout: timeout,
                 clock: clock
             )
-            guard result.status == 0, let env: [String: String] = parse(result.stdout), env["PATH"] != nil else {
+            guard let env = DaemonLaunchRules.acceptLoginCapture(status: result.status, output: result.stdout) else {
                 logger.error("login env capture failed: status \(result.status)")
                 return nil
             }
@@ -59,20 +47,6 @@ public struct LoginEnvironment: Sendable {
             logger.error("login env capture failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-    }
-
-    /// Parses `<noise>\n<marker>\n` followed by NUL-separated `KEY=value`.
-    func parse(_ output: Data) -> [String: String]? {
-        let markerLine = Data("\n\(marker)\n".utf8)
-        guard let range = output.range(of: markerLine) else { return nil }
-        var env: [String: String] = [:]
-        for entry in output.suffix(from: range.upperBound).split(separator: 0, omittingEmptySubsequences: true) {
-            guard let text = String(data: Data(entry), encoding: .utf8) else { continue }
-            let parts = text.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2, let key = parts.first, let value = parts.last else { continue }
-            env[String(key)] = String(value)
-        }
-        return env.isEmpty ? nil : env
     }
 
     /// Environment for `server ensure`: the allowlisted login env (or app env

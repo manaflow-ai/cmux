@@ -11,14 +11,13 @@ import Dispatch
 /// throws), which reads the file to its end, delivers the last line, and cancels the source. The
 /// cancel handler closes the duplicate descriptor; nothing is read after that.
 final class StderrLines: Sendable {
+    /// What was read so far and the splitter (cmux-daemon-launch-core `lines`: whole lines out, a line past
+    /// 64 KiB cut there, the last one at the end).
     private struct State {
         var offset: off_t = 0
-        var pending: [UInt8] = []
+        var splitter = DaemonLaunchLineSplitter()
         var done = false
     }
-
-    /// Longest line kept; a longer one is cut there (progress lines are short).
-    static let maxLine = 64 * 1024
 
     private let fd: Int32
     private let onLine: @Sendable (String) -> Void
@@ -64,19 +63,12 @@ final class StderrLines: Sendable {
             var count = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, state.offset) }
             while count > 0 {
                 state.offset += off_t(count)
-                for byte in buffer.prefix(count) {
-                    if byte == UInt8(ascii: "\n") {
-                        lines.append(String(decoding: state.pending, as: UTF8.self))
-                        state.pending.removeAll(keepingCapacity: true)
-                    } else if state.pending.count < Self.maxLine {
-                        state.pending.append(byte)
-                    }
-                }
+                let read = count
+                lines += buffer.withUnsafeBytes { state.splitter.push(UnsafeRawBufferPointer(rebasing: $0.prefix(read)), finish: false) }
                 count = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, state.offset) }
             }
             if final {
-                if !state.pending.isEmpty { lines.append(String(decoding: state.pending, as: UTF8.self)) }
-                state.pending.removeAll()
+                lines += state.splitter.push(UnsafeRawBufferPointer(start: nil, count: 0), finish: true)
                 state.done = true
             }
         }

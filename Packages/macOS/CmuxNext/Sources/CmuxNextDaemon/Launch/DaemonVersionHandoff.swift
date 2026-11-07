@@ -14,6 +14,52 @@ public enum DaemonVersionDecision: Sendable, Equatable {
     case restart(running: String, bundled: String)
 }
 
+/// `{"keep": reason}` or `{"restart": {"running", "bundled"}}`, as cmux-daemon-launch-core answers.
+extension DaemonVersionDecision: Decodable {
+    private enum CodingKeys: String, CodingKey { case keep, restart }
+    private struct Restart: Decodable { var running: String, bundled: String }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let restart = try container.decodeIfPresent(Restart.self, forKey: .restart) {
+            self = .restart(running: restart.running, bundled: restart.bundled)
+        } else {
+            self = .keep(try container.decode(String.self, forKey: .keep))
+        }
+    }
+}
+
+/// One handoff question to the launch rules (`handoff_gate`) and its answer: `skip`, `wait` (that owner is
+/// still exiting for this handoff) or `begin` under `key`, which the launcher records once.
+struct DaemonHandoffGate: Decodable {
+    struct Question: Encodable {
+        /// `stale`, `capability`, `install_key`, `update` or `incompatible`.
+        var kind: String
+        var binaryIsBundled = false
+        var hasInstallKey = false
+        var pid: Int32 = 0
+        var session: String?
+        var configuredSession: String?
+        var capability: String?
+        var supports = false
+        var exiting: Int32?
+        var running: DaemonBuildStamp?
+        var bundled: DaemonBuildStamp?
+    }
+
+    var action: String
+    var key: String?
+    /// Stale only: the version decision, and the one to keep with when `key` was already begun.
+    var decision: DaemonVersionDecision?
+    var refused: DaemonVersionDecision?
+
+    /// The answer; a library that does not answer skips the handoff (the owner is kept, as before any rule ran).
+    static func ask(_ question: Question) -> DaemonHandoffGate {
+        DaemonLaunchRules.call("handoff_gate", question, as: DaemonHandoffGate.self)
+            ?? DaemonHandoffGate(action: "skip")
+    }
+}
+
 /// One launcher's handoff state: the bundled builds it already handed off
 /// to (never twice, so a mismatched version string cannot loop), and the
 /// daemon that is exiting for a handoff, which the next `ensure` waits out.
@@ -86,18 +132,14 @@ enum ProcessExit {
 }
 
 extension DaemonLauncher {
-    /// Whether the running owner is another build than the bundled binary. The build identity
-    /// (`build_id`) decides when both sides have one: it is the stamped commit for a packaged build
-    /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
-    /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
-    /// commits decide. With neither, the owner is kept and the reason names the unknown side.
+    /// Whether the running owner is another build than the bundled binary (cmux-daemon-launch-core
+    /// `version_decision`): the build identity (`build_id`) decides when both sides have one, else the stamped
+    /// commits; with neither, the owner is kept and the reason names the unknown side. A library that does
+    /// not answer keeps the owner.
     public static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
-        if let runningID = running.id, let bundledID = bundled?.id {
-            return runningID == bundledID ? .keep("same build") : .restart(running: runningID, bundled: bundledID)
-        }
-        guard let running = running.commit else { return .keep("running build unknown") }
-        guard let bundled = bundled?.commit else { return .keep("bundled build unknown") }
-        return running == bundled ? .keep("same build") : .restart(running: running, bundled: bundled)
+        struct Request: Encodable { var running: DaemonBuildStamp, bundled: DaemonBuildStamp? }
+        return DaemonLaunchRules.call("version_decision", Request(running: running, bundled: bundled), as: DaemonVersionDecision.self)
+            ?? .keep("launch rules unavailable")
     }
 
     /// After an update the app finds the daemon an older app started: hand
@@ -116,10 +158,12 @@ extension DaemonLauncher {
         } else {
             bundled = try? await bundledBuild()
         }
-        let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
-        guard case .restart(let running, let target) = decision else { return decision }
-        guard handoff.begin(bundled: target, pid: identity.pid) else {
-            return .keep("already handed off to \(target)")
+        let gate = DaemonHandoffGate.ask(.init(kind: "stale", pid: identity.pid,
+                                               running: DaemonBuildStamp(identity: identity), bundled: bundled))
+        let decision = gate.decision ?? .keep("launch rules unavailable")
+        guard case .restart(let running, let target) = decision, gate.action == "begin", let key = gate.key else { return decision }
+        guard handoff.begin(bundled: key, pid: identity.pid) else {
+            return gate.refused ?? .keep("already handed off to \(target)")
         }
         let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
@@ -149,12 +193,12 @@ extension DaemonLauncher {
     /// exiting for this handoff (a page retry during the exit), so the caller keeps waiting.
     public func handOffForCapability(_ capability: String, identity: DaemonIdentity,
                                      using connection: DaemonConnection) async -> Bool {
-        guard configuration.binaryIsBundled, !identity.supports(capability) else { return false }
-        if handoff.exiting == identity.pid { return true }
-        // Once per launcher: the bundled build serves the capability, so a second owner without it
+        let gate = DaemonHandoffGate.ask(.init(kind: "capability", binaryIsBundled: configuration.binaryIsBundled, pid: identity.pid,
+                                               capability: capability, supports: identity.supports(capability),
+                                               exiting: handoff.exiting))
+        // Once per launcher (the key): the bundled build serves the capability, so a second owner without it
         // is not ours to restart again (no loop).
-        guard handoff.begin(bundled: "capability:\(capability)", pid: identity.pid) else { return false }
-        return await requestHandoff(identity: identity, using: connection)
+        return await run(gate, identity: identity) { await requestHandoff(identity: identity, using: connection) }
     }
 
     /// The running owner does not verify this app's install key (an older build or `cmux chief`
@@ -162,9 +206,8 @@ extension DaemonLauncher {
     /// starts it with the key on stdin. Only a launcher that holds a key (an unsigned build); the
     /// caller decides when a restart is safe. False when the daemon refused.
     public func handOffForInstallKey(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        guard configuration.installKey != nil,
-              handoff.begin(bundled: "install-key", pid: identity.pid) else { return false }
-        return await requestHandoff(identity: identity, using: connection)
+        let gate = DaemonHandoffGate.ask(.init(kind: "install_key", hasInstallKey: configuration.installKey != nil, pid: identity.pid))
+        return await run(gate, identity: identity) { await requestHandoff(identity: identity, using: connection) }
     }
 
     /// The person confirmed "Restart cmux-tui" (a server update, plans/cmux-next/server-updates-DESIGN.md):
@@ -172,9 +215,8 @@ extension DaemonLauncher {
     /// running, as in every handoff. Once per daemon process; false for an external binary (it
     /// would start as itself again) and when the daemon refused.
     public func handOffForUpdate(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
-        guard configuration.binaryIsBundled,
-              handoff.begin(bundled: "update:\(identity.pid)", pid: identity.pid) else { return false }
-        return await requestHandoff(identity: identity, using: connection)
+        let gate = DaemonHandoffGate.ask(.init(kind: "update", binaryIsBundled: configuration.binaryIsBundled, pid: identity.pid))
+        return await run(gate, identity: identity) { await requestHandoff(identity: identity, using: connection) }
     }
 
     /// The handshake refused the running owner: it speaks another protocol or lacks a capability
@@ -189,10 +231,24 @@ extension DaemonLauncher {
     /// restart again). True while that owner is still exiting for this handoff; false when the
     /// daemon refused, so the refusal shows.
     func handOffIncompatible(identity: DaemonIdentity, on transport: LineTransport) async -> Bool {
-        guard configuration.binaryIsBundled, identity.pid > 1, identity.session == configuration.session else { return false }
-        if handoff.exiting == identity.pid { return true }
-        guard handoff.begin(bundled: "incompatible", pid: identity.pid) else { return false }
-        return await shutDown(identity) { try await DaemonConnection.perform($0, on: transport) }
+        let gate = DaemonHandoffGate.ask(.init(kind: "incompatible", binaryIsBundled: configuration.binaryIsBundled, pid: identity.pid,
+                                               session: identity.session, configuredSession: configuration.session,
+                                               exiting: handoff.exiting))
+        return await run(gate, identity: identity) {
+            await shutDown(identity) { try await DaemonConnection.perform($0, on: transport) }
+        }
+    }
+
+    /// Acts on a gate's answer: `wait` is true (the owner is still exiting for this handoff), `begin` records its
+    /// key once per launcher and runs `handOff`, anything else (or a key already begun) is false.
+    private func run(_ gate: DaemonHandoffGate, identity: DaemonIdentity, handOff: () async -> Bool) async -> Bool {
+        switch gate.action {
+        case "wait": return true
+        case "begin":
+            guard let key = gate.key, handoff.begin(bundled: key, pid: identity.pid) else { return false }
+            return await handOff()
+        default: return false
+        }
     }
 
     /// `configuration` with this launcher's incompatible-owner handoff (`handOffIncompatible`), for
