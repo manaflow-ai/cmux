@@ -355,12 +355,21 @@ fn redact_token_shaped(text: &str) -> String {
         let key = key.to_ascii_lowercase();
         SECRET_KEYS.iter().any(|secret| key.contains(secret))
     }
+    // A key that is itself a secret's name (`ticket`, `Password`,
+    // `access_token`, `api_key`), not a label that mentions one
+    // (`carrier-ticket`): every value after it is redacted, however short.
+    fn exact_secret_key(key: &str) -> bool {
+        let key = key.to_ascii_lowercase();
+        SECRET_KEYS.iter().any(|secret| key == *secret || key.ends_with(&format!("_{secret}")))
+    }
     let line: String = text
         .chars()
         .map(|character| if character.is_control() { ' ' } else { character })
         .collect();
-    // After `Bearer` the next word is the credential. After `ticket:` it is
-    // one only when it looks like a value (8 or more token characters with a
+    // After `Bearer` the next word is the credential, and after an exact
+    // secret key (`ticket:`, `password:`) the next word is its value. After a
+    // label that only mentions one (`carrier-ticket:`) the next word is one
+    // only when it looks like a value (8 or more token characters with a
     // digit), so `carrier-ticket: agent answered 503` keeps its reason.
     let value_like = |word: &str| {
         word.len() >= 8
@@ -370,9 +379,12 @@ fn redact_token_shaped(text: &str) -> String {
     let mut words = Vec::new();
     let mut after_bearer = false;
     let mut after_key = false;
+    let mut after_exact_key = false;
     for word in line.split_whitespace() {
         let follows_key = std::mem::take(&mut after_key);
-        if std::mem::take(&mut after_bearer) || (follows_key && value_like(word)) {
+        let follows_exact_key = std::mem::take(&mut after_exact_key);
+        if std::mem::take(&mut after_bearer) || follows_exact_key || (follows_key && value_like(word))
+        {
             words.push("[REDACTED]".to_owned());
             continue;
         }
@@ -386,6 +398,7 @@ fn redact_token_shaped(text: &str) -> String {
         {
             if index + 1 == word.len() {
                 after_key = true;
+                after_exact_key = exact_secret_key(&word[..index]);
                 words.push(word.to_owned());
             } else {
                 words.push(format!("{}[REDACTED]", &word[..=index]));
@@ -2460,6 +2473,19 @@ mod tests {
         assert_eq!(
             redact_token_shaped("carrier-ticket: agent answered 503"),
             "carrier-ticket: agent answered 503"
+        );
+        // #37670 review F1: a short or digit-free value after an exact secret
+        // key is still that secret.
+        assert_eq!(
+            redact_token_shaped(
+                "ticket: abcdefgh password: abc Token: x access_token: plain api_key: k"
+            ),
+            "ticket: [REDACTED] password: [REDACTED] Token: [REDACTED] access_token: [REDACTED] \
+             api_key: [REDACTED]"
+        );
+        assert_eq!(
+            redact_token_shaped("relay-ticket: command timed out"),
+            "relay-ticket: command timed out"
         );
     }
 
