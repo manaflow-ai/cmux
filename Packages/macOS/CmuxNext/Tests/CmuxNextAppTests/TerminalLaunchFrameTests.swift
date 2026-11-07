@@ -134,6 +134,39 @@ import os
         return color.map { ($0.redComponent, $0.greenComponent, $0.blueComponent) }
     }
 
+    /// Leo, 2026-11-07: a relaunched Background task terminal showed its last frame on an opaque white page under
+    /// "Restoring…" ("why did the background task become a white background? ... we don't do that"). On a see-through
+    /// window a terminal draws no background, so its frame is clear but for its text; saved as a JPEG, which has no
+    /// alpha, those clear pixels came back one opaque color until the live frame drew. A frame with clear pixels is
+    /// saved with them (a PNG), so the pane's glass shows through it; an opaque frame stays a JPEG.
+    @Test func aSeeThroughTerminalsLastFrameKeepsItsClearPixels() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor
+        let directory = try await Self.saved(["tab-clear": Self.frame(size, scale: scale),
+                                              "tab-opaque": Self.solid(size, scale: scale, red: 0.1, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        #expect(names == ["tab-clear@\(Int(scale))x.png", "tab-opaque@\(Int(scale))x.jpg"],
+                "a see-through terminal's frame is saved with its clear pixels, an opaque one as a JPEG")
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-clear", on: pane.session, in: pane.content, reveal: reveal))
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 0, "the last frame painted the pane's glass one opaque color")
+    }
+
+    /// The alpha at the center of `image` (0...255).
+    static func centerAlpha(_ image: CGImage) -> UInt8? {
+        guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),
+              let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return context.data?.load(fromByteOffset: 3, as: UInt8.self)
+    }
+
     /// The quit saves each visible terminal's frame for the next launch from its surface. A terminal still held over its
     /// slow attach showed its last frame, but the quit saved the empty surface under it (or nothing, before its first
     /// draw): the next launch then showed an empty pane with a cursor box as the terminal's last frame. The quit saves
