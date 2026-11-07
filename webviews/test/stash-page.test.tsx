@@ -157,6 +157,7 @@ test("Import from OneTab… imports pasted text, says how many, and a stash made
   expect(last(provider, StashOps.import)).toEqual({
     source: "onetab",
     groups: [{ tabs: [{ url: "https://new.example/", title: "New" }, { url: "file:///etc/passwd" }] }],
+    idempotency_key: expect.any(String),
   });
   expect(host.querySelector(".stash-notice")?.textContent).toBe("Imported 1, skipped 1.");
   expect(host.querySelector(".stash-import")).toBeNull();

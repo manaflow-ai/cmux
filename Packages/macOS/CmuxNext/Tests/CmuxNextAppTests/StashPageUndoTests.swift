@@ -31,9 +31,11 @@ struct StashPageUndoTests {
         }
     }
 
-    /// The daemon's side: lists stash `s1` with members `m1` and `m2`.
+    /// The daemon's side: lists stash `s1` with members `m1` and `m2`, and records what reaches it.
     final class Relay: PageProvider {
+        var sent: [(String, JSONValue)] = []
         func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+            sent.append((op, params))
             guard op == "cmux.stash.list" else { return .object([:]) }
             return [["id": "s1", "members": [["id": "m1"], ["id": "m2"]]]]
         }
@@ -43,6 +45,7 @@ struct StashPageUndoTests {
         let provider: StashPageProvider
         let toasts: Toasts
         let deleted: Box
+        let relay: Relay
     }
 
     @MainActor final class Box {
@@ -54,14 +57,15 @@ struct StashPageUndoTests {
     static func world() -> World {
         let toasts = Toasts()
         let deleted = Box()
+        let relay = Relay()
         let provider = StashPageProvider(restore: { id, members, _ in deleted.restored.append((id, members)) },
                                          delete: { id, members in
                                              deleted.calls.append(id)
                                              deleted.deletedMembers.append(members)
                                          },
-                                         importEngine: { "webkit" }, relay: Relay())
+                                         importEngine: { "webkit" }, relay: relay)
         provider.presentUndo = { toast, ended in toasts.present(toast, ended) }
-        return World(provider: provider, toasts: toasts, deleted: deleted)
+        return World(provider: provider, toasts: toasts, deleted: deleted, relay: relay)
     }
 
     static func click(_ at: TimeInterval) -> PageCallContext {
@@ -210,5 +214,18 @@ struct StashPageUndoTests {
         world.toasts.shown[0].end(.timeout)
         #expect(try await call.value == ["deleted": true])
         #expect(world.deleted.deletedMembers == [["m1"]])
+    }
+
+    /// The page's OneTab import reaches the daemon relay with the page's own idempotency key (the
+    /// relay moves it to the v2 envelope; the daemon refuses a mutation without one) and the
+    /// app's browser engine.
+    @Test func anImportKeepsThePagesKeyAndAddsTheEngine() async throws {
+        let world = Self.world()
+        let groups: JSONValue = [["tabs": [["url": "https://a.example/", "title": "A"]]]]
+        _ = try await world.provider.call("cmux.stash.import", params: ["source": "onetab", "groups": groups, "idempotency_key": "key-1"],
+                                          context: PageCallContext(page: "cmux.stash"))
+        let sent = try #require(world.relay.sent.last)
+        #expect(sent.0 == "cmux.stash.import")
+        #expect(sent.1 == ["source": "onetab", "groups": groups, "idempotency_key": "key-1", "engine": "webkit"])
     }
 }

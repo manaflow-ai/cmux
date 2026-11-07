@@ -10,6 +10,7 @@ import {
   type StashDeleted,
   type StashGroup,
   type StashImported,
+  type StashMutation,
   type StashMember,
   type StashRecord,
 } from "./types";
@@ -52,10 +53,13 @@ export class StashStore {
   /** Whether the notice is a failed read's, which the next good read clears. */
   private noticeIsRead = false;
 
+  private readonly newKey: () => string;
+
   constructor(
     private readonly client: PageClient | null,
-    options: { importOpen?: boolean } = {},
+    options: { importOpen?: boolean; newKey?: () => string } = {},
   ) {
+    this.newKey = options.newKey ?? (() => crypto.randomUUID());
     this.snapshot = {
       groups: [],
       query: "",
@@ -215,9 +219,15 @@ export class StashStore {
       return;
     }
     await this.run(async (client) => {
-      const result = await client.call<StashImported>(StashOps.import, { source: "onetab", groups });
-      const imported = Number(result?.imported_tabs ?? 0);
-      const skipped = Number(result?.skipped_tabs ?? 0);
+      // A mutation: the daemon refuses one without a key; a fresh key per paste, so a resend of
+      // this import applies once and a second paste imports again.
+      const reply = await client.call<StashMutation<StashImported>>(StashOps.import, {
+        source: "onetab",
+        groups,
+        idempotency_key: this.newKey(),
+      });
+      const imported = Number(reply?.value?.imported_tabs ?? 0);
+      const skipped = Number(reply?.value?.skipped_tabs ?? 0);
       this.set({ notice: { kind: "imported", imported, skipped } });
       if (imported > 0) this.closeImport();
     });

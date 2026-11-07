@@ -90,3 +90,38 @@ test("Stashed Tabs: restore and delete send stash, members and new_workspace", a
   await store.delete(group, member);
   expect(client.sent(StashOps.delete)).toEqual([{ stash: "s1" }, { stash: "s1", members: ["m1"] }]);
 });
+
+test("Stashed Tabs: each OneTab import sends a fresh idempotency_key and reads the daemon's value", async () => {
+  // The daemon's stash.import reply (resource_router.rs mutation_result): counts under `value`.
+  const reply = {
+    value: { stash_ids: ["s9"], imported_tabs: 2, skipped_tabs: 1 },
+    generation: 1,
+    revision: "7",
+    replayed: false,
+  };
+  const client = new RecordingClient({ [StashOps.import]: reply, [StashOps.list]: [] });
+  let next = 0;
+  const store = new StashStore(client, { newKey: () => `key-${++next}` });
+  store.openImport();
+  store.setImportText("https://a.example/ | A\nhttps://b.example/ | B");
+  await store.importPasted();
+  store.openImport();
+  store.setImportText("https://c.example/ | C");
+  await store.importPasted();
+  const sent = client.sent(StashOps.import) as Array<{ source: string; groups: unknown[]; idempotency_key: string }>;
+  expect(sent.map((params) => params.idempotency_key)).toEqual(["key-1", "key-2"]);
+  expect(sent[0]).toEqual({
+    source: "onetab",
+    groups: [
+      {
+        tabs: [
+          { url: "https://a.example/", title: "A" },
+          { url: "https://b.example/", title: "B" },
+        ],
+      },
+    ],
+    idempotency_key: "key-1",
+  });
+  expect(store.getSnapshot().notice).toEqual({ kind: "imported", imported: 2, skipped: 1 });
+  expect(store.getSnapshot().importOpen).toBe(false);
+});

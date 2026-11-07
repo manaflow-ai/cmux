@@ -47,6 +47,14 @@ export interface StashImportGroup {
   tabs: StashImportTab[];
 }
 
+/** A daemon mutation's reply (`mutation_result`): the op's own answer under `value`. */
+export interface StashMutation<T> {
+  value: T;
+  generation?: number;
+  revision: string;
+  replayed: boolean;
+}
+
 export interface StashImported {
   stash_ids?: string[];
   imported_tabs?: number;

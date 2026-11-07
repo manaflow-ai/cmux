@@ -23,6 +23,7 @@ export class MockStashProvider implements PageClient {
   private readonly subs = new Set<(data: unknown, seq: number) => void>();
   private seq = 0;
   private next = 1;
+  private revision = 0;
 
   constructor(stashes: StashRecord[] = sampleStashes(Date.now())) {
     this.stashes = stashes;
@@ -31,7 +32,12 @@ export class MockStashProvider implements PageClient {
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
-    const args = (params ?? {}) as { stash?: string; members?: string[]; groups?: StashImportGroup[] };
+    const args = (params ?? {}) as {
+      stash?: string;
+      members?: string[];
+      groups?: StashImportGroup[];
+      idempotency_key?: string;
+    };
     switch (op) {
       case StashOps.list:
         return structuredClone(this.stashes) as R;
@@ -49,8 +55,18 @@ export class MockStashProvider implements PageClient {
             members: tabs.map((tab, index) => ({ id: `m${index}`, kind: "tab", ...tab })),
           });
         }
+        if (typeof args.idempotency_key !== "string" || !args.idempotency_key) {
+          throw Object.assign(new Error("mutations require idempotency_key"), { code: "cmux.validation.invalid" });
+        }
         this.changed();
-        return { imported_tabs: imported, skipped_tabs: skipped } as R;
+        this.revision += 1;
+        // The daemon's mutation reply (resource_router.rs mutation_result).
+        return {
+          value: { stash_ids: [], imported_tabs: imported, skipped_tabs: skipped },
+          generation: 1,
+          revision: String(this.revision),
+          replayed: false,
+        } as R;
       }
       case StashOps.restore:
         this.drop(args.stash, args.members);
