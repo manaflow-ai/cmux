@@ -1830,7 +1830,7 @@ export function VirtualTranscript({
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
-  // Under the opt-in fade (Debug Settings agentPane.debug.scrollerFade), the scrollbar fades in and
+  // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the

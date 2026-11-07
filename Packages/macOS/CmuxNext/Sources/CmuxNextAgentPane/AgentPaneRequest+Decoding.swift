@@ -235,7 +235,8 @@ extension AgentPaneRequest {
                                                  search: kind == .browser && params?["search"] as? Bool == true,
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
                                                  keep: params?["keep"] as? Bool == true,
-                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil))
+                                                 profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
+                                                 inPlace: params?["inPlace"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -350,8 +351,11 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.signInCancel": self = .cloudSignInCancel
+        case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
+        case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -601,6 +605,13 @@ extension AgentPaneRequest {
         case "transport.close":
             if let connection = params?["connection"] as? Int {
                 self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
+            }
+        case "externalAccess.openSettings":
+            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params.keys) == ["kind"] {
+                self = .externalAccessOpenSettings(kind)
             } else {
                 self = .unsupported(method)
             }

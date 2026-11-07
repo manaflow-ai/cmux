@@ -1,3 +1,4 @@
+import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
@@ -68,6 +69,7 @@ import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
+import { forkHistoryTail, sameForkHistory } from "./forkTail";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import {
@@ -457,6 +459,19 @@ export function attachedLocalRow(result: unknown, sessionId: string): Session | 
   return typeof row.peer === "string" || typeof reply?.peer === "string" ? undefined : row;
 }
 
+/// The chat's detail an attach reply carries, naming the machine it runs on. A reply acpmux forwarded
+/// from a peer names that peer at its top level only (`server/peer_forward.rs`): its `session` is the
+/// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session
+/// Info named this Mac for a peer's chat (Leo, 2026-11-07: "hmm is the session info not accurately
+/// describing machine provenance?").
+export function attachedDetail(result: unknown): Record<string, any> {
+  const reply = result as { session?: unknown; peer?: unknown } | undefined;
+  const detail = reply?.session && typeof reply.session === "object" ? (reply.session as Record<string, any>) : {};
+  return typeof reply?.peer === "string" && reply.peer && !(typeof detail.peer === "string" && detail.peer)
+    ? { ...detail, peer: reply.peer }
+    : detail;
+}
+
 /// The opener of the turn an attach page starts inside, as the reply names it (acpmux reads it
 /// with the page, `server/requests/turn_opener.rs`): `undefined` when the reply does not say (an
 /// older acpmux) or the rows start before the page (a kept tail drawn first), so the pane reads it
@@ -666,6 +681,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    externalAccess: externalAccessFromRequest(raw),
     diffs: permissionDiffs(toolCall),
     plan: permissionPlan(toolCall, claudeMeta),
     pending: true,
@@ -2241,6 +2257,9 @@ export class AcpmuxDirectClient {
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
+  /// The seq a fork's rows drawn before the attach were taken through from the chat it forked
+  /// (forkTail.ts, `KeptTail.forkedThrough`), which the attach checks them against.
+  private drawnForkThrough?: number;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -3054,6 +3073,7 @@ export class AcpmuxDirectClient {
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.drawnGeneration = undefined;
+    this.drawnForkThrough = undefined;
     this.rowsGeneration = undefined;
     this.rowsPeer = undefined;
     // A page still in flight belongs to the session before; it is dropped when it lands.
@@ -3193,6 +3213,26 @@ export class AcpmuxDirectClient {
       },
       forThisPage,
     );
+  }
+
+  /// Hands the app host the fork acpmux just made of `from` as its tail (forkTail.ts), drawn from
+  /// this page's rows of `from`, so the fork's own tab draws it on the frame it opens instead of
+  /// reading it cold. Only rows of the chat this page shows, attached, of this machine.
+  private handOverForkTail(from: string, reply: Record<string, any>): void {
+    if (from !== this.selectedSessionId || this.replayThrough !== undefined || this.rowsPeer !== undefined) return;
+    if (this.attachedGeneration !== this.selectionGeneration) return;
+    const tail = forkHistoryTail(
+      {
+        events: this.events,
+        historyExhausted: this.historyExhausted,
+        turnOpener: this.turnOpener,
+      },
+      // acpmux answers `session/fork`'s `{sessionId, modes, configOptions}` and puts the fork's
+      // session summary (its `createdAt`, `lastSeq`, `forkSeq`) in `_meta.acpmux`.
+      { ...reply?._meta?.acpmux, sessionId: reply.sessionId },
+    );
+    // The fork's tab is another page: only the app host's copy reaches it.
+    if (tail) rememberTail(String(reply.sessionId), tail, false);
   }
 
   /// The summary a kept tail carries: the row as listed now, but naming only the machine and the
@@ -3548,6 +3588,7 @@ export class AcpmuxDirectClient {
     if (kept.peerCopy) this.peerCopy = { ...kept.peerCopy, attaching: true };
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
     this.rowsGeneration = this.drawnGeneration;
+    this.drawnForkThrough = kept.forkedThrough;
     const keptPeer = (kept.summary as { peer?: unknown } | undefined)?.peer;
     this.rowsPeer = typeof keptPeer === "string" ? keptPeer : undefined;
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
@@ -5070,9 +5111,15 @@ export class AcpmuxDirectClient {
     // Rows not proven of the machine the row names are another journal as well: for a peer chat a
     // tail of another machine or of none known, for a chat on this Mac a tail of a machine.
     const otherMachine = (peerChat || this.rowsPeer !== undefined) && this.rowsPeer !== row?.peer;
+    // A fork's rows taken from the chat it forked (forkTail.ts) are its history only where the
+    // page holds the same records: a fork that copied the history renumbered it.
+    const forkThrough = copy ? undefined : this.drawnForkThrough;
+    this.drawnForkThrough = undefined;
+    const forkStray = forkThrough !== undefined && !sameForkHistory(page, this.events, forkThrough);
     const otherSession =
       drawnThrough > 0 &&
-      ((copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
+      (forkStray ||
+        (copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
         (peerChat || copy !== undefined
           ? !sameGeneration(drawnOf, createdAt)
           : typeof drawnOf === "number" && typeof createdAt === "number" && drawnOf !== createdAt));
@@ -5108,7 +5155,7 @@ export class AcpmuxDirectClient {
     // whatever live events landed before this reply) holds the page only.
     const usageFrom = result?.hasMore === true && page.length > 0 ? oldest : 0;
     this.usageFromSeq = Math.min(this.usageFromSeq, usageFrom);
-    const detail = result?.session ?? {};
+    const detail = attachedDetail(result);
     // An agent usually lists its commands once, at start, which is older than the page. acpmux
     // names the newest list in the session (`availableCommands`); only an older acpmux, or a
     // session last run before it kept the list, needs the log read back to find it.
@@ -6879,6 +6926,12 @@ export class AcpmuxDirectClient {
             this.streamingAssistantMessageId = undefined;
           }
         }
+      } else if (event.kind === "steer_read") {
+        // The agent read this steer (acpmux `steer_end.rs`): its row is read now, so it offers no X
+        // acpmux would refuse. Its next words, which said so before, can come a minute later or
+        // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
+        // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
       } else if (event.kind === "steer_withdrawn") {
         // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
         // text went back to the composer that took it.
@@ -10156,7 +10209,10 @@ export class AcpmuxDirectClient {
         return undefined;
       }
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
-      if (stay) return String(result.sessionId);
+      if (stay) {
+        this.handOverForkTail(sessionId, result);
+        return String(result.sessionId);
+      }
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {

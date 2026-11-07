@@ -514,7 +514,15 @@ impl Brain {
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
-        let policy = if self.turn_ask {
+        // The Chief's permission mode for an owner turn (cmux#37392). A
+        // Claude turn in Manual (Claude Code's `default`) asks before each
+        // change, and under approve-all acpmux would answer every ask with
+        // allow: it runs under `ask`, so each ask comes to `turn_permission`
+        // and is refused (nobody answers a turn session's request).
+        let permission_mode =
+            (!self.turn_ask).then(|| self.chief_permission_mode(&self.next_engine().2).0);
+        let manual = permission_mode == Some("default") && family == crate::acpmux::Family::Claude;
+        let policy = if self.turn_ask || manual {
             crate::approval::ASK.to_owned()
         } else {
             self.settings.policy.clone()
@@ -633,7 +641,9 @@ impl Brain {
         // The kept session, when this turn has the same session shape and
         // keeps the frozen view: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
-        // turn another person started, and an `ask` one never an owner turn.
+        // turn another person started. An `ask` one serves only `ask` turns:
+        // one that carries another person's text, or a Manual owner turn,
+        // which sets `default` on it again before its prompt (turn.rs).
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
@@ -786,6 +796,7 @@ impl Brain {
             reuse,
             keep,
             retire,
+            permission_mode: permission_mode.map(str::to_owned),
         })
     }
 

@@ -212,8 +212,9 @@ fn default_true() -> bool {
     true
 }
 
-/// The edit's result. `changed`: the intent had a structural effect (false
-/// for a refused one). `sections`: the new tree, or None when it is the
+/// The edit's result. `changed`: the intent was accepted and changed the
+/// tree (false for a refused one or one that leaves the tree as it was, as a
+/// flag set to its own value; `changed` implies `sections`). `sections`: the new tree, or None when it is the
 /// request's (a refused edit may still have changed it, as a pin that added
 /// an empty Pinned section).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,9 +226,10 @@ pub struct EditReply {
 /// Runs one edit (`EditRequest`).
 pub fn edit(request: &EditRequest) -> EditReply {
     let mut sections = request.sections.clone();
-    let changed = apply_with(&request.intent, &mut sections, request.prunes);
+    let applied = apply_with(&request.intent, &mut sections, request.prunes);
     let sections = (sections != request.sections).then_some(sections);
-    EditReply { changed, sections }
+    // An accepted intent that leaves the tree as it was (a flag set to its own value) changed nothing.
+    EditReply { changed: applied && sections.is_some(), sections }
 }
 
 /// Applies an intent. False when it was refused or had no structural effect.
@@ -506,14 +508,42 @@ fn move_to_group(ids: &[String], group: &str, sections: &mut [Section]) -> bool 
     reorder(ids, &position, sections, true)
 }
 
+/// Moves a group and its subgroups (listed flat after it) as one block.
+/// `index` counts the section's rows with only the group itself taken out
+/// (`group_index`'s coordinates), so its own subgroups before that slot
+/// move the block up by their count.
 fn reorder_group(group: &str, index: i64, sections: &mut [Section]) -> bool {
     let Some((s, n)) = locate_group(group, sections) else { return false };
     let Some(section) = sections.get_mut(s) else { return false };
-    let nodes = &mut section.nodes;
-    let node = nodes.remove(n);
-    let clamped = clamp(index, nodes.len());
-    nodes.insert(clamped, node);
-    clamped != n
+    let mut subtree: HashSet<&str> = HashSet::from([group]);
+    let mut moving = vec![false; section.nodes.len()];
+    for (at, node) in section.nodes.iter().enumerate() {
+        let Node::Group { group: listed } = node else { continue };
+        let inside =
+            at == n || listed.parent.as_deref().is_some_and(|parent| subtree.contains(parent));
+        if inside && let Some(flag) = moving.get_mut(at) {
+            subtree.insert(&listed.id);
+            *flag = true;
+        }
+    }
+    // The slot in the rows without the group, less the subgroups before it.
+    let slot = clamp(index, section.nodes.len().saturating_sub(1));
+    let staying_before = |at: usize| if at > n { at.saturating_sub(1) } else { at };
+    let below = moving
+        .iter()
+        .enumerate()
+        .filter(|(at, flag)| **flag && *at != n && staying_before(*at) < slot)
+        .count();
+    let before = section.nodes.clone();
+    let mut block = Vec::new();
+    let mut rest = Vec::new();
+    for (node, flag) in std::mem::take(&mut section.nodes).into_iter().zip(moving) {
+        if flag { block.push(node) } else { rest.push(node) }
+    }
+    let at = slot.saturating_sub(below).min(rest.len());
+    rest.splice(at..at, block);
+    section.nodes = rest;
+    section.nodes != before
 }
 
 fn create_group(
@@ -582,6 +612,7 @@ fn ungroup(id: &str, sections: &mut [Section]) -> bool {
         })
         .collect();
     section.nodes.splice(n..n, loose);
+    lift_orphans(section);
     true
 }
 
@@ -594,6 +625,7 @@ fn close_group(id: &str, sections: &mut [Section]) -> bool {
         group.collapsed = true;
     } else {
         section.nodes.remove(n);
+        lift_orphans(section);
     }
     true
 }
@@ -719,6 +751,22 @@ fn prune_empty_groups(
             }
             Node::Workspace { .. } | Node::Item { .. } => true,
         });
+        lift_orphans(section);
+    }
+}
+
+/// A subgroup whose parent left its section (pruned, closed or ungrouped)
+/// lists at the top level, as the app's depth pass draws it
+/// (`resolvingGroupDepths`), instead of naming a group that is gone.
+fn lift_orphans(section: &mut Section) {
+    let listed: HashSet<String> =
+        section.nodes.iter().filter_map(|node| node.group_id().map(str::to_owned)).collect();
+    for node in &mut section.nodes {
+        if let Node::Group { group } = node
+            && group.parent.as_ref().is_some_and(|parent| !listed.contains(parent))
+        {
+            group.parent = None;
+        }
     }
 }
 

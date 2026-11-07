@@ -547,8 +547,7 @@ export type AcpmuxRow = {
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
   /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
   foldedReply?: boolean;
-  /// A run of finished tool calls folded under one summary line (Debug toggle
-  /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
+  /// A run of finished tool calls folded under one summary line (conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
@@ -569,9 +568,8 @@ export type AcpmuxRow = {
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
-  /// A running turn's status line drawn as the turn's last row (Debug Settings
-  /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
-  /// never stops while the turn runs.
+  /// A running turn's status line drawn as the turn's last row (conversation/turns.ts): no rule
+  /// under it, and its clock never stops while the turn runs.
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
@@ -590,6 +588,9 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// The id of the call `doing` names, running or just finished (conversation/turns.ts
+  /// `codexLiveTurn`): while it stays the same call the line's words change in place, with no roll.
+  doingCall?: string;
   /// How long that finished step took, its own start to its own end (conversation/turns.ts
   /// `liftedStep`): the live line says it beside the step, never the turn's time.
   doingForMs?: number;
@@ -829,7 +830,16 @@ export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title
 /** The concrete app, resource, or working directory an approval covers. */
 export type AcpmuxPermissionScope = { kind: "app" | "resource" | "directory"; value: string };
 
+/** A daemon-owned OS access block. Approving retries one retained operation, never grants OS rights. */
+export type ExternalAccess = {
+  kind: "files_and_folders" | "full_disk_access";
+  target: string;
+  operation: "read_text_file";
+  platform: "macos";
+};
+
 export type AcpmuxPermission = {
+  externalAccess?: ExternalAccess;
   permissionId: string;
   groupId?: string;
   turnId?: string;

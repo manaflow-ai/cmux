@@ -11,6 +11,7 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
+import CmuxNextCloudUI
 
 /// Opens, restores, closes, and persists windows.
 ///
@@ -404,7 +405,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || controller.root.content is CloudMachineProgressView || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || controller.root.content is CloudProgressHost || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false

@@ -2746,6 +2746,7 @@ mod listen;
 pub use listen::{
     BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    verify_session_socket_directory,
 };
 mod restoring;
 mod terminal_sessions;
@@ -3048,5 +3049,6 @@ mod creation_burst_tests;
 #[cfg(test)]
 mod tests;
 
+mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
