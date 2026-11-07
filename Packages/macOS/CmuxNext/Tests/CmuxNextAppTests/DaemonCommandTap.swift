@@ -162,7 +162,7 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         /// daemon serves it); then a `list-personal` after a `list-workspaces` is the run's own refetch.
         var pipelinesSavedGroups = false
         /// Requests sent and not answered yet, by id: their command and when they went.
-        var pending: [Int: (command: String, sent: ContinuousClock.Instant)] = [:]
+        var pending: [String: (command: String, sent: ContinuousClock.Instant)] = [:]
     }
 
     /// Copies `source` to `sink` until either ends; with `counting`, counts each request line's command.
@@ -216,14 +216,14 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 counts[name, default: 0] += 1
             }
             if command == "list-workspaces" { connection.pendingTreeRead = true } else { counts[command, default: 0] += 1 }
-            if let id = object["id"] as? Int { connection.pending[id] = (command, .now) }
+            if let id = Self.requestID(object["id"]) { connection.pending[id] = (command, .now) }
         }
     }
 
     /// A daemon line: the reply to a request (its time goes to ``replies``) or an event.
     private func answer(_ reply: Data, on connection: Connection) {
         let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any]
-        let id = object?["id"] as? Int
+        let id = Self.requestID(object?["id"])
         lock.withLock {
             guard let id, let sent = connection.pending.removeValue(forKey: id) else {
                 events.count += 1
@@ -280,6 +280,15 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     }
 
     /// The keys (one level into objects, `extra.x`) whose values differ between two records.
+    /// A request id as the pending map keys it: `cmux.protocol/2` sends a decimal string, older commands a number.
+    private static func requestID(_ value: Any?) -> String? {
+        switch value {
+        case let number as NSNumber: number.stringValue
+        case let string as String: string
+        default: nil
+        }
+    }
+
     private static func changed(_ a: [String: Any], _ b: [String: Any]) -> [String] {
         var out: [String] = []
         for key in Set(a.keys).union(b.keys).sorted() where key != "seq" && key != "revision" {
