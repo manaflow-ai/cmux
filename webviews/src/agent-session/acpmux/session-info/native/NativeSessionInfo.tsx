@@ -10,7 +10,7 @@ import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
 import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
-import { useNow } from "../../subagents/SubagentGroup";
+import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";

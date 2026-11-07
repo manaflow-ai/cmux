@@ -922,6 +922,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-elevation-card-command{display:block;padding:4px 8px;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font-family:var(--font-mono,ui-monospace,monospace);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 
 /* A permission ask (PermissionCard.tsx), after Claude desktop's "Allow Claude to use …?" card (Leo,
    2026-11-05): a glass card (.ui-glass, src/ui/glass/glass.css) in three bands on the 4 grid. The

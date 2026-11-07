@@ -414,6 +414,17 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
+/// Whether a call's output shapes a row of its own that the loop in `toolGroups` makes from it, not
+/// a command row: a who-else answer, a dispatch card, or a sent-message row per recipient (a single
+/// `acpmux send`, a batch, the acpmux MCP send), each reading its state or answer out of the call's
+/// output. The same readers in the same order as `toolGroups`; liveToolOutput.ts keeps such a
+/// call's output updates on the pane, so those rows take each one.
+export function outputShapesRows(item: AcpmuxActivity): boolean {
+  const tool = item.tool;
+  if (!tool) return false;
+  return Boolean(whoElseCall(item) || dispatchCall(item) || acpmuxSendCalls(tool) || acpmuxMcpSends(tool));
+}
+
 /// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
 /// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
 /// never gets any. Its row would only say "Running a command", so the transcript draws none
