@@ -630,10 +630,11 @@ jobs:
     concurrency:
       group: cmux-vm-deploy-production
       cancel-in-progress: false
-    # Whether the Worker deploy step ran and succeeded (it is skipped when CMUX_VM_DEPLOY_ENABLED is off), for
-    # journey-production.
+    # 'success' when the Worker deploy step ran and succeeded (it is skipped when CMUX_VM_DEPLOY_ENABLED is off) and
+    # the smoke did not fail (a red smoke may have rolled the Worker back), for journey-production. A rollback by the
+    # journey step fails the job, which journey-production also requires to succeed.
     outputs:
-      deployed: ${{ steps.deploy.outcome }}
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.smoke.outcome != 'failure' && 'success' || 'no' }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -735,6 +736,7 @@ jobs:
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
           echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke health and changed routes; roll back on red
+        id: smoke
         if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         # Runtime smoke is diagnostic only; a flaky endpoint must not gate a
         # feature branch or a nightly publication.
@@ -783,8 +785,9 @@ jobs:
   # annotation is what cmuxterm-hq's cloud_deploy_gate reads, within 5 min of the deploy); it does not roll back.
   journey-production:
     needs: deploy-production
-    if: ${{ !cancelled() && needs.deploy-production.outputs.deployed == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
+    if: ${{ !cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-next-cloud-journey
     permissions:
