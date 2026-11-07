@@ -327,3 +327,47 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const positioned = tooltipPosition(time, size, view);
   expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
 });
+
+test("a tooltip stays inside its region: above when it fits there, else below, else the window's edges", () => {
+  const view = { width: 1000, height: 800 };
+  const size = { width: 240, height: 36 };
+  // The transcript below a 40px band the native tabs draw over.
+  const bounds = { left: 0, top: 40, width: 1000, height: 760 };
+  const row = { left: 50, top: 48, width: 200, height: 22 };
+  // The window has room above (8px), the region has none: below the row.
+  expect(tooltipPosition(row, size, view, "top")).toEqual({ left: 30, top: 8 });
+  expect(tooltipPosition(row, size, view, "top", 1, bounds)).toEqual({ left: 30, top: 74 });
+  // Lower down there is room above inside the region: above, as everywhere.
+  expect(tooltipPosition({ ...row, top: 300 }, size, view, "top", 1, bounds)).toEqual({ left: 30, top: 260 });
+  // A region too small for it either way: the window's edges, as before.
+  const tiny = { left: 0, top: 40, width: 1000, height: 40 };
+  expect(tooltipPosition(row, size, view, "top", 1, tiny)).toEqual({ left: 30, top: 8 });
+});
+
+test("a pane-wide row's tooltip anchors at its words and stays out of the tab row the native tabs cover", async () => {
+  // A one-tab pane (header.css data-solo-tab): the transcript runs up under the tab row.
+  const doc = page(
+    `<header id="tabs" data-tooltip-covered></header>` +
+      `<div id="scroll" style="overflow-y: auto"><button id="row" title="Claude Code 2.1.312 · claude-opus-5-5 · your Claude Code setup · ~/Projects"><span>Claude Code · Opus 5.5</span></button></div>`,
+  );
+  const box = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  doc.getElementById("tabs")!.getBoundingClientRect = () => box(0, 0, 1000, 40);
+  doc.getElementById("scroll")!.getBoundingClientRect = () => box(0, 0, 1000, 800);
+  const row = doc.getElementById("row")!;
+  row.getBoundingClientRect = () => box(50, 48, 900, 22);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  tip.getBoundingClientRect = () => box(0, 0, 240, 36);
+  // What the row draws: its icon, words and chevron, 200px of the 900.
+  // jsdom lays nothing out, so its Range has no geometry of its own: this page's gets the words' box.
+  Object.defineProperty(dom!.window.Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => box(50, 50, 200, 18),
+  });
+  await hover(row);
+  expect(tip.hidden).toBe(false);
+  // Centered on the words (50 + 100 - 120), not on the row's middle (50 + 450 - 120 = 380), and
+  // below the row, not above it under the tabs (48 - 4 - 36 = 8).
+  expect(tip.style.left).toBe("30px");
+  expect(tip.style.top).toBe(`${48 + 22 + UI_TOOLTIP_GAP}px`);
+});

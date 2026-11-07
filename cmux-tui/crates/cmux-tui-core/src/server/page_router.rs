@@ -198,6 +198,9 @@ fn run(
         "apps.store" => {
             Ok(Answer::Now(apps_store(mux, client, operation, Value::Object(params), origin)))
         }
+        super::bookmarks_routed::OWNER => {
+            Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
+        }
         #[cfg(unix)]
         "agent_session.trust" => Ok(Answer::Now(super::agent_session_attach::routed_trust(
             mux, client, operation, params,

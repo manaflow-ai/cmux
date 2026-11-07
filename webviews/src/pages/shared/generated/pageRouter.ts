@@ -39,6 +39,16 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.uninstall"
     ]
   },
+  "bookmarks": {
+    "read": [
+      "bookmarks.list",
+      "bookmarks.search"
+    ],
+    "gesture": [
+      "bookmarks.apply"
+    ],
+    "confirm": []
+  },
   "feed": {
     "read": [
       "feed.github.find_work",
@@ -119,6 +129,20 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
       "apps.install",
       "apps.set",
       "apps.uninstall"
+    ]
+  },
+  "bookmarks": {
+    "owner": "bookmarks.tree",
+    "read": [
+      "bookmarks.export",
+      "bookmarks.list",
+      "bookmarks.rank",
+      "bookmarks.search"
+    ],
+    "mutation": [
+      "bookmarks.apply",
+      "bookmarks.import_html",
+      "bookmarks.import_source"
     ]
   },
   "feed": {
