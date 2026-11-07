@@ -311,7 +311,7 @@ public final class TerminalSurfaceView: NSView {
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
             // report (held while it was not shown) would be a size no frame rests at.
             let joined = isInPaneMotion && joinPaneMotion()
-            updateSurfaceSize(forceReport: pendingForcedReport && !joined)
+            updateSurfaceSize(forceReport: pendingForcedReport && !joined, justShown: true)
             pendingForcedReport = false
             // A join sent the grid its spring rests at; else a grid a hide dropped goes (``resendShownGrid(atRest:)``).
             if joined { resendsShownGrid = false } else { resendShownGrid(atRest: !isInPaneMotion && !isFollowingResizeGesture) }
@@ -480,7 +480,12 @@ public final class TerminalSurfaceView: NSView {
     /// a larger view draws padding, a smaller one crops, and the report still
     /// says what would fit. The owner decides; the surface follows its
     /// announcement.
-    func updateSurfaceSize(forceReport: Bool = false) {
+    /// - Parameter justShown: The view was just shown (``syncWindowState()``): its bounds can be the ones it had out of its
+    ///   pane (a new terminal's 800x600 init frame), and the pane's layout gives it its frame later in this turn. In a key
+    ///   spring (a tab switch mid-hold) the grid of these bounds then waits for the refresh, and the layout's grid replaces it;
+    ///   sent at once (RESIZE P0 7's first grid of a refresh), it reached the PTY as a grid its pane never showed (RESIZE P0
+    ///   8, item 0: a tab switch mid-hold sent 99x34, then 80x44).
+    func updateSurfaceSize(forceReport: Bool = false, justShown: Bool = false) {
         guard let surface else { return }
         // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
         // is shown (`syncWindowState`), a forced report included.
@@ -529,8 +534,8 @@ public final class TerminalSurfaceView: NSView {
             // A drag's grid goes once its size shows: now with the bounds, or when the presenter shows it (`frameDidLand`).
             gridReports.drag(report, shownNow: frameOwnership.inFlight == nil)
         } else {
-            // A key spring's grid: the committed bounds' (shown), coalesced.
-            gridReports.coalesced(report)
+            // A key spring's grid: the committed bounds' (shown), coalesced; a just-shown view's waits for the refresh.
+            gridReports.coalesced(report, waitsForRefresh: justShown)
         }
     }
 

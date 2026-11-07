@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 817,
+    "verbs": 818,
     "mcp": 732
   },
   "nouns": [
@@ -3700,6 +3700,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux settings window-style-blocks",
+          "title": "Window Style: Blocks",
+          "id": "appearance.chromeStyle.blocks",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
           "command": "cmux settings window-style-card",
           "title": "Window Style: Card",
           "id": "appearance.chromeStyle.card",
@@ -5958,6 +5965,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 74
+    "systemChange": 75
   }
 }

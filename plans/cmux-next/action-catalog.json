@@ -83995,6 +83995,77 @@
 
       ],
       "category" : "settings",
+      "cliName" : "settings window-style-blocks",
+      "computed" : {
+        "canonical_action_id" : "appearance.chromeStyle.blocks",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "windowStyle",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "ChromeStyleActionCatalog",
+      "id" : "appearance.chromeStyle.blocks",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "window",
+        "style",
+        "chrome",
+        "appearance",
+        "look",
+        "blocks",
+        "blocky",
+        "solid",
+        "flat",
+        "tonal",
+        "no borders",
+        "no lines",
+        "borderless"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : "systemChange",
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "square.split.2x2.fill",
+      "targets" : [
+
+      ],
+      "title" : "Window Style: Blocks",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "settings change-background",
       "computed" : {
         "canonical_action_id" : "appearance.changeBackground",
@@ -108944,7 +109015,8 @@
           "appearance.chromeStyle.flatSidebarLine",
           "appearance.chromeStyle.floating",
           "appearance.chromeStyle.panes",
-          "appearance.chromeStyle.twoTone"
+          "appearance.chromeStyle.twoTone",
+          "appearance.chromeStyle.blocks"
         ],
         "parent" : null,
         "symbol" : "macwindow",

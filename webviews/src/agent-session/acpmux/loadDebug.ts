@@ -41,12 +41,13 @@ function afterRender(): Promise<number> {
 export async function loadSeed(
   host: { selectSession(sessionId: string): void; rowCount(): number },
   turns: number,
+  options: { light?: boolean } = {},
 ): Promise<Record<string, unknown>> {
   const mock = MockAcpmuxSocket.live;
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)));
+  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), options.light === true);
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on
@@ -361,6 +362,8 @@ export async function loadTick(
   const perSecond = (value: number) => round2(value / elapsed);
   return {
     ...ticked,
+    // Renders per component over the run (`acpmuxPerf.render`), as `loadRun` reports them.
+    renders: Object.fromEntries(acpmuxPerf.renders),
     seconds: round2(elapsed),
     frames,
     scroll_target: panelTarget ? "session-info" : "chat",
