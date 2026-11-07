@@ -163,22 +163,36 @@ fn input_gemini_sent_keeps_its_fields_and_gains_the_plan() {
     assert_eq!(tool["rawInput"]["plan"], PLAN.trim());
 }
 
-/// The file is opened without following a symlink put in its place after the path was judged,
-/// and a FIFO never waits for a writer.
+/// The file is opened part by part from the resolved `tmp` folder without following a symlink
+/// at any part (the file, or a folder on the way, swapped after the path was judged), and a FIFO
+/// never waits for a writer.
 #[cfg(unix)]
 #[test]
-fn the_open_follows_no_symlink_and_never_waits_on_a_fifo() {
+fn the_open_follows_no_symlink_at_any_part_and_never_waits_on_a_fifo() {
+    use std::ffi::OsStr;
     let f = fixture(false);
+    let tmp = std::fs::canonicalize(f.home.join("tmp")).unwrap();
     let plans = f.plan.parent().unwrap();
-    let swapped = plans.join("swapped.md");
-    std::os::unix::fs::symlink(&f.plan, &swapped).unwrap();
-    assert_eq!(read_capped(&swapped, MAX_PLAN_BYTES), None);
+    let read = |parts: &[&str]| {
+        let parts: Vec<&OsStr> = parts.iter().map(OsStr::new).collect();
+        read_capped(&tmp, &parts, MAX_PLAN_BYTES)
+    };
+    assert_eq!(read(&["app", "plans", "dark-mode.md"]).as_deref(), Some(PLAN));
+    // The file swapped for a symlink.
+    std::os::unix::fs::symlink(&f.plan, plans.join("swapped.md")).unwrap();
+    assert_eq!(read(&["app", "plans", "swapped.md"]), None);
+    // A folder on the way swapped for a symlink to a folder outside Gemini's.
+    let outside = f._dir.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret.md"), "secret").unwrap();
+    std::os::unix::fs::symlink(&outside, tmp.join("app").join("linked")).unwrap();
+    assert_eq!(read(&["app", "linked", "secret.md"]), None);
+    // A FIFO.
     let fifo = plans.join("pipe.md");
     let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
     // SAFETY: a valid NUL-terminated path; mkfifo only creates the node.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
-    assert_eq!(read_capped(&fifo, MAX_PLAN_BYTES), None);
-    assert_eq!(read_capped(&f.plan, MAX_PLAN_BYTES).as_deref(), Some(PLAN));
+    assert_eq!(read(&["app", "plans", "pipe.md"]), None);
 }
 
 #[test]

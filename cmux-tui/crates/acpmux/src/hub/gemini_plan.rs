@@ -13,8 +13,9 @@
 //! `<gemini home>/tmp/<project>/plans/` or `<gemini home>/tmp/<project>/<session>/plans/`, where
 //! `<project>`'s `.project_root` marker (gemini-cli `config/projectRegistry.ts`) names the chat's
 //! folder. The path is resolved (symlinks too) before it is judged, it must be a Markdown file,
-//! and it is stat'ed as a regular file of at most 256 KiB first. Anything else, or a read that
-//! fails, leaves the call as Gemini sent it.
+//! it is opened part by part from the resolved `tmp` folder with no symlink followed, and the open
+//! file must be a regular file of at most 256 KiB. Anything else, or a read that fails, leaves the
+//! call as Gemini sent it.
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -33,22 +34,47 @@ const MAX_PLAN_BYTES: u64 = 256 * 1024;
 /// The most of a `.project_root` marker acpmux reads: one path.
 const MARKER_MAX_BYTES: u64 = 16 * 1024;
 
-/// `path`'s text when it is a regular file of at most `max` bytes, opened without following a
-/// symlink in its last part; None otherwise. The read is bounded too, so a file that grows after
-/// the stat is still never read past `max`.
-fn read_capped(path: &Path, max: u64) -> Option<String> {
-    use std::io::Read as _;
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        // The path was judged already resolved: a symlink put there since is refused, not
-        // followed, and a FIFO opens without waiting for a writer (then fails the regular-file
-        // check below). Size and kind come from the open file itself, never the path again.
-        open.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+/// The file `parts` names under the folder `root` (already resolved), opened one part at a time
+/// from `root`'s own handle with no symlink followed at any part: a folder or file swapped for a
+/// symlink after the path was judged is refused, never followed out of `root`. A FIFO opens
+/// without waiting for a writer (then fails the regular-file check of [`read_capped`]).
+#[cfg(unix)]
+fn open_beneath(root: &Path, parts: &[&std::ffi::OsStr]) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let (last, folders) = parts.split_last()?;
+    let dir_flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut dir = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(root)
+        .ok()?;
+    let at = |dir: &std::fs::File, name: &std::ffi::OsStr, flags: libc::c_int| {
+        let name = std::ffi::CString::new(name.as_bytes()).ok()?;
+        // SAFETY: `dir` is open for the call and `name` is NUL-terminated; the descriptor opened
+        // is owned at once.
+        let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) };
+        (fd >= 0).then(|| std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+    };
+    for folder in folders {
+        dir = at(&dir, folder, dir_flags)?;
     }
-    let file = open.open(path).ok()?;
+    at(&dir, last, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+}
+
+#[cfg(not(unix))]
+fn open_beneath(root: &Path, parts: &[&std::ffi::OsStr]) -> Option<std::fs::File> {
+    let path = parts.iter().fold(root.to_path_buf(), |path, part| path.join(part));
+    std::fs::metadata(&path).ok()?.is_file().then(|| std::fs::File::open(&path).ok())?
+}
+
+/// The text of the file `parts` names under `root` ([`open_beneath`]) when it is a regular file of
+/// at most `max` bytes; None otherwise. Kind and size come from the open file itself, and the read
+/// is bounded too, so a file that grows after the stat is still never read past `max`.
+fn read_capped(root: &Path, parts: &[&std::ffi::OsStr], max: u64) -> Option<String> {
+    use std::io::Read as _;
+    let file = open_beneath(root, parts)?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > max {
         return None;
@@ -121,22 +147,22 @@ pub(super) fn read_plan(path: &str, cwd: &Path, homes: &[PathBuf]) -> Option<Str
     if real.extension().and_then(|e| e.to_str()).is_none_or(|e| !e.eq_ignore_ascii_case("md")) {
         return None;
     }
-    let inside = homes.iter().any(|home| {
-        let Ok(tmp) = std::fs::canonicalize(home.join("tmp")) else { return false };
-        let Ok(rest) = real.strip_prefix(&tmp) else { return false };
+    // Both reads go from the resolved `tmp` folder's handle down, part by part, so the file read
+    // is the one judged here even if a folder on the way is swapped for a symlink meanwhile.
+    let text = homes.iter().find_map(|home| {
+        let tmp = std::fs::canonicalize(home.join("tmp")).ok()?;
+        let rest = real.strip_prefix(&tmp).ok()?;
         let parts: Vec<_> = rest.components().map(|c| c.as_os_str()).collect();
         // <project>/plans/<file...> or <project>/<session>/plans/<file...>.
         let plans = |at: usize| parts.get(at).is_some_and(|part| *part == "plans");
         let planned = (parts.len() >= 3 && plans(1)) || (parts.len() >= 4 && plans(2));
-        let Some(project) = parts.first() else { return false };
-        planned
-            && read_capped(&tmp.join(project).join(PROJECT_ROOT_FILE), MARKER_MAX_BYTES)
-                .is_some_and(|marker| names_project(&marker, cwd))
-    });
-    if !inside {
-        return None;
-    }
-    let text = read_capped(&real, MAX_PLAN_BYTES)?;
+        let project = *parts.first()?;
+        let marker = std::ffi::OsStr::new(PROJECT_ROOT_FILE);
+        let owned = planned
+            && read_capped(&tmp, &[project, marker], MARKER_MAX_BYTES)
+                .is_some_and(|marker| names_project(&marker, cwd));
+        owned.then(|| read_capped(&tmp, &parts, MAX_PLAN_BYTES))?
+    })?;
     let text = text.trim();
     (!text.is_empty()).then(|| text.to_owned())
 }
