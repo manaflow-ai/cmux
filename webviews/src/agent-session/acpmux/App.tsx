@@ -560,7 +560,8 @@ import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/back
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
-import { type FolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { WorktreeFailure } from "./startFolder";
+import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
@@ -2285,17 +2286,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
-  // that would not fit the image cap answers `tooLarge` with its name.
+  // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
     const shot = await callNative<{
       name?: string;
       mimeType?: string;
       data?: string;
-      tooLarge?: boolean;
       source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
-    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
