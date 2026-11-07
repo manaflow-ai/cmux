@@ -1718,13 +1718,17 @@
    some sort of nice, comfortable transition"). The list opens with its final rows, so this runs
    only for a real change; Reduce Motion and the app's motion switch drop it (the row is there or
    gone in one frame). A leaving row is disabled while it goes. */
+/* The row's whole box moves: its vertical padding goes with its height (the row is border-box,
+   so a max-height of 0 alone left its 5 px above and below, and the row's removal after the
+   motion was a 10 px jump; #37858). Its last frame is 0 tall, padding included, so removing it
+   moves nothing (test/newtab-machine-menu.test.ts). */
 @keyframes acpmux-env-row-in {
-  from { min-height: 0; max-height: 0; opacity: 0; }
+  from { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
   to { max-height: var(--ui-row-height); opacity: 1; }
 }
 @keyframes acpmux-env-row-out {
   from { max-height: var(--ui-row-height); opacity: 1; }
-  to { min-height: 0; max-height: 0; opacity: 0; }
+  to { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
 }
 .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) { pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {

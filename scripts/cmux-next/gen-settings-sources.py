@@ -153,7 +153,8 @@ extension SettingsSchema {{
 
 
 # Swift names per section source: the schema type, and each list's static var and the type that
-# owns its rows' constants (None: every row of the list names its own `swift_owner`). A choice
+# owns its rows' constants (None: every row of the list names its own `swift_owner`). `joined`
+# (optional) names a static var that concatenates every list in source order. A choice
 # row's Swift enum is the row's `swift_enum` (see the module docstring).
 SCHEMA_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema"
 SECTIONS_SOURCE = "schemas/settings/source/sections.json"
@@ -321,6 +322,29 @@ SECTIONS = [
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",
         "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+    },
+    {
+        "source": "schemas/settings/source/browser.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Browser.generated.swift",
+        "type": "BrowserSettingsSchema",
+        "joined": "descriptors",
+        "lists": {"toolbar": ("toolbar", "BrowserToolbarButtonsSetting"), "engine": ("engine", "BrowserDefaultEngine"),
+                  "bookmarks": ("bookmarks", "BookmarksBarSetting"), "browserImport": ("browserImport", "BrowserImportSetting"),
+                  "agentInput": ("agentInput", "AgentMouseSetting"), "extensions": ("extensions", "BuiltInAdBlockerSetting"),
+                  "memory": ("memory", "BrowserHibernationSetting"), "remote": ("remote", "RemoteLocalhostSetting"),
+                  "addressBar": ("addressBar", "BrowserOmnibarSetting"), "links": ("links", "BrowserLinkClickSetting"),
+                  "openingLinks": ("openingLinks", "LinkRouting"), "files": ("files", "TextEditorSetting"),
+                  "passwords": ("passwords", "BrowserPasswordsSetting"),
+                  "verificationAutofill": ("verificationAutofill", "BrowserVerificationAutofillSetting")},
+    },
+    {
+        "source": "schemas/settings/source/browser-app.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+BrowserApp.generated.swift",
+        "type": "BrowserAppSettingsSchema",
+        "joined": "descriptors",
+        "lists": {"toolbar": ("toolbar", "BrowserAppSettingsSchema"), "addressBar": ("addressBar", "BrowserAppSettingsSchema"),
+                  "columns": ("columns", "BrowserAppSettingsSchema"), "window": ("window", "BrowserAppSettingsSchema"),
+                  "sidebar": ("sidebar", "BrowserAppSettingsSchema")},
     },
     {
         "source": "schemas/settings/source/machines.json",
@@ -835,6 +859,17 @@ def list_var_swift(var, entry, rows, list_owner):
     return out + ["        ]", "    }"]
 
 
+def joined_var_swift(section, data):
+    """`static var <joined>`: every list of the section in source order (SECTIONS `joined`)."""
+    names = [section["lists"][entry["name"]][0] for entry in data["lists"]]
+    if section["joined"] in names:
+        raise SystemExit("%s: joined var %s is also a list's var" % (section["source"], section["joined"]))
+    return ["    /// Every list of %s, in order." % section["source"],
+            "    static var %s: [SettingDescriptor] {" % section["joined"],
+            "        [%s].flatMap { $0 }" % ", ".join(names),
+            "    }"]
+
+
 def line_count(lines):
     return sum(line.count("\n") + 1 for line in lines)
 
@@ -861,6 +896,8 @@ def section_swift(section, data):
     for entry in data["lists"]:
         var, list_owner = section["lists"][entry["name"]]
         lists.append((["    /// " + entry["note"]] if entry.get("note") else []) + list_var_swift(var, entry, entry["rows"], list_owner))
+    if section.get("joined"):
+        lists.append(joined_var_swift(section, data))
     intro = ["/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).",
              "nonisolated enum %s {" % section["type"]]
     single = header + [line for block in constant_blocks for line in block] + intro
@@ -890,6 +927,8 @@ def section_swift(section, data):
         pieces.append(("list", note + ["    static var %s: [SettingDescriptor] { %s }" % (var, joined)]))
         for n, rows in enumerate(parts):
             pieces.append(("list", list_var_swift("%sPart%d" % (var, n + 1), entry, rows, list_owner)))
+    if section.get("joined"):
+        pieces.append(("list", joined_var_swift(section, data)))
     files, current, declared = [], list(header), False
     for piece in pieces:
         if isinstance(piece, tuple):
