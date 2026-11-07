@@ -22,7 +22,8 @@ bulk="${BULK_BYTES:-16777216}"
 profiles="${PROFILES:-clean:0:0 rtt50:25:0 rtt50-loss1:25:1 rtt150-loss1:75:1 rtt150-loss3:75:3}"
 
 cargo build --release -q -p cmux-wg --example remote_stream_bench
-bin="target/release/examples/remote_stream_bench"
+bin="${CARGO_TARGET_DIR:-target}/release/examples/remote_stream_bench"
+sudo -n modprobe sch_netem 2>/dev/null || true
 
 shaped=0
 unshape() {
@@ -42,7 +43,7 @@ for profile in $profiles; do
   fi
   for path in tcp wg-tcp wg-dgram; do
     line="$("$bin" --path "$path" --seconds "$seconds" --fps "$fps" --frame-bytes "$frame" \
-      --keyframe-bytes "$keyframe" --bulk-bytes "$bulk" 2>/dev/null || echo '{}')"
+      --keyframe-bytes "$keyframe" --bulk-bytes "$bulk" || echo '{}')"
     printf '{"profile":"%s","rtt_ms":%s,"loss_pct":%s,"result":%s}\n' \
       "$name" "$((delay * 2))" "$loss" "$line" >>"$out"
   done
