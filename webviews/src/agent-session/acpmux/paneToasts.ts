@@ -3,8 +3,10 @@
 // - `transcript`: a line in the shown chat, for what belongs to the conversation (a prompt that was
 //   not sent, a resume that failed). It stays with the rows it is about.
 // - `transient`: feedback on a click or an action (a sender with no chat, an action the app did not
-//   run). It belongs to the moment, not the chat.
-import type { NoticeQueue } from "../../ui/NoticeStack";
+//   run). It belongs to the moment, not the chat: a toast in the pane's stack over the transcript's
+//   foot, by the composer where the person is looking (Leo, 2026-11-07: "it should have sent, like,
+//   that bottom toast area"). The same text twice is one toast with a count (NoticeStack).
+import { createNoticeQueue, type NoticeQueue } from "../../ui/NoticeStack";
 import { translate } from "./i18n";
 
 /** The shown chat's notice lines (DirectClient.notice). */
@@ -26,9 +28,18 @@ export interface PaneNotices {
   senderMissing(name: string): void;
 }
 
+/** The pane's toasts: at most three in the deck, the oldest leaving for a fourth. */
+export const PANE_TOAST_LIMIT = 3;
+
+export function createPaneToasts(): NoticeQueue {
+  return createNoticeQueue(PANE_TOAST_LIMIT);
+}
+
 export function paneNotices(sinks: PaneNoticeSinks): PaneNotices {
   const transcript = (text: string) => void sinks.transcript()?.notice(text);
-  const transient = (text: string) => transcript(text);
+  const transient = (text: string) => {
+    if (text) sinks.toasts.show({ message: text });
+  };
   return {
     transcript,
     transient,

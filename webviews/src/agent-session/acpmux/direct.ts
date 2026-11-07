@@ -3780,7 +3780,7 @@ export class AcpmuxDirectClient {
     this.stoppingEnded();
     const reason =
       typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
-    this.notice(translate("queue.stopRefused", { reason }));
+    this.transient(translate("queue.stopRefused", { reason }));
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -10098,7 +10098,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.notice(errorMessage(error) || String(error));
+      this.transient(errorMessage(error) || String(error));
       return false;
     }
   }
@@ -10116,6 +10116,15 @@ export class AcpmuxDirectClient {
       return;
     }
     await this.create(text(summary.harness), text(summary.cwd));
+  }
+  /// Where feedback on a click goes (App.tsx: the pane's toasts, paneToasts.ts). Unset (a test, a
+  /// client with no pane), it is a transcript line as before.
+  toastSink: ((text: string) => void) | undefined;
+  /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
+  /// agent refused, a take-over that failed): a toast, never a transcript line.
+  transient(text: string): void {
+    if (this.toastSink) this.toastSink(text);
+    else this.notice(text);
   }
   /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
   notice(text: string, id = noticeId("notice")): string {

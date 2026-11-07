@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createNoticeQueue } from "../../ui/NoticeStack";
 import type { AcpmuxActivity } from "./model";
-import { resetSessionRefs, setSessionRefResolver } from "./conversation/sessionRefs";
+import { resetSessionRefs, senderRef, setSessionRefResolver } from "./conversation/sessionRefs";
 import { resetTranscriptDisclosure } from "./conversation/transcriptDisclosure";
 import { WhoElseCard } from "./conversation/WhoElseCard";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./conversation/whoElseCalls";
@@ -112,4 +112,11 @@ test("a click on a sender with no chat adds no transcript line; a second click c
   expect(toasts.snapshot().map((entry) => [entry.spec.message, entry.count])).toEqual([
     ["Can't find build-box/mux-rs's chat", 2],
   ]);
+});
+
+test("a sender that named itself is looked up without acpmux's unauthenticated label", () => {
+  expect(senderRef("build-box/mux-rs (self-declared, unauthenticated)")).toBe("build-box/mux-rs");
+  expect(senderRef(" mux-rs ")).toBe("mux-rs");
+  // Only the label at the end goes.
+  expect(senderRef("notes (draft)")).toBe("notes (draft)");
 });

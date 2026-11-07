@@ -72,7 +72,7 @@ import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
 import { useSessionHover } from "../started/SessionHoverCard";
-import { resolveSessionRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
+import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -198,7 +198,7 @@ export function SenderName({
     !inboxNames &&
     message.name.trim() !== "" &&
     sessionRefsResolve();
-  const query = asks ? message.name.trim() : undefined;
+  const query = asks ? senderRef(message.name) || undefined : undefined;
   const resolved = useSessionRef(query, false);
   useEffect(
     () => (query && resolved === undefined ? whenIdle(() => void resolveSessionRef(query)) : undefined),

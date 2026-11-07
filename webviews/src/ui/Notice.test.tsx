@@ -203,3 +203,119 @@ test("a toast times out, but not while the stack is hovered, and gets its full t
   expect(queue.snapshot()).toHaveLength(0);
   expect(live()).toHaveLength(0);
 });
+
+test("the same toast shown again is one toast with a count, moved to the newest place", () => {
+  const queue = createNoticeQueue();
+  const closed: string[] = [];
+  const first = queue.show({ message: "Can't find dev's chat", onClose: (reason) => closed.push(reason) });
+  queue.show({ message: "Copied." });
+  const again = queue.show({ message: "Can't find dev's chat" });
+  expect(again).toBe(first);
+  expect(queue.snapshot().map((entry) => [entry.spec.message, entry.count])).toEqual([
+    ["Copied.", 1],
+    ["Can't find dev's chat", 2],
+  ]);
+  // Not the same: another kind, or a toast whose text is not plain.
+  queue.show({ kind: "error", message: "Copied." });
+  expect(queue.snapshot().map((entry) => entry.count)).toEqual([1, 2, 1]);
+  expect(closed).toEqual([]);
+  // A caller's id shown again with the same text counts too; with new text it replaces.
+  const ids = createNoticeQueue();
+  ids.show({ id: "copy", message: "Copied." });
+  ids.show({ id: "copy", message: "Copied." });
+  expect(ids.snapshot().map((entry) => entry.count)).toEqual([2]);
+  ids.show({ id: "copy", message: "Copied the link." });
+  expect(ids.snapshot().map((entry) => [entry.spec.message, entry.count])).toEqual([["Copied the link.", 1]]);
+});
+
+test("a count shows after the toast's text", () => {
+  const queue = createNoticeQueue();
+  queue.show({ message: "Copied." });
+  queue.show({ message: "Copied." });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
+  expect(doc.querySelector(".ui-notice-count")?.textContent).toBe("×2");
+});
+
+test("the stacked deck puts the newest in front and spreads while hovered", () => {
+  const queue = createNoticeQueue();
+  for (const message of ["one", "two", "three"]) queue.show({ message, duration: 0 });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
+  const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
+  // Newest first in the DOM: Tab reaches the front toast first.
+  expect(cards().map((card) => card.textContent)).toEqual(["three", "two", "one"]);
+  expect(cards()[0]!.hasAttribute("data-front")).toBe(true);
+  const deck = doc.querySelector(".ui-notice-deck")!;
+  expect(deck.hasAttribute("data-expanded")).toBe(false);
+  // Gathered: each older card a step back and smaller.
+  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "0.95", "0.9"]);
+  const stack = doc.querySelector(".ui-notice-stack")!;
+  act(() => {
+    stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(deck.hasAttribute("data-expanded")).toBe(true);
+  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "1", "1"]);
+  act(() => {
+    stack.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(deck.hasAttribute("data-expanded")).toBe(false);
+});
+
+test("a new toast enters the deck's front; a closed one leaves (at once with no motion)", () => {
+  const queue = createNoticeQueue();
+  queue.show({ id: "a", message: "a", duration: 0 });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
+  act(() => void queue.show({ id: "b", message: "b", duration: 0 }));
+  const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
+  expect(cards().map((card) => [card.textContent, card.dataset.phase])).toEqual([
+    ["b", "shown"],
+    ["a", "shown"],
+  ]);
+  act(() => queue.close("b"));
+  // A test document runs no transition, so the leaving card goes in the same commit.
+  expect(cards().map((card) => card.textContent)).toEqual(["a"]);
+});
+
+test("in the deck, a toast's time stops while hovered, and a persistent toast's action runs and closes it", () => {
+  let clock = 0;
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  const ran: string[] = [];
+  const reasons: string[] = [];
+  queue.show({
+    id: "keep",
+    message: "Archived 3 chats.",
+    duration: 0,
+    actions: [{ id: "undo", label: "Undo", onSelect: () => ran.push("undo") }],
+    onClose: (reason) => reasons.push(reason),
+  });
+  queue.show({ id: "t", message: "Copied.", duration: 4000 });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
+  // Only the timed toast arms a timer; the persistent one never does.
+  expect(live().map((timer) => timer.ms)).toEqual([4000]);
+  const stack = doc.querySelector(".ui-notice-stack")!;
+  act(() => {
+    stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(live()).toHaveLength(0);
+  clock = 3000;
+  act(() => {
+    stack.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(live().map((timer) => timer.ms)).toEqual([4000]);
+  act(() => live()[0]!.fire());
+  expect(queue.snapshot().map((entry) => entry.spec.id)).toEqual(["keep"]);
+  expect(live()).toHaveLength(0);
+  const undo = doc.querySelector<HTMLButtonElement>('[data-notice-action="undo"]')!;
+  act(() => undo.click());
+  expect(ran).toEqual(["undo"]);
+  expect(reasons).toEqual(["action"]);
+  expect(queue.snapshot()).toHaveLength(0);
+});

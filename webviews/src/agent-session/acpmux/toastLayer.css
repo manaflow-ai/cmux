@@ -1,0 +1,30 @@
+/* The pane's toast layer (ToastLayer.tsx). A zero-height line at the top of the bottom stack: the
+   deck stands on it, over the transcript, a gap above the first part of the stack (a question, the
+   tray or the composer). Absolutely placed, so the stack's flow, the composer and the transcript
+   never move for it. Its insets are the composer card's (--cv-inset, --cv-inset-end), so the deck
+   is centred on the composer's column, as the jump-to-latest button is. */
+.acpmux-dock > .acpmux-toasts.acpmux-toasts {
+  position: relative;
+  flex: none;
+  height: 0;
+  margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
+  z-index: var(--layer-toast, 900);
+  /* Not one of the stack's parts: no entry of its own, no share of a short pane's shrink, and it
+     takes no pointer; its toasts do. */
+  animation: none;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+/* While the stack floats over the transcript, the line is its top edge. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-toasts.acpmux-toasts {
+  position: absolute;
+  bottom: 100%;
+  left: var(--cv-inset, 0px);
+  right: var(--cv-inset-end, var(--cv-inset, 0px));
+  margin: 0;
+  pointer-events: none;
+}
+.acpmux-toasts > .ui-notice-stack {
+  --ui-notice-stack-bottom: var(--ds-space-2, 8px);
+  padding-inline: 0;
+}

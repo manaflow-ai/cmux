@@ -205,3 +205,108 @@
 .ui-notice-stack > * {
   pointer-events: auto;
 }
+
+/* A repeat's count after the text (NoticeStack folds the same toast shown again into one): a small
+   rect in the quiet ink, never a capsule. */
+.ui-notice-count {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ui-notice-ink) 10%, transparent);
+  color: var(--ui-notice-ink-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The stacked layout (NoticeDeck.tsx): a compact deck, newest in front, that spreads while the
+   pointer or focus is in it. The deck's box is as tall as what it shows, at the stack's foot; its
+   clip runs at its foot (and wide of its sides, for the cards' shadows), so a card rises in from
+   behind that edge and sinks out of it. Clipping (overflow), not a clip-path or opacity: the cards'
+   glass blurs what is behind the deck, which a clip-path or opacity on an ancestor would cut off. */
+.ui-notice-stack[data-layout="stacked"] {
+  --ui-notice-deck-width: 360px;
+  --ui-notice-deck-shadow-room: var(--ds-space-5);
+  --ui-notice-deck-motion: var(--cmux-motion-standard, 180ms);
+  --ui-notice-deck-ease: var(--ui-enter-ease, cubic-bezier(0.2, 0, 0, 1));
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-end;
+}
+.ui-notice-stack[data-layout="stacked"][data-align="end"] {
+  justify-content: flex-end;
+}
+.ui-notice-stack[data-layout="stacked"] > .ui-notice-deck {
+  position: relative;
+  width: min(var(--ui-notice-deck-width), 100%);
+  height: var(--ui-notice-deck-h, 0px);
+  pointer-events: none;
+}
+.ui-notice-deck-cards {
+  position: absolute;
+  /* Open far above: a gathering deck's cards come down from where they were spread. */
+  inset: -100vh calc(-1 * var(--ui-notice-deck-shadow-room)) 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  pointer-events: none;
+}
+.ui-notice-deck-card {
+  position: absolute;
+  contain: layout;
+  inset-inline: var(--ui-notice-deck-shadow-room);
+  bottom: 0;
+  transform-origin: 50% 100%;
+  transform: translateY(var(--ui-notice-deck-y, 0px)) scale(var(--ui-notice-deck-scale, 1));
+  translate: 0 0;
+  pointer-events: auto;
+  transition:
+    transform var(--ui-notice-deck-motion) var(--ui-notice-deck-ease),
+    translate var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+/* The card fills the deck's width; its height is its own, or the front card's while gathered. */
+.ui-notice-deck-card > .ui-notice {
+  width: 100%;
+  max-width: none;
+  height: var(--ui-notice-deck-card-h, auto);
+  overflow: hidden;
+  transition: height var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+/* Behind the front while gathered: an edge of glass, its text not shown until the deck spreads. */
+.ui-notice-deck-card > .ui-notice > * {
+  transition: opacity var(--ui-notice-deck-motion) var(--ui-notice-deck-ease);
+}
+.ui-notice-deck:not([data-expanded]) .ui-notice-deck-card:not([data-front]) > .ui-notice > * {
+  opacity: 0;
+}
+/* The gap between spread cards keeps the deck under the pointer. */
+.ui-notice-stack[data-layout="stacked"] > .ui-notice-deck[data-expanded] {
+  pointer-events: auto;
+}
+.ui-notice-deck-card[data-hidden] {
+  visibility: hidden;
+}
+/* Entering from, and leaving to, under the deck's foot. */
+.ui-notice-deck-card:is([data-phase="from"], [data-phase="leaving"]) {
+  translate: 0 calc(100% + var(--ds-space-2));
+}
+.ui-notice-deck-card[data-phase="from"] {
+  transition: none;
+}
+.ui-notice-deck-card[data-phase="leaving"] {
+  pointer-events: none;
+  /* An exit is shorter than its entrance (ui/presence.ts). */
+  transition-duration: var(--cmux-motion-micro, 120ms);
+}
+/* Motion off or Reduce Motion: each change is drawn in one frame. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"])
+  :is(.ui-notice-deck-card, .ui-notice-deck-card > .ui-notice, .ui-notice-deck-card > .ui-notice > *) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ui-notice-deck-card, .ui-notice-deck-card > .ui-notice, .ui-notice-deck-card > .ui-notice > *) {
+    transition: none;
+  }
+}
