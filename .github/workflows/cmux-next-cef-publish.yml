@@ -46,6 +46,15 @@ jobs:
       branch: ${{ steps.check.outputs.branch }}
       sums: ${{ steps.check.outputs.sums }}
     steps:
+      - name: Checkout main's checksum check
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/check-cef-sums.py
+          sparse-checkout-cone-mode: false
+
       - name: Mint a read token for manaflow-ai/cef
         id: cef-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -81,12 +90,9 @@ jobs:
           gh release view "$TAG" --repo manaflow-ai/cef --json assets --jq '.assets[].name' > "$work/assets"
           grep -qx SHA256SUMS "$work/assets" || { echo "::error::release $TAG has no SHA256SUMS" >&2; exit 1; }
           gh release download "$TAG" --repo manaflow-ai/cef --pattern SHA256SUMS --dir "$work"
-          missing=0
-          while IFS= read -r name; do
-            awk '{print $2}' "$work/SHA256SUMS" | sed 's/^\*//' | grep -qx "$name" || { echo "::error::$name is not in SHA256SUMS" >&2; missing=1; }
-          done < <(grep '\.tar\.xz$' "$work/assets")
-          (( missing == 0 )) || exit 1
-          grep -q '\.tar\.xz$' "$work/assets" || { echo "::error::release $TAG has no .tar.xz assets" >&2; exit 1; }
+          # One strict parser: every line well formed, and the release's
+          # archives are exactly the listed ones.
+          python3 -I scripts/cmux-next/check-cef-sums.py names "$work/SHA256SUMS" "$work/assets"
           # The approval covers exactly this SHA256SUMS: publish takes no other file set.
           sums="$(sha256sum "$work/SHA256SUMS" | awk '{print $1}')"
           { echo "commit=$commit"; echo "branch=$branch"; echo "sums=$sums"; } >> "$GITHUB_OUTPUT"
@@ -111,13 +117,15 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout main's publish script
+      - name: Checkout main's publish script and checksum check
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/publish-cef-r2.sh
+          sparse-checkout: |
+            scripts/cmux-next/publish-cef-r2.sh
+            scripts/cmux-next/check-cef-sums.py
           sparse-checkout-cone-mode: false
 
       - name: Mint a read token for manaflow-ai/cef
@@ -143,13 +151,10 @@ jobs:
           [[ "$now" == "$COMMIT" ]] || { echo "::error::$TAG moved from $COMMIT to $now since it was checked" >&2; exit 1; }
           dir="$RUNNER_TEMP/assets"; mkdir -p "$dir"
           gh release download "$TAG" --repo manaflow-ai/cef --pattern '*.tar.xz' --pattern SHA256SUMS --dir "$dir"
-          # The SHA256SUMS approved in resolve, and exactly its .tar.xz files: an
-          # asset added or replaced since then is refused, never uploaded.
-          echo "$SUMS  $dir/SHA256SUMS" | sha256sum -c -
-          (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | sha256sum -c -)
-          listed="$(awk '$2 ~ /\.tar\.xz$/ {sub(/^\*/, "", $2); print $2}' "$dir/SHA256SUMS" | sort)"
-          present="$(find "$dir" -maxdepth 1 -type f -name '*.tar.xz' -printf '%f\n' | sort)"
-          [[ -n "$listed" && "$listed" == "$present" ]] || { echo "::error::the downloaded .tar.xz files are not exactly those in SHA256SUMS" >&2; exit 1; }
+          # The SHA256SUMS approved in resolve, and exactly its archives with
+          # their listed digests: anything added or replaced since is refused.
+          echo "$SUMS  $dir/SHA256SUMS" | sha256sum --strict -c -
+          python3 -I scripts/cmux-next/check-cef-sums.py files "$dir/SHA256SUMS" "$dir"
           rm "$dir/SHA256SUMS"
 
       - name: Publish
