@@ -22,8 +22,9 @@ nonisolated enum ChromiumAccessibilityPress {
     private typealias Press = @convention(c) (AnyObject, Selector) -> Bool
     private typealias Action = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
-    /// The classes that already carry the step: a second install is a no-op.
-    private static let installed = OSAllocatedUnfairLock<Set<ObjectIdentifier>>(initialState: [])
+    /// A method only an installed class has: the mark that makes a second install a no-op, kept on
+    /// the class itself (`class_addMethod` adds it once).
+    static let installedMark = NSSelectorFromString("cmux_accessibilityPressTellsGesture")
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
@@ -33,7 +34,8 @@ nonisolated enum ChromiumAccessibilityPress {
     /// this call installed it.
     @discardableResult
     static func install(on elementClass: AnyClass, pressed: @escaping @MainActor (NSWindow?, CGRect?) -> Void) -> Bool {
-        guard installed.withLock({ $0.insert(ObjectIdentifier(elementClass)).inserted }) else { return false }
+        let mark: @convention(block) (AnyObject) -> Bool = { _ in true }
+        guard class_addMethod(elementClass, installedMark, imp_implementationWithBlock(mark), "B@:") else { return false }
         let note: (AnyObject) -> Void = { element in
             // AppKit sends accessibility actions on the main thread; anywhere else only presses.
             guard Thread.isMainThread else { return }
