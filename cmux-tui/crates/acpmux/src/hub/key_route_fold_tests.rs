@@ -149,3 +149,38 @@ async fn resolve_takes_the_session_carrying_a_bead_over_a_name_it_starts() {
     assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
     assert_eq!(found["session"]["sessionId"], carrier.id.as_str(), "{found}");
 }
+
+/// A configured peer that never runs, so `HOST/NAME` takes the configured-peer path
+/// (`key_route`'s `self.peer(host)`), as `own_host.rs`'s tests add one.
+fn add_peer(hub: &Hub, name: &str) {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(name.to_owned(), peer);
+}
+
+/// Review of #36919 (F1): `HOST/SHORT` naming a sub-session's short name exactly reaches that
+/// child, never a sibling whose short name differs only in case, live or not; the loose steps
+/// apply only when no short name matches exactly.
+#[tokio::test]
+async fn an_exact_short_name_beats_a_sibling_in_another_case() {
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "hb", "0199bbbb-2222", "coord/td2-a", "idle");
+    let exact = hub.key_route("hb/td2-A").unwrap();
+    assert_ne!(exact.as_deref(), Some("hb/0199bbbb-2222"));
+    let lower = hub.key_route("hb/td2-a").unwrap();
+    assert_ne!(lower.as_deref(), Some("hb/0199aaaa-1111"));
+    // The exact child closed: still that child, not the live one in another case.
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "closed");
+    list(&hub, "hb", "0199bbbb-2222", "coord/td2-a", "idle");
+    assert_ne!(hub.key_route("hb/td2-A").unwrap().as_deref(), Some("hb/0199bbbb-2222"));
+    // Only a loose match: it finds the one child.
+    let hub = test_hub();
+    add_peer(&hub, "hb");
+    list(&hub, "hb", "0199aaaa-1111", "coord/td2-A", "idle");
+    list(&hub, "hb", "0199cccc-3333", "coord/td3-B", "idle");
+    assert_eq!(hub.key_route("hb/td2_a").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
+}
