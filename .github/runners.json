@@ -467,7 +467,8 @@
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
     "nightly.yml#published-in": {"class": "portable-checks"},
-    "nightly.yml#dispatch-published-in": {"class": "portable-checks"},
+    "nightly.yml#retry-nightly-next": {"class": "portable-checks"},
+    "nightly.yml#published-build": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
     "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
@@ -483,6 +484,7 @@
     "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
+    "nightly.yml#build-nightly-deltas": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
     "nightly.yml#promote-nightly-next": {

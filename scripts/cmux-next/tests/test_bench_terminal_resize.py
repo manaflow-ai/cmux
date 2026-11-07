@@ -206,7 +206,7 @@ class PaneCheck(unittest.TestCase):
     def test_follow_takes_the_check_out_of_the_stop_reply(self):
         a = followed(held=2, frames=90, lagging=5, key="a")
         a["a"]["in_flight"] = 4
-        presenter = {"presented": 30, "keeps": 7, "group_waits": 1, "fallbacks": 0, "passes": 40}
+        presenter = {"presented": 30, "keeps": 7, "group_waits": 1, "long_keeps": 0, "passes": 40}
         display = {"calls": 12, "follow_frames": 90, "follow_presenter": presenter,
                    "terminals_followed": {**a, **followed(frames=90, lagging=1, key="b")}}
         checked = verdict.follow(display)
