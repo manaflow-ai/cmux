@@ -7,7 +7,8 @@
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
-import { ArtifactPanel, useArtifactCoversPane } from "../conversation/ArtifactPanel";
+import { ArtifactPanel } from "../conversation/ArtifactPanel";
+import { useArtifactCoversPane } from "../conversation/artifactPanelModel";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { useChatFind } from "../conversation/chatFind";
 import { diffHunks, diffLines, type TurnFile } from "../diff";

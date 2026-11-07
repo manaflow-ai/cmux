@@ -27,6 +27,7 @@
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -221,7 +222,28 @@ export function UpdatedCard({
     actions.openChangelog();
   };
   const rest = useRef<HTMLElement | null>(null);
-  useCardDrag(preview.cardRef, rest, drag, dragFeel, preview.closeForDrag);
+  const dragRef = useCardDrag(rest, drag, dragFeel, preview.closeForDrag);
+  const { cardRef } = preview;
+  const plainRef = useCallback(
+    (element: HTMLElement | null) => {
+      cardRef.current = element;
+      dragRef(element);
+    },
+    [cardRef, dragRef],
+  );
+  // The doodle card has no preview: it is its own rest box, and drags as the plain card does
+  // (review F4 of #37790).
+  const doodleRef = useCallback(
+    (element: HTMLElement | null) => {
+      cardRef.current = element;
+      rest.current = element;
+      dragRef(element);
+    },
+    [cardRef, dragRef],
+  );
+  const restRef = useCallback((element: HTMLElement | null) => {
+    rest.current = element;
+  }, []);
   const whatsNew = (
     <button type="button" className="wn-card-primary" onClick={openChangelog}>
       {strings.t("changelog.page.title")}
@@ -272,12 +294,7 @@ export function UpdatedCard({
           data-drags={drag ? "" : undefined}
           data-glass={glass ? "" : undefined}
           data-composer-material=""
-          // The doodle card has no preview: it is its own rest box, and drags as the plain card does
-          // (review F4 of #37790).
-          ref={(element) => {
-            preview.cardRef.current = element;
-            rest.current = element;
-          }}
+          ref={doodleRef}
         >
           <DoodleHeadline version={cardVersion(data.version)} strings={strings} />
           {title}
@@ -299,7 +316,7 @@ export function UpdatedCard({
       data-glass={glass ? "" : undefined}
       data-composer-material=""
       style={{ "--wn-preview-h": `${preview.height}px` } as CSSProperties}
-      ref={preview.cardRef}
+      ref={plainRef}
     >
       {preview.mounted && (
         <UpdatedCardPreview
@@ -310,12 +327,7 @@ export function UpdatedCard({
           onOpen={openChangelog}
         />
       )}
-      <div
-        className="wn-card-rest"
-        ref={(element) => {
-          rest.current = element;
-        }}
-      >
+      <div className="wn-card-rest" ref={restRef}>
         <div className="wn-card-head">
           {title}
           {placement !== "button" && (
@@ -340,27 +352,41 @@ export function UpdatedCard({
   );
 }
 
-/** Presses on the card start its drag (the section listens itself: it is not a control). */
+/** Presses on the card start its drag (the section listens itself: it is not a control). Returns the
+ *  card's ref: a theme switch between the plain card and the doodle one replaces the card's node, and
+ *  the new node takes the listener (review of #38020). */
 function useCardDrag(
-  card: { current: HTMLElement | null },
   rest: { current: HTMLElement | null },
   drag: CardDragHost | undefined,
   feel: CardDragFeel,
   onStart: () => void,
-) {
+): (element: HTMLElement | null) => void {
   const latest = useRef({ drag, feel, onStart });
   latest.current = { drag, feel, onStart };
-  const drags = drag !== undefined;
-  useEffect(() => {
-    const element = card.current;
-    if (!element || !drags) return;
-    const press = (event: PointerEvent) => {
-      const { drag, feel, onStart } = latest.current;
-      if (drag && rest.current) pressCard(rest.current, event, drag, feel, onStart);
-    };
-    element.addEventListener("pointerdown", press);
-    return () => element.removeEventListener("pointerdown", press);
-  }, [card, rest, drags]);
+  const attached = useRef<{ element: HTMLElement; press: (event: PointerEvent) => void } | null>(null);
+  useEffect(
+    () => () => {
+      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current = null;
+    },
+    [],
+  );
+  return useCallback(
+    (element: HTMLElement | null) => {
+      if (attached.current?.element === element) return;
+      attached.current?.element.removeEventListener("pointerdown", attached.current.press);
+      attached.current = null;
+      if (!element) return;
+      // A card without a host to drag it ignores the press (`drag` is read at the press).
+      const press = (event: PointerEvent) => {
+        const { drag, feel, onStart } = latest.current;
+        if (drag && rest.current) pressCard(rest.current, event, drag, feel, onStart);
+      };
+      element.addEventListener("pointerdown", press);
+      attached.current = { element, press };
+    },
+    [rest],
+  );
 }
 
 /** The hover preview's state: its rows, whether they are mounted (from the first time the pointer

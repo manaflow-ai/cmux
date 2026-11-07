@@ -123,7 +123,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -574,6 +574,11 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
 /// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
 const SWITCH_HOLD_MS = 1_500;
+/// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
+/// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
+/// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
+/// ends as soon as both are in or either fails; this limit is only for a read that never answers.
+const GAP_HOLD_MS = 30_000;
 /// Reading ahead (``AcpmuxDirectClient.readAhead``): the user, 2026-10-21, "switching between
 /// different chiefs and messages/conversations needs instant loading of messages". A chat the page
 /// never read waited on its attach behind the hold above; the recent ones are read while the pane is
@@ -1297,6 +1302,15 @@ export function mergeToolItem(
   at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
+  const provenance =
+    typeof update._meta?.claude?.tool === "string" || typeof update._meta?.claudeCode?.toolName === "string"
+      ? {
+          ...(typeof update._meta?.claude?.tool === "string" ? { claudeTool: update._meta.claude.tool } : {}),
+          ...(typeof update._meta?.claudeCode?.toolName === "string"
+            ? { claudeCodeToolName: update._meta.claudeCode.toolName }
+            : {}),
+        }
+      : before?.provenance;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -1353,6 +1367,7 @@ export function mergeToolItem(
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
+      ...(provenance ? { provenance } : {}),
     },
   };
 }
@@ -3612,7 +3627,7 @@ export class AcpmuxDirectClient {
     // records between them and the page are read (`fetchMissedEvents`), never dropped. The frame
     // drawn stays until both are in, or, when either fails, until the copy is offline again: no
     // transcript with a hole in it between them.
-    const hold = copy.own ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    const hold = copy.own ? this.holdSnapshots(GAP_HOLD_MS) : undefined;
     try {
       const page = await this.attach(sessionId, generation, copy.own ? 0 : copy.lastSeq);
       const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -4394,6 +4409,13 @@ export class AcpmuxDirectClient {
     const generation = ++this.selectionGeneration;
     this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId || brief ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
+    // The tail is for a relist during the hold only: when the hold ends (the chat stayed gone, or
+    // another chat's attach drew), its rows go, not kept for as long as the client lives.
+    const left = this.leftTail;
+    if (left && hold !== undefined)
+      void this.snapshotHold?.released.then(() => {
+        if (this.leftTail === left) this.leftTail = undefined;
+      });
     this.resetSessionState(reason);
     this.emit(reason);
     // The tab's chat went away while shown: why (chatUnavailable.ts) reads the machines as they are now.
@@ -6745,7 +6767,7 @@ export class AcpmuxDirectClient {
         ...row,
         version: row.version + 1,
         items,
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
+        toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
       });
   }
 
@@ -7492,15 +7514,15 @@ export class AcpmuxDirectClient {
         if (update.status === "failed") this.planCalls.delete(callId);
         else if (event.kind === "tool_call") this.planCalls.add(callId);
       }
-      // Plumbing (Claude Code's ToolSearch) draws no row and leaves the text segment open.
-      if (isPlumbingCall(update)) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
-      // An update to a call already shown stays in its fold; a new call ends the text segment.
+      // An update to a call already shown stays in its fold; a new user-visible call ends the text
+      // segment. Discovery plumbing gets an activity row for pending/failed states, but a
+      // completed one is filtered from presentation and must not split one assistant message.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
       if (!knownRow && event.kind === "tool_call_update" && showsNothing(update)) return;
-      if (!knownRow) this.endAssistantSegment();
+      if (!knownRow && !isPlumbingCall(update)) this.endAssistantSegment();
       const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
@@ -7521,7 +7543,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
+        toolCount: items.filter((entry) => entry.kind === "tool" && !isCompletedPlumbingTool(entry.tool)).length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
       };
