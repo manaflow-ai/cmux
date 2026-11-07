@@ -34,6 +34,8 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
         Some(run_github)
     } else if gitlab_requested(raw_args, Surface::current()) {
         Some(run_gitlab)
+    } else if repo_requested(raw_args, Surface::current()) {
+        Some(super::repo_hold::run)
     } else {
         None
     }
@@ -67,6 +69,20 @@ fn gitlab_requested(raw_args: &[String], surface: Surface) -> bool {
 
 fn run_gitlab(rest: &[String]) -> i32 {
     i32::from(cmux_host::gitlab_cli::run(rest))
+}
+
+/// `cmux repo hold DIR -- CMD` (`repo_hold.rs`): the repository sync barrier held around
+/// the rest of a checkout the repo pick cloned head first, on the `cmux` surface only.
+fn repo_requested(raw_args: &[String], surface: Surface) -> bool {
+    surface == Surface::Cmux && raw_args.first().is_some_and(|first| first == "repo")
+}
+
+/// The program that runs this `cmux` again with its surface: argv[0] when it is an absolute
+/// path named `cmux` (the image's link into the store), else the resolved executable.
+pub(super) fn self_program() -> Option<std::path::PathBuf> {
+    let argv0 = std::env::args_os().next();
+    let mut argv = self_argv_for(argv0.as_deref(), std::env::current_exe().ok());
+    (!argv.is_empty()).then(|| std::path::PathBuf::from(argv.swap_remove(0)))
 }
 
 /// Runs `cmux team <rest>` on the team VM and returns its exit code.

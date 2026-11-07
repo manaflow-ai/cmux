@@ -88,6 +88,8 @@ mod host_mount;
 #[cfg(unix)]
 mod inference_gateway;
 #[cfg(unix)]
+mod repo_hold;
+#[cfg(unix)]
 mod inference_setup;
 mod internal;
 mod launch_credential;
