@@ -23,6 +23,7 @@ import type {
   OmnibarKey,
   OmnibarKeyword,
   SearchEngine,
+  ShownRow,
 } from "../omnibox/types";
 import type { ExtensionAction } from "../ui/toolbarModel";
 
@@ -157,7 +158,13 @@ export type ToolbarHostEvent =
   /** Relayed from the popup page. `pointer` is in screen points (a hover with no move is no hover). */
   | { kind: "rowHover"; row: number | null; pointer: { x: number; y: number } }
   /** The page turns the modifiers into a disposition as Return does (Cmd: background tab, ...). */
-  | { kind: "rowClick"; row: number; modifiers: { meta: boolean; shift: boolean; alt: boolean } }
+  | {
+      kind: "rowClick";
+      row: number;
+      modifiers: { meta: boolean; shift: boolean; alt: boolean };
+      /** The row the card drew at `row`: rows replaced in the same push never take its click. */
+      shown?: ShownRow | null;
+    }
   /** Show the page's address again (a commit that opened elsewhere). */
   | { kind: "showPageURL" }
   /** Paste and Go / Paste and Search from the field's menu. */

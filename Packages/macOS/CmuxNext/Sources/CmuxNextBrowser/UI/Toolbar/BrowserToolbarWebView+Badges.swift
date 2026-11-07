@@ -146,7 +146,7 @@ extension BrowserToolbarWebView {
     /// Presses suggestion row `index` as a click does. False when the card has no such row.
     public func debugPressRow(_ index: Int) -> Bool {
         guard popup.isVisible, popup.rowKinds.indices.contains(index) else { return false }
-        send(BrowserToolbarHostEvent.rowClick(index, meta: false, shift: false, alt: false))
+        send(BrowserToolbarHostEvent.rowClick(index, shown: popup.shownRow(index), meta: false, shift: false, alt: false))
         return true
     }
 }

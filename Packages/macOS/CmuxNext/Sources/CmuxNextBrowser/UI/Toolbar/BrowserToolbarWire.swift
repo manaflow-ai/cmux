@@ -376,8 +376,12 @@ nonisolated enum BrowserToolbarHostEvent {
     static func rowHover(_ row: Int?, pointer: CGPoint) -> [String: Any] {
         ["kind": "rowHover", "row": row.map { $0 as Any } ?? NSNull(), "pointer": ["x": pointer.x, "y": pointer.y]]
     }
-    static func rowClick(_ row: Int, meta: Bool, shift: Bool, alt: Bool) -> [String: Any] {
-        ["kind": "rowClick", "row": row, "modifiers": ["meta": meta, "shift": shift, "alt": alt]]
+    /// `shown`: the row the card drew at `row` when it was clicked. The page's rows can change in the
+    /// same push (a pending query's results), so the page opens that row or nothing, never its neighbor.
+    static func rowClick(_ row: Int, shown: BrowserSuggestion?, meta: Bool, shift: Bool, alt: Bool) -> [String: Any] {
+        var event: [String: Any] = ["kind": "rowClick", "row": row, "modifiers": ["meta": meta, "shift": shift, "alt": alt]]
+        if let shown { event["shown"] = ["kind": shown.kind.wire, "url": shown.url.absoluteString] }
+        return event
     }
     static var showPageURL: [String: Any] { ["kind": "showPageURL"] }
     static func pasteAndGo(_ text: String) -> [String: Any] { ["kind": "pasteAndGo", "text": text] }

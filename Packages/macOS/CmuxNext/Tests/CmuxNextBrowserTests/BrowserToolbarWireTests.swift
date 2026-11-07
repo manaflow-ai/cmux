@@ -211,7 +211,13 @@ struct BrowserToolbarWireTests {
         // Every event serializes as JSON.
         _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.suggestions(1, []))
         _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.rowHover(nil, pointer: .zero))
-        _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.rowClick(0, meta: true, shift: false, alt: false))
+        _ = try JSONSerialization.data(withJSONObject: BrowserToolbarHostEvent.rowClick(0, shown: nil, meta: true, shift: false, alt: false))
+        // A click names the row the card drew there, so rows replaced in the same push never take it.
+        let drawn = BrowserSuggestion(kind: .history, title: "First", detail: "", url: URL(string: "https://first.example/")!, score: 1)
+        let click = BrowserToolbarHostEvent.rowClick(0, shown: drawn, meta: false, shift: false, alt: false)
+        _ = try JSONSerialization.data(withJSONObject: click)
+        let shown = try #require(click["shown"] as? [String: Any])
+        #expect(shown["kind"] as? String == "history" && shown["url"] as? String == "https://first.example/")
     }
 
     @Test func aSearchEngineChangeReachesAMountedRow() throws {

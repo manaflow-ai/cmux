@@ -67,7 +67,7 @@ function handle(step: OmnibarStep, input: OmnibarInput): void {
     case "rowHover":
       return rowHover(step, input.row, input.pointer);
     case "rowClick":
-      return rowClick(step, input.row, input.disposition);
+      return rowClick(step, input.row, input.disposition, input.shown);
     case "popupScroll":
       // At most 8 rows: the card never scrolls, the wheel is swallowed.
       return;

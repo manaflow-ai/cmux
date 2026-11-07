@@ -22,6 +22,12 @@ export type SuggestionKind =
   /** A calculator answer: Enter copies `content`, never navigates. */
   | "answer";
 
+/** Which row a click on the card meant: its kind and URL as the card drew them. */
+export interface ShownRow {
+  kind: SuggestionKind;
+  url: string;
+}
+
 /** One row of the suggestion card, as the native suggestion engine produces it. */
 export interface BrowserSuggestion {
   kind: SuggestionKind;
@@ -141,7 +147,7 @@ export type OmnibarInput =
   | { type: "fieldMouseUp" }
   /** `row` null: the pointer left the rows. */
   | { type: "rowHover"; row: number | null; pointer: OmnibarPoint }
-  | { type: "rowClick"; row: number; disposition: OmnibarDisposition }
+  | { type: "rowClick"; row: number; disposition: OmnibarDisposition; shown?: ShownRow | null }
   | { type: "popupScroll" }
   | { type: "suggestions"; generation: number; rows: readonly BrowserSuggestion[] }
   /** Late (phase B) rows, merged without moving what is on screen. */

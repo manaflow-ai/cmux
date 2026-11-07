@@ -12,7 +12,8 @@ final class OmniboxPopupPanel {
     /// The pointer is over row `index` (nil: left the rows), in screen points.
     var onHover: ((Int?, CGPoint) -> Void)?
     /// A row was clicked, with Cmd, Shift and Option.
-    var onPick: ((Int, Bool, Bool, Bool) -> Void)?
+    /// A pick: the row's index and the row the card shows there.
+    var onPick: ((Int, BrowserSuggestion?, Bool, Bool, Bool) -> Void)?
     /// Site icons for page rows; nil: kind glyphs only.
     var faviconSource: ((URL) async -> NSImage?)?
     /// Makes the card's React page; tests pass their own.
@@ -21,6 +22,8 @@ final class OmniboxPopupPanel {
     private var panel: OmniboxPopupWindow?
     private var content: (any BrowserChromeWebContent)?
     private var rows: [BrowserSuggestion] = []
+    /// The row the card shows at `index`, if any.
+    func shownRow(_ index: Int) -> BrowserSuggestion? { rows.indices.contains(index) ? rows[index] : nil }
     private var highlighted: Int?
     private var upward = false
     private var bar = NSRect.zero
@@ -197,7 +200,8 @@ final class OmniboxPopupPanel {
             guard isVisible, let drawn = OmniboxPopupCommand.revision(params), drawn >= rowsRevision else { return }
             switch OmniboxPopupCommand(wire: params) {
             case .hover(let index, let pointer): onHover?(index, pointer)
-            case .pick(let index, let meta, let shift, let alt): onPick?(index, meta, shift, alt)
+            case .pick(let index, let meta, let shift, let alt):
+                onPick?(index, shownRow(index), meta, shift, alt)
             case nil: break
             }
         case "size":

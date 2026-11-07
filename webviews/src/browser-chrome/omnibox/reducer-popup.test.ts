@@ -139,6 +139,27 @@ describe("rows and the mouse", () => {
     expect(effects).toContainEqual({ type: "ended", reason: { kind: "switchToTab", key: "tab_1" } });
   });
 
+  test("a click opens the row the card drew, even when newer rows arrived in the same push", () => {
+    const first = plain(row("history", "https://first.example/"));
+    const second = plain(row("history", "https://second.example/"));
+    const open = withRows("ex", [first]);
+    const pending = run(open, typed("a", "ex", false));
+    const shown = { kind: first.kind, url: first.url };
+    // The newer query's rows land first; the click names the row it was on.
+    const moved = run(pending.state, [
+      { type: "suggestions", generation: lastGeneration(pending.effects), rows: [second, first] },
+      { type: "rowClick", row: 0, disposition: "currentTab", shown },
+    ]);
+    expect(commits(moved.effects)).toEqual(["https://first.example/"]);
+    // Rows that no longer hold it take no click at all.
+    const gone = run(pending.state, [
+      { type: "suggestions", generation: lastGeneration(pending.effects), rows: [second] },
+      { type: "rowClick", row: 0, disposition: "currentTab", shown },
+    ]);
+    expect(commits(gone.effects)).toEqual([]);
+    expect(gone.handled).toBe(false);
+  });
+
   test("an answer row copies its content", () => {
     const answer = row("answer", "cmux-answer://4", { title: "2+2 = 4", content: "4" });
     const { state, effects } = run(withRows("2+2", [answer]), [enterKey]);

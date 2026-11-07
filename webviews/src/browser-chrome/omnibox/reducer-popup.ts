@@ -15,7 +15,7 @@ import { focusLocation, home, selectAll } from "./reducer-selection";
 import { desiredTLDURL, fillText, inlineCompletion, isHTTPSUpgrade } from "./rules";
 import { canElide, completionRange, emptyEdit, fieldText, hasFocus, isComposing, isPopupOpen } from "./state";
 import { allOf, caretAtEnd, rangesEqual } from "./text";
-import type { BrowserSuggestion, OmnibarDisposition, OmnibarKey, OmnibarPoint } from "./types";
+import type { BrowserSuggestion, OmnibarDisposition, OmnibarKey, OmnibarPoint, ShownRow } from "./types";
 import { urlScheme } from "./url-display";
 
 export function key(step: OmnibarStep, pressed: OmnibarKey): void {
@@ -277,6 +277,13 @@ export function suggestionsArrived(
 
 // Mouse over rows
 
+function clickedIndex(rows: readonly BrowserSuggestion[], row: number, shown: ShownRow): number {
+  const same = (candidate: BrowserSuggestion | undefined) =>
+    candidate != null && candidate.kind === shown.kind && candidate.url === shown.url;
+  if (same(rows[row])) return row;
+  return rows.findIndex(same);
+}
+
 /** Hover highlights a row only after the pointer actually moved. */
 export function rowHover(step: OmnibarStep, row: number | null, pointer: OmnibarPoint): void {
   const state = step.state;
@@ -292,14 +299,22 @@ export function rowHover(step: OmnibarStep, row: number | null, pointer: Omnibar
   }
 }
 
-export function rowClick(step: OmnibarStep, row: number, disposition: OmnibarDisposition): void {
+export function rowClick(
+  step: OmnibarStep,
+  row: number,
+  disposition: OmnibarDisposition,
+  shown?: ShownRow | null,
+): void {
   const state = step.state;
+  // The click names the row the card drew; rows that replaced them in the same push keep it at
+  // its new index, or drop the click. Never the row that now sits where it was.
+  const index = shown == null ? row : clickedIndex(state.popup.rows, row, shown);
   // The view commits marked text first; never commit around the IME.
-  if (!isPopupOpen(state) || row < 0 || row >= state.popup.rows.length || isComposing(state)) {
+  if (!isPopupOpen(state) || index < 0 || index >= state.popup.rows.length || isComposing(state)) {
     step.handled = false;
     return;
   }
-  const chosen = state.popup.rows[row];
+  const chosen = state.popup.rows[index];
   if (state.keyword != null) return commitKeyword(step, fillText(chosen), disposition);
   if (chosen.kind === "switchToTab" && chosen.tabKey != null)
     return switchToTab(step, chosen, chosen.tabKey, disposition);

@@ -111,8 +111,8 @@ public final class BrowserToolbarWebView: NSView {
     private(set) lazy var popup: OmniboxPopupPanel = {
         let popup = OmniboxPopupPanel()
         popup.onHover = { [weak self] row, pointer in self?.send(BrowserToolbarHostEvent.rowHover(row, pointer: pointer)) }
-        popup.onPick = { [weak self] row, meta, shift, alt in
-            self?.send(BrowserToolbarHostEvent.rowClick(row, meta: meta, shift: shift, alt: alt))
+        popup.onPick = { [weak self] row, shown, meta, shift, alt in
+            self?.send(BrowserToolbarHostEvent.rowClick(row, shown: shown, meta: meta, shift: shift, alt: alt))
         }
         popup.faviconSource = rowFavicon
         return popup
