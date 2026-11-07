@@ -903,7 +903,7 @@ pub fn declared_harness(params: &Value) -> Option<BoundSender> {
     let mux = params.pointer("/_meta/acpmux")?;
     mux.get("fromAgent").and_then(Value::as_str)?;
     let harness = mux.get(FROM_HARNESS)?.as_str().filter(|h| harness_fits(h))?;
-    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()) })
+    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()), relay: None })
 }
 
 /// `provenance` with the bound sender's fields set (replacing any it had).
@@ -1070,7 +1070,10 @@ mod sender_tests {
         let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
         let named = sent(json!({"fromAgent": "codex@workstation", "fromHarness": "codex"}));
         let harness = declared_harness(&named);
-        assert_eq!(harness, Some(BoundSender { session_id: None, harness: Some("codex".into()) }));
+        assert_eq!(
+            harness,
+            Some(BoundSender { session_id: None, harness: Some("codex".into()), relay: None })
+        );
         let stamped = stamp_sender(named_sender("codex@workstation", "s-2"), harness.as_ref());
         assert_eq!(stamped["kind"], "agent_message");
         assert_eq!(sender_of(Some(&stamped)), (None, Some("codex".into())));
