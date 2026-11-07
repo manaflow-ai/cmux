@@ -1484,6 +1484,25 @@ fn config_is_the_settings_scope() {
     );
 }
 
+/// `cmux config set on cloud` (Leo's walkthrough): `on` is the CLI's short name for `chat.on`.
+#[test]
+fn on_is_the_default_chat_target_key() {
+    let sent = |words: &[&str]| call(parse(&args(words)).unwrap().unwrap());
+    assert_eq!(
+        sent(&["config", "set", "on", "cloud"]),
+        ("settings.set", json!({ "path": "chat.on", "value": "cloud" }))
+    );
+    assert_eq!(sent(&["settings", "get", "on"]), ("settings.get", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "reset", "on"]), ("settings.reset", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "unset", "on"]), ("settings.unset", json!({ "path": "chat.on" })));
+    // The key itself still works, and an alias never shadows a schema key.
+    assert_eq!(sent(&["config", "get", "chat.on"]), ("settings.get", json!({ "path": "chat.on" })));
+    for (alias, key) in settings::KEY_ALIASES {
+        assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
+        assert_eq!(settings::resolve_alias(alias), *key);
+    }
+}
+
 #[test]
 fn settings_list_keys_and_schema_answer_without_the_app() {
     let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();

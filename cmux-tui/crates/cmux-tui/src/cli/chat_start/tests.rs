@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 use super::super::cloud_start_chat::Machine;
 use super::{
-    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse, route,
-    start_words,
+    Parsed, Reads, Route, Start, TAKES_VALUE, cloud_words, global_words, here_words, parse,
+    parse_with, pick_target, route, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -122,6 +122,49 @@ fn cmux_target_names_the_target_when_on_is_absent() {
     assert_eq!(with_env(&["hi"], "vm:dev").as_deref(), Some("vm:dev"));
     assert_eq!(with_env(&["--on", "here", "hi"], "vm:dev").as_deref(), Some("here"));
     assert_eq!(with_env(&["hi"], "  "), None);
+}
+
+/// `--on` > `CMUX_ON` > the `chat.on` setting > here; the setting is read only when both are absent.
+#[test]
+fn the_target_is_on_then_cmux_on_then_the_setting_then_here() {
+    let some = |text: &str| Some(text.to_owned());
+    let read = Cell::new(0);
+    let setting = |value: Option<&str>| {
+        let read = &read;
+        move || {
+            read.set(read.get() + 1);
+            value.map(str::to_owned)
+        }
+    };
+    assert_eq!(pick_target(some("box"), some("vm:dev"), setting(Some("cloud"))), some("box"));
+    assert_eq!(pick_target(None, some("vm:dev"), setting(Some("cloud"))), some("vm:dev"));
+    assert_eq!(read.get(), 0, "the setting is not read when --on or CMUX_ON names a target");
+    assert_eq!(pick_target(None, None, setting(Some(" cloud "))), some("cloud"));
+    assert_eq!(pick_target(None, some("  "), setting(Some("vm:new"))), some("vm:new"));
+    assert_eq!(pick_target(None, None, setting(Some(""))), None);
+    assert_eq!(pick_target(None, None, setting(None)), None);
+    assert_eq!(read.get(), 4);
+}
+
+#[test]
+fn cmux_chat_reads_the_setting_only_without_on_and_cmux_on() {
+    let read = Cell::new(false);
+    let on = |list: &[&str], env: Option<&str>| {
+        read.set(false);
+        let setting = || {
+            read.set(true);
+            Some("cloud".to_owned())
+        };
+        match parse_with(&words(list), env.map(str::to_owned), setting).unwrap() {
+            Parsed::Run(start) => (start.on, read.get()),
+            Parsed::Help => (None, read.get()),
+        }
+    };
+    assert_eq!(on(&["hi"], None), (Some("cloud".into()), true));
+    assert_eq!(on(&["--on", "here", "hi"], None), (Some("here".into()), false));
+    assert_eq!(on(&["hi"], Some("vm:dev")), (Some("vm:dev".into()), false));
+    assert_eq!(on(&["--help"], None), (None, false));
+    assert!(parse_with(&words(&["hi"]), None, || Some("vm:".into())).is_err());
 }
 
 #[test]

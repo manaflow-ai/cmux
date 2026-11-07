@@ -6,8 +6,8 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_ON`), or `--on here`: right here, as `cmux agents chat new`
-//!   starts it (a chat tab in the app, in this machine's acpmux);
+//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on here`: right here, as
+//!   `cmux agents chat new` starts it (a chat tab in the app, in this machine's acpmux);
 //! - `--on cloud`: cmux Cloud, today a new Cloud VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
@@ -18,8 +18,10 @@
 //!   run agent chats or one not running is refused before anything starts. Nothing here keeps a
 //!   device list of its own.
 //!
-//! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does. A refusal says
-//! what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
+//! `CMUX_ON` names the target when `--on` is absent, as `DOCKER_CONTEXT` does, and the app's
+//! `chat.on` setting (`cmux config set on cloud`) when both are: `--on` > `CMUX_ON` > `chat.on` >
+//! here ([`pick_target`]). The setting is read from the app (`settings.get`) only then, with a
+//! short deadline; no app (CI, a headless VM) is here. A refusal says what to run next. `cloud`, `here` and `vm:…` are selectors, never device names: a device called
 //! "cloud" is reached by its id.
 
 use std::time::Duration;
@@ -39,6 +41,13 @@ const OTHER_VERBS: &[&str] = &["send", "read", "wait", "list", "create", "replie
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
+
+/// The app setting that names the target when `--on` and `CMUX_ON` are both absent
+/// (`cmux config set on TARGET` writes it; settings.rs reads `on` as this key).
+pub(super) const TARGET_SETTING: &str = "chat.on";
+
+/// How long the `chat.on` read may take: an app that does not answer by then is no setting.
+const SETTING_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// How long the catalog read may take.
 const CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
@@ -60,6 +69,8 @@ Starts an agent chat, right here unless --on names another target:
   --on DEVICE        A connected device by its id or name (`cmux machine list`);
                      it must be yours, running, and run agent chats
   CMUX_ON=TARGET names the target when --on is absent.
+  `cmux config set on TARGET` saves a default target (the chat.on setting),
+  used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
   --agent AGENT      claude (default), codex, ...
   --model MODEL      The agent's model (a chat here)
@@ -84,7 +95,7 @@ Exit codes: 0 ok, 1 refused, 2 bad arguments.
 /// A parsed `cmux chat …` start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Start {
-    /// `--on`'s value, else `CMUX_ON`'s; None is here.
+    /// `--on`'s value, else `CMUX_ON`'s, else the `chat.on` setting's; None is here.
     pub on: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
@@ -120,7 +131,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let rest = start_words(rest)?;
     let words = cloud_start_chat::lift_output_of(rest, &mut global.output, TAKES_VALUE);
-    let start = match parse(&words, std::env::var(TARGET_ENV).ok()) {
+    let env = std::env::var(TARGET_ENV).ok();
+    let start = match parse_with(&words, env, || setting_target(&global)) {
         Ok(Parsed::Help) => {
             print!("{USAGE}");
             return Some(0);
@@ -142,8 +154,18 @@ fn start_words(rest: &[String]) -> Option<&[String]> {
 }
 
 /// The words after `chat` (or `chat new`); `env_target` is `CMUX_ON`, read when `--on` is
-/// absent (an empty one is unset).
+/// absent (an empty one is unset). No setting is read: [`parse_with`] reads one.
 pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Parsed, UsageError> {
+    parse_with(words, env_target, || None)
+}
+
+/// [`parse`], with `setting` the `chat.on` read, called only when neither `--on` nor `CMUX_ON`
+/// names a target (and never for `--help`).
+pub(super) fn parse_with(
+    words: &[String],
+    env_target: Option<String>,
+    setting: impl FnOnce() -> Option<String>,
+) -> Result<Parsed, UsageError> {
     let mut start = Start {
         on: None,
         agent: None,
@@ -214,13 +236,42 @@ pub(super) fn parse(words: &[String], env_target: Option<String>) -> Result<Pars
         }
         index += 1;
     }
-    if start.on.is_none() {
-        start.on = env_target.map(|target| target.trim().to_owned()).filter(|t| !t.is_empty());
-    }
+    start.on = pick_target(start.on.take(), env_target, setting);
     if start.on.as_deref() == Some("vm:") {
         return Err(UsageError::new("--on vm: needs new, or a VM's id or name"));
     }
     Ok(Parsed::Run(start))
+}
+
+/// The chat's target: `--on` (`flag`), else `CMUX_ON` (`env`), else the `chat.on` setting, else
+/// None (here). A blank value is unset. `setting` is called only when the first two are unset, so
+/// the app is asked only then.
+pub(super) fn pick_target(
+    flag: Option<String>,
+    env: Option<String>,
+    setting: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let given = |value: Option<String>| {
+        value.map(|target| target.trim().to_owned()).filter(|target| !target.is_empty())
+    };
+    given(flag).or_else(|| given(env)).or_else(|| given(setting()))
+}
+
+/// The app's `chat.on` value (`settings.get`, as `cmux settings get chat.on` reads it), or None:
+/// no app, an app that does not answer within [`SETTING_TIMEOUT`], an unset key or a value that
+/// is not a string.
+fn setting_target(global: &GlobalArgs) -> Option<String> {
+    let mut stream = super::app::connect_command(global).ok()?;
+    stream.set_write_timeout(Some(SETTING_TIMEOUT)).ok()?;
+    let answer = super::app::exchange_within(
+        &mut stream,
+        "settings.get",
+        json!({ "path": TARGET_SETTING }),
+        SETTING_TIMEOUT,
+    )
+    .ok()?
+    .ok()?;
+    answer.get("value").and_then(Value::as_str).map(str::to_owned)
 }
 
 fn set_prompt(slot: &mut Option<String>, text: String) -> Result<(), UsageError> {

@@ -1317,6 +1317,19 @@ pub(super) fn exchange(
     read_reply(stream, method, timeout, app_answers_ping)
 }
 
+/// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
+/// that is only busy. For an optional read that must never hold up a command.
+pub(super) fn exchange_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let line = json!({ "id": 1, "method": method, "params": params });
+    send_line(stream, &line)?;
+    read_reply(stream, method, Some(timeout), |_, _| false)
+}
+
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still
 /// there, not how long it may take: a loaded app (load 300 on 15 cores, #32724) answers late,
 /// and failing the request then shows the caller a timeout for an app that was only busy. While
