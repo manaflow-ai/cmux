@@ -65,6 +65,8 @@ extension SettingsSchema {
         "agents.modelRouter.model",
         "layout.minimumPaneWidth", "layout.minimumPaneHeight", "appearance.theme", "appearance.appTheme",
         "appearance.accent",
+        // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork
+        "appearance.iconTheme",
         // The app's one selected-text color (looks only)
         "appearance.highlightColor",
         "appearance.themeEdits",

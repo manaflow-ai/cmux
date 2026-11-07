@@ -26,14 +26,4 @@ extension SidebarMapping {
         if title.isEmpty || Self.bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title) { return true }
         return tab.cwd.map { title == $0 || title == abbreviate($0) } == true
     }
-
-    /// The first tab that reports a folder: the row's folder and branch. While `label` (the row's
-    /// `labelTab`) is a chat, an idle shell at home gives none: its "~" never names the row.
-    func folderTab(_ tabs: [TabModel], label: TabModel? = nil) -> TabModel? {
-        let chat = label?.agentSession != nil
-        return tabs.first { tab in
-            guard let cwd = tab.cwd else { return false }
-            return !chat || !(isIdle(tab, newTabPages: []) && abbreviate(cwd) == "~")
-        }
-    }
 }

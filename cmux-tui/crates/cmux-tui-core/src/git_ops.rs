@@ -8,7 +8,8 @@
 //! (`mutation`), and so do `git.worktree.create`, a chat's own worktree
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
-//! (`worktree_remove`). The pure git pieces (bounded runs, the repository
+//! (`worktree_remove`). `diff.comments.*` keeps the diff page's review
+//! comments per worktree root until they are sent (`diff_comments`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -18,6 +19,7 @@ mod checkpoint;
 mod commit;
 mod commit_args;
 mod diff;
+mod diff_comments;
 mod diff_pages;
 mod files;
 mod journal;
@@ -56,6 +58,10 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host owns `diff.comments.list`,
+/// `save` and `delete`.
+pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
 
@@ -88,6 +94,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
     ) || checkpoint::handles(operation)
+        || diff_comments::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -97,6 +104,9 @@ pub(crate) fn dispatch(
     debug_assert!(handles(request.envelope.operation));
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
+    }
+    if diff_comments::handles(request.envelope.operation) {
+        return diff_comments::dispatch(mux, &request);
     }
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
