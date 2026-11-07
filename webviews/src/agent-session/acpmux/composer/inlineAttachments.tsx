@@ -339,6 +339,7 @@ const InlineChip = memo(function InlineChip({
         {...(!pending!.failed && pending!.image && pending!.size
           ? { "data-sized": "", style: imageShape(pending!.size) }
           : {})}
+        {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}

@@ -254,6 +254,17 @@
   min-width: 48px;
   max-width: 128px;
 }
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, a frame at most): held
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+  margin-inline-end: 0;
+}
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */

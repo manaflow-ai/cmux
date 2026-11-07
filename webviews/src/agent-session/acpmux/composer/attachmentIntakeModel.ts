@@ -159,6 +159,10 @@ export type PendingAttachment = {
   /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
   /// above and then they land to where they should be").
   size?: { width: number; height: number };
+  /// An image whose header is still being read (a few bytes, well within the paste's frame): its tile
+  /// is held, zero wide and unseen, so it first shows at its thumbnail's size, never a stand-in width.
+  /// Until the next frame at most; one whose header does not answer by then shows at the stand-in.
+  sizing?: boolean;
 };
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
@@ -167,6 +171,22 @@ export type PendingAttachment = {
 /// thumbnail ends in.
 export function imageShape(size: { width: number; height: number } | undefined): { aspectRatio: string } | undefined {
   return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
+}
+
+/// Reads `file`'s pixel size from its header and answers it to `done` once: by the next frame
+/// (requestAnimationFrame runs before that frame paints, so a tile held for it shows in the same
+/// frame), or undefined then if the header has not answered; a size that comes later still answers.
+function sizeFromHeader(file: File, done: (size: { width: number; height: number } | undefined) => void) {
+  let answered = false;
+  const answer = (size: { width: number; height: number } | undefined) => {
+    if (answered && !size) return;
+    answered = true;
+    done(size);
+  };
+  void imageSize(file)
+    .catch(() => undefined)
+    .then((size) => answer(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => answer(undefined));
 }
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
@@ -350,6 +370,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
+  /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
+  const [sized] = useState(
+    () => (id: string, size: { width: number; height: number } | undefined) =>
+      setPending((chips) =>
+        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
+          ? chips.map((chip) =>
+              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
+            )
+          : chips,
+      ),
+  );
   const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
@@ -367,23 +398,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
+      ...(!isMadeFile(file) && isImageFile(file) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
-      if (!isMadeFile(file) && isImageFile(file))
-        void imageSize(file)
-          .catch(() => undefined)
-          .then((size) => {
-            if (!size?.width || !size.height) return;
-            const { width, height } = size;
-            setPending((chips) =>
-              chips.some((chip) => chip.id === id && !chip.size)
-                ? chips.map((chip) => (chip.id === id ? { ...chip, size: { width, height } } : chip))
-                : chips,
-            );
-          });
+      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
+      else if (isMadeFile(file) && isImageFile(file))
+        void file.file.then(
+          (made) => sizeFromHeader(made, (size) => size && sized(id, size)),
+          () => {},
+        );
       void instantPreview(file).then((preview) => {
         if (!preview) return;
         setPending((chips) =>
