@@ -1373,12 +1373,16 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     assert_eq!(proof("d1").map(|p| p.records.len()), Some(1));
     assert!(!seqs(&mut store, "m1").contains(&4), "the copy's bound cut it");
 
-    // The machine comes back on a disk that ends at 3: the proof goes back with the copy.
+    // The machine comes back on a disk that ends at 3. The bound cut p2's record before a write
+    // reported it (review at 91b1343d, F1): the copy saw every record only from past it, so
+    // whether p1 left its queue meanwhile is not known, and nothing of p1 goes back.
     let rows = vec![("m1".to_owned(), 7, 3)];
     let (ahead, since) = store.ahead(PEER, rows.clone());
+    assert_eq!(since["m1"], (7, 6));
     let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
+    assert!(proofs.is_empty());
     let (back, _) = restore::with_proofs(ahead, proofs, &rows);
-    assert_eq!(back[0].3.first().and_then(seq_of), Some(4), "the proof goes back first");
+    assert!(back[0].3.first().and_then(seq_of) > Some(5), "p1's proof went back");
 
     // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
     // known: nothing of it goes back (it would run again), and it stays open.
