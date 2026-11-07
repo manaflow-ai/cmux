@@ -45,6 +45,25 @@ struct FilePreviewKindResolverTests {
         }
     }
 
+    @Test("Terraform and HCL files route directly to text preview")
+    func hclFilesRouteDirectlyToTextPreview() throws {
+        // macOS has no UTI for these extensions, so without an explicit entry
+        // they open in QuickLook until the async text sniff finishes.
+        for fileExtension in ["tf", "tfvars", "hcl", "tofu"] {
+            let url = try temporaryFile(
+                extension: fileExtension,
+                contents: "resource \"null_resource\" \"example\" {\n  count = 1\n}\n"
+            )
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            #expect(
+                FilePreviewKindResolver.initialMode(for: url) == .text,
+                "Expected .\(fileExtension) to avoid the QuickLook/media backend before async resolution."
+            )
+            #expect(FilePreviewKindResolver.mode(for: url) == .text)
+        }
+    }
+
     @Test("Movie file extensions keep media preview")
     func movieFileExtensionsKeepMediaPreview() throws {
         for fileExtension in ["mov", "mp4"] {
