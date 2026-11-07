@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import CoreAudio
 
 /// Whether another app is using the microphone, for the composer's outside-dictation indicator
@@ -32,7 +33,7 @@ public final class MicrophoneActivity {
     private var processBlock: AudioObjectPropertyListenerBlock?
     /// A second read shortly after a process-list change: a process joins the list before its
     /// input starts, so the first read can miss it.
-    private var settle: Task<Void, Never>?
+    private let settle = DemandTimer(owner: "microphone-activity.settle")
 
     /// Reads the state now (tests pass their own).
     var read: @MainActor (_ devices: [AudioObjectID]) -> State = { MicrophoneActivity.readState(devices: $0) }
@@ -73,8 +74,7 @@ public final class MicrophoneActivity {
     }
 
     private func stop() {
-        settle?.cancel()
-        settle = nil
+        settle.cancel()
         let system = AudioObjectID(kAudioObjectSystemObject)
         if let systemBlock {
             var address = Self.address(kAudioHardwarePropertyDevices)
@@ -111,12 +111,7 @@ public final class MicrophoneActivity {
 
     private func processesChanged() {
         refresh()
-        settle?.cancel()
-        settle = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self?.refresh()
-        }
+        settle.schedule(after: .milliseconds(300)) { @MainActor [weak self] in self?.refresh() }
     }
 
     /// Reads the state and tells the watchers when it changed.
