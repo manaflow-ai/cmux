@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHome
 
 /// The docked Home's tab is an internal page whose content is this view, so the page path
 /// (`FocusEffectApplier` `.page`, the key dispatcher's `TabContent.primaryInput`) asks it for a

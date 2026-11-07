@@ -4,7 +4,6 @@ import CmuxHomeRender
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextHome
@@ -25,7 +24,7 @@ import MessagesLabHome
 /// - `selected {conversation | null}`: the page's open conversation (sync actions read it).
 /// - `requests.list {}` -> `{requests}`; `requests.answer {conversation, answer}` -> `{ok}`.
 /// - `group.info {conversation}` -> `{info, addable}`; `group.rename|add|remove|mute|chiefReplies` -> `{outcome}`.
-/// - `contacts {}` -> `{contacts, inviteTeam}`.
+/// - `contacts {}` -> `{contacts, inviteTeam, pendingInvites}` (the addresses invited into a DM who have not joined).
 /// - `chief.create {name, backend}`, `invite.send {email}`, `start {recipients, text}` -> `{outcome}`.
 /// - `teamInvite.seatImpact {}` -> `{impact}`; `teamInvite.send {email}` -> `{result}`.
 /// - `linkPreview {url, kind, details}` -> a preview (cards/links/linkPreview.ts).
@@ -125,7 +124,8 @@ final class HomeMessagesHostProvider: PageProvider {
             return (await home.groupActions.setChiefReplies(policy, id)).pageOutcome
         case "contacts":
             let team = services.cloud.isSignedIn ? services.cloud.auth.activeTeam.team?.displayName : nil
-            return .object(["contacts": .array(home.contacts().map(\.pageJSON)), "inviteTeam": team.map(JSONValue.string) ?? .null])
+            return .object(["contacts": .array(home.contacts().map(\.pageJSON)), "inviteTeam": team.map(JSONValue.string) ?? .null,
+                            "pendingInvites": .array(home.homeStore.rows.pendingInvites.map { .string($0.contact) })])
         case "chief.create":
             guard context.userGesture else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
             let name = (fields["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -325,20 +325,4 @@ final class HomeMessagesHostProvider: PageProvider {
     }
 
     static func isID(_ text: String) -> Bool { !text.isEmpty && text.count <= 256 }
-}
-
-/// A Chief chat's pinned Needs you section (``FeedNeedsYouPin``) over the app's Feed, as the page draws it.
-@MainActor
-extension FeedNeedsYouPin {
-    /// The Messages page's pin over the app's Feed, its hooks installed once (the Inbox page installs
-    /// the same when it is made: a request's answers, its row's who and where).
-    static func home(_ services: AppServices) -> FeedNeedsYouPin {
-        let model = services.feed.model, store = services.daemon.store
-        if model.onOpenItem == nil { FeedGitHubActions.install(on: model, services: services) }
-        if model.place == nil { model.place = FeedPlace.lookup(store.place) }
-        let isEnabled = HomeNeedsYouSetting.reader { [weak services] in services?.settings } // opt-in, off by default
-        return FeedNeedsYouPin(model: model, isEnabled: isEnabled, prepare: {}, reveal: { [weak services] at in
-            store.tab(reported: at.tab, terminal: at.terminal, agentSession: at.acpSession).map { services?.revealTab($0.id) == true } ?? false
-        }, showFeed: { [weak services] in try? (services?.pages.provider(.inbox) as? FeedPageService)?.open(focus: true) })
-    }
 }

@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextSettings
 import Foundation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
@@ -301,5 +302,21 @@ final class FeedService {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")
         }
         return reply
+    }
+}
+
+/// A Chief chat's pinned Needs you section (``FeedNeedsYouPin``) over the app's Feed, as the page draws it.
+@MainActor
+extension FeedNeedsYouPin {
+    /// The Messages page's pin over the app's Feed, its hooks installed once (the Inbox page installs
+    /// the same when it is made: a request's answers, its row's who and where).
+    static func home(_ services: AppServices) -> FeedNeedsYouPin {
+        let model = services.feed.model, store = services.daemon.store
+        if model.onOpenItem == nil { FeedGitHubActions.install(on: model, services: services) }
+        if model.place == nil { model.place = FeedPlace.lookup(store.place) }
+        let isEnabled = HomeNeedsYouSetting.reader { [weak services] in services?.settings } // opt-in, off by default
+        return FeedNeedsYouPin(model: model, isEnabled: isEnabled, prepare: {}, reveal: { [weak services] at in
+            store.tab(reported: at.tab, terminal: at.terminal, agentSession: at.acpSession).map { services?.revealTab($0.id) == true } ?? false
+        }, showFeed: { [weak services] in try? (services?.pages.provider(.inbox) as? FeedPageService)?.open(focus: true) })
     }
 }
