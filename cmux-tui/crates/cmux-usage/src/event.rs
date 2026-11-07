@@ -29,9 +29,9 @@ impl Token {
     pub fn new(raw: &str) -> Self {
         let plain = !raw.is_empty()
             && raw.len() <= TOKEN_MAX
-            && raw
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-' | b'[' | b']'));
+            && raw.bytes().all(|b| {
+                b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-' | b'[' | b']')
+            });
         Self(if plain { raw.to_owned() } else { Self::OTHER.to_owned() })
     }
 
@@ -256,7 +256,8 @@ mod tests {
         let mut b = a.clone();
         a.hash_ids(b"salt-a");
         b.hash_ids(b"salt-b");
-        let (Event::Focus { tab: Some(ta), .. }, Event::Focus { tab: Some(tb), .. }) = (&a, &b) else {
+        let (Event::Focus { tab: Some(ta), .. }, Event::Focus { tab: Some(tb), .. }) = (&a, &b)
+        else {
             panic!("focus")
         };
         assert_eq!(ta.as_str().len(), 24);
@@ -266,7 +267,11 @@ mod tests {
 
     #[test]
     fn local_machine_stays_readable() {
-        let mut ev = Event::Session { session: Id::new("s"), harness: Token::new("claude"), machine: Id::new("local") };
+        let mut ev = Event::Session {
+            session: Id::new("s"),
+            harness: Token::new("claude"),
+            machine: Id::new("local"),
+        };
         ev.hash_ids(b"salt");
         let Event::Session { machine, .. } = ev else { panic!("session") };
         assert_eq!(machine.as_str(), "local");

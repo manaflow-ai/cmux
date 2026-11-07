@@ -61,13 +61,13 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
             "--dir" => dir = Some(PathBuf::from(value("--dir")?)),
             "--days" if verb == "report" => {
                 let text = value("--days")?;
-                days = text
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|d| *d > 0)
-                    .ok_or_else(|| UsageError::new(app.unexpected_argument.replace("{value}", &text)))?;
+                days = text.parse::<u64>().ok().filter(|d| *d > 0).ok_or_else(|| {
+                    UsageError::new(app.unexpected_argument.replace("{value}", &text))
+                })?;
             }
-            other => return Err(UsageError::new(app.unexpected_argument.replace("{value}", other))),
+            other => {
+                return Err(UsageError::new(app.unexpected_argument.replace("{value}", other)));
+            }
         }
     }
     match verb.as_str() {
@@ -118,7 +118,12 @@ fn run(output: OutputMode, _global: &GlobalArgs, invocation: Invocation) -> i32 
             let Some(dir) = folder(dir) else { return no_home(output) };
             let files = dir.files().len();
             if let Err(error) = dir.clear() {
-                return super::app::failure("usage.clear_failed", &format!("cmux: {error}"), output, 1);
+                return super::app::failure(
+                    "usage.clear_failed",
+                    &format!("cmux: {error}"),
+                    output,
+                    1,
+                );
             }
             let human = messages
                 .cleared
@@ -158,7 +163,10 @@ mod tests {
     #[test]
     fn parses_each_verb() {
         assert_eq!(parse(&words(&[])), Ok(Invocation::Help));
-        assert_eq!(parse(&words(&["report"])), Ok(Invocation::Report { dir: None, days: DEFAULT_DAYS }));
+        assert_eq!(
+            parse(&words(&["report"])),
+            Ok(Invocation::Report { dir: None, days: DEFAULT_DAYS })
+        );
         assert_eq!(
             parse(&words(&["report", "--days", "2", "--dir", "/tmp/u"])),
             Ok(Invocation::Report { dir: Some(PathBuf::from("/tmp/u")), days: 2 })

@@ -44,7 +44,7 @@ impl Dist {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SurfaceTime {
     pub surface: Surface,
     pub seconds: f64,
@@ -158,7 +158,11 @@ fn hour_of(ms: u64) -> i64 {
 
 fn day_of(ms: u64) -> String {
     let secs = i64::try_from(ms / 1000).unwrap_or(i64::MAX);
-    Local.timestamp_opt(secs, 0).single().map(|t| t.format("%Y-%m-%d").to_string()).unwrap_or_default()
+    Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .map(|t| t.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Default)]
@@ -227,7 +231,8 @@ impl FocusPass {
 
     fn close(&mut self, current: &Option<(Surface, Option<Id>)>, since: Option<u64>, at: u64) {
         if let (Some((surface, _)), Some(since)) = (current, since) {
-            *self.surface_ms.entry(*surface).or_default() += at.saturating_sub(since).min(IDLE_CAP_MS);
+            *self.surface_ms.entry(*surface).or_default() +=
+                at.saturating_sub(since).min(IDLE_CAP_MS);
         }
     }
 }
@@ -282,9 +287,9 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
                 active_hours.insert(hour_of(r.at));
                 report.action_runs += 1;
                 *report.entrypoints.entry(name(via)).or_default() += 1;
-                let (row, samples) = actions
-                    .entry(id.as_str().to_owned())
-                    .or_insert_with(|| (ActionRow { id: id.as_str().to_owned(), ..ActionRow::default() }, Vec::new()));
+                let (row, samples) = actions.entry(id.as_str().to_owned()).or_insert_with(|| {
+                    (ActionRow { id: id.as_str().to_owned(), ..ActionRow::default() }, Vec::new())
+                });
                 row.count += 1;
                 match via {
                     Entry::Key => row.key += 1,
@@ -300,7 +305,9 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
                     switch_latency.push(ms);
                 }
             }
-            Event::Latency { what, ms } => latencies.entry(what.as_str().to_owned()).or_default().push(f64::from(*ms)),
+            Event::Latency { what, ms } => {
+                latencies.entry(what.as_str().to_owned()).or_default().push(f64::from(*ms))
+            }
             Event::Counts {
                 windows,
                 workspaces,
@@ -362,11 +369,13 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
                 turn_seconds.push(*ms as f64 / 1000.0);
                 *report.agents.by_harness.entry(harness.as_str().to_owned()).or_default() += 1;
                 let model = model.as_ref().map_or("unknown", |m| m.as_str()).to_owned();
-                let row = models.entry((harness.as_str().to_owned(), model.clone())).or_insert_with(|| ModelRow {
-                    harness: harness.as_str().to_owned(),
-                    model,
-                    ..ModelRow::default()
-                });
+                let row = models
+                    .entry((harness.as_str().to_owned(), model.clone()))
+                    .or_insert_with(|| ModelRow {
+                        harness: harness.as_str().to_owned(),
+                        model,
+                        ..ModelRow::default()
+                    });
                 row.turns += 1;
                 row.input_tokens += input_tokens;
                 row.output_tokens += output_tokens;
@@ -385,11 +394,16 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
 
     report.active_hours = active_hours.len();
     report.days = days.len();
-    let chats_per_hour: Vec<f64> =
-        active_hours.iter().map(|h| focus.chats_by_hour.get(h).map_or(0.0, |s| s.len() as f64)).collect();
+    let chats_per_hour: Vec<f64> = active_hours
+        .iter()
+        .map(|h| focus.chats_by_hour.get(h).map_or(0.0, |s| s.len() as f64))
+        .collect();
     report.chats_per_active_hour = Dist::of(chats_per_hour);
     report.switches_per_active_hour = Dist::of(
-        active_hours.iter().map(|h| focus.switches_by_hour.get(h).copied().unwrap_or(0) as f64).collect(),
+        active_hours
+            .iter()
+            .map(|h| focus.switches_by_hour.get(h).copied().unwrap_or(0) as f64)
+            .collect(),
     );
     report.chat_view_hidden_to_return_s = Dist::of(view_return);
     report.unique = Unique {
@@ -413,10 +427,28 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
     report.action_latency_ms = Dist::of(all_latency);
     report.switch_latency_ms = Dist::of(switch_latency);
     report.latencies_ms = latencies.into_iter().map(|(k, v)| (k, Dist::of(v))).collect();
-    let [windows, workspaces, panes, tabs, terminals, browsers, chats, max_panes_per_screen, sidebar_width] =
-        open.map(Dist::of);
-    report.open =
-        Open { windows, workspaces, panes, tabs, terminals, browsers, chats, max_panes_per_screen, sidebar_width };
+    let [
+        windows,
+        workspaces,
+        panes,
+        tabs,
+        terminals,
+        browsers,
+        chats,
+        max_panes_per_screen,
+        sidebar_width,
+    ] = open.map(Dist::of);
+    report.open = Open {
+        windows,
+        workspaces,
+        panes,
+        tabs,
+        terminals,
+        browsers,
+        chats,
+        max_panes_per_screen,
+        sidebar_width,
+    };
     report.agents.turn_seconds = Dist::of(turn_seconds);
     let mut by_model: Vec<ModelRow> = models.into_values().collect();
     by_model.sort_by(|a, b| b.turns.cmp(&a.turns));
@@ -428,7 +460,11 @@ pub fn build(records: &[Record], from_ms: u64, to_ms: u64) -> Report {
 /// `ms` (Unix milliseconds) as local `YYYY-MM-DD HH:MM`.
 pub fn local_time(ms: u64) -> String {
     let secs = i64::try_from(ms / 1000).unwrap_or(0);
-    Local.timestamp_opt(secs, 0).single().map(|t| t.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
+    Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 fn duration(seconds: f64) -> String {
@@ -447,7 +483,13 @@ fn dist_seconds(d: &Dist) -> String {
     if d.n == 0 {
         return "no samples".to_owned();
     }
-    format!("p50 {}  p95 {}  max {}  (n={})", duration(d.p50), duration(d.p95), duration(d.max), d.n)
+    format!(
+        "p50 {}  p95 {}  max {}  (n={})",
+        duration(d.p50),
+        duration(d.p95),
+        duration(d.max),
+        d.n
+    )
 }
 
 fn dist_ms(d: &Dist) -> String {
@@ -495,19 +537,48 @@ impl Report {
 
         out.push_str("\nWhere the keyboard was\n");
         for row in &self.surface_time {
-            let _ = writeln!(out, "  {:<14} {:>8}  {:>5.1}%", name(&row.surface), duration(row.seconds), row.share * 100.0);
+            let _ = writeln!(
+                out,
+                "  {:<14} {:>8}  {:>5.1}%",
+                name(&row.surface),
+                duration(row.seconds),
+                row.share * 100.0
+            );
         }
 
         out.push_str("\nComing back\n");
-        let _ = writeln!(out, "  chat hidden-to-return      {}", dist_seconds(&self.chat_hidden_to_return_s));
-        let _ = writeln!(out, "  chat hidden (all panes)    {}", dist_seconds(&self.chat_view_hidden_to_return_s));
-        let _ = writeln!(out, "  browser hidden-to-return   {}", dist_seconds(&self.browser_hidden_to_return_s));
-        let _ = writeln!(out, "  chats touched per hour     {}", dist_count(&self.chats_per_active_hour));
-        let _ = writeln!(out, "  focus changes per hour     {}", dist_count(&self.switches_per_active_hour));
+        let _ = writeln!(
+            out,
+            "  chat hidden-to-return      {}",
+            dist_seconds(&self.chat_hidden_to_return_s)
+        );
+        let _ = writeln!(
+            out,
+            "  chat hidden (all panes)    {}",
+            dist_seconds(&self.chat_view_hidden_to_return_s)
+        );
+        let _ = writeln!(
+            out,
+            "  browser hidden-to-return   {}",
+            dist_seconds(&self.browser_hidden_to_return_s)
+        );
+        let _ = writeln!(
+            out,
+            "  chats touched per hour     {}",
+            dist_count(&self.chats_per_active_hour)
+        );
+        let _ = writeln!(
+            out,
+            "  focus changes per hour     {}",
+            dist_count(&self.switches_per_active_hour)
+        );
         let _ = writeln!(
             out,
             "  unique                     {} chat tabs, {} tabs, {} agent sessions, {} machines",
-            self.unique.chat_tabs, self.unique.tabs, self.unique.agent_sessions, self.unique.machines
+            self.unique.chat_tabs,
+            self.unique.tabs,
+            self.unique.agent_sessions,
+            self.unique.machines
         );
 
         out.push_str("\nLatency\n");
@@ -519,7 +590,11 @@ impl Report {
 
         if !self.actions.is_empty() {
             let _ = writeln!(out, "\nMost used actions ({} runs)", self.action_runs);
-            let _ = writeln!(out, "  {:<40} {:>6} {:>6} {:>6} {:>6} {:>8} {:>8}", "id", "runs", "key", "click", "auto", "p50", "p95");
+            let _ = writeln!(
+                out,
+                "  {:<40} {:>6} {:>6} {:>6} {:>6} {:>8} {:>8}",
+                "id", "runs", "key", "click", "auto", "p50", "p95"
+            );
             for row in &self.actions {
                 let _ = writeln!(
                     out,
@@ -552,7 +627,11 @@ impl Report {
                 "  {} sessions started, {} turns, {} tool calls, {} subagents",
                 agents.sessions_started, agents.turns, agents.tool_calls, agents.subagents
             );
-            let _ = writeln!(out, "  turn length                {}", dist_seconds(&agents.turn_seconds));
+            let _ = writeln!(
+                out,
+                "  turn length                {}",
+                dist_seconds(&agents.turn_seconds)
+            );
             for row in &agents.by_model {
                 let _ = writeln!(
                     out,
@@ -619,14 +698,16 @@ mod tests {
         assert_eq!(report.chat_hidden_to_return_s.p50, 90.0);
         let chat = report.surface_time.iter().find(|s| s.surface == Surface::Chat).expect("chat");
         assert_eq!(chat.seconds, 80.0);
-        let terminal = report.surface_time.iter().find(|s| s.surface == Surface::Terminal).expect("terminal");
+        let terminal =
+            report.surface_time.iter().find(|s| s.surface == Surface::Terminal).expect("terminal");
         assert_eq!(terminal.seconds, 30.0);
         assert_eq!(report.unique.chat_tabs, 2);
     }
 
     #[test]
     fn a_long_idle_span_is_capped() {
-        let records = vec![focus(0, Surface::Terminal, "t"), focus(10 * IDLE_CAP_MS, Surface::Chat, "a")];
+        let records =
+            vec![focus(0, Surface::Terminal, "t"), focus(10 * IDLE_CAP_MS, Surface::Chat, "a")];
         let report = build(&records, 0, 10 * IDLE_CAP_MS);
         assert_eq!(report.surface_time[0].seconds, IDLE_CAP_MS as f64 / 1000.0);
     }
@@ -636,7 +717,14 @@ mod tests {
         let records = vec![
             focus(0, Surface::Chat, "a"),
             focus(1_000, Surface::Chat, "b"),
-            rec(2_000, Event::Launch { channel: Token::new("dev"), build: Token::new("1"), prev: Token::new("crash") }),
+            rec(
+                2_000,
+                Event::Launch {
+                    channel: Token::new("dev"),
+                    build: Token::new("1"),
+                    prev: Token::new("crash"),
+                },
+            ),
             focus(3_000, Surface::Chat, "a"),
         ];
         let report = build(&records, 0, 3_000);
@@ -688,7 +776,11 @@ mod tests {
 
     #[test]
     fn view_hidden_to_return() {
-        let view = |at, on| Record { at, src: Source::Acpmux, ev: Event::View { session: Id::new("s"), on } };
+        let view = |at, on| Record {
+            at,
+            src: Source::Acpmux,
+            ev: Event::View { session: Id::new("s"), on },
+        };
         let report = build(&[view(0, true), view(1_000, false), view(61_000, true)], 0, 61_000);
         assert_eq!(report.chat_view_hidden_to_return_s.p50, 60.0);
     }

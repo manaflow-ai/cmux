@@ -236,8 +236,8 @@ impl Recorder {
             at: u64,
             ev: Event,
         }
-        let items: Vec<Item> =
-            serde_json::from_str(json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let items: Vec<Item> = serde_json::from_str(json)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         self.append(items.into_iter().map(|i| (i.at, i.ev)))
     }
 }
@@ -248,7 +248,11 @@ pub(crate) mod tests {
     use crate::event::{Id, Surface};
 
     pub(crate) fn temp_dir(name: &str) -> UsageDir {
-        let dir = std::env::temp_dir().join(format!("cmux-usage-{name}-{}-{}", std::process::id(), now_ms()));
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-usage-{name}-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
         let _ = fs::remove_dir_all(&dir);
         UsageDir::new(dir)
     }
