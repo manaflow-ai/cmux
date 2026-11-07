@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "build": "4239328791101",
+  "notes": "notes/4239328791101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 37832,
+      "title": "merge drivers: settle both-sides insertions; design-token baseline merges count by count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37765,
+      "title": "cmux-next diff: line comments go back to the agent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37939,
+      "title": "Composer hat: a subagent's command row expands on any click; Open chat moves into its detail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37916,
+      "title": "agent pane: hatModel and runningTray import the names #37821 and #37841 moved",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37869,
+      "title": "cmux-cookie-sync: Chrome cookie change detection in Rust, over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37586,
+      "title": "Agent chat: a sent picture or video moves from its composer chip into its slot, with nothing beside it shifting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37938,
+      "title": "Duplicate Tab: an agent chat's copy opens beside it, never in a chat dock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37510,
+      "title": "Cloud carrier: dial and serve start from the create's carrier answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37877,
+      "title": "Composer: pasted images show at once; Retry only where a retry can work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37929,
+      "title": "cmux-tui: dial-tcp's setup SIGTERM test waits for the client's workspace stream",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37901,
+      "title": "cmux-action-catalog: Show in Mini (agentPane.showInMini), as the app's catalog has it since #37728",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37931,
+      "title": "Composer hat: a finished row's check sits where Stop was, titles run to the time, a click expands in place",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36636,
+      "title": "ci(signing): trust glaeda runner hook 7c0d9d8c, 79313d0b, 91186586, c3efaff0",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37637,
+      "title": "acpmux: sessions record who created them (createdBy)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37773,
+      "title": "Agent chat: toasts stand above Jump to latest instead of covering it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37917,
+      "title": "cmux-tui: dial-tcp's SIGTERM tests signal only after the daemon or carrier saw the client",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37922,
+      "title": "smoltcp (vendored): an RST in SYN-RECEIVED returns to LISTEN with a fresh MSS and window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37894,
+      "title": "cmux NEXT sidebar: the Updated card's hover preview lists every change once, in any language, and closes when the card is hidden (#37615 F1-F5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37743,
+      "title": "cmux NEXT sidebar: the Updated card's edge matches the composer's on opaque themes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37893,
+      "title": "Agent chat: a run's line keeps its frame when the agent reads a steered message",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37738,
+      "title": "Agent chat: a close a little over the end leaves no blank room under the last row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37904,
+      "title": "gateway-e2e: request the seventh run, on the image with #37880",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37842,
+      "title": "cmux NEXT: a terminal's grid goes to its program in the turn that showed its size (RESIZE P0 7, cause T)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37843,
+      "title": "cmux-wg: start the tunnel's TCP at RFC 6928's 10-segment window (vendored smoltcp)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37906,
+      "title": "remote: a signal ends a client's first dial, not only its startup timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37905,
+      "title": "Tab menu: pinned-tab group rows and another Mac's chat say why; a duplicate stays in its group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37855,
+      "title": "ci: NEXT Computer Use signed host reads its picked owned Mac only on the attempt that picked it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37726,
+      "title": "Agent chat: Share… in the ••• menu, with a Google Docs-style Share dialog",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37882,
+      "title": "Hat questions: review follow-ups (one shared answer, mark cleared on a failed decline, one-option asks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37277,
+      "title": "Cloud move: the move, start and autosize rules move to Rust; their Swift is deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37886,
+      "title": "ci(base-red): dispatch a PR-only workflow on the base for its verdict; read the signed host check's FAIL line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37897,
+      "title": "fix(cmux-host): the Cloud updater checks the machine channel every minute, not every five",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37833,
+      "title": "Icons: fork is a turned branch arrow; the GitHub page draws the pull request mark",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37837,
+      "title": "bench(agent-pane): wheel-tick-scaling skips the profile when the run ends before it settles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37340,
+      "title": "cmux-next sidebar: the projection and the subgroup and remote-group plans come from the Rust mirror; delete the Swift copies (step B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37861,
+      "title": "cmux-tui: remote dial-tcp, a stdio tunnel for ssh ProxyCommand",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37880,
+      "title": "images: drop acpmux's baked login-shell cache from cmux-vm clones",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37891,
+      "title": "cloud journey carrier dial: the status line comes first; a cancelled journey stops its dials",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37868,
+      "title": "Session Info: its glass no longer flashes when a tool call brings the running tray in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37841,
+      "title": "agent pane: header and summary modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37821,
+      "title": "agent pane: needsYou, question, backgroundTasks and threadMinimap modules export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37804,
+      "title": "Subagent tabs: close button and tab menu come back; a closed subagent pane stays closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37346,
+      "title": "cmux NEXT: the tab and pane window handler rules in Rust (cmux-window-rules tabs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37728,
+      "title": "cmux NEXT: Show in Mini points the floating mini at any chat, and its reply box keeps typing to it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37307,
+      "title": "cmux NEXT: Tasks is a React page over the daemon; the Swift Tasks module is gone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37866,
+      "title": "cmux-next sidebar: rows take their face from the shared Rust rules, one call per pass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37628,
+      "title": "settings: the Appearance rows move to schemas/settings/source; their hand-written Swift is deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37226,
+      "title": "Cloud secrets and logins: sealed on the Mac, sent over the carrier, terminal receiver and exec login copy removed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37849,
+      "title": "cmux-remote: a relay ticket error keeps vm.agent_stopping and vm.agent_bad_answer (#37670 review follow-up)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37873,
+      "title": "cmux-sdk-ffi: the header's return-code summary lists CMUX_SDK_ERR_IO",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37615,
+      "title": "cmux NEXT sidebar: the Updated card matches the composer, shows What's New ↗ on its title line, and opens a hover preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37823,
+      "title": "Agent chat: a remote owner's Cloud chat opens Context and saves its guidance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37856,
+      "title": "cmux-sdk-ffi: a cancel that cannot be sent returns CMUX_SDK_ERR_IO",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37692,
+      "title": "Composer hat: finished lines linger for a while; lines join and leave on a height fold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37822,
+      "title": "cmux chat: the chat.on read's socket probe stays inside its 1.5 s deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37349,
+      "title": "cmux NEXT: workspace, target and closed history rules of the window handlers in Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
