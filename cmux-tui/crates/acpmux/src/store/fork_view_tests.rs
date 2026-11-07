@@ -323,6 +323,37 @@ fn a_fork_whose_history_is_not_written_is_not_replaced_by_a_move() {
     assert!(folder.exists());
 }
 
+/// A chat moved back here replaces its folder with the one that came in, which may hold it
+/// compacted elsewhere: its forks hold the history they show first (review of #37020: fork F
+/// here, move the chat away, compact it there, move it back, and F read the compacted log).
+#[test]
+fn a_chat_whose_folder_a_move_replaces_leaves_its_forks_their_history() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4);
+    assert!(view.reference("fork").is_some());
+    folder_to_replace(&view, "chat").unwrap().expect("the chat's folder");
+    assert!(view.reference("fork").is_none(), "the fork still reads the folder being replaced");
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
+
+/// The history's commit syncs the folders that name a new `events/` and chat folder, so a power
+/// loss cannot keep the meta that drops the reference and lose the folder that holds the history
+/// (review of #37020).
+#[test]
+fn a_fork_history_commit_syncs_the_folder_that_names_its_events() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view = forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 0);
+    let folder = view.session_path("fork").unwrap();
+    crate::store::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = Some(folder));
+    let failed = view.materialize("fork");
+    crate::store::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
+    assert!(failed.is_err(), "the chat's folder was never synced");
+    assert!(view.reference("fork").is_some(), "the reference went without a synced history");
+    view.materialize("fork").unwrap();
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 0));
+}
+
 #[test]
 fn a_failed_meta_save_leaves_the_reference_to_try_again() {
     let dir = tempfile::tempdir().unwrap().keep();
