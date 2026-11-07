@@ -160,8 +160,8 @@
   margin-top: -8px;
   opacity: 0;
   transition:
-    grid-template-rows var(--cmux-motion-standard, 200ms) var(--cmux-ease-out, ease-out),
-    opacity var(--cmux-motion-quick, 160ms) var(--cmux-ease-out, ease-out);
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
 @starting-style {
