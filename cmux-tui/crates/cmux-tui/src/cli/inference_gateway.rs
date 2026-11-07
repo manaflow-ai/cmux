@@ -304,16 +304,26 @@ pub(super) async fn backend_token(
 }
 
 async fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
-    let out = tokio::time::timeout(
-        Duration::from_secs(40),
-        tokio::process::Command::new(program)
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .output(),
-    )
+    let (program, args) =
+        (program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
+    // A token is far smaller than a pipe's buffer, so the child never blocks on its output while we wait.
+    let out = tokio::task::spawn_blocking(move || {
+        let mut child = cmux_process::Command::new(&program)
+            .args(&args)
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::piped())
+            .stderr(cmux_process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot run the token command: {e}"))?;
+        if child.wait_timeout(Duration::from_secs(40)).map_err(|e| e.to_string())?.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("the token command timed out".to_owned());
+        }
+        child.wait_with_output().map_err(|e| format!("cannot run the token command: {e}"))
+    })
     .await
-    .map_err(|_| "the token command timed out".to_owned())?
-    .map_err(|e| format!("cannot run the token command: {e}"))?;
+    .map_err(|_| "the token command did not finish".to_owned())??;
     if !out.status.success() {
         return Err(format!("the token command failed ({})", out.status));
     }
@@ -468,9 +478,9 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
         match frame.get("t").and_then(Value::as_str) {
             Some("hello") => {
                 if frame.get("protocol").and_then(Value::as_str) != Some(PROTOCOL) {
-                    break Ended::Stop(
-                        "the cmux API speaks another gateway protocol; update cmux".into(),
-                    );
+                    break Ended::Stop(format!(
+                        "the cmux API speaks another gateway protocol than this CLI's {PROTOCOL}; run the cmux CLI that ships with your cmux app"
+                    ));
                 }
                 log(&format!("connected to {}; serving the team's machines", options.api));
             }
