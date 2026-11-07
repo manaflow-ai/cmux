@@ -23,20 +23,25 @@ extension AppDelegate {
             return .notApplicable
         }
 
-        let shortcut = globalSearchShortcutForRouting()
-        guard !shortcut.isUnbound else { return .notApplicable }
+        let shortcuts = globalSearchShortcutsForRouting()
+        guard !shortcuts.isEmpty else { return .notApplicable }
 
         let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-        let hasMatchingChordState =
-            activeConfiguredShortcutChordPrefixForCurrentEvent == shortcut.firstStroke
-            || pendingConfiguredShortcutChord?.firstStroke == shortcut.firstStroke
-        let matchesFirstStroke =
-            activeConfiguredShortcutChordPrefixForCurrentEvent == nil
-            && shortcut.firstStroke.modifierFlags == normalizedFlags
-            && matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-        guard hasMatchingChordState || matchesFirstStroke else {
+        let matchingBinding = shortcuts.first { binding in
+            let shortcut = binding.shortcut
+            let hasMatchingChordState =
+                activeConfiguredShortcutChordPrefixForCurrentEvent == shortcut.firstStroke
+                || pendingConfiguredShortcutChord?.firstStroke == shortcut.firstStroke
+            let matchesFirstStroke =
+                activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+                && shortcut.firstStroke.modifierFlags == normalizedFlags
+                && matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+            return hasMatchingChordState || matchesFirstStroke
+        }
+        guard let matchingBinding else {
             return .notApplicable
         }
+        let shortcut = matchingBinding.shortcut
 
         let previousPendingChord = pendingConfiguredShortcutChord
         let previousActiveChord = activeConfiguredShortcutChordPrefixForCurrentEvent
@@ -70,7 +75,7 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> VisibleGlobalSearchShortcutRoute {
-        let shortcut = globalSearchShortcutForRouting()
+        let shortcuts = globalSearchShortcutsForRouting().map(\.shortcut)
         let matchesShortcut = matchGlobalSearchShortcut(
             event: event,
             normalizedFlags: normalizedFlags
@@ -98,7 +103,7 @@ extension AppDelegate {
            armConfiguredShortcutChordIfNeeded(
                event: event,
                actions: [],
-               shortcuts: [shortcut]
+               shortcuts: shortcuts
            ) {
             return .handled
         }
@@ -109,10 +114,18 @@ extension AppDelegate {
         _ event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags
     ) -> Bool {
-        let shortcut = globalSearchShortcutForRouting()
-        return shortcut.hasChord
-            && activeConfiguredShortcutChordPrefixForCurrentEvent == nil
-            && shortcut.firstStroke.modifierFlags == normalizedFlags
-            && matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+            && globalSearchShortcutsForRouting().contains { binding in
+                binding.shortcut.hasChord
+                    && binding.shortcut.firstStroke.modifierFlags == normalizedFlags
+                    && matchShortcutStroke(event: event, stroke: binding.shortcut.firstStroke)
+                    && binding.whenClause.evaluate(
+                        shortcutWhenClauseContext(
+                            for: .globalSearch,
+                            clause: binding.whenClause,
+                            event: event
+                        )
+                    )
+            }
     }
 }

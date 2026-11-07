@@ -14,11 +14,12 @@ enum KeyboardShortcutBareStartCache {
         }
 
         let resolvedKeys = Set(
-            KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
-                guard !action.isSystemWideHotkey else { return nil }
-                guard !action.isBrowserContentShortcut else { return nil }
-                guard action.participatesInAppWideBareStartRouting else { return nil }
-                return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
+            KeyboardShortcutSettings.Action.allCases.flatMap { action -> [String] in
+                guard !action.isSystemWideHotkey else { return [] }
+                guard !action.isBrowserContentShortcut else { return [] }
+                guard action.participatesInAppWideBareStartRouting else { return [] }
+                return KeyboardShortcutSettings.shortcutBindings(for: action)
+                    .compactMap { $0.shortcut.bareShortcutStartKey }
             }
         )
         configuredKeys = resolvedKeys
@@ -133,19 +134,28 @@ extension AppDelegate {
         event: NSEvent,
         normalizedFlags: NSEvent.ModifierFlags? = nil
     ) -> Bool {
-        let shortcut = globalSearchShortcutForRouting()
-        guard let stroke = activeGlobalSearchStroke(for: shortcut),
-              stroke.modifierFlags
-                  == (normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)),
-              matchShortcutStroke(event: event, stroke: stroke) else {
-            return false
+        let flags = normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return globalSearchShortcutsForRouting().contains { binding in
+            guard let stroke = activeGlobalSearchStroke(for: binding.shortcut),
+                  stroke.modifierFlags == flags,
+                  matchShortcutStroke(event: event, stroke: stroke),
+                  binding.whenClause.evaluate(
+                      shortcutWhenClauseContext(for: .globalSearch, clause: binding.whenClause, event: event)
+                  ) else {
+                return false
+            }
+            return true
         }
-        return globalSearchShortcutWhenClauseAllows(event: event)
     }
 
     /// Returns the foreground Search binding from the observer's authoritative snapshot.
     func globalSearchShortcutForRouting() -> StoredShortcut {
-        KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+        globalSearchShortcutsForRouting().first?.shortcut ?? .unbound
+    }
+
+    /// Returns the foreground Search bindings in config order.
+    func globalSearchShortcutsForRouting() -> [ConfiguredShortcutBinding] {
+        KeyboardShortcutSettingsObserver.shared.globalSearchShortcuts
     }
 
     private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
