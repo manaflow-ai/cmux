@@ -498,6 +498,32 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   }
 }
 
+/* Blank to text fades, never pops (agent-session/shared/loadFade.ts; Leo, 2026-11-07: "going from
+   blank to text is more jarring than blank to fast fade in to text"). Only content that arrives after
+   a blank first paint gets the class; what is ready at the first paint draws whole. Opacity only,
+   so no box moves or changes height. The host's fade-in token sets the length (0 when motion is
+   off); Reduce Motion draws the final state at once. The two custom properties let a gallery arm
+   try another length or curve. */
+@keyframes cmux-load-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cmux-load-fade {
+    animation: cmux-load-fade var(--cmux-load-fade-duration, var(--agent-motion-in, var(--cmux-motion-micro, 120ms)))
+      var(--cmux-load-fade-easing, var(--cmux-ease-out, ease-out)) both;
+  }
+}
+/* The host's motion off or reduced (on any page, whatever its own token) draws the content at once. */
+:root:is([data-agent-motion="off"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .cmux-load-fade {
+  animation: none;
+}
+
 /* Increase Contrast applies to every page through the shared theme layer. Host theme
    tokens are inline styles; important keeps the system preference effective after theme updates. */
 @media (prefers-contrast: more) {
