@@ -135,3 +135,18 @@ test("an edit waiting on its permission is drawn once: its own row, never the li
   const rows = view([call({ title: "Write gen.py", kind: "edit", inputSummary: writeInput }, "pending")]);
   expect(rowsShowing(rows)).toEqual(["a1"]);
 });
+
+test("an ended turn draws no edited-files card for a Write that never got its input", () => {
+  // The turn was stopped while Claude Code still wrote the Write's input: the call never ran.
+  const rows = turnView(
+    [
+      { id: "p1", version: 1, at: 1_000, kind: "user", text: "go" },
+      { id: "a1", version: 1, at: 2_000, kind: "activity", items: [call(KINDS.Write!.pending, "pending")] },
+      { id: "s1", version: 1, at: 3_000, kind: "turnSummary", status: "cancelled", durationMs: 2_000 },
+    ],
+    new Set(),
+    { now: 20_000, working: false },
+  );
+  expect(rows.filter((row) => row.ended && (row.items ?? []).length)).toEqual([]);
+  expect(rows.flatMap((row) => row.items ?? []).map((item) => item.tool?.id)).not.toContain("c1");
+});
