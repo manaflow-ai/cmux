@@ -2969,9 +2969,22 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
 pub(super) fn run_agent_skills(global: GlobalArgs, plan: acpmux::skills_install::Plan) -> i32 {
     let result = acpmux::skills_install::run(&plan);
     if result.failed {
+        // Each refusal in the message too: a person reading plain output learns which folder
+        // is in the way, not only that something failed.
+        let reasons = result
+            .value
+            .get("errors")
+            .and_then(Value::as_array)
+            .map(|errors| errors.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; "))
+            .unwrap_or_default();
+        let message = if reasons.is_empty() {
+            "one or more cmux skill operations failed".to_owned()
+        } else {
+            format!("one or more cmux skill operations failed: {reasons}")
+        };
         let error = json!({
             "code": "local.agent_skills",
-            "message": "one or more cmux skill operations failed",
+            "message": message,
             "details": result.value,
             "retryable": false,
         });

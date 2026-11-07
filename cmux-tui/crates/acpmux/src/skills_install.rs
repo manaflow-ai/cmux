@@ -133,7 +133,8 @@ fn content_hash<'a>(entries: impl Iterator<Item = (&'a str, &'a [u8])>) -> Strin
         all.extend_from_slice(bytes);
         all.push(0);
     }
-    crate::sha256::sha256_hex(&all)[..16].to_owned()
+    let hex = crate::sha256::sha256_hex(&all);
+    hex.get(..16).unwrap_or(&hex).to_owned()
 }
 
 /// Every regular file under `dir` but the marker, as `(relative path, bytes)` in path order;
@@ -364,8 +365,8 @@ pub fn run_with(plan: &Plan, env: &Env<'_>) -> RunResult {
                 _ => "conflict",
             };
             let mut entry = json!({"skill": skill, "state": name});
-            if let Some(reason) = conflict_reason(state) {
-                entry["reason"] = json!(reason);
+            if let (Some(reason), Some(fields)) = (conflict_reason(state), entry.as_object_mut()) {
+                fields.insert("reason".into(), json!(reason));
             }
             skills.push((entry, state));
         }
@@ -392,22 +393,29 @@ pub fn run_with(plan: &Plan, env: &Env<'_>) -> RunResult {
             "changed": changed,
             "skills": skills.into_iter().map(|(e, _)| e).collect::<Vec<_>>(),
         });
-        if let Some(first) = conflicts.first() {
-            let state = states[SKILLS.iter().position(|s| s == first).unwrap_or(0)];
-            row["reason"] = json!(conflict_reason(state));
-            row["detail"] = json!(format!(
+        if let (Some(first), Some(fields)) = (conflicts.first(), row.as_object_mut()) {
+            let state = SKILLS
+                .iter()
+                .position(|s| s == first)
+                .and_then(|at| states.get(at).copied())
+                .unwrap_or(SkillState::NotOwned);
+            fields.insert("reason".into(), json!(conflict_reason(state)));
+            fields.insert("detail".into(), json!(format!(
                 "{} already holds {} that cmux did not install; cmux leaves {} alone",
                 target.dir.display(),
                 conflicts.join(", "),
                 if conflicts.len() == 1 { "it" } else { "them" },
-            ));
+            )));
         }
         rows.push(row);
     }
     let mut value = json!({"action": action, "providers": rows, "errors": errors});
-    if plan.action != Action::Uninstall {
-        value["note"] = json!(
-            "Agents read their skills folder when they start; restart a running agent to pick these up."
+    if let (true, Some(fields)) = (plan.action != Action::Uninstall, value.as_object_mut()) {
+        fields.insert(
+            "note".into(),
+            json!(
+                "Agents read their skills folder when they start; restart a running agent to pick these up."
+            ),
         );
     }
     RunResult { failed: !errors.is_empty(), value }
