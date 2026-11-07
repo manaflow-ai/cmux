@@ -107,6 +107,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitWorktreeCreate
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
+        | Op::GitWorktreeSetup
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
