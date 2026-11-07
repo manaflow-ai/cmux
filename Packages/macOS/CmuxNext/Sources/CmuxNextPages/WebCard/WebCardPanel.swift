@@ -209,7 +209,8 @@ public final class WebCardPanel: NSPanel {
     /// `cmux.card.resize`: `width` and `height` are in CSS px; the page is zoomed (the interface
     /// scale), so one CSS px is `pageZoom * magnification` points.
     func pageResized(card: String, width: CGFloat?, height: CGFloat, control target: CGRect?) {
-        guards[card] = target
+        // SECURITY: the page sets the guard; a new one never counts a click recorded before it.
+        if guards[card] != target { (guards[card], personClick) = (target, nil); rearm() }
         let zoom = page.webKitView.pageZoom * page.webKitView.magnification
         let size = NSSize(width: ceil((width ?? frame.width / zoom) * zoom), height: ceil(height * zoom))
         guard size.height > 0 else { return }
