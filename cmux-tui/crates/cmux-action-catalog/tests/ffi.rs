@@ -33,6 +33,12 @@ fn c_abi_catalog_in_each_language() {
     let again = catalog("en-US");
     let cached = started.elapsed();
     eprintln!("catalog JSON: first build and parse {first:?}, cached {cached:?}");
+    let started = Instant::now();
+    let text = cmux_action_catalog::json::catalog(1);
+    eprintln!("catalog JSON (ja, {} bytes): build {:?}", text.len(), started.elapsed());
+    let started = Instant::now();
+    let text = cmux_action_catalog::json::catalog(0);
+    eprintln!("catalog JSON (en, {} bytes): build {:?}", text.len(), started.elapsed());
     assert_eq!(english, again);
     assert_eq!(english["locale"], "en");
     assert_eq!(title(&english, "newSurface"), "New Terminal Tab");

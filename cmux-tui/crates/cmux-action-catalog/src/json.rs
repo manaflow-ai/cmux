@@ -173,8 +173,43 @@ fn text_input_keys() -> Vec<Value> {
     keys
 }
 
-/// The whole catalog in the language at `locale`, as a JSON value.
+/// The whole catalog in the language at `locale`, as a JSON value: every field of every
+/// action, with the derived palette facts (`computed`), as the parity test reads it.
 pub fn catalog_value(locale: usize) -> Value {
+    catalog_with(locale, |a| action(a, locale))
+}
+
+/// `value` without the members that hold their default (null, false, an empty list or
+/// object), recursively inside objects except an argument's `kind` (`{"int": null}` is an int
+/// with no range): what the app decodes.
+fn compact(value: Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| if k == "kind" { (k, v) } else { (k, compact(v)) })
+                .filter(|(_, v)| match v {
+                    Value::Null | Value::Bool(false) => false,
+                    Value::Array(a) => !a.is_empty(),
+                    Value::Object(o) => !o.is_empty(),
+                    _ => true,
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(compact).collect()),
+        other => other,
+    }
+}
+
+/// One action as the app decodes it: no `computed`, no default members.
+fn app_action(value: &Action, locale: usize) -> Value {
+    let mut row = action(value, locale);
+    if let Some(map) = row.as_object_mut() {
+        map.remove("computed");
+    }
+    compact(row)
+}
+
+fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
     let legacy: Map<String, Value> =
         tables::LEGACY_ALIASES.iter().map(|(old, new)| ((*old).to_owned(), json!(new))).collect();
     let categories: Vec<Value> = tables::CATEGORIES
@@ -210,7 +245,7 @@ pub fn catalog_value(locale: usize) -> Value {
     json!({
         "version": 1,
         "locale": strings::LOCALES[locale.min(strings::LOCALES.len() - 1)],
-        "actions": crate::actions().map(|a| action(a, locale)).collect::<Vec<_>>(),
+        "actions": crate::actions().map(row).collect::<Vec<_>>(),
         "legacy_aliases": legacy,
         "categories": categories,
         "menu_folders": folders,
@@ -245,6 +280,7 @@ pub fn catalog_value(locale: usize) -> Value {
 }
 
 /// The whole catalog in the language at `locale`, as JSON text.
+/// The app's form: an action's missing member is false, null or empty.
 pub fn catalog(locale: usize) -> String {
-    catalog_value(locale).to_string()
+    catalog_with(locale, |a| app_action(a, locale)).to_string()
 }
