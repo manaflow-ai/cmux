@@ -187,9 +187,7 @@ export function SenderName({
   const recorded = useSenderSessionName(message, false);
   const name =
     (message.chief && chief?.name) ||
-    (message.unverified && !message.name.trim()
-      ? t("message.unverifiedSender")
-      : senderLabel(recorded, sender.host));
+    (message.unverified && !message.name.trim() ? t("message.unverifiedSender") : senderLabel(recorded, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
