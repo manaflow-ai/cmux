@@ -1,5 +1,5 @@
 import CmuxNextDesign
-import Foundation
+package import Foundation
 
 /// The saved identity and appearance of a workspace row, and what sets its height and its Done fold: the
 /// second line's facts, the reported status block, the progress bar and the task status. A relaunch's first
