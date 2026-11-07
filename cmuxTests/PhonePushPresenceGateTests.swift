@@ -1,6 +1,7 @@
 import CmuxCloud
 import CoreGraphics
 import CmuxPhonePush
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -93,6 +94,60 @@ import Testing
         let decision = monitor(hardwareIdleSeconds: 0).evaluate()
         #expect(decision.isActive)
         #expect(PhonePushClient.shouldForward(mode: .always, presence: decision))
+    }
+
+    @Test func delayedEscalationTargetsOnlyUnreadAgentInputAlerts() {
+        let inputAlert = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Agent",
+            subtitle: "Needs input",
+            body: "Answer the question",
+            createdAt: Self.now,
+            isRead: false,
+            isAgentEvent: true,
+            agentCategory: AgentNotifyCategory.needsPermission.rawValue
+        )
+        let completion = TerminalNotification(
+            id: UUID(),
+            tabId: inputAlert.tabId,
+            surfaceId: inputAlert.surfaceId,
+            title: "Agent",
+            subtitle: "Done",
+            body: "Completed",
+            createdAt: Self.now,
+            isRead: false,
+            isAgentEvent: true,
+            agentCategory: AgentNotifyCategory.turnComplete.rawValue
+        )
+        let legacy = TerminalNotification(
+            id: UUID(),
+            tabId: inputAlert.tabId,
+            surfaceId: inputAlert.surfaceId,
+            title: "Terminal",
+            subtitle: "Needs input",
+            body: "Answer the question",
+            createdAt: Self.now,
+            isRead: false
+        )
+
+        #expect(PhonePushAwayEscalation.shouldSchedule(for: inputAlert))
+        #expect(!PhonePushAwayEscalation.shouldSchedule(for: completion))
+        #expect(!PhonePushAwayEscalation.shouldSchedule(for: legacy))
+    }
+
+    @Test func delayedEscalationWaitsForTheRemainingHardwareIdleWindow() {
+        let active = monitor(hardwareIdleSeconds: 10).evaluate()
+        let nearlyAway = monitor(hardwareIdleSeconds: 119.5).evaluate()
+        let away = monitor(hardwareIdleSeconds: 120).evaluate()
+
+        #expect(
+            PhonePushAwayEscalation.retryDelay(for: active)
+                == MacPresenceMonitor.recentHardwareInputThreshold - 10
+        )
+        #expect(PhonePushAwayEscalation.retryDelay(for: nearlyAway) == 0.5)
+        #expect(PhonePushAwayEscalation.retryDelay(for: away) == nil)
     }
 
     @Test func desktopBannerOffDoesNotDisableExplicitPhoneForwarding() {
