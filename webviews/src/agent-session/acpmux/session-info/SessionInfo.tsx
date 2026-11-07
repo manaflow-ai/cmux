@@ -70,7 +70,7 @@ import { ContextSection } from "./ContextSection";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
-import { chatGallery } from "../summary/chatGallery";
+import { chatGallery, type GalleryItem } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
@@ -965,7 +965,12 @@ function useSessionInfoLists({
       [drawn, scopedAgent, rows, scopedWorking],
     ),
   );
-  const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
+  // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
+  // render call), so a replaced image or render with the same count is a new gallery, and a streamed
+  // token that changes none of it is the same one. Its pass is over the gallery's items, not the rows'
+  // text: chatGallery keeps each unchanged row's images and calls (its WeakMaps).
+  const gallery = useSameValue(useMemo(() => (drawn ? chatGallery(rows) : NO_GALLERY), [drawn, rows]));
+  const artifacts = gallery.length;
   const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
   const scopedAgents = scope?.agents;
   const agents = useSameValue(
@@ -996,9 +1001,10 @@ function useSessionInfoLists({
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
+  // The rows the sections read for the chat's gallery (its items: `gallery`), whether it has any, and
   // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
-  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
+  // none, any item of its gallery or what it made changes (a replaced image or render at the same count
+  // too: review of cmux#37907 at 6c29ca42, P1), a turn starts or ends, or the panel lists another agent.
   // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
   // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`). Another chat's
   // rows are always new: the panel outlives a chat switch, and B must never show A's images.
@@ -1006,17 +1012,17 @@ function useSessionInfoLists({
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
   const any = rows.length > 0;
-  const galleryRows = useRef({ rows, chat, any, artifacts, listing, working, outputFiles, toolCalls });
+  const galleryRows = useRef({ rows, chat, any, gallery, listing, working, outputFiles, toolCalls });
   if (
     galleryRows.current.chat !== chat ||
     galleryRows.current.any !== any ||
-    galleryRows.current.artifacts !== artifacts ||
+    galleryRows.current.gallery !== gallery ||
     galleryRows.current.listing !== listing ||
     galleryRows.current.working !== working ||
     galleryRows.current.outputFiles !== outputFiles ||
     galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, chat, any, artifacts, listing, working, outputFiles, toolCalls };
+    galleryRows.current = { rows, chat, any, gallery, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const rowCount = rows.length;
   const lists = useMemo<SessionInfoLists>(
@@ -1955,6 +1961,8 @@ export const RAIL_LAYOUT: RailLayout = "glance";
 
 /// No files made (a stable value, so the sections' memo holds).
 const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+/// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
+const NO_GALLERY: readonly GalleryItem[] = [];
 
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
