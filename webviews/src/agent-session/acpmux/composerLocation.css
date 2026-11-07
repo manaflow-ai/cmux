@@ -1542,7 +1542,7 @@
   background: transparent;
 }
 /* A short list has no search field: the field stays, unseen, for the arrows, Return and Escape.
-   It sits in the popup's corner with no size, inside its box: at its static place (after the popup's
+   It sits in the popup's corner at a hairline, inside its box (still a real, focusable field): at its static place (after the popup's
    5 px padding) with the visible field's min-width of 100% it reached 5 px past the popup's right
    edge, and focusing it on open scrolled the popup (overflow: hidden still scrolls to a focused
    field) 5 px sideways, so every row's highlight touched the left edge and stood 10 px off the
@@ -1552,9 +1552,9 @@
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 0;
-  width: 0;
+  width: var(--cmux-hairline);
   min-width: 0;
-  height: 0;
+  height: var(--cmux-hairline);
   margin: 0;
   padding: 0;
   border: 0;
