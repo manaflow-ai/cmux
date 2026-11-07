@@ -1614,6 +1614,8 @@ PACKAGE_JOBS = {
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')
+SWIFT_URL_PACKAGE = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?(?:url|id):\s*"')
+SWIFT_PACKAGE_CALL = re.compile(r"\.package\s*\(")
 
 
 CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -1621,7 +1623,7 @@ CARGO_MANIFESTS = 200  # a bound on the manifests one resolution reads
 
 
 def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
-    """{crate name: its directory} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
+    """{directory: its crate's name} of every path crate the Cargo workspace beside LOCK builds at SHA: its members,
     then each path dependency (a `path`, or `workspace = true` resolved in the crate's own workspace root, the nearest
     ancestor manifest with a [workspace]), read from the manifests at SHA, never from a declaration. Raises Refused
     when a manifest cannot be read or parsed, a member is a glob, or a path crate in LOCK resolves to no directory."""
@@ -1664,7 +1666,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     if any(not isinstance(member, str) or any(c in member for c in "*?[") for member in members):
         raise Refused(f"{root}/Cargo.toml names its members by a glob")
     queue = [posixpath.normpath(posixpath.join(root, member)) for member in members] + [root]
-    crates: dict[str, str] = {}
+    crates: dict[str, str] = {}  # by directory: two path crates may share a name (an aliased dependency)
     seen: set[str] = set()
     while queue:
         where = queue.pop()
@@ -1676,7 +1678,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         found = manifest(where, True) or {}
         package = found.get("package")
         if isinstance(package, dict) and isinstance(package.get("name"), str):
-            crates[package["name"]] = where
+            crates[where] = package["name"]
         home, workspace = workspace_of(where)
         shared = workspace.get("dependencies") if isinstance(workspace.get("dependencies"), dict) else {}
         tables = [found.get(name) for name in CARGO_DEPENDENCY_TABLES]
@@ -1700,7 +1702,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
     except (Refused, tomllib.TOMLDecodeError) as why:
         raise Refused(f"{lock} could not be read at {sha[:12]}: {why}") from None
     if missing := sorted({str(crate.get("name")) for crate in locked if isinstance(crate, dict)
-                          and "source" not in crate} - crates.keys()):
+                          and "source" not in crate} - set(crates.values())):
         raise Refused(f"{lock} has path crates its manifests do not reach: {', '.join(missing)}")
     return crates
 
@@ -1723,13 +1725,22 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
             manifest = source_text(repo, sha, f"{where}/Package.swift", github)
         except Refused as why:
             raise Refused(f"{where}/Package.swift could not be read at {sha[:12]}: {why}") from None
+        # Every `.package(` is a path dependency read below or a url (or registry id) one: any other spelling (a
+        # comment inside the call, a variable path) could reach a package this rule cannot see, so it refuses.
+        calls = [found.start() for found in SWIFT_PACKAGE_CALL.finditer(manifest)]
+        known = {found.start() for pattern in (SWIFT_PATH_PACKAGE, SWIFT_URL_PACKAGE)
+                 for found in pattern.finditer(manifest)}
+        if unread := [at for at in calls if at not in known]:
+            line = manifest.count("\n", 0, unread[0]) + 1
+            raise Refused(f"{where}/Package.swift:{line} declares a package dependency in a form this rule does not "
+                          "read; it could reach a package outside the declared reads")
         for found in SWIFT_PATH_PACKAGE.finditer(manifest):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
             if path.startswith(".."):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
-    for crate, where in sorted(crates.items()):
+    for where, crate in sorted(crates.items()):
         if not any(touches(where + "/Cargo.toml", read) for read in reads + GUARD_READS_DEFAULT):
             raise Refused(f"its Rust crate {crate} at {where} is outside its declared reads (PACKAGE_JOBS)")
     return reads

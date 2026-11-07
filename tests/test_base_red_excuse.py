@@ -2985,6 +2985,28 @@ class PackageFixedOnBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/cmux-wg is outside its declared"):
             self.judge(KitFixedOnBaseGitHub(files=files))
 
+    def test_a_swift_package_declared_in_an_unread_form_is_refused(self):
+        # A comment inside the call hides the path from the reader: refused, never skipped (review of ce36494d, F1).
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(/* the Mac */ path: "../../macOS/CmuxNext")'
+        with self.assertRaisesRegex(excuse.Refused, "CmuxTabsKit/Package.swift:1 declares a package dependency"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
+    def test_a_url_package_is_read_as_one(self):
+        files = dict(KIT_FILES)
+        files["Packages/iOS/CmuxTabsKit/Package.swift"] = '.package(url: "https://github.com/a/b", from: "1.0.0")'
+        self.assertIn(f"excused '{KIT}': fixed on base", self.judge(KitFixedOnBaseGitHub(files=files)))
+
+    def test_every_directory_of_a_shared_crate_name_is_checked(self):
+        # Two path crates named cmux-wg (an aliased dependency): the undeclared one is not hidden by the declared one
+        # (review of ce36494d, F2).
+        files = dict(KIT_FILES)
+        files["cmux-next-ios/rust/crates/cmux-mobile-link/Cargo.toml"] += (
+            'old-wg = { package = "cmux-wg", path = "../../../../Packages/macOS/old-wg" }\n')
+        files["Packages/macOS/old-wg/Cargo.toml"] = '[package]\nname = "cmux-wg"\n'
+        with self.assertRaisesRegex(excuse.Refused, "crate cmux-wg at Packages/macOS/old-wg is outside its declared"):
+            self.judge(KitFixedOnBaseGitHub(files=files))
+
     def test_a_locked_path_crate_no_manifest_reaches_is_refused(self):
         files = dict(KIT_FILES)
         files["cmux-next-ios/rust/Cargo.lock"] = KIT_LOCK + '[[package]]\nname = "cmux-agent-pane-policy"\n'
@@ -3049,7 +3071,7 @@ class PackageFixedOnBase(unittest.TestCase):
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
             return (ROOT / path).read_text()
         github.blob = checkout
-        crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github).values())
+        crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
         for crate in crates:
