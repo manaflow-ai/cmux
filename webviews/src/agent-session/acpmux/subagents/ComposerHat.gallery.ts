@@ -1,10 +1,13 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The tucked composer hat (TrayPullTab.tsx) on its own over a stand-in composer: just the chevron,
 // centred on the composer, while nothing runs; it grows into chevron and count when work runs, and
-// shrinks back when it clears (Leo, 2026-11-07: "if there's no running work, it should just be
+// shrinks back when it clears, as one transition. Four arms (composerHat.experiment.ts; view
+// Compare arms): grow with the count sliding out (shipped), grow with it fading in place, a crossfade,
+// a badge (Leo, 2026-11-07: "if there's no running work, it should just be
 // centered, right? But when there is a number, it can, like, you know, grow into that").
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
+import { composerHatLook } from "./composerHat.experiment";
 
 type Props = { start?: number; waits?: boolean };
 
@@ -43,6 +46,7 @@ export default componentEntry<Props>({
   load: () => import("../../../gallery/fixtures/ComposerHatStage").then((module) => module.ComposerHatStage),
   pane: true,
   height: 220,
+  experiment: { definition: composerHatLook, script: composerHatScript },
   variants: {
     idle: {
       note: "Nothing runs: the hat is just the chevron, centred on the composer, with no count and no room kept for one.",

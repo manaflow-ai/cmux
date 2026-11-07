@@ -15,20 +15,18 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.composer-hat";
-
-/** One frame's geometry, in page px. `hat` is the drawn control's centre and width (its glass pill
- *  when it has one, else the union of the chevron and the visible count). */
-type Frame = {
-  composer: number;
-  chevron: number;
-  hat: number;
-  hatWidth: number;
-  count: boolean;
-  countOpacity: number;
-};
-
 await requireBrowserLane("composer-hat-grow.test.ts", async () => {
+  const ENTRY = "agent-pane.composer-hat";
+  /** One frame's geometry, in page px. `hat` is the drawn control's centre and width (its glass pill
+   *  when it has one, else the union of the chevron and the visible count). */
+  type Frame = {
+    composer: number;
+    chevron: number;
+    hat: number;
+    hatWidth: number;
+    count: boolean;
+    countOpacity: number;
+  };
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -99,7 +97,11 @@ await requireBrowserLane("composer-hat-grow.test.ts", async () => {
           // The count as drawn: cut by any clipping box between it and the tab.
           let visibleRight = rect.right;
           let visibleLeft = rect.left;
-          for (let node = countEl.parentElement; node && !node.matches(".acpmux-tray-pull"); node = node.parentElement) {
+          for (
+            let node = countEl.parentElement;
+            node && !node.matches(".acpmux-tray-pull");
+            node = node.parentElement
+          ) {
             if (getComputedStyle(node).overflow !== "visible") {
               const clip = node.getBoundingClientRect();
               visibleRight = Math.min(visibleRight, clip.right);
@@ -111,7 +113,11 @@ await requireBrowserLane("composer-hat-grow.test.ts", async () => {
             right = Math.max(right, visibleRight);
           }
           countOpacity = 1;
-          for (let node: HTMLElement | null = countEl; node && !node.matches(".acpmux-tray-pull"); node = node.parentElement)
+          for (
+            let node: HTMLElement | null = countEl;
+            node && !node.matches(".acpmux-tray-pull");
+            node = node.parentElement
+          )
             countOpacity *= Number(getComputedStyle(node).opacity);
         }
         return {
@@ -139,6 +145,7 @@ await requireBrowserLane("composer-hat-grow.test.ts", async () => {
           const start = performance.now();
           const tick = () => {
             frames.push(measure());
+            // raf-read: each sample is the geometry that frame lays out; before or after its paint is the same.
             if (performance.now() - start < ms) requestAnimationFrame(tick);
             else resolve(frames);
           };
@@ -178,6 +185,31 @@ await requireBrowserLane("composer-hat-grow.test.ts", async () => {
     expect(shown.countOpacity, "the count is fully drawn").toBe(1);
   });
 
+  for (const variant of ["count", "two-digits"])
+    test(`${variant}: the count is whole, never cut by the hat`, async () => {
+      const page = await open(variant);
+      const cut = await page.evaluate(() => {
+        const count = document.querySelector(".acpmux-tray-pull__count")!.getBoundingClientRect();
+        const hat = document.querySelector(".acpmux-tray-pull__hat")?.getBoundingClientRect();
+        let left = count.left;
+        let right = count.right;
+        for (
+          let node = document.querySelector(".acpmux-tray-pull__count")!.parentElement;
+          node && !node.matches(".acpmux-tray-pull");
+          node = node.parentElement
+        )
+          if (getComputedStyle(node).overflow !== "visible") {
+            const clip = node.getBoundingClientRect();
+            left = Math.max(left, clip.left);
+            right = Math.min(right, clip.right);
+          }
+        return { cut: count.width - (right - left), inside: hat ? count.right <= hat.right : true };
+      });
+      await page.close();
+      expect(cut.cut, "no part of the count is clipped").toBeLessThan(0.5);
+      expect(cut.inside, "the count sits inside the hat").toBe(true);
+    });
+
   test("idle → count → idle is one transition: centred every frame, no jump, no pop-in, no room left", async () => {
     const page = await open("idle");
     const rest = await frame(page);
@@ -200,6 +232,11 @@ await requireBrowserLane("composer-hat-grow.test.ts", async () => {
     expect(grow[0]!.count, "the count is there from the first frame").toBe(true);
     expect(grow.at(-1)!.countOpacity, "the count is drawn when the motion ends").toBe(1);
     expect(grown.hatWidth, "the hat grows into the count").toBeGreaterThan(rest.hatWidth + 4);
+    // It grows over frames, not in one step: some frames draw a width between the two ends.
+    const between = (frames: Frame[], a: number, b: number) =>
+      frames.filter((f) => f.hatWidth > Math.min(a, b) + 0.5 && f.hatWidth < Math.max(a, b) - 0.5).length;
+    expect(between(grow, rest.hatWidth, grown.hatWidth), "frames between idle and counted widths").toBeGreaterThan(2);
+    expect(between(shrink, rest.hatWidth, grown.hatWidth), "frames between counted and idle widths").toBeGreaterThan(2);
     // The chevron moves aside for the count, so the pair is centred.
     expect(grown.chevron, "the chevron makes room for the count").toBeLessThan(grown.composer - 2);
     // 3 → 4: tabular numerals, the width holds every frame.
