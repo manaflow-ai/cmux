@@ -139,7 +139,8 @@ def parse_issue(issue: dict) -> Freeze:
 RATE_LIMITED = re.compile(r"rate limit|HTTP 429", re.IGNORECASE)
 
 
-FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials", re.I)
+# GraphQL names no HTTP status for a token without access: it says "Resource not accessible".
+FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials|Resource not accessible|FORBIDDEN", re.I)
 
 
 def gh(*args: str, write: bool = False) -> str:
@@ -244,7 +245,10 @@ def open_freeze_issues(repo: str, max_pages: int = MAX_PAGES) -> list[dict]:
                 "-f", f"l={LABEL}"]
         if cursor:
             args += ["-f", f"c={cursor}"]
-        page = json.loads(gh(*args))["data"]["repository"]["issues"]
+        answer = json.loads(gh(*args))
+        if answer.get("errors"):
+            raise ValueError(f"{repo} open {LABEL} issues: GraphQL answered with errors: {answer['errors']}")
+        page = answer["data"]["repository"]["issues"]
         for node in page["nodes"]:
             issues.append({
                 "number": node["number"], "title": node.get("title"), "body": node.get("body"),
