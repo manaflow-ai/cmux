@@ -46,7 +46,8 @@ struct PaneGroundCoversPaneTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(_ layout: ScreenLayout, focused: PaneID) {
+        /// `titled`: the app's own titled window (`ShellWindow`, its theme frame and titlebar), for the window's own pass.
+        init(_ layout: ScreenLayout, focused: PaneID, titled: Bool = false) {
             _ = NSApplication.shared
             _ = GhosttyRuntime.shared
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
@@ -54,7 +55,9 @@ struct PaneGroundCoversPaneTests {
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+            let rect = NSRect(x: 0, y: 0, width: 1200, height: 800)
+            window = titled ? ShellWindow(contentRect: rect, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+                : NSWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
