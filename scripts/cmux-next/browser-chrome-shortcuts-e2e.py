@@ -10,12 +10,13 @@ act on the page:
 
 For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page and
 checks, with no real key presses unless `--keys` is given: the router delivers Cmd-V, Cmd-Shift-V and
-Cmd-Opt-Shift-V to the page, offers Cmd-B, Cmd-I and Shift-Cmd-E to a Chromium page first
-(cmux first in WebKit), and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
+Cmd-Opt-Shift-V to the page, offers Cmd-B, Cmd-I and Shift-Cmd-E to the page first in both
+engines, and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
 Reload (`browserHardReload`, what the chord runs) reloads with `Cache-Control: no-cache`, read
 from the script's own server, and Reload Page does not. With `--keys` (the app active, its page
 window key) it also copies a rich-text source with Cmd-C, pastes it into a contenteditable with
-each paste chord and reads what landed (bold kept or not), and presses Cmd-Shift-R. Keys go
+each paste chord and reads what landed (bold kept or not), presses Cmd-Shift-R, and presses
+Cmd-B twice: in a page that takes it (the sidebar stays) and in one that leaves it (Toggle Sidebar runs). Keys go
 through `debug.key` (the app's own dispatch: router, window, page, main menu), into the Chromium
 page window for a Chromium tab. `--sweep` also prints the router's decision (`debug.key` dry_run)
 for every Command chord on a letter, digit or punctuation key while the page has the keyboard:
@@ -48,6 +49,8 @@ PAGE = """<!doctype html><title>shortcuts {run}</title>
 window.__loads = (window.__loads || 0) + 1;
 window.__keys = [];
 addEventListener('keydown', e => __keys.push([e.key, e.metaKey, e.shiftKey, e.altKey].join(',')), true);
+// A rich-text editor's Bold: with __ownsBold the page takes Cmd-B (preventDefault), as Google Docs does.
+addEventListener('keydown', e => {{ if (window.__ownsBold && e.metaKey && e.key === 'b') e.preventDefault(); }});
 </script>"""
 
 
@@ -184,10 +187,10 @@ def check_engine(engine, base_url):
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, want in routed)
 
-    # Rich-text editing chords (Bold, Italic, Center): a Chromium page gets them first and the cmux
-    # action bound to the chord runs only if the page leaves the key unhandled. A WebKit tab reports
-    # no unhandled keys, so cmux keeps running them first there.
-    want = "offerToPage" if engine == "chromium" else "run("
+    # Rich-text editing chords (Bold, Italic, Center): the page gets them first in both engines, and
+    # the cmux action bound to the chord runs only if the page leaves the key unhandled (Chromium
+    # reports it; WebKit sends the key back to NSApp.sendEvent).
+    want = "offerToPage"
     for label, key, modifiers in [("Cmd-B", "b", ["cmd"]), ("Cmd-I", "i", ["cmd"]), ("Shift-Cmd-E", "E", ["cmd", "shift"])]:
         reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "dry_run": True}) or {}
         routed = f"{reply.get('decision')}"
@@ -224,6 +227,37 @@ def check_keys(engine, keys):
     request, sent = reload_request(lambda: keys.press("R", ["cmd", "shift"]))
     row(f"{engine}: Cmd-Shift-R hard reloads", "a request with Cache-Control: no-cache", f"request={request} sent={sent}",
         bypassed(request))
+    check_bold(engine, keys)
+
+
+def sidebar_hidden():
+    windows = (rpc("debug.windows") or {}).get("windows") or []
+    states = [w.get("sidebar_hidden") for w in windows if isinstance(w, dict) and "sidebar_hidden" in w]
+    return states[0] if states else None
+
+
+def check_bold(engine, keys):
+    """Cmd-B in the page: a page that takes it (Bold) keeps it, and cmux's Toggle Sidebar runs only
+    when the page leaves it unhandled (#27619)."""
+    wait(lambda: evaluate("document.readyState === 'complete'"), 20, 0.5)
+    evaluate("window.__ownsBold = true")
+    focus_target()
+    before = sidebar_hidden()
+    sent = keys.press("b", ["cmd"])
+    page_saw = wait(lambda: evaluate("__keys.some(k => k.startsWith('b,true'))") or None, 5)
+    # A late report would toggle the sidebar after the page's answer: give it the same time.
+    wait(lambda: sidebar_hidden() != before or None, 2)
+    after = sidebar_hidden()
+    row(f"{engine}: Cmd-B a page takes stays in the page", "the page saw Cmd-B, the sidebar did not toggle",
+        f"page_saw={page_saw} sidebar {before}->{after} sent={sent}", bool(page_saw) and before is not None and after == before)
+    evaluate("window.__ownsBold = false; window.__keys = []")
+    focus_target()
+    sent = keys.press("b", ["cmd"])
+    toggled = wait(lambda: sidebar_hidden() not in (None, before) or None, 5)
+    row(f"{engine}: Cmd-B a page leaves unhandled toggles the sidebar", f"sidebar_hidden {before}->{not before}",
+        f"toggled={toggled} now={sidebar_hidden()} sent={sent}", bool(toggled))
+    if toggled:
+        rpc("action.run", {"action": "toggleSidebar", "args": {}, "focus": True})
 
 
 def sweep(engine):
