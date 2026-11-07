@@ -666,7 +666,18 @@ impl World {
         for d in self.outbox.open_on_peers() {
             let Some(pin) = d.pin.clone() else { continue };
             let step = match self.rules {
-                Rules::Now => od::step(&d, now, link, ends),
+                Rules::Now => match od::step(&d, now, link, ends) {
+                    // The machine's journal read on this link (`Hub::proof_held`).
+                    od::Step::Check => {
+                        let records = d.proof.as_ref().map_or(&[][..], |p| &p.records[..]);
+                        od::checked(Some(records.iter().all(|r| {
+                            let at = r["seq"].as_u64();
+                            let found = self.machine.journal.iter().find(|h| Some(h.seq) == at);
+                            od::same_record(r, found.map(Rec::json).as_ref())
+                        })))
+                    }
+                    step => step,
+                },
                 // 0c98c292: lapse, or closed on the copy, else again.
                 Rules::Before if d.open_lapsed(now) => od::Step::Lapse,
                 Rules::Before => {
@@ -690,7 +701,13 @@ impl World {
                     self.note(format!("{} released", d.id));
                     self.outbox.update(&d.id, od::release);
                 }
-                od::Step::Wait => self.note(format!("{} proven, waits", d.id)),
+                od::Step::Lost => {
+                    self.note(format!("{} lost: another history", d.id));
+                    self.outbox.update(&d.id, |d| d.fail_open(od::LOST.to_owned()));
+                }
+                od::Step::Wait | od::Step::Check => {
+                    self.note(format!("{} proven, waits", d.id));
+                }
                 od::Step::Again => {
                     let queue = self.rng.chance(50);
                     let answer = self.machine.prompt(d.prompt_id(), Some(pin.generation), queue);

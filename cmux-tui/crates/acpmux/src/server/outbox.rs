@@ -821,7 +821,13 @@ async fn redeliver_one(
     use crate::hub::open_delivery::{self as od, Again, Step};
     let now = crate::store::now_ms();
     let Some(pin) = d.pin.clone() else { return };
-    match od::step(d, now, link, ends) {
+    let mut step = od::step(d, now, link, ends);
+    if step == Step::Check
+        && let Some(proof) = &d.proof
+    {
+        step = od::checked(hub.proof_held(&pin, link, proof).await);
+    }
+    match step {
         Step::Lapse => {
             let lapsed = crate::hub::outbox::OPEN_LAPSED.to_owned();
             close_open(hub, d, |d| d.fail_open(lapsed)).await;
@@ -830,8 +836,12 @@ async fn redeliver_one(
             tracing::warn!(delivery = %d.id, "a proven delivery's session is another generation now");
             close_open(hub, d, |d| d.fail_open(od::STALE.to_owned())).await;
         }
+        Step::Lost => {
+            tracing::warn!(delivery = %d.id, "a proven delivery's machine holds another history");
+            close_open(hub, d, |d| d.fail_open(od::LOST.to_owned())).await;
+        }
         Step::Release => close_open(hub, d, od::release).await,
-        Step::Wait => {}
+        Step::Wait | Step::Check => {}
         Step::Again => {
             let mut request = d.request.clone();
             if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {

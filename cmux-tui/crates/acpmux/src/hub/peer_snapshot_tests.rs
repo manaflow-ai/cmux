@@ -1395,7 +1395,9 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let ends = |g: u64, last: u64| HashMap::from([("m1".to_owned(), (g, last))]);
     assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 3)), od::Step::Wait);
     assert_eq!(od::step(&d1, 2, (1, 1), &ends(7, 9)), od::Step::Wait);
-    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 9)), od::Step::Release);
+    assert_eq!(od::step(&d1, 2, (1, 2), &ends(7, 9)), od::Step::Check);
+    assert_eq!(od::checked(Some(true)), od::Step::Release);
+    assert_eq!(od::checked(Some(false)), od::Step::Lost);
     assert_eq!(od::step(&d1, 2, (1, 2), &ends(8, 9)), od::Step::Stale);
     assert_eq!(od::step(&outbox.get("d2").unwrap(), 2, (1, 2), &ends(7, 9)), od::Step::Again);
 }

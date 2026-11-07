@@ -20,8 +20,10 @@
 //!   whole life since its first record and giving it back would start its work again
 //!   ([`whole`]): then nothing goes back, nothing runs again, and it stays open.
 //! - Released ([`step`]): when a later link than the one its proof came on lists the session,
-//!   of its generation, with a journal that ends at or past every record of the proof; or it
-//!   fails, saying why: another generation of the session there (stale), or open past
+//!   of its generation, with a journal that ends past the proof and holds each of its records
+//!   (read on that link, by seq, time and kind: [`Hub::proof_held`]); or it fails, saying why:
+//!   another history where its records were (a machine that wrote others there before its
+//!   restore), another generation of the session (stale), or open past
 //!   `outbox::OPEN_ON_PEER_FOR_MS` (lapsed). Never a quiet drop.
 //! - Not proven yet: delivered again on every link of the peer while open, under its own prompt
 //!   id and pinned generation (`server/outbox.rs` `redeliver_open`): a machine that has it
@@ -193,8 +195,13 @@ pub(crate) fn proofs_past(
 pub(crate) enum Step {
     /// Open past its bound: it fails, saying so.
     Lapse,
+    /// Its machine's journal ends past its proof on a later link: read whether that journal
+    /// holds the proof's records ([`held`], then [`checked`]).
+    Check,
     /// Its machine holds its proof on a later link: closed, delivered.
     Release,
+    /// Its machine's journal holds another history where its proof was: it fails, saying so.
+    Lost,
     /// Its session is another generation there: it fails as stale.
     Stale,
     /// Proven, and not seen held yet: it stays open, and is not sent again.
@@ -218,12 +225,32 @@ pub(crate) fn step(
     let through = proof.records.iter().filter_map(seq).max();
     match ends.get(&pin.session) {
         Some((generation, _)) if *generation != pin.generation => Step::Stale,
-        Some((_, last)) if link > proof.link && through.is_some_and(|t| t <= *last) => {
-            Step::Release
-        }
+        Some((_, last)) if link > proof.link && through.is_some_and(|t| t <= *last) => Step::Check,
         _ => Step::Wait,
     }
 }
+
+/// What a [`Step::Check`] found: every record of the proof held (by seq, time and kind, as
+/// `journal_restore` compares them), another history there, or nothing read (it waits).
+pub(crate) fn checked(held: Option<bool>) -> Step {
+    match held {
+        Some(true) => Step::Release,
+        Some(false) => Step::Lost,
+        None => Step::Wait,
+    }
+}
+
+/// Whether `found`, the machine's record at the seq of `record` (None: it has none), is that
+/// record.
+pub(crate) fn same_record(record: &Value, found: Option<&Value>) -> bool {
+    found.is_some_and(|f| {
+        seq(f) == seq(record) && f.get("at") == record.get("at") && kind(f) == kind(record)
+    })
+}
+
+/// The error of a proven delivery whose machine holds another history where its records were.
+pub(crate) const LOST: &str = "the peer took this message, but its machine came back on an \
+     older disk and wrote other records where it was; it may have run, and is not run again";
 
 /// The error of a proven delivery whose session is another generation on its machine now.
 pub(crate) const STALE: &str = "the peer took this message, but its session there was purged \
@@ -262,6 +289,27 @@ pub(crate) fn after_again(d: &mut Delivery, again: Again) -> bool {
 }
 
 impl Hub {
+    /// Whether peer `pin.peer`'s journal of `pin.session`, read on link `link`, holds every
+    /// record of `proof` ([`same_record`]); None when it could not be read on that link.
+    pub(crate) async fn proof_held(
+        &self,
+        pin: &Pin,
+        link: (u64, u64),
+        proof: &Proof,
+    ) -> Option<bool> {
+        let peer = self.peer(&pin.peer).filter(|p| (p.generation, p.link_epoch()) == link)?;
+        for record in &proof.records {
+            let at = seq(record)?;
+            let params = json!({"sessionId": pin.session, "afterSeq": at - 1, "limit": 1});
+            let page = peer.request(crate::rpc::method::MUX_EVENTS, params).await.ok()?;
+            let events = page.get("events").and_then(Value::as_array)?;
+            if !same_record(record, events.first()) {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
     /// Whether peer `peer` is on link `link` (its instance and link epoch) still.
     pub(crate) fn peer_on_link(&self, peer: &str, link: (u64, u64)) -> bool {
         self.peer(peer).is_some_and(|p| (p.generation, p.link_epoch()) == link)

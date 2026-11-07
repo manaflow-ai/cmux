@@ -37,8 +37,9 @@
 //!   write held), the delivery keeps them itself, past the copy's bounds, a captures' queue that
 //!   overflowed and the disk's eviction; it is never sent again, and a restore gives them back
 //!   with the copy, unless the copy did not see the prompt's whole life since its first record
-//!   and giving them back would start its work again. A later link whose journal ends past them,
-//!   of the same generation, releases it; else it lapses, failed and saying so. A link's
+//!   and giving them back would start its work again. A later link whose journal holds them
+//!   (read by seq, time and kind), of the same generation, releases it; another history there
+//!   fails it, saying so, as a lapse does. A link's
 //!   redelivery reaches every open delivery of the peer, in batches, on that link.
 //!   Checked by the seeded move simulation (`peer_snapshot/move_sim_tests.rs`).
 
