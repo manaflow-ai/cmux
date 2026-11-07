@@ -78,6 +78,37 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride.read(file: dir.appending(path: "missing.json"), home: home) == WebDevOverride())
     }
 
+    /// An overlay built for another page bridge than the app's is refused, as a web update is, and
+    /// stays watched so an install that fits is served (docs/cmux-next/hot-reload.md, "No bridge skew").
+    @Test func anOverlayForAnotherWebABIIsRefused() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let overlay = dir.appending(path: "overlay", directoryHint: .isDirectory)
+        let pane = overlay.appending(path: "agent-pane", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pane, withIntermediateDirectories: true)
+        try Data("<html></html>".utf8).write(to: pane.appending(path: "index.html"))
+        let file = dir.appending(path: WebDevOverride.fileName)
+        try Data(#"{"overlay": "\#(overlay.path)"}"#.utf8).write(to: file)
+        let manifest = overlay.appending(path: WebDevOverride.manifestName)
+
+        try Data(#"{"stamp":"1","commit":"abc","abi":4}"#.utf8).write(to: manifest)
+        let newer = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(newer.refusal == "the overlay (abc) needs web ABI 4; this app has 3")
+        #expect(newer.overlay != nil)
+        #expect(newer.overlayRoot("agent-pane") == nil)
+
+        try Data(#"{"stamp":"2","commit":"abc","abi":3}"#.utf8).write(to: manifest)
+        let fits = WebDevOverride.read(file: file, home: home, appABI: 3)
+        #expect(fits.refusal == nil)
+        #expect(fits.overlayRoot("agent-pane") != nil)
+
+        // An install from before manifests named an abi, and an app with no web-abi.json, check nothing.
+        try Data(#"{"stamp":"3"}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: 3).refusal == nil)
+        try Data(#"{"stamp":"4","abi":4}"#.utf8).write(to: manifest)
+        #expect(WebDevOverride.read(file: file, home: home, appABI: nil).refusal == nil)
+    }
+
     @Test func overlayRootNeedsTheEntryAndStaysInside() throws {
         let overlay = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: overlay) }
