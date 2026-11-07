@@ -269,6 +269,8 @@ fn a_chat_here_keeps_the_globals_typed_after_chat() {
         here(&["--socket", "/s", "chat", "new", "hi"]),
         words(&["--socket", "/s", "agents", "chat", "new", "--", "hi"])
     );
+    // After `--`, an output flag is the prompt.
+    assert_eq!(here(&["chat", "--", "--json"]), words(&["agents", "chat", "new", "--", "--json"]));
 }
 
 /// Signed out, a `vm:` target says to sign in, not that the VM is unknown.

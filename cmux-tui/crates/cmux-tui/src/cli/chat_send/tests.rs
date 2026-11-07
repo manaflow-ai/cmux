@@ -75,6 +75,30 @@ fn parse_takes_the_session_the_prompt_and_the_wait() {
     assert_eq!(parse(&strings(&["--help"]), true), Ok(Parsed::Help));
 }
 
+/// The send `args` makes, and the output it asks for.
+fn typed(args: &[&str]) -> (Send, OutputMode) {
+    let (mut global, command) = super::super::parse_globals(&strings(args)).ok().unwrap();
+    let words = words_of(&command).unwrap();
+    let words = cloud_start_chat::lift_output_of(words, &mut global.output, TAKES_VALUE);
+    match parse(&words, command.get(1).map(String::as_str) == Some("send")) {
+        Ok(Parsed::Run(send)) => (send, global.output),
+        other => panic!("{args:?}: {other:?}"),
+    }
+}
+
+/// An output flag sets the output; after `--` it is the prompt.
+#[test]
+fn an_output_flag_after_the_separator_is_the_prompt() {
+    let (send, output) = typed(&["chat", "send", "s-1", "hi", "--json"]);
+    assert_eq!((send.text.as_str(), output), ("hi", OutputMode::Json));
+    for flag in ["--json", "--jsonl", "--quiet"] {
+        let (send, output) = typed(&["chat", "send", "s-1", "--", flag]);
+        assert_eq!((send.text.as_str(), output), (flag, OutputMode::Human), "{flag}");
+        let (send, _) = typed(&["chat", "--resume", "s-1", "--", flag]);
+        assert_eq!(send.text, flag);
+    }
+}
+
 /// The app's topology: a chat here, one in a Cloud VM's workspace, one on an SSH host.
 fn topology() -> Value {
     let tab = |session: &str| json!({"tabs": [{"kind": "conversation", "agent_session": session}]});
