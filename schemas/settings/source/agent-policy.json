@@ -968,6 +968,14 @@
       ]
     },
     {
+      "agent": "settable",
+      "why": "Whether hidden agent chats give back their memory: a lossless local memory policy, as browser.hibernation.",
+      "keys": [
+        "agents.hiddenChats.discard",
+        "agents.hiddenChats.discardAfterMinutes"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "Which of the person's folders the Screenshots page reads.",
       "keys": [
