@@ -189,22 +189,25 @@ export function useToastMotion(
   }, [list, toasts, leavingUndrawn]);
 
   // Fading copies: placed where their toast was (in the stack's coordinates, which moved), then faded.
+  // Each leaves the flow first, then the stack's origin is read (review 5 of #37289: read with the copy
+  // still in the bottom-anchored flow, the origin moved by the copy's height once it left).
   useLayoutEffect(() => {
     const root = list.current;
     if (!root) return;
-    const origin = root.getBoundingClientRect();
-    for (const element of root.querySelectorAll<HTMLElement>("[data-toast-exiting]")) {
-      if (element.dataset.toastFading === "true") continue;
+    const fresh = [...root.querySelectorAll<HTMLElement>("[data-toast-exiting]")].flatMap((element) => {
+      if (element.dataset.toastFading === "true") return [];
       const serial = Number(element.dataset.toastSerial);
       const gone = exiting.find((item) => item.toast.serial === serial);
-      if (!gone) continue;
+      if (!gone) return [];
       element.dataset.toastFading = "true";
+      Object.assign(element.style, { position: "absolute", width: `${gone.place.w}px`, pointerEvents: "none" });
+      return [{ element, serial, gone }];
+    });
+    const origin = root.getBoundingClientRect();
+    for (const { element, serial, gone } of fresh) {
       Object.assign(element.style, {
-        position: "absolute",
         left: `${gone.place.x - origin.left}px`,
         top: `${gone.place.y - origin.top}px`,
-        width: `${gone.place.w}px`,
-        pointerEvents: "none",
       });
       const fade = element.animate([{ opacity: 1 }, { opacity: 0 }], {
         duration: MOTION_FADES.fadeOut,

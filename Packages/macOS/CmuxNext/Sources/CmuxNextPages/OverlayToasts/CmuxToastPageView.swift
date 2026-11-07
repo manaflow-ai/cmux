@@ -27,19 +27,32 @@ final class CmuxToastPageView: NSView {
     /// How far below its slot a new toast starts, in points at zoom 1 (the page's `RISE_PX`).
     static let rise: CGFloat = 8
 
-    /// Puts the glass at the toasts' rects (this view's coordinates), moving as the page moves the toasts
+    /// Puts the glass at the toasts' rects (the page's coordinates, which are flipped: the glass goes where
+    /// they show in this view, review 5 of #37289), moving as the page moves the toasts
     /// (useToastMotion): a new toast's glass rises and fades in with it, one that moved slides from where it
     /// was drawn with the same spring (review 4 of #37289), a fading toast's fades out with it, and one the
     /// page no longer draws goes. `zoom` is the page's, for the rise.
     func placeGlass(resting: [(serial: Int, rect: NSRect)], fading leaving: [(serial: Int, rect: NSRect)],
                     zoom: CGFloat = 1) {
-        let kept = Set(resting.map(\.serial) + leaving.map(\.serial))
+        let resting = resting.map { ($0.serial, convert($0.rect, from: page)) }
+        let leaving = leaving.map { ($0.serial, convert($0.rect, from: page)) }
+        let kept = Set(resting.map(\.0) + leaving.map(\.0))
+        var gone: [OverlaySurfaceView] = []
         for (serial, surface) in glass where !kept.contains(serial) {
-            surface.removeFromSuperview()
             glass[serial] = nil
-            fading.remove(serial)
+            if fading.remove(serial) == nil { gone.append(surface) } else { surface.removeFromSuperview() }
         }
+        defer { gone.forEach { $0.removeFromSuperview() } }
         for (serial, rect) in resting {
+            // A toast replaced under its id takes its predecessor's place in one frame (the page's
+            // `inPlace`): it keeps that glass, which neither rises nor fades in again (review 5, F3).
+            // Its slot is the predecessor's bottom edge; its size may differ (new words).
+            if glass[serial] == nil, let index = gone.firstIndex(where: { abs($0.frame.minY - rect.minY) < 0.5 }) {
+                let surface = gone.remove(at: index)
+                surface.frame = rect
+                glass[serial] = surface
+                continue
+            }
             guard let surface = glass[serial] else {
                 let surface = makeGlass(serial)
                 surface.frame = rect
