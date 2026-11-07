@@ -47,6 +47,11 @@ use zeroize::Zeroizing;
 
 use http::Http;
 pub use http::{Auth, Failure};
+
+/// The largest answer body read from any service (a 2xx or a refusal), and the largest answer a
+/// call gives. Larger is a transport failure, refused while reading, so a service that streams
+/// a huge body costs at most this much memory.
+pub const MAX_ANSWER_BYTES: usize = 16 * 1024 * 1024;
 use session::redact;
 
 /// One call as the app sends it.
@@ -179,7 +184,9 @@ pub fn longest(request: &Request) -> std::time::Duration {
 
 /// A refusal never carries the caller's credentials back (a server or proxy that echoed one).
 pub fn scrub(line: String, request: &Request) -> String {
-    if line.starts_with(r#"{"ok":true"#) {
+    let ok = serde_json::from_str::<Value>(&line)
+        .is_ok_and(|answer| answer.get("ok") == Some(&Value::Bool(true)));
+    if ok {
         return line;
     }
     let refresh = request.refresh.as_deref().unwrap_or_default();

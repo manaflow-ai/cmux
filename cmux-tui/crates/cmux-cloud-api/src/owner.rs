@@ -150,10 +150,28 @@ pub(crate) async fn keyed_start(
     let segments = ["v1", "cloud", "machines", machine, "acpmux", "keyed-start"];
     // The request owns the key's buffer (no copy), and it is wiped when reqwest drops it.
     let body = Body::Bytes(key, "application/octet-stream");
-    let value = post_value(http, &segments, body, Duration::from_secs(100)).await?;
+    let value = post_value(http, &segments, body, Duration::from_secs(100))
+        .await
+        .map_err(without_service_text)?;
     match value.get("personInstance").and_then(Value::as_str) {
         Some(instance) => Ok(json!({ "personInstance": instance })),
         None => Err(Failure::Decoding(format!("{}: no personInstance", path_text(&segments)))),
+    }
+}
+
+/// `failure` with no text the service wrote: a refusal of the keyed start could echo the person
+/// key, which the caller's credential scrub does not know. Only the status, a code from the
+/// known table and local text remain.
+fn without_service_text(failure: Failure) -> Failure {
+    match failure {
+        Failure::Http { status, code, .. } => {
+            let code = crate::session::known_code(code.as_deref());
+            Failure::http(status, (!code.is_empty()).then(|| code.to_owned()), None)
+        }
+        Failure::PlanRequired { plan, .. } => {
+            Failure::PlanRequired { message: None, upgrade_url: None, plan }
+        }
+        other => other,
     }
 }
 

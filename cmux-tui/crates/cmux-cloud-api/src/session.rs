@@ -124,7 +124,9 @@ pub async fn mint_session(
         .await
         .map_err(|e| refused(0, "", format!("the cmux API did not answer: {}", e.without_url())))?;
     let status = response.status();
-    let body: Value = response.json().await.map_err(|_| {
+    /// A session grant is a few hundred bytes; more is not one.
+    const MINT_ANSWER_BYTES: usize = 1024 * 1024;
+    let body = crate::http::bounded_json(response, MINT_ANSWER_BYTES).await.ok_or_else(|| {
         refused(
             status.as_u16(),
             "",

@@ -1135,3 +1135,47 @@ fn a_failure_reads_as_one_line_and_names_its_kind() {
 fn failure_kind(failure: &Failure) -> String {
     failure.json()["kind"].as_str().unwrap_or_default().to_owned()
 }
+
+// MARK: review findings (#37350)
+
+#[test]
+fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
+    let (origin, _seen) = fake(|seen| {
+        let echoed = String::from_utf8_lossy(&seen.body).trim().to_owned();
+        Some((
+            409,
+            json!({ "ok": false, "error": { "code": echoed, "message": echoed } }).to_string(),
+        ))
+    });
+    let key = b"person-key-line\n".to_vec();
+    let call = request(
+        &origin,
+        Auth::Owner,
+        "owner.acpmux_keyed_start",
+        json!({ "machine": VM, "key_length": key.len() }),
+    );
+    let failure = go_with(&call, key).unwrap_err();
+    assert_eq!(failure, Failure::http(409, None, None));
+    let text = format!("{} {}", failure, failure.json());
+    assert!(!text.contains("person-key"), "{text}");
+}
+
+#[test]
+fn an_answer_over_the_limit_is_refused_while_it_is_read() {
+    let big = format!(r#"{{"domains":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
+    let (origin, _seen) = fake(move |_| ok(&big));
+    let failure = go(&request(&origin, Auth::Stack, "vm.domains", json!({}))).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
+        "{failure:?}"
+    );
+}
+
+#[test]
+fn a_success_is_never_scrubbed_whatever_its_field_order() {
+    let call = request("https://cmux.com", Auth::Stack, "vm.domains", json!({}));
+    let line = answer_line(&Ok(json!({ "note": "access" })));
+    assert_eq!(scrub(line.clone(), &call), line);
+    let refusal = answer_line(&Err(Failure::Transport("echo access".into())));
+    assert!(!scrub(refusal, &call).contains("echo access"));
+}

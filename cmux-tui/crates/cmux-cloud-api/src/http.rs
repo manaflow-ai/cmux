@@ -226,12 +226,22 @@ impl Http {
             .get("x-cmux-vm-error")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
-        let body = match tokio::time::timeout(timeout, response.bytes()).await {
-            Err(_) => return Err(Failure::TimedOut(path.to_owned())),
-            Ok(Err(e)) if e.is_timeout() => return Err(Failure::TimedOut(path.to_owned())),
-            Ok(Err(e)) => return Err(Failure::Transport(transport_text(e))),
-            Ok(Ok(bytes)) => bytes.to_vec(),
-        };
+        let body =
+            match tokio::time::timeout(timeout, bounded_body(response, crate::MAX_ANSWER_BYTES))
+                .await
+            {
+                Err(_) => return Err(Failure::TimedOut(path.to_owned())),
+                Ok(Err(BodyError::Read(e))) if e.is_timeout() => {
+                    return Err(Failure::TimedOut(path.to_owned()));
+                }
+                Ok(Err(BodyError::Read(e))) => return Err(Failure::Transport(transport_text(e))),
+                Ok(Err(BodyError::TooLarge(limit))) => {
+                    return Err(Failure::Transport(format!(
+                        "{path}: the answer is larger than {limit} bytes"
+                    )));
+                }
+                Ok(Ok(bytes)) => bytes,
+            };
         Ok(Reply { status, header_code, body })
     }
 
@@ -258,6 +268,40 @@ impl Http {
         }
         reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
     }
+}
+
+/// Why [`bounded_body`] read no body.
+#[derive(Debug)]
+pub(crate) enum BodyError {
+    /// The body is longer than this many bytes; reading stopped there.
+    TooLarge(usize),
+    Read(reqwest::Error),
+}
+
+/// `response`'s body, refused once it passes `limit` bytes (a declared length over it is
+/// refused before any read), so a huge body never sits in memory.
+pub(crate) async fn bounded_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, BodyError> {
+    let declared = response.content_length().and_then(|n| usize::try_from(n).ok());
+    if declared.is_some_and(|n| n > limit) {
+        return Err(BodyError::TooLarge(limit));
+    }
+    let mut body = Vec::with_capacity(declared.unwrap_or(0));
+    while let Some(chunk) = response.chunk().await.map_err(BodyError::Read)? {
+        if chunk.len() > limit.saturating_sub(body.len()) {
+            return Err(BodyError::TooLarge(limit));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// `response`'s body as JSON, `None` when it is not JSON or is longer than `limit` bytes.
+pub(crate) async fn bounded_json(response: reqwest::Response, limit: usize) -> Option<Value> {
+    let body = bounded_body(response, limit).await.ok()?;
+    serde_json::from_slice(&body).ok()
 }
 
 fn transport_text(error: reqwest::Error) -> String {

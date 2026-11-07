@@ -258,7 +258,7 @@ async fn exec(
     if status == 401 || status == 403 {
         return Err(Failure::Auth);
     }
-    let body: Option<Value> = response.json().await.ok();
+    let body = crate::http::bounded_json(response, crate::MAX_ANSWER_BYTES).await;
     if status != 200 {
         return Err(Failure::Unavailable);
     }

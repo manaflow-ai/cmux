@@ -15,10 +15,12 @@ use crate::machine_io;
 use crate::session::secure_origin;
 
 /// `machine.io` on a Worker machines client: `args` is machine-io's request without the person's
-/// fields (`op`, `machine`, `path`, `data_base64`, `mode`, `command`, `timeout_ms`, `cache_dir`).
+/// fields (`op`, `machine`, `path`, `data_base64`, `mode`, `command`, `timeout_ms`; a `cache_dir` is dropped).
 pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     let api = secure_origin(request.api.trim()).map_err(Failure::Transport)?;
     let mut fields = request.args.clone();
+    // The daemon and this library keep no session on disk: a caller never picks a cache.
+    fields.remove("cache_dir");
     fields.insert("api".into(), json!(api));
     fields.insert("credential".into(), json!(request.credential));
     if let Some(team) = request.team.as_deref().filter(|t| !t.is_empty()) {
@@ -33,13 +35,34 @@ pub(crate) async fn worker(request: &Request) -> Result<Value, Failure> {
     let (route, answer) = machine_io::perform(&client, &io, machine_io::now_ms).await;
     let mut answer = machine_io::scrub(answer, &io.credential);
     // The line machine-io prints, so a file's verified bytes come back as `dataBase64`.
-    let mut line = Vec::new();
+    let mut line = Capped(Vec::new());
     machine_io::write_line(&mut line, route, &mut answer)
         .map_err(|e| Failure::Transport(format!("the machine's answer could not be read: {e}")))?;
-    let line: Value = serde_json::from_slice(&line)
+    let line: Value = serde_json::from_slice(&line.0)
         .map_err(|e| Failure::Transport(format!("the machine's answer could not be read: {e}")))?;
     let path = route_path(&io.machine, op_name(&request.args));
     read(&line, &path)
+}
+
+/// A buffer that refuses to grow past [`crate::MAX_ANSWER_BYTES`], so a file or listing larger
+/// than any answer may be is refused while it is copied, never held whole.
+struct Capped(Vec<u8>);
+
+impl std::io::Write for Capped {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > crate::MAX_ANSWER_BYTES.saturating_sub(self.0.len()) {
+            return Err(std::io::Error::other(format!(
+                "the answer is larger than {} bytes",
+                crate::MAX_ANSWER_BYTES
+            )));
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn op_name(args: &Map<String, Value>) -> &str {

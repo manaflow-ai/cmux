@@ -75,7 +75,17 @@ pub(super) async fn run(client: &reqwest::Client, request: &Request) -> Answer {
     let status = response.status().as_u16();
     let code =
         response.headers().get("x-cmux-vm-error").and_then(|v| v.to_str().ok()).map(str::to_owned);
-    let body: Value = response.json().await.unwrap_or(Value::Null);
+    let body = match crate::http::bounded_body(response, crate::MAX_ANSWER_BYTES).await {
+        Err(crate::http::BodyError::TooLarge(limit)) => {
+            return Answer::error(
+                0,
+                "transport",
+                &format!("the cmux API's answer is larger than {limit} bytes"),
+            );
+        }
+        Err(crate::http::BodyError::Read(_)) => Value::Null,
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    };
     // The route's answer as it gave it: the app reads a refusal (a plan's upgrade fields
     // included) exactly as it reads that route's.
     Answer { status, body, code, file: None }
