@@ -5,6 +5,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 
 export interface VirtualListProps {
   count: number;
@@ -23,6 +24,8 @@ export interface VirtualListProps {
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
   scrollParent?: string;
+  /** Fade overflowing rows on this list's own viewport. */
+  fade?: boolean;
 }
 
 /** The active result can change without changing its numeric index (a filtered folder). */
@@ -51,8 +54,17 @@ export function VirtualList({
   label,
   overscan = 6,
   scrollParent,
+  fade = false,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const scrollEdges = useScrollEdges();
+  const mounted = useCallback(
+    (node: HTMLDivElement | null) => {
+      scroller.current = node;
+      scrollEdges(fade && !scrollParent ? node : null);
+    },
+    [fade, scrollParent, scrollEdges],
+  );
   const space = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const parent = useCallback(
@@ -120,9 +132,9 @@ export function VirtualList({
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
     // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
     <div
-      ref={scroller}
+      ref={mounted}
       id={id}
-      className={cx("ui-virtual", className)}
+      className={cx("ui-virtual", fade && !scrollParent && "ui-scroll-edge-fade", className)}
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
