@@ -74,6 +74,7 @@ import Testing
         #expect(badge.frame.size == badge.fittingSize)
         // The whole word draws: its last letter was clipped when the label's frame left out its line padding.
         #expect(badge.wordFits)
+        #expect(abs(badge.wordGap - Metrics.space1) <= 0.5)
         #expect(abs(badge.frame.midY - plus.midY) <= 0.5)
     }
 

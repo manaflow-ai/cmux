@@ -22,12 +22,19 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     public var glyph: NSImage? { isCompact ? compactIcon.image : chipIcon.image }
 
     /// Whether the word draws (tests).
-    public var showsLabel: Bool { !chip.isHidden }
+    public var showsLabel: Bool { chip.alphaValue > 0 }
 
     /// Whether the chip's word has its whole frame (glyphs and line padding) inside the badge (tests).
     public var wordFits: Bool {
         let frame = convert(label.frame, from: label.superview)
         return frame.width + 0.5 >= label.naturalSize.width && frame.maxX <= bounds.maxX + 0.5
+    }
+
+    /// The gap from the chip's glyph to its word's text (the label's alignment rect), in points (tests).
+    public var wordGap: CGFloat {
+        let iconFrame = convert(chipIcon.frame, from: chipIcon.superview)
+        let text = convert(label.alignmentRect(forFrame: label.frame), from: label.superview)
+        return text.minX - iconFrame.maxX
     }
 
     /// Whether it draws as the row's icon: narrower than the chip.
@@ -74,8 +81,9 @@ public final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     override public func layout() {
         super.layout()
         let compact = isCompact
-        // Hidden, not removed: the chip keeps its fitting size, so the word returns with the room.
-        chip.isHidden = compact
+        // Alpha, not isHidden (as the word's alpha before): the chip keeps its layout and fitting size, so it
+        // returns with the room exactly as it was laid out.
+        chip.alphaValue = compact ? 0 : 1
         compactIcon.isHidden = !compact
         if compact {
             let side = Metrics.smallIconSize
