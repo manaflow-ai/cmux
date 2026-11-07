@@ -87,6 +87,21 @@ struct ChatSlideOnRenderServerTests {
         #expect(((edge.fromValue as? NSValue)?.pointValue.x ?? 0) > 1, "the divider starts at the chat's old edge")
     }
 
+    /// A change that lands while the slide runs (the panel closed again at once) takes the render-server springs off and
+    /// starts from what shows, instead of adding its motion on top of their offset (review F1 at 3650d375).
+    @Test func aChangeMidSlideTakesTheRenderServerSpringsBack() throws {
+        let screen = Screen(.leaf("chat"), holding: ["chat"])
+        defer { screen.window.closeAfterTest() }
+        screen.show(Self.opened)
+        let view = try #require(screen.screen)
+        let chatHost = try #require(view.context.hosts["chat"])
+        #expect(!screen.springs(on: chatHost).isEmpty)
+        screen.show(.leaf("chat"))
+        #expect(screen.springs(on: chatHost).isEmpty, "the slide's springs still run under the close")
+        #expect(screen.springs(on: chatHost.chrome).isEmpty, "the ring's springs still run under the close")
+        for divider in view.dividerViews.values { #expect(screen.springs(on: divider).isEmpty) }
+    }
+
     /// Cmd-D in a pane that lays out live (a terminal) keeps the main-thread spring, which lays it out on every frame.
     @Test func aSplitOfAPaneThatDoesNotHoldItsContentStaysOnTheMainThread() throws {
         let screen = Screen(.leaf("chat"), holding: [])

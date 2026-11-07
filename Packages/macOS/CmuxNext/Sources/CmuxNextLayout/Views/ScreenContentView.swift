@@ -258,6 +258,13 @@ final class ScreenContentView: NSView {
         reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
+        // A render-server slide still running gives its frames back when this pass moves anything it carries elsewhere
+        // (another change, a resize, a snap): the change starts from what shows. A pass to the same rest (the daemon's
+        // echo of the split) leaves it running.
+        let retargets = baseGeometry.panes.contains { pane, target in paneFrames[pane].map { $0.targetRect != target } ?? false }
+        if structural || rebasing || !animated || retargets {
+            takeBackServerMotion()
+        }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout

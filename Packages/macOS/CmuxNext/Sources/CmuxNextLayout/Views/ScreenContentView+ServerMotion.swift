@@ -86,6 +86,32 @@ extension ScreenContentView {
     }
 }
 
+extension ScreenContentView {
+    /// A new layout takes over (any `reconcile`: a close or another split mid-slide, a resize, Reduce Motion): the
+    /// render-server springs still running go, and each frame they carried takes the place it shows now as its spring's
+    /// value, so the new change springs (or snaps) from what is on screen. Left running, their offset would add to the
+    /// new motion and carry the panes past or back from where it puts them.
+    func takeBackServerMotion() {
+        serverMotion = nil
+        let strip = stripShift
+        for pane in Array(paneFrames.keys) {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            host.serverMotion = nil
+            ServerSpring.stop(host.chrome)
+            guard let shown = ServerSpring.stop(host), var frame = paneFrames[pane] else { continue }
+            let rect = shown.offsetBy(dx: -((geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane)), dy: rowOffset(of: pane))
+            (frame.x.value, frame.y.value, frame.width.value, frame.height.value) = (rect.minX, rect.minY, rect.width, rect.height)
+            paneFrames[pane] = frame
+        }
+        for (kind, view) in dividerViews {
+            guard let shown = ServerSpring.stop(view), var frame = dividerFrames[kind] else { continue }
+            let rect = shown.offsetBy(dx: -((scrolls(kind) ? strip : 0) - areaOffset(of: kind)), dy: rowOffset(of: kind))
+            (frame.x.value, frame.y.value, frame.width.value, frame.height.value) = (rect.minX, rect.minY, rect.width, rect.height)
+            dividerFrames[kind] = frame
+        }
+    }
+}
+
 /// Additive render-server springs that carry a view from a start frame to the frame it already has.
 @MainActor
 enum ServerSpring {
@@ -112,6 +138,27 @@ enum ServerSpring {
         let local = layer.convertTime(begin, from: nil)
         if position != .zero { add(spring(token, "position", from: NSValue(point: position), to: NSValue(point: .zero), travel: travel), to: layer, at: local, "position") }
         if size != .zero { add(spring(token, "bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), travel: travel), to: layer, at: local, "size") }
+    }
+
+    /// Takes ``carry(_:from:token:begin:)``'s springs off `view` and returns the frame it showed with them (its
+    /// superview's coordinates), or nil when none was running.
+    @discardableResult
+    static func stop(_ view: NSView) -> CGRect? {
+        guard let layer = view.layer else { return nil }
+        let keys = (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(key).") }
+        guard !keys.isEmpty else { return nil }
+        let end = view.frame
+        let shown = layer.presentation()
+        for name in keys { layer.removeAnimation(forKey: name) }
+        guard let shown else { return nil }
+        // `carry`'s offsets read back: the presented layer against the model one, in the view's space.
+        let mirrored = abs(layer.frame.minY - end.minY) > 0.5
+        let anchor = layer.anchorPoint
+        let dw = shown.bounds.width - layer.bounds.width, dh = shown.bounds.height - layer.bounds.height
+        let dx = shown.position.x - layer.position.x - anchor.x * dw
+        let layerDy = shown.position.y - layer.position.y - anchor.y * dh
+        let dy = mirrored ? -layerDy - dh : layerDy
+        return CGRect(x: end.minX + dx, y: end.minY + dy, width: end.width + dw, height: end.height + dh)
     }
 
     private static func spring(_ token: MotionSpring, _ keyPath: String, from: NSValue, to: NSValue, travel: CGFloat) -> CASpringAnimation {
