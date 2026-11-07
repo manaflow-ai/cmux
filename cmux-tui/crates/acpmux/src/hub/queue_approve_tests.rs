@@ -586,8 +586,7 @@ async fn a_restart_keeps_a_subagent_retry_the_person_rewrote() {
     let retry = json!({"kind": super::super::subagent_retry::PROVENANCE_KIND,
         "subagentId": "s/t9", "agentId": "agent-s/t9", "attempt": 1});
     insert(&hub, &session, "rewritten", Some(&retry));
-    let edit =
-        json!({"sessionId": id, "promptId": "rewritten", "op": "update", "text": "Do this instead"});
+    let edit = json!({"sessionId": id, "promptId": "rewritten", "op": "update", "text": "Do this instead"});
     hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
     hub.shutdown_all().await;
     drop((session, hub));
