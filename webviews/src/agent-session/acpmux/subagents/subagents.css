@@ -1493,6 +1493,47 @@ button.cv-subagent > :last-child {
     opacity: 0;
   }
 }
+/* A sliding tick (trayMotion.tsx `Tick` slide; Leo, 2026-11-07, on the hat's line handing over from
+   thinking to a tool call to another: "That animation, I like that"): the old words slide up and out
+   as the new slide up from below, on one baseline, while the cell's width eases between them on the
+   same clock. The cell clips both, so neither draws outside the row. */
+.acpmux-tick[data-slide] {
+  --acpmux-tick-slide: var(--agent-motion-move, 200ms);
+}
+.acpmux-tick[data-slide] > .acpmux-tick__in {
+  animation: acpmux-tick-slide-in var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick[data-slide] > .acpmux-tick__out {
+  animation: acpmux-tick-slide-out var(--acpmux-tick-slide) var(--agent-ease-out, ease-out) both;
+}
+@keyframes acpmux-tick-slide-in {
+  from {
+    opacity: 0;
+    translate: 0 70%;
+  }
+}
+@keyframes acpmux-tick-slide-out {
+  to {
+    opacity: 0;
+    translate: 0 -70%;
+  }
+}
+/* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
+   old one up and out as the new one rises into its place; tabular figures keep its width. */
+.acpmux-tick__roll {
+  display: inline-grid;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.acpmux-tick__roll > span {
+  grid-area: 1 / 1;
+}
+.acpmux-tick__roll-in {
+  animation: acpmux-tick-slide-in var(--agent-motion-move, 200ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick__roll-out {
+  animation: acpmux-tick-slide-out var(--agent-motion-move, 200ms) var(--agent-ease-out, ease-out) both;
+}
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
    default): muted after the title, cut with the title's ellipsis before the state, time and Stop
@@ -1937,4 +1978,80 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
 .acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
   opacity: 1;
+}
+
+/* ---------- The composer hat's own polish (Leo, 2026-11-07) ---------- */
+/* One item heads the hat (SubagentTray.tsx `lone`): its task, then what it does now, muted, which gives
+   way first; its state and time end the row where its line's would, in tabular figures. */
+.acpmux-running-tray__head > .acpmux-running-tray__latest {
+  flex: 0 100 auto;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-running-tray__head > .acpmux-running-tray__latest.is-code {
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.acpmux-running-tray__head[data-lone] > .acpmux-running-tray__time {
+  flex: none;
+  margin-inline-start: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* A finished line's end (DoneMark.tsx, hatParts.experiment.ts): the check in the success colour, a
+   step quieter than the text, then the total in tabular figures one small gap after it. */
+.acpmux-done-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-done-mark__check {
+  flex: none;
+  display: inline-flex;
+  color: color-mix(in srgb, var(--agent-status-success) 80%, var(--agent-muted));
+}
+.acpmux-done-mark__time {
+  flex: none;
+}
+.acpmux-done-mark[data-look="accent"] > .acpmux-done-mark__word {
+  color: var(--agent-status-success);
+  font-weight: var(--weight-emphasis);
+}
+/* The `bottom` chevron arm (hatParts.experiment.ts): the hat keeps a short strip at its foot, and the
+   chevron sits centred in it on the seam with the composer, turning from up (folded: the hat opens up)
+   to down (open) on the move token. The header's own end keeps only the time. */
+.acpmux-running-tray[data-chevron="bottom"] {
+  position: relative;
+  padding-bottom: 8px;
+}
+.acpmux-running-tray__chevron-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+  transform: translateX(-50%);
+}
+.acpmux-running-tray__chevron-bottom > svg {
+  rotate: 180deg;
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray__chevron-bottom[data-open] > svg {
+  rotate: 0deg;
+}
+.acpmux-running-tray__chevron-bottom:hover {
+  color: var(--agent-text);
 }

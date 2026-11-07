@@ -118,9 +118,7 @@ describe("one item heads the hat", () => {
 
   test("a lone finished subagent: folded, its task and a done mark with its time; a click expands", async () => {
     const view = await hat({
-      finished: [
-        agentItem({ id: "a1", task: "Diagnose nightly lag", state: "completed", endedAt: now - 1_000 }),
-      ],
+      finished: [agentItem({ id: "a1", task: "Diagnose nightly lag", state: "completed", endedAt: now - 1_000 })],
     });
     try {
       const head = view.head()!;
