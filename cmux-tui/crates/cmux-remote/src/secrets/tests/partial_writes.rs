@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::super::commit::FAIL_AT;
+use super::super::commit::{AFTER_PLACE, FAIL_AT};
 use super::super::files;
 use super::super::seal::Purpose;
 use super::{fixture, random_hex};
@@ -204,4 +204,41 @@ fn a_codex_config_changed_before_the_commit_is_checked_again() {
     assert!(error.message.starts_with("conflict"), "{error}");
     assert!(!fixture.home.join(".codex/auth.json").exists());
     assert!(!fixture.home.join(".config/cmux/agent-auth/codex").exists());
+}
+
+#[test]
+fn a_save_after_a_file_went_in_place_survives_a_later_failure() {
+    let fixture = fixture(&[]);
+    std::fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    let settings = fixture.home.join(".claude/settings.json");
+    std::fs::write(&settings, r#"{"theme":"dark"}"#).unwrap();
+    let before_credentials = snapshot(&fixture.home).get(".claude/.credentials.json").cloned();
+    // settings.json goes in first; the person's editor saves it right after,
+    // and then the credentials rename (step 4) fails.
+    let path = settings.clone();
+    AFTER_PLACE.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |index| {
+            if index == 0 {
+                std::fs::write(&path, r#"{"theme":"saved"}"#).unwrap();
+            }
+        }));
+    });
+    let token = format!("sk-ant-oat01-{}", random_hex(24));
+    let item = fixture.seal(Purpose::HarnessLogin, "claude", &token);
+    let result = {
+        let _fail = FailAt::set(Some(4));
+        fixture.secrets.install_harness_login(&item)
+    };
+    AFTER_PLACE.with(|hook| hook.borrow_mut().take());
+    let error = result.unwrap_err();
+    assert!(error.message.starts_with("write"), "{error}");
+    let files = snapshot(&fixture.home);
+    assert_eq!(files[".claude/settings.json"], br#"{"theme":"saved"}"#);
+    assert_eq!(files.get(".claude/.credentials.json").cloned(), before_credentials);
+    assert!(!files.contains_key(".config/cmux/agent-auth/claude"));
+    assert!(
+        files.keys().all(|name| !name.contains(".tmp") && !name.contains(".bak")),
+        "a temporary or backup was left: {:?}",
+        files.keys()
+    );
 }

@@ -23,7 +23,8 @@ pub enum Refusal {
     /// Sealed outside the window around the daemon's clock.
     Stale,
     Replay,
-    /// The window holds [`MAX_LIVE`] nonces already. Retryable.
+    /// The window holds [`MAX_LIVE`] nonces already, or the taken set was
+    /// lost and items that may have been taken aren't stale yet. Retryable.
     Busy,
     /// The taken set couldn't be saved.
     Write,
@@ -92,9 +93,10 @@ pub fn lock(_: &Path) -> std::io::Result<Lock> {
 pub struct Replay {
     state: PathBuf,
     taken: BTreeMap<String, u64>,
-    /// Items sealed before this are refused: set when the saved set could
-    /// not be read, so an item taken before can't come back. Saved with the
-    /// set until its window has passed.
+    /// Items sealed before this are refused (retryably): set when the saved
+    /// set could not be read, past every sealed time an item taken before
+    /// could carry (up to [`WINDOW_SECS`] ahead of the clock), so none can
+    /// come back. Saved with the set until its window has passed.
     floor: u64,
     max_live: usize,
 }
@@ -102,18 +104,26 @@ pub struct Replay {
 impl Replay {
     /// The set saved under `state`, read under the request `_lock`, without
     /// the nonces whose window has passed. A saved set that can't be read
-    /// refuses every item sealed before `now`.
+    /// refuses, as `busy`, every item sealed up to [`WINDOW_SECS`] past
+    /// `now`, until those are stale anyway.
     pub fn load(_lock: &Lock, state: PathBuf, now: u64, max_live: usize) -> Self {
-        let (taken, floor) = match std::fs::read(state.join(FILE)) {
+        let (taken, floor, recovered) = match std::fs::read(state.join(FILE)) {
             Ok(bytes) => match serde_json::from_slice::<Stored>(&bytes) {
-                Ok(stored) => (stored.taken, stored.floor),
-                Err(_) => (BTreeMap::new(), now),
+                Ok(stored) => (stored.taken, stored.floor, false),
+                Err(_) => (BTreeMap::new(), recovery_floor(now), true),
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (BTreeMap::new(), 0),
-            Err(_) => (BTreeMap::new(), now),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (BTreeMap::new(), 0, false)
+            }
+            Err(_) => (BTreeMap::new(), recovery_floor(now), true),
         };
         let mut replay = Self { state, taken, floor, max_live };
         replay.prune(now);
+        if recovered {
+            // Keep the floor where this load put it: a later load must not
+            // move it forward again.
+            let _ = replay.save();
+        }
         replay
     }
 
@@ -124,8 +134,11 @@ impl Replay {
         {
             return Err(Refusal::Stale);
         }
-        if issued_at < self.floor || self.taken.contains_key(nonce) {
+        if self.taken.contains_key(nonce) {
             return Err(Refusal::Replay);
+        }
+        if issued_at < self.floor {
+            return Err(Refusal::Busy);
         }
         Ok(())
     }
@@ -167,7 +180,8 @@ impl Replay {
     /// Drop the nonces whose window has passed: their items are stale now.
     fn prune(&mut self, now: u64) {
         self.taken.retain(|_, issued_at| issued_at.saturating_add(WINDOW_SECS) >= now);
-        if self.floor.saturating_add(WINDOW_SECS) < now {
+        // Every item sealed before the floor is stale once this passes.
+        if self.floor.saturating_add(WINDOW_SECS) <= now {
             self.floor = 0;
         }
     }
@@ -176,6 +190,12 @@ impl Replay {
         let bytes = serde_json::to_vec(&Stored { taken: self.taken.clone(), floor: self.floor })?;
         save_state(&self.state, Path::new(FILE), &bytes)
     }
+}
+
+/// The floor after losing the taken set at `now`: past the latest sealed
+/// time an item taken before could carry.
+fn recovery_floor(now: u64) -> u64 {
+    now.saturating_add(WINDOW_SECS).saturating_add(1)
 }
 
 #[cfg(unix)]

@@ -221,17 +221,41 @@ fn a_full_window_refuses_retryably_and_never_drops_a_live_nonce() {
 }
 
 #[test]
-fn an_unreadable_taken_set_refuses_items_sealed_before_the_restart() {
+fn an_unreadable_taken_set_refuses_every_item_that_may_have_been_taken() {
     let fixture = fixture(&["DEMO_KEY"]);
     let clock = Arc::new(AtomicU64::new(NOW));
-    let item = seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW - 1);
-    std::fs::create_dir_all(fixture.state.join("secrets-v1")).unwrap();
-    std::fs::write(fixture.state.join("secrets-v1/taken-nonces.json"), "not json").unwrap();
+    // Taken at NOW, sealed by a device clock a minute ahead.
+    let ahead = seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW + 60);
+    restarted(&fixture, &clock, 16).replace_machine_secrets(std::slice::from_ref(&ahead)).unwrap();
+    let saved = fixture.state.join("secrets-v1/taken-nonces.json");
+    std::fs::write(&saved, "not json").unwrap();
+    clock.store(NOW + 1, Ordering::SeqCst);
+    let busy = |secrets: &MachineSecrets, item: &cmux_remote_protocol::SealedSecret| {
+        let error = secrets.replace_machine_secrets(std::slice::from_ref(item)).unwrap_err();
+        assert!(error.message.starts_with("busy") && error.retryable, "{error}");
+    };
     let secrets = restarted(&fixture, &clock, 16);
-    let error = secrets.replace_machine_secrets(std::slice::from_ref(&item)).unwrap_err();
-    assert!(error.message.starts_with("replay"), "{error}");
+    busy(&secrets, &ahead);
+    // A fresh item sealed at the same second, or as far ahead as the window
+    // allows, waits too: either could have been taken before.
+    busy(&secrets, &seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW + 1));
+    busy(&secrets, &seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW + 1 + WINDOW_SECS));
+    // The floor is saved: another restart later doesn't move or drop it.
+    clock.store(NOW + 200, Ordering::SeqCst);
+    busy(&restarted(&fixture, &clock, 16), &ahead);
+    // Once every item it covers is stale, items are taken again.
+    let floor = NOW + 1 + WINDOW_SECS + 1;
+    clock.store(floor + WINDOW_SECS, Ordering::SeqCst);
+    let secrets = restarted(&fixture, &clock, 16);
+    let error = secrets.replace_machine_secrets(std::slice::from_ref(&ahead)).unwrap_err();
+    assert!(error.message.starts_with("stale"), "{error}");
     secrets
-        .replace_machine_secrets(&[seal_at(&fixture, "DEMO_KEY", &random_hex(16), NOW)])
+        .replace_machine_secrets(&[seal_at(
+            &fixture,
+            "DEMO_KEY",
+            &random_hex(16),
+            floor + WINDOW_SECS,
+        )])
         .unwrap();
 }
 

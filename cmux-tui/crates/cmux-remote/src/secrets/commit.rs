@@ -40,6 +40,10 @@ thread_local! {
     /// before the first rename, as an outside edit would.
     pub(super) static BEFORE_COMMIT: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
         const { std::cell::RefCell::new(None) };
+    /// Tests only: run with a file's index once it is in place, as an
+    /// outside edit would.
+    pub(super) static AFTER_PLACE: std::cell::RefCell<Option<Box<dyn FnMut(usize)>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// How a staged file was put in place, which is how a rollback undoes it.
@@ -99,7 +103,8 @@ fn replace_all_with(
         BEFORE_COMMIT.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook()));
     }
     let mut failed = None;
-    for (file, write) in staged.iter_mut().zip(writes) {
+    #[cfg_attr(not(test), allow(unused_variables))]
+    for (index, (file, write)) in staged.iter_mut().zip(writes).enumerate() {
         let (placed, result) = match fault(&mut step) {
             Ok(()) => place(file, write.expect),
             Err(error) => (Placed::No, Err(error)),
@@ -109,12 +114,16 @@ fn replace_all_with(
             failed = Some(error);
             break;
         }
+        #[cfg(test)]
+        if faults {
+            AFTER_PLACE.with(|hook| hook.borrow_mut().as_mut().map(|hook| hook(index)));
+        }
     }
     let failed = failed
         .or_else(|| guards.iter().find_map(|guard| check_guard(home, guard).err()))
         .or_else(|| staged.iter().find_map(|file| sync_dir(&file.directory).err()));
     if let Some(error) = failed {
-        roll_back(&staged);
+        roll_back(&staged, writes);
         discard(&staged);
         return Err(error);
     }
@@ -376,26 +385,73 @@ fn rename_at(
     check(unsafe { libc::renameat(directory, from.as_ptr(), directory, to.as_ptr()) }).map(|_| ())
 }
 
-/// Put back every file already replaced: the old file over it, or remove it
-/// when there was none. Best effort, newest first.
-fn roll_back(staged: &[Staged]) {
-    for file in staged.iter().rev() {
-        let directory = file.directory.as_raw_fd();
+/// Put back every file already replaced, newest first: the old file over
+/// it, or none when there was none. Best effort, and only while the live
+/// file is still ours: an outside save after it went in place is kept.
+fn roll_back(staged: &[Staged], writes: &[Planned<'_>]) {
+    for (file, write) in staged.iter().zip(writes).rev() {
         let old = match file.placed {
             Placed::No => continue,
             Placed::Renamed => file.backup.as_ref(),
             Placed::Exchanged => Some(&file.temporary),
         };
-        match old {
-            Some(old) => {
+        undo(file, old, write.bytes);
+        let _ = sync_dir(&file.directory);
+    }
+}
+
+/// Undo one placed file: swap `old` back in (or move ours aside when there
+/// was none) and check that what came out is our bytes; anything else is an
+/// outside save, which goes straight back.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn undo(file: &Staged, old: Option<&CString>, ours: &[u8]) {
+    let directory = file.directory.as_raw_fd();
+    let is_ours = |name: &CString| matches!(read_at(&file.directory, name), Ok(Some(bytes)) if bytes.as_slice() == ours);
+    match old {
+        Some(old) => {
+            if rename_at(directory, old, &file.file_name, libc::RENAME_EXCHANGE).is_err()
+                || is_ours(old)
+            {
+                return;
+            }
+            if rename_at(directory, old, &file.file_name, libc::RENAME_EXCHANGE).is_err() {
+                // Their save must not be left where the cleanup removes it.
                 let _ = rename_at(directory, old, &file.file_name, 0);
             }
-            // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
-            None => unsafe {
-                libc::unlinkat(directory, file.file_name.as_ptr(), 0);
-            },
         }
-        let _ = sync_dir(&file.directory);
+        None => {
+            let Ok(aside) = sibling(&file.file_name, "undo") else {
+                return;
+            };
+            if rename_at(directory, &file.file_name, &aside, libc::RENAME_NOREPLACE).is_err() {
+                return;
+            }
+            if is_ours(&aside) {
+                // SAFETY: `aside` is NUL-terminated and relative to the open folder.
+                unsafe { libc::unlinkat(directory, aside.as_ptr(), 0) };
+            } else {
+                let _ = rename_at(directory, &aside, &file.file_name, libc::RENAME_NOREPLACE);
+            }
+        }
+    }
+}
+
+/// [`undo`] with no atomic swap: compare, then rename.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn undo(file: &Staged, old: Option<&CString>, ours: &[u8]) {
+    let directory = file.directory.as_raw_fd();
+    if !matches!(read_at(&file.directory, &file.file_name), Ok(Some(bytes)) if bytes.as_slice() == ours)
+    {
+        return;
+    }
+    match old {
+        Some(old) => {
+            let _ = rename_at(directory, old, &file.file_name, 0);
+        }
+        // SAFETY: `file_name` is NUL-terminated and relative to the open folder.
+        None => unsafe {
+            libc::unlinkat(directory, file.file_name.as_ptr(), 0);
+        },
     }
 }
 
