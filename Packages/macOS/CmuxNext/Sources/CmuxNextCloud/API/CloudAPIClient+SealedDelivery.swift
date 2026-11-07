@@ -10,7 +10,7 @@ extension CloudAPIClient {
     /// The machine's answer: how many secrets it wrote, or why it refused.
     public enum SealedDelivery: Sendable, Equatable {
         case wrote(Int)
-        /// `code` is a dial step (`ticket`, `relay`, `parked_timeout`, `handshake`), `unsupported` (a machine
+        /// `code` is a dial step (`ticket`, `relay`, `parked_timeout`, `handshake`), `timeout` (the deadline passed after the dial), `unsupported` (a machine
         /// without `secrets-v1`), `refused` (with the machine's fixed `refusal`: `bad-name`, `replay`,
         /// `stale`, the retryable `busy`, ...), `bad_request` or `transport`. Never a value or a machine's own text.
         case failed(code: String, refusal: String?, retryable: Bool)

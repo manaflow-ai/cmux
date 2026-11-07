@@ -115,3 +115,26 @@ fn a_request_may_name_the_machines_team() {
     .unwrap();
     assert_eq!(request.team.as_deref(), Some("team_0123456789abcdef0123"));
 }
+
+#[test]
+fn a_stalled_exchange_ends_at_the_deadline_with_a_timeout_line() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let line = runtime.block_on(within(
+        tokio::time::Instant::now() + std::time::Duration::from_millis(50),
+        std::future::pending::<Value>(),
+    ));
+    assert_eq!(line, json!({"ok": false, "error_code": "timeout", "retryable": true}));
+}
+
+#[test]
+fn an_unlisted_refusal_carries_no_daemon_text() {
+    let named = RpcError::new("secret-refused", "private-access-token: DEMO_KEY");
+    assert_eq!(
+        answer_for(Err(named)),
+        json!({"ok": false, "error_code": "refused", "retryable": false})
+    );
+    for code in cmux_remote::secrets::REFUSAL_CODES {
+        let listed = RpcError::new("secret-refused", format!("{code}: DEMO_KEY"));
+        assert_eq!(answer_for(Err(listed))["refusal"], json!(code));
+    }
+}

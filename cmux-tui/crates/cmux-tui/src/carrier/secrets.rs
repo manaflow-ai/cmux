@@ -20,9 +20,10 @@
 //! `{"ok": true, "count": N}` |
 //! `{"ok": false, "error_code": C, "refusal"?: R, "retryable": B}`.
 //! `error_code` is a dial step (`ticket`, `relay`, `parked_timeout`,
-//! `handshake`), `bad_request`, `unsupported` (a daemon without
-//! `secrets-v1`), `refused` (the daemon's fixed `refusal` code, such as
-//! `bad-name`, `replay`, `stale` or the retryable `busy`) or `transport`. No value, credential
+//! `handshake`), `timeout` (the deadline passed after the dial), `bad_request`, `unsupported` (a daemon without
+//! `secrets-v1`), `refused` (with `refusal`, one of the daemon's
+//! `REFUSAL_CODES` such as `bad-name`, `replay`, `stale` or the retryable
+//! `busy`; no `refusal` for any other message) or `transport`. No value, credential
 //! or daemon text other than those codes is ever printed. Exit 0 on `ok`.
 
 use std::io::Read as _;
@@ -124,10 +125,10 @@ fn answer_for(result: Result<WorkspaceResponse, cmux_remote_protocol::RpcError>)
         }
         Ok(_) => failure("transport", None, false),
         Err(error) if error.code == "secret-refused" => {
+            // Only a code the daemon's protocol lists; any other text stays out.
             let code = error.message.split(':').next().unwrap_or_default();
-            let fixed =
-                code.len() <= 32 && code.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
-            failure("refused", fixed.then_some(code), error.retryable)
+            let known = cmux_remote::secrets::REFUSAL_CODES.contains(&code);
+            failure("refused", known.then_some(code), error.retryable)
         }
         Err(error) if error.code == "unsupported" => failure("unsupported", None, false),
         Err(error) => failure("transport", None, error.retryable),
@@ -223,15 +224,41 @@ pub(super) fn run(args: &[String]) -> i32 {
                 return self::failure(failure.step.error_code(), None, failure.retryable);
             }
         };
-        let line = send(&dialed, &machine, request.op).await;
-        let client::Dialed { connection, multiplexer, mux, .. } = dialed;
-        mux.close().await;
-        multiplexer.shutdown().await;
-        let _ = connection.close().await;
-        line
+        // The exchange and the shutdown stay inside the same deadline.
+        exchange(dialed, &machine, request.op, plan.deadline).await
     });
     runtime.shutdown_timeout(super::STDIO_SHUTDOWN_TIMEOUT);
     print(&line)
+}
+
+/// Send `op` on the dialed session and shut it down, all by `deadline`; past
+/// it the answer is `timeout` (retryable).
+async fn exchange(
+    dialed: client::Dialed,
+    machine: &str,
+    op: Op,
+    deadline: tokio::time::Instant,
+) -> Value {
+    let line = within(deadline, send(&dialed, machine, op)).await;
+    let client::Dialed { connection, multiplexer, mux, .. } = dialed;
+    let _ = tokio::time::timeout_at(deadline, async {
+        mux.close().await;
+        multiplexer.shutdown().await;
+        let _ = connection.close().await;
+    })
+    .await;
+    line
+}
+
+/// `answer`'s line, or `timeout` (retryable) once `deadline` passes: a
+/// daemon that holds the session open without answering never outlasts it.
+async fn within(
+    deadline: tokio::time::Instant,
+    answer: impl std::future::Future<Output = Value>,
+) -> Value {
+    tokio::time::timeout_at(deadline, answer)
+        .await
+        .unwrap_or_else(|_| failure("timeout", None, true))
 }
 
 async fn send(dialed: &client::Dialed, machine: &str, op: Op) -> Value {
