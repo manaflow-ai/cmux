@@ -29,9 +29,20 @@ import Testing
             try current.write(to: Self.url, atomically: true, encoding: .utf8)
         }
         let stored = try String(contentsOf: Self.url, encoding: .utf8)
-        #expect(stored == current, "the decoded catalog differs from action-catalog.json")
+        // Compared by its first difference: the whole dump is too long for a test log.
+        #expect(Self.firstDifference(stored, current) == "none", "the decoded catalog differs from action-catalog.json")
     }
     #endif
+
+    /// The first line where two dumps part, with a few lines around it from each.
+    nonisolated static func firstDifference(_ stored: String, _ current: String) -> String {
+        let old = stored.components(separatedBy: "\n"), new = current.components(separatedBy: "\n")
+        guard let line = zip(old, new).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset
+                ?? (old.count == new.count ? nil : min(old.count, new.count))
+        else { return "none" }
+        let window = { (lines: [String]) in lines[max(0, line - 12)..<min(lines.count, line + 4)].joined(separator: "\n") }
+        return "line \(line + 1) (stored \(old.count) lines, decoded \(new.count))\n--- stored\n\(window(old))\n--- decoded\n\(window(new))"
+    }
 
     /// The dump never falls back to a value's description: every leaf is a known kind.
     @Test func dumpHasNoOpaqueValues() throws {
