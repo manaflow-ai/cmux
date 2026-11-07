@@ -1244,6 +1244,12 @@ button.cv-subagent > :last-child {
   inset: 0;
   z-index: var(--layer-backdrop);
 }
+/* A line with a report (SubagentDoneLine.tsx `Line`): its words are no control, the whole row
+   toggles the report (headerToggle.ts) and the name chip opens the agent, so no hit area covers the
+   chip. */
+div.cv-subagent-done[data-toggle-line]::before {
+  content: none;
+}
 .cv-subagent-done-row > .cv-subagent-done {
   grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
   width: auto;
@@ -1372,6 +1378,11 @@ button.cv-subagent > :last-child {
   font: inherit;
   cursor: default;
   pointer-events: auto;
+}
+/* Pointing anywhere on the line but its name lifts the chevron, the line's toggle; only the chevron
+   itself takes the fill. */
+.cv-subagent-done-row:hover:not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-subagent-done__disclose {
+  color: var(--cv-text);
 }
 .cv-subagent-done-row > .cv-subagent-done__disclose:hover {
   color: var(--cv-text);
