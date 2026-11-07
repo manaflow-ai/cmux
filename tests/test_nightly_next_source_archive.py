@@ -96,9 +96,12 @@ def test_source_archive_step_blocks() -> None:
 
 
 def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
+    # The first try may fail softly: its retry (tests/test_nightly_artifact_uploads_retry.py) fails the job.
     upload = step("Upload the cmux-next source archive")
-    assert field(upload, "continue-on-error") is None
     assert field(upload, "if") == NEXT_FRESH_FULL_BUILD, field(upload, "if")
+    retry = step("Upload the cmux-next source archive (retry)")
+    assert field(retry, "continue-on-error") is None, "a failed retry must stop the helper job"
+    assert f"({NEXT_FRESH_FULL_BUILD})" in field(retry, "if"), field(retry, "if")
     for download in prepare_steps("Download the Ghostty dependency license trees (cmux-next)"):
         assert field(download, "continue-on-error") is None, "a missing license tree must stop the sign job"
         assert prepare_if(download) == NEXT_FULL_BUILD, field(download, "if")
