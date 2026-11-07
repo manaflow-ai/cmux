@@ -31,6 +31,9 @@ import Testing
         #expect(HomeChiefComputer.Status(json: body) == .init(used: true, computer: ("vm-9", "paused")))
         #expect(HomeChiefComputer.Status(json: Data(#"{"ok":true,"value":{"used":false,"computer":null}}"#.utf8)) == .init(used: false, computer: nil))
         #expect(HomeChiefComputer.Status(json: Data(#"{"ok":false,"error":{"code":"not_found"}}"#.utf8)) == nil)
+        // The Cloud service's plan answer and a computer being made (Set Up Computer).
+        let making = Data(#"{"ok":true,"value":{"used":false,"entitled":true,"provisioning":true,"computer":null}}"#.utf8)
+        #expect(HomeChiefComputer.Status(json: making) == .init(used: false, computer: nil, entitled: true, provisioning: true))
     }
 
     @Test func aRunningComputerRefreshesOnlyWhileTheCardIsOpen() async throws {

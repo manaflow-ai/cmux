@@ -229,6 +229,40 @@ import Testing
         #expect(!panel.isOpen)
     }
 
+    /// A paid owner of a Cloud Chief with no computer gives it one: the Cloud service's own entitled answer
+    /// lifts the paywall before the app's plan read does, and Set Up Computer asks for it, then waits on the status.
+    @Test func setUpComputerAsksTheCloudServiceAndFollowsTheStatus() async {
+        var status = HomeChiefComputer.Status(used: false, computer: nil, entitled: true)
+        var asks = 0
+        let page = HomeChiefProfileView()
+        page.name = { "mario" }
+        page.paid = { false }
+        page.cloudChief = { true }
+        page.onProvision = {
+            asks += 1
+            status = .init(used: false, computer: nil, entitled: true, provisioning: true)
+        }
+        page.computer.source = .init(paid: { false }, chief: { "mario" }, status: { status }, screen: { nil })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(page)
+        defer { window.close() }
+        await until { page.computer.entitled }
+        #expect(page.shownGate == .notSetUp, "entitled by the Cloud service: no Upgrade")
+        #expect(page.gateButton.title == HomeEngineStrings.computerProvision)
+        #expect(!page.gateButton.isHidden)
+        page.gateButton.performClick(nil)
+        await until { page.computer.provisioning }
+        #expect(asks == 1)
+        #expect(page.gateLabel.stringValue == HomeEngineStrings.computerProvisioning("mario"))
+        #expect(page.gateButton.isHidden, "one ask at a time")
+        // The computer arrives: the screen replaces the note.
+        status = .init(used: true, computer: ("vm", "running"), entitled: true)
+        page.computer.open()
+        await until { page.computer.shown != nil }
+        #expect(page.shownGate == nil)
+    }
+
     @Test func aCloudMachineOpensItsDesktopOnTakeOverAndTheScreenTakesNoInput() async {
         let lease = Lease()
         let bar = HomeChiefComputerControlBar()

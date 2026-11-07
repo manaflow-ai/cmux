@@ -71,6 +71,11 @@ public final class HomeChiefComputerSection: NSStackView {
 
     /// What the section shows now; nil hides it.
     public private(set) var shown: HomeChiefComputer?
+    /// The last status said the owner's plan pays for the Chief's computer (the Cloud service's own read,
+    /// which holds while the app's plan read has not answered).
+    public private(set) var entitled = false
+    /// The last status said a computer the owner asked for is being made.
+    public private(set) var provisioning = false
     /// Frames shown since the card opened (tests).
     private(set) var frames = 0
     public private(set) var isOpen = false
@@ -192,6 +197,10 @@ public final class HomeChiefComputerSection: NSStackView {
             if since >= Self.statusInterval {
                 let status = await source.status()
                 guard let self, self.isOpen, !Task.isCancelled else { return }
+                if let status {
+                    self.entitled = status.entitled ?? self.entitled
+                    self.provisioning = status.provisioning
+                }
                 self.show(self.section(for: status, source))
                 since = .zero
                 self.onStatus()
@@ -218,7 +227,7 @@ public final class HomeChiefComputerSection: NSStackView {
     /// The section for a status read. A read that failed (nil) keeps a shown section, as
     /// unavailable, instead of hiding it until the next read.
     private func section(for status: HomeChiefComputer.Status?, _ source: Source) -> HomeChiefComputer? {
-        guard source.paid() else { return nil }
+        guard source.paid() || entitled else { return nil }
         guard let status else { return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) } }
         return HomeChiefComputer(status: status, paid: true, chief: source.chief())
     }

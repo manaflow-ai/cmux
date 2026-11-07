@@ -542,9 +542,15 @@ final class CloudService {
     /// carries them; a plan that cannot be read keeps the last one, so a blip shows no paywall.
     private func readPlan(generation: Int, account: [String?]) {
         Task { [weak self] in
-            guard let self, let answer = try? await appOps("cloud.plan.get", .object([:]), nil, .script),
-                  listGeneration == generation, listAccount == account, auth.isSignedIn else { return }
+            guard let self else { return }
+            let answer: JSONValue
+            do { answer = try await appOps("cloud.plan.get", .object([:]), nil, .script) } catch {
+                logger.error("plan read failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            guard listGeneration == generation, listAccount == account, auth.isSignedIn else { return }
             machines.cloudLimits = CloudMachineLimits(nextPlan: answer)
+            logger.info("plan: \(machines.cloudLimits?.planId ?? "unreadable", privacy: .public) pays=\(machines.cloudLimits?.paysForCloud == true, privacy: .public)")
         }
     }
 

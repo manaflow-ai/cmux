@@ -79,6 +79,13 @@ public struct ChiefComputerControlClient: Sendable {
         return state
     }
 
+    /// Set Up Computer: asks the Cloud service to give the Chief its computer (made in the background;
+    /// the status route says `provisioning`, then the computer). Throws the route's refusal.
+    @MainActor
+    public func provision(agent: String) async throws {
+        _ = try await request("POST", agent, "computer/control", body: ["action": "provision"])
+    }
+
     /// Runs one input; answers the lease the route reports with it (`{done, control}`), nil when it reports none.
     @MainActor
     public func input(agent: String, _ input: HomeChiefComputerInput) async throws -> HomeChiefComputerControlState? {

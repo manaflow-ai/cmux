@@ -147,6 +147,12 @@ final class ChiefComputerPageService: InternalPageProvider {
         view.computer.source = Self.source(services: services, conversation: conversation)
         view.paid = { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }
         view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
+        view.onProvision = { [weak services] in
+            guard let services, let agent = services.home.cloudChiefs.chief(for: conversation)?.id else {
+                throw CancellationError()  // no Cloud Chief here any more: the note shows the failure
+            }
+            try await ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).provision(agent: agent)
+        }
         view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
         view.onUpgrade = { [weak services] in
             // task-owner: one Checkout start; ends when it opens

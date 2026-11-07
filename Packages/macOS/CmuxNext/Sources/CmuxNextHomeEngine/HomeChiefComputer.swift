@@ -24,15 +24,22 @@ public struct HomeChiefComputer: Equatable, Sendable {
         public var computer: (id: String, state: String)?
         /// The Chief acted on the computer moments ago (the chat's popup).
         public var acting: Bool
+        /// The owner's plan pays for the Chief's computer, as the Cloud service reads it; nil when it did not say.
+        public var entitled: Bool?
+        /// A computer the owner asked for is being made (Set Up Computer).
+        public var provisioning: Bool
 
-        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false) {
+        public init(used: Bool, computer: (id: String, state: String)?, acting: Bool = false, entitled: Bool? = nil, provisioning: Bool = false) {
             self.used = used
             self.computer = computer
             self.acting = acting
+            self.entitled = entitled
+            self.provisioning = provisioning
         }
 
         public static func == (a: Status, b: Status) -> Bool {
             a.used == b.used && a.acting == b.acting && a.computer?.id == b.computer?.id && a.computer?.state == b.computer?.state
+                && a.entitled == b.entitled && a.provisioning == b.provisioning
         }
 
         /// The route's JSON (`{ok, value: {used, computer: {id, state} | null}}`); nil for anything else.
@@ -41,7 +48,8 @@ public struct HomeChiefComputer: Equatable, Sendable {
                   let value = root["value"] as? [String: Any], let used = value["used"] as? Bool else { return nil }
             let computer = value["computer"] as? [String: Any]
             let id = computer?["id"] as? String
-            self.init(used: used, computer: id.map { ($0, computer?["state"] as? String ?? "unknown") }, acting: value["acting"] as? Bool ?? false)
+            self.init(used: used, computer: id.map { ($0, computer?["state"] as? String ?? "unknown") }, acting: value["acting"] as? Bool ?? false,
+                      entitled: value["entitled"] as? Bool, provisioning: value["provisioning"] as? Bool ?? false)
         }
     }
 

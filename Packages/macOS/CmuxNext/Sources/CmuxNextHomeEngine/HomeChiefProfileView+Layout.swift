@@ -124,7 +124,11 @@ extension HomeChiefProfileView {
     }
 
     @objc private func gateAction() {
-        if shownGate == .paywall { onUpgrade() } else { onMoveToCloud() }
+        switch shownGate {
+        case .paywall: onUpgrade()
+        case .notSetUp: provision()
+        default: onMoveToCloud()
+        }
     }
 }
 

@@ -35,6 +35,9 @@ import { declared } from "../do-stub.ts"
  *        control: {holder: chief | human, since_ms, by?: chief | human, reason?, expires_ms?}}, the Chief's computer (chief-brain-cc/sandbox-computer.ts) for its
  *        profile's Computer section; never wakes it. entitled: the owner's personal team has a Cloud plan
  *   POST /v1/chiefs/<agent>/computer/control the owner's session: {action: take_over | hand_back} -> {control}; 404 with no computer.
+ *        {action: provision} -> {computer: {id, state}} for the one it has, else 202 {provisioning: true} while one is made in
+ *        the background (sandbox.ts COMPUTER_SIZE; the status says provisioning, then the computer, or provision_error);
+ *        403 cloud.plan.required without a Cloud plan
  *        A person's hold (by, expires_ms) returns to the Chief by itself 10 min after their last take_over or input
  *   POST /v1/chiefs/<agent>/computer/input  the owner's session while they hold it: {op: click | move | drag | scroll | type | key |
  *        open (open_url), x?, y?, to_x?, to_y?, button?, count?, text?, keys?, direction?, amount? (clamped to 1..30), url?} -> {done, control};
@@ -324,7 +327,13 @@ const handleComputerControl = async (request: Request, env: Env, agent: string, 
   if (!body || typeof body !== "object" || Array.isArray(body)) return fail({ status: 400, code: "validation.invalid", message: "body is a JSON object" })
   const sandboxes = sandboxesOf(env, agent)
   if (path === "computer/control") {
-    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over or hand_back" })
+    if (body.action === "provision") {
+      const r = await sandboxes.ccComputerProvision(agent, p.user!)
+      if (r.status === 200) return ok({ computer: r.computer })
+      if (r.status === 202) return Response.json({ ok: true, value: { provisioning: true } }, { status: 202, headers: NO_STORE })
+      return fail({ status: r.status, code: r.code, message: r.error })
+    }
+    if (body.action !== "take_over" && body.action !== "hand_back") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back or provision" })
     const r = await sandboxes.ccComputerControl(agent, body.action)
     return r.status === 200 ? ok({ control: r.control }) : fail({ status: r.status, code: r.code, message: r.error })
   }

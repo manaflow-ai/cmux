@@ -206,6 +206,38 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
   })
 })
 
+describe("the owner gives a Chief its computer from the profile", { timeout: 120_000 }, () => {
+  it("makes a 4 vCPU / 8 GiB sandbox with the desktop for a paid owner, answers the same one again, and refuses without a plan", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const { token, chief } = await enabledChief("chief-cc-computer-provision", "cc")
+    const provision = (t = token, id = chief.id) => http("POST", `/v1/chiefs/${id}/computer/control`, t, { action: "provision" })
+    // Made in the background: the ask answers at once, the status says when it is there.
+    const first = await provision()
+    expect(first.status, JSON.stringify(first.json)).toBe(202)
+    expect(first.json.value).toEqual({ provisioning: true })
+    const status = async () => (await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value
+    let now = await status()
+    for (let i = 0; i < 200 && !now.computer; i++) now = (await new Promise((r) => setTimeout(r, 25)), await status())
+    const id = now.computer.id as string
+    expect((await provision()).json.value.computer).toEqual({ id, state: "running" })
+    // Grown to COMPUTER_SIZE (the small Ubuntu starts at 2 vCPU / 4 GiB); set up as its computer (used, below).
+    expect(cloud.sizes.get(id)).toMatchObject({ cpu: 4, memory: 8192 })
+    expect(await status()).toMatchObject({ used: true, entitled: true, computer: { id, state: "running" } })
+    expect((await status()).provisioning).toBeUndefined()
+    // A second ask keeps the computer it has: nothing more is made.
+    const made = cloud.made.length
+    expect((await provision()).json.value.computer.id).toBe(id)
+    expect(cloud.made.length).toBe(made)
+    // Without a Cloud plan, and for someone else's Chief, nothing is made.
+    const unpaid = await enabledChief("chief-cc-computer-unpaid", "cc")
+    const refused = await provision(unpaid.token, unpaid.chief.id)
+    expect(refused.status).toBe(403)
+    expect(refused.json.error.code).toBe("cloud.plan.required")
+    expect((await provision(unpaid.token)).status).toBe(404)
+    expect(cloud.made.length).toBe(made)
+  })
+})
+
 describe("the computer's control routes take only the owner's signed-in session", () => {
   const AGENT = "agent_01ARZ3NDEKTSV4RRFFQ69G5FAV"
   it("refuses an install grant and a Chief's own grant with mutate-own as computer.user_origin_required", async () => {

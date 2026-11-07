@@ -468,11 +468,12 @@ export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number
  * Chief ever set one up (`used`: its profile shows the Computer section from then on), and the one it has now with
  * its state, or null. Reads Freestyle's state; never starts or changes the VM.
  */
-export const ccComputerStatus = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ used: boolean; entitled: boolean; acting?: boolean; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN; control: Control }> => {
+export const ccComputerStatus = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ used: boolean; entitled: boolean; acting?: boolean; provisioning?: boolean; provision_error?: string; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN; control: Control }> => {
   const used = computerUsedAt(b) !== null
   const entitled = await ownerEntitled(b, owner)
   const c = computerOf(b)
-  if (!c) return { used, entitled, computer: null, screen: SCREEN, control: controlOf(b) }
+  const p = provisionOf(b)
+  if (!c) return { used, entitled, computer: null, screen: SCREEN, control: controlOf(b), ...(provisioning(b) ? { provisioning: true } : p?.error ? { provision_error: p.error } : {}) }
   const o = await own(b, agent, c.id)
   if ("status" in o) {
     // Gone or no longer this Chief's: forget it (a Freestyle that did not answer keeps it).
@@ -483,6 +484,73 @@ export const ccComputerStatus = async (b: ChiefBrainDO, agent: string, owner: st
 }
 
 type Refusal = { status: 400 | 404 | 409 | 502; code: string; error: string; state?: string }
+
+/**
+ * The size a Chief's computer is given when its owner sets one up from the profile (Austin, 2026-11-06: "a machine that
+ * seems reasonable for each Chief"): 4 vCPU and 8 GiB, the size every sandbox grows to, which runs the desktop, Chrome
+ * and a build beside them; the computer image's 16 GB disk (Chrome's profile and downloads fit). About $0.27 an hour
+ * while it runs and nothing but its disk while it sleeps (it pauses when idle). A Chief's computer is one of its own
+ * sandboxes, never one of the team's Cloud machines, so it does not count toward the Cloud plan's machine limits.
+ */
+export const COMPUTER_SIZE = { cpu: 4, memory_mb: 8192 } as const
+
+/** A provision in flight on this object (it takes minutes: make, grow, desktop), and the last one that failed. */
+const provisions = new WeakMap<object, { since: number; error?: string }>()
+const PROVISION_MS = 10 * 60_000
+const provisionOf = (b: ChiefBrainDO) => provisions.get(b.sql)
+const provisioning = (b: ChiefBrainDO, now = Date.now()) => {
+  const p = provisionOf(b)
+  return !!p && p.error === undefined && now - p.since < PROVISION_MS
+}
+
+/**
+ * Starts ccComputerProvision and answers at once (the app's request would time out on the minutes it takes): 200 with
+ * the computer it has, 202 `{provisioning: true}` while one is made (the status route says when it is there), or the
+ * refusal. A second ask while one is made starts nothing.
+ */
+export const ccComputerProvisionStart = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ status: 200; computer: { id: string; state: string } } | { status: 202; provisioning: true } | { status: 403 | 409; code: string; error: string }> => {
+  const have = computerOf(b)
+  if (have) {
+    const o = await own(b, agent, have.id)
+    if (!("status" in o)) return { status: 200, computer: { id: have.id, state: o.vm.state } }
+  }
+  if (provisioning(b)) return { status: 202, provisioning: true }
+  if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
+  if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
+  const run = { since: Date.now() } as { since: number; error?: string }
+  provisions.set(b.sql, run)
+  b.doCtx.waitUntil(ccComputerProvision(b, agent, owner).then((r) => {
+    if (r.status === 200) provisions.delete(b.sql)
+    else run.error = r.error
+  }, () => { run.error = "the computer was not made" }))
+  return { status: 202, provisioning: true }
+}
+
+/**
+ * The owner gives the Chief a computer (`POST /v1/chiefs/<agent>/computer/control {action: "provision"}`): a sandbox of
+ * COMPUTER_SIZE from the computer image (the small Ubuntu where none is baked), with the desktop set up, as the Chief's
+ * own `chief-vm computer setup` would make it. A Chief that has one keeps it (the answer is that one). Needs a Cloud plan.
+ */
+export const ccComputerProvision = async (b: ChiefBrainDO, agent: string, owner: string): Promise<{ status: 200; computer: { id: string; state: string } } | Refusal | { status: 403 | 429; code: string; error: string }> => {
+  const have = computerOf(b)
+  if (have) {
+    const o = await own(b, agent, have.id)
+    if (!("status" in o)) return { status: 200, computer: { id: have.id, state: o.vm.state } }
+  }
+  if (!(await ownerEntitled(b, owner))) return { status: 403, code: "cloud.plan.required", error: "a Chief's computer needs a cmux Cloud plan" }
+  if (humanHasControl(b)) return { status: 409, code: "computer.human_has_control", error: "you are using the Chief's computer" }
+  try {
+    const made = await create(b, agent, owner, { ...(b.doEnv.CHIEF_CC_COMPUTER_SNAPSHOT ? { image: "computer" } : {}), ...COMPUTER_SIZE })
+    const id = (made.json as { vm?: { id?: string } } | null)?.vm?.id
+    if (made.status === 429) return { status: 429, code: "computer.sandbox_cap", error: String((made.json as { error?: unknown }).error ?? "the Chief has as many sandboxes as it may") }
+    if (made.status !== 200 || !id) return { status: 502, code: "computer.unreachable", error: String((made.json as { error?: unknown } | null)?.error ?? "the computer was not made") }
+    const set = await computerVerb(b, id, "running", { op: "setup" })
+    if (set.status !== 200) return { status: 502, code: "computer.setup_failed", error: String((set.json as { error?: unknown } | null)?.error ?? "the desktop did not install") }
+    return { status: 200, computer: { id, state: "running" } }
+  } catch (e) {
+    return { status: 502, code: "computer.unreachable", error: e instanceof CcError ? e.message : "the computer was not made" }
+  }
+}
 
 /** The owner takes the computer over or hands it back (`POST /v1/chiefs/<agent>/computer/control`); 404 with none. */
 export const ccComputerControl = async (b: ChiefBrainDO, _agent: string, action: "take_over" | "hand_back"): Promise<{ status: 200; control: Control } | Refusal> => {

@@ -36,7 +36,7 @@ import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ccSandbox, ccSandboxPurge, ccComputerControl, ccComputerProvisionStart, ccComputerInput, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 import { authorizeDefaultMachine } from "../chief-default-hand.ts"
@@ -629,6 +629,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The owner takes the Chief's computer over or hands it back (the control lease, sandbox-computer.ts). */
   async ccComputerControl(agent: string, action: "take_over" | "hand_back"): Promise<Awaited<ReturnType<typeof ccComputerControl>>> {
     return ccComputerControl(this, agent, action)
+  }
+
+  /** The owner gives the Chief a computer (a sandbox of COMPUTER_SIZE with the desktop, made in the background), or the one it has. */
+  async ccComputerProvision(agent: string, owner: string): Promise<Awaited<ReturnType<typeof ccComputerProvisionStart>>> {
+    return ccComputerProvisionStart(this, agent, owner)
   }
 
   /** One input from the owner while they hold the Chief's computer. */

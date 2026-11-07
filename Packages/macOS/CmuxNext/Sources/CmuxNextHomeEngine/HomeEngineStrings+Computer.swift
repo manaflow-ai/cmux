@@ -25,6 +25,18 @@ extension HomeEngineStrings {
     static var computerMove: String {
         String(localized: "home.engine.computer.move", defaultValue: "Move to Cloud", table: "Home", bundle: .module)
     }
+    static var computerProvision: String {
+        String(localized: "home.engine.computer.provision", defaultValue: "Set Up Computer", table: "Home", bundle: .module)
+    }
+    static func computerProvisionNote(_ chief: String) -> String {
+        String(localized: "home.engine.computer.provision.note", defaultValue: "Give \(chief) its own computer in cmux Cloud", table: "Home", bundle: .module)
+    }
+    static func computerProvisioning(_ chief: String) -> String {
+        String(localized: "home.engine.computer.provisioning", defaultValue: "Setting up \(chief)’s computer. This takes a few minutes.", table: "Home", bundle: .module)
+    }
+    static func computerProvisionFailed(_ chief: String) -> String {
+        String(localized: "home.engine.computer.provision.failed", defaultValue: "\(chief)’s computer couldn’t be set up. Try again.", table: "Home", bundle: .module)
+    }
     static func computerNotSetUp(_ chief: String) -> String {
         String(localized: "home.engine.computer.notSetUp", defaultValue: "Ask \(chief) to turn on its computer", table: "Home", bundle: .module)
     }

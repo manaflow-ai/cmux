@@ -16,6 +16,13 @@ extension HomeChiefProfileView {
                 : HomeEngineStrings.computerNeedsCloudOrMachine(name())
             gateButton.title = HomeEngineStrings.computerMove
             gateButton.isHidden = false
+        case .notSetUp where onProvision != nil:
+            // The person gives the Chief its computer; it takes a few minutes, and the status says when it is there.
+            let making = provisionAsk == .asking || computer.provisioning
+            gateLabel.stringValue = making ? HomeEngineStrings.computerProvisioning(name())
+                : provisionAsk == .failed ? HomeEngineStrings.computerProvisionFailed(name()) : HomeEngineStrings.computerProvisionNote(name())
+            gateButton.title = HomeEngineStrings.computerProvision
+            gateButton.isHidden = making
         case .notSetUp:
             gateLabel.stringValue = HomeEngineStrings.computerNotSetUp(name())
             gateButton.isHidden = true
@@ -58,5 +65,21 @@ extension HomeChiefProfileView {
     func send(_ input: HomeChiefComputerInput) {
         inputs.send = control?.send
         inputs.enqueue(input)
+    }
+
+    /// Set Up Computer: one ask at a time; the section reads the status again at once so the note follows it.
+    func provision() {
+        guard let onProvision, provisionAsk != .asking else { return }
+        provisionAsk = .asking
+        refresh()
+        // task-owner: one Set Up Computer ask; the Cloud service makes the computer in the background
+        Task { [weak self] in
+            let failed: Bool
+            do { try await onProvision(); failed = false } catch { failed = true }
+            guard let self else { return }
+            provisionAsk = failed ? .failed : .idle
+            if computer.isOpen { computer.open() }
+            refresh()
+        }
     }
 }

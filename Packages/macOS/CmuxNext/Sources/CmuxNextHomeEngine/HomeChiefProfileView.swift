@@ -61,6 +61,12 @@ public final class HomeChiefProfileView: NSView {
     public var onUpgrade: () -> Void = {}
     /// Move to Cloud, for a Chief of this Mac.
     public var onMoveToCloud: () -> Void = {}
+    /// Set Up Computer, for a Cloud Chief with none: asks the Cloud service to make it one (made in the
+    /// background; the status says when it is there). Nil: the note asks the Chief to turn one on instead.
+    public var onProvision: (@MainActor () async throws -> Void)? { didSet { refresh() } }
+    /// The Set Up Computer ask in flight, or the reason the last one failed.
+    var provisionAsk: ProvisionAsk = .idle
+    enum ProvisionAsk: Equatable { case idle, asking, failed }
     /// All Chief Settings…, in the expanded page's Details.
     public var onSettings: () -> Void = {}
     /// Expand, on the screen: opens the expanded page (the panel only).
@@ -196,7 +202,8 @@ public final class HomeChiefProfileView: NSView {
         computerPane.isHidden = tab != .computer
         settings?.showSection(tab)
         computer.watchesScreen = tab == .computer
-        let gate = Self.gate(paid: paid(), cloudChief: cloudChief(), hasComputer: computer.shown != nil,
+        // The app's plan read, or the Cloud service's own answer for this Chief (it holds before the app's read answers).
+        let gate = Self.gate(paid: paid() || computer.entitled, cloudChief: cloudChief(), hasComputer: computer.shown != nil,
                              machine: settings?.attachedMachine != nil)
         shownGate = gate
         gateBox.isHidden = gate == nil
