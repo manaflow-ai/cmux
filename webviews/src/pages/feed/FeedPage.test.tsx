@@ -136,6 +136,15 @@ test("the list: title, badge, Mark All Read, request cards with answers, then ro
   expect(provider.calls.at(-2)!.params).toMatchObject({ kind: "mark_all_read" });
 });
 
+test("the list's Mark All Read is on with only an unread request", async () => {
+  const request = sampleFeed(NOW).find((item) => item.id === "fi_claude_rm_build")!;
+  const { provider } = await mount("#/list", {}, [{ ...request, read_at: undefined }]);
+  const mark = button("Mark All Read");
+  expect(mark.hasAttribute("disabled")).toBe(false);
+  await click(mark);
+  expect(provider.calls.at(-2)!.params).toMatchObject({ kind: "mark_all_read" });
+});
+
 test("the list's keys: Down selects and reads, Return opens; double click opens", async () => {
   const { provider } = await mount("#/list");
   const list = host.querySelector<HTMLElement>(".feed-lines")!;

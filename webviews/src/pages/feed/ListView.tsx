@@ -37,7 +37,7 @@ export function ListView({ store, snap, strings }: FeedProps) {
           className="feed-list-mark"
           aria-label={t("feed.markAllRead")}
           title={t("feed.markAllRead")}
-          disabled={!view?.counts.unread_notices}
+          disabled={!view?.counts.unread}
           onClick={() => store.markAllRead()}
         >
           <FeedIcon name="action.confirm" size={14} />
