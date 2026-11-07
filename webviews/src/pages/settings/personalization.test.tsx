@@ -121,18 +121,31 @@ test("Change Background… opens it on its Background part", async () => {
 });
 
 test("a jump marks its part current, and a second Change Background… lands on Background again", async () => {
-  const page = await renderPage({ path: "/settings/personalization?focus=personalization.background" });
+  // The host's real sequence: Change Background… opens a route with its own `open`, the person jumps
+  // to Sounds, then Change Background… again opens a new route (another `open`) on Background.
+  const page = await renderPage({ path: "/settings/personalization?focus=personalization.background&open=1" });
   await settle();
   const current = () => page.container.querySelector<HTMLElement>('[data-jump][aria-current="true"]')?.dataset.jump;
+  const scrolled: string[] = [];
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    if (this.dataset.part) scrolled.push(this.dataset.part);
+  };
   expect(current()).toBe("background");
   await act(async () => page.container.querySelector<HTMLElement>('[data-jump="sounds"]')!.click());
   await settle();
   expect(current()).toBe("sounds");
-  await act(async () => page.history.push("/settings/personalization"));
-  await settle();
-  await act(async () => page.history.push("/settings/personalization?focus=personalization.background"));
+  expect(page.history.location.search).toContain("focus=personalization.sounds");
+  expect(scrolled).toEqual(["sounds"]);
+  await act(async () => page.history.push("/settings/personalization?focus=personalization.background&open=2"));
   await settle();
   expect(current()).toBe("background");
+  expect(scrolled).toEqual(["sounds", "background"]);
+  // A repeat on the part already shown (the person scrolled away) scrolls back to it.
+  await act(async () => page.history.push("/settings/personalization?focus=personalization.background&open=3"));
+  await settle();
+  expect(scrolled).toEqual(["sounds", "background", "background"]);
+  HTMLElement.prototype.scrollIntoView = original;
   page.unmount();
 });
 

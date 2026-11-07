@@ -3,12 +3,13 @@
 // visual choice on one page, under a jump bar. Each part is the card or the rows its home category
 // draws (the theme studio, the background picker, the Chief's look, chat text and density, sounds),
 // so this page writes the same keys through the same store calls and holds no setting of its own.
-import { useEffect, useRef, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { Button } from "../../../ui/Button";
 import { categoryById, type CategoryGroup } from "../categories";
 import { useSettingsRouter, useSettingsState } from "../context";
 import { DENSITY_ROWS } from "../density";
-import { sectionHref } from "../router";
+import { parseLocation, sectionHref } from "../router";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ENABLED, CHIEF_PET_MASCOT, ChiefPetCard } from "./ChiefPetCard";
@@ -84,23 +85,22 @@ export function PersonalizationCard({
   const state = useSettingsState();
   const picker = useBackdropsShown();
   const parts = useRef(new Map<PartID, HTMLElement>());
-  const opened = personalizationPart(focus);
-  // The part the jump bar marks current: the one the route opened on, then the last one jumped to.
-  const [current, setCurrent] = useState<PartID | null>(opened);
-  // The part the route names, once the owner's values arrive (the parts above it have their height),
-  // revealed once per route: a route without a part forgets it, so the next Change Background… does again.
-  const revealed = useRef<PartID | null>(null);
+  // The part the route names, read from the route itself: its href changes a render before the
+  // section's `focus`, and the two must name the same part when the reveal runs.
+  const href = useRouterState({ router, select: (routerState) => routerState.location.href });
+  const opened = personalizationPart(parseLocation(href).focus ?? focus);
+  // Each navigation reveals the part it names, once the owner's values arrive (the parts above it
+  // have their height): Change Background… (a new route each time, with `open`) and a jump alike.
+  const revealed = useRef<string | null>(null);
   useEffect(() => {
-    if (opened === null) revealed.current = null;
-    if (!state.readable || opened === null || revealed.current === opened) return;
-    revealed.current = opened;
-    setCurrent(opened);
+    if (!state.readable || opened === null || revealed.current === href) return;
+    revealed.current = href;
     parts.current.get(opened)?.scrollIntoView?.({ block: "start" });
-  }, [opened, state.readable]);
-  const jump = (id: PartID) => {
-    setCurrent(id);
-    parts.current.get(id)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-  };
+  }, [href, opened, state.readable]);
+  // A jump is the route's part (as a picked menu is Settings > Menus' focus), so the jump bar's
+  // current part, Back and the host's next Change Background… all follow it.
+  const jump = (id: PartID) =>
+    router.history.replace(sectionHref("personalization", `${FOCUS_PREFIX}${id}`, workspace));
   const rowsOf = (part: Part): CategoryGroup[] => {
     const keys = part.id === "background" && picker ? part.rows.filter((key) => !BACKDROP_ROWS.has(key)) : part.rows;
     const rows = keys.map((key) => rowsByKey.get(key)).filter((row) => row !== undefined);
@@ -142,7 +142,7 @@ export function PersonalizationCard({
             variant="ghost"
             className="button personalization-jump-link"
             data-jump={part.id}
-            aria-current={current === part.id ? "true" : undefined}
+            aria-current={opened === part.id ? "true" : undefined}
             onClick={() => jump(part.id)}
           >
             {partTitle(part.id)}
