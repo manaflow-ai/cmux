@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -56,16 +57,17 @@ enum DestructiveConfirmation {
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        switch id {
-        case "cloudKillMachine":
-            return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
-        case "palette.cloud.deleteSnapshot":
+        // The Cloud deletes: which ask is the Cloud handlers' rule (``CloudHandlerRules``); the words are the app's.
+        switch CloudHandlerRules().ask("cloud_handler_confirmation", ["action": id.rawValue])?["prompt"] as? String {
+        case "killMachine"?: return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
+        case "deleteSnapshot"?:
             return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
-        case "cloudFileRemove":
-            return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
-        case "cloudFirewallDelete":
-            return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
-                          button: CloudStrings.deleteFirewallRule)
+        case "removeFile"?: return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "deleteFirewallRule"?:
+            return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody, button: CloudStrings.deleteFirewallRule)
+        default: break
+        }
+        switch id {
         case "workspaceGroup.closeWorkspaces":
             // No question of its own (an undo toast offers the workspaces back):
             // only a foreground program in them asks, as for Close Workspace.
