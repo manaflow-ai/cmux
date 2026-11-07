@@ -1232,7 +1232,17 @@ async fn dispatch_request_with_identity(
         method::MUX_MAC_APPROVERS if conn.origin.web_class() => Err(RpcError::invalid_params(
             "the enrolled Macs are read only on this machine, over its unix socket or app",
         )),
-        method::MUX_MAC_APPROVERS => Ok(hub.person.macs.view(&params)),
+        method::MUX_MAC_APPROVERS => {
+            // With this Mac's paired phones' public keys, which `host approvals enroll` also
+            // enrolls on a peer, so a phone may allow once there too.
+            let mut view = hub.person.macs.view(&params);
+            if let Some(fields) = view.as_object_mut() {
+                fields.insert("thisMacPhones".into(), json!(hub.person.approvers.peer_entries()));
+                fields
+                    .insert("thisMacPhonePrefix".into(), json!(hub.person.approvers.peer_prefix()));
+            }
+            Ok(view)
+        }
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }

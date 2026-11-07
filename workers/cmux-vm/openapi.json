@@ -10784,6 +10784,13 @@
           "items"
         ],
         "properties": {
+          "order": {
+            "type": "string",
+            "enum": [
+              "configured"
+            ],
+            "description": "\"configured\": items are in the operator's configured order, the first being the image in use. Absent: the order carries no meaning."
+          },
           "items": {
             "type": "array",
             "items": {

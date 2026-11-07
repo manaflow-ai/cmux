@@ -95,7 +95,7 @@ public final class DaemonService {
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
-    ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
+    ///   - echoesPlacementShift: The App passes true (it orders sidebar rows from the document); tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
     ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
