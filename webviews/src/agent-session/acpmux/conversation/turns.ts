@@ -1330,8 +1330,8 @@ function shapeTurn(
       const worked: AcpmuxRow = {
         id,
         version:
-          ((version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0)) * 2 +
-          (workedRuns.length ? 1 : 0),
+          ((version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0)) * WORK_SPAN +
+          workKey(workedRuns),
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -1616,6 +1616,33 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
 const VERSION_SPAN = 1_000_000;
 /// Room in a Worked for row's version for its fold's message count (`previous`).
 const PREVIOUS_SPAN = 4096;
+/// Room in a Worked for row's version for the work its `header` arm names (`workKey`).
+const WORK_SPAN = 256;
+
+/// What the `header` arm's line says of the work it holds (toolRunSummary.ts reads each call's kind,
+/// title, state, background state and files), as one number in 1..WORK_SPAN-1, 0 for no work: a
+/// late background end or a call's path or category changes the line's text, so it changes the
+/// version too and the memoized row (WorkedRow.tsx) draws again (review of cmux#37710).
+function workKey(runs: readonly AcpmuxActivity[]): number {
+  if (!runs.length) return 0;
+  // FNV-1a over the fields the summary reads.
+  let hash = 0x811c9dc5;
+  const mix = (text: string) => {
+    for (let at = 0; at < text.length; at += 1) hash = Math.imul(hash ^ text.charCodeAt(at), 0x01000193);
+    hash = Math.imul(hash ^ 0x1f, 0x01000193);
+  };
+  for (const { tool } of runs) {
+    if (!tool) continue;
+    mix(tool.id);
+    mix(tool.kind ?? "");
+    mix(tool.title ?? "");
+    mix(tool.status ?? "");
+    mix(tool.background?.state ?? "");
+    for (const location of tool.locations ?? []) mix(pathKey(location));
+    for (const diff of tool.diffs ?? []) mix(pathKey(diff));
+  }
+  return 1 + ((hash >>> 0) % (WORK_SPAN - 1));
+}
 
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {

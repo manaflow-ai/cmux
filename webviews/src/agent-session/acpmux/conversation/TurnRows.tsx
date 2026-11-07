@@ -18,7 +18,7 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { toolRunSummary } from "./toolRunSummary";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -261,6 +261,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches(row, groups), [row, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
+    // model.ts estimates the stretch from the same start (toolGroups.ts `stretchStart`).
+    const start = stretchStart(row, stretch);
     const drawn = stretch.groups.map((group, offset) => {
       const at = stretch.from + offset;
       return groupNode(
@@ -270,7 +272,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         row.at,
         row.live === true && at === groups.length - 1,
         // A run line open from the start (`runOpen`) opens the groups it holds too.
-        row.foldRun === true && !stretch.fold && !row.runOpen,
+        start.groupsClosed,
         thoughts[at],
       );
     });
@@ -279,7 +281,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     const first = stretch.items.find((item) => item.tool)?.tool?.id;
     const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items} defaultOpen={row.runOpen === true}>
+      <ToolRun key={key} disclosureKey={key} items={stretch.items} defaultOpen={start.lineOpen}>
         {drawn}
       </ToolRun>
     );

@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
@@ -153,4 +153,111 @@ test("a plain turn's opened run line starts closed, as before", async () => {
   await render(run);
   expect(host.querySelector(".cv-tool.is-run")!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelectorAll(".cv-command").length).toBe(0);
+});
+
+// The estimate of an open run line is the rows it draws (review of cmux#37710): a run that keeps a
+// coordination card (a message to another agent) and a change waiting for permission in sight draws,
+// with `runOpen`, each stretch's line over its open groups, as a run of plain work does. Every one of
+// those rows is one 22px tool line (design/chat-transcript.md "One-line row pitch"), so the drawn
+// height is the count of `.cv-tool` lines times 22.
+const LINE = 22;
+const read = (id: string): AcpmuxActivity => ({
+  kind: "tool",
+  text: "Read",
+  tool: { id, title: "Read a", kind: "read", status: "completed", locations: [{ path: "/a/x.ts" }] },
+});
+const pendingEdit: AcpmuxActivity = {
+  kind: "tool",
+  text: "Edit",
+  tool: {
+    id: "p",
+    title: "Edit x.ts",
+    kind: "edit",
+    status: "pending",
+    locations: [{ path: "/a/x.ts" }],
+    diffs: [{ path: "/a/x.ts", oldText: "a", newText: "b" }],
+  },
+};
+const openRun = (id: string, items: AcpmuxActivity[]): AcpmuxRow =>
+  row(id, "activity", 1, { settled: true, foldRun: true, runOpen: true, items });
+const mixedOpen = openRun("mixed", [
+  shell("a", "ls"),
+  shell("b", "cat y"),
+  shell("s", "acpmux send --no-wait lane-a 'Status?'"),
+  shell("d", "git diff"),
+  read("r"),
+  pendingEdit,
+  shell("e", "git status"),
+  read("r2"),
+]);
+
+for (const [name, run, lines] of [
+  // "Ran 2 commands" over its two, the sent message, a line over a command and a read, the pending
+  // edit, and a line over a command and a read.
+  ["a mixed stretch with a coordination card and a permission", mixedOpen, 11],
+  // The summary over "Ran 2 commands" and "Read 2 files", each over its calls.
+  ["a run of two groups", openRun("groups", [shell("a", "ls"), shell("b", "cat y"), read("r"), read("r2")]), 7],
+  // One group: its line over its calls.
+  ["a run of one group", openRun("one", [shell("a", "ls"), shell("b", "cat y")]), 3],
+] as const)
+  test(`an open run line's estimate is the rows it draws: ${name}`, async () => {
+    await render(run);
+    const drawn = host.querySelectorAll(".cv-tool").length;
+    expect(drawn).toBe(lines);
+    expect([...layoutConversation([run], 720).heights][0]).toBe(drawn * LINE);
+  });
+
+// The `header` arm's line names the work it holds, and the memoized row redraws when that changes
+// (review of cmux#37710): a background build that ends late, or a call whose category comes in late,
+// changes the line's text, so it changes the row's version too.
+const toggle = () => {};
+async function renderWorked(rows: readonly AcpmuxRow[]) {
+  const { createRoot } = await import("react-dom/client");
+  const { WorkedRow } = await import("../src/agent-session/acpmux/rows/WorkedRow");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const label = () => host.querySelector(".cv-worked__label")!.textContent ?? "";
+  const labels: string[] = [];
+  for (const shown of rows) {
+    await act(async () => root!.render(<WorkedRow row={shown} expanded={false} onToggleActivity={toggle} />));
+    labels.push(label());
+  }
+  return labels;
+}
+const workedOf = (rows: AcpmuxRow[]) => {
+  globalThis.cmuxExperiments = { "turn-fold-steered": "header" };
+  return view(rows, "codex").find((shown) => shown.kind === WORKED)!;
+};
+const withRun = (id: string, run: AcpmuxRow) => steered.map((shown) => (shown.id === id ? run : shown));
+
+test("the header arm's Worked for redraws when a background task ends late", async () => {
+  const running = withRun(
+    "t-1",
+    row("t-1", "activity", 1, {
+      items: (steered[1]!.items ?? []).map((item, index) =>
+        index < 2 ? { ...item, tool: { ...item.tool!, background: { state: "running" as const } } } : item,
+      ),
+    }),
+  );
+  const before = workedOf(running);
+  const after = workedOf(steered);
+  expect(before.version).not.toBe(after.version);
+  const [early, late] = await renderWorked([before, after]);
+  expect(early).not.toContain("Finished 2 background tasks");
+  expect(late).toContain("Finished 2 background tasks");
+});
+
+test("the header arm's Worked for redraws when a call's category changes", async () => {
+  const asRead = withRun(
+    "t-2",
+    row("t-2", "activity", 131, {
+      items: [shell("t-2-0", "gh run list"), { ...read("t-2-1"), tool: { ...read("t-2-1").tool!, id: "t-2-1" } }],
+    }),
+  );
+  const before = workedOf(steered);
+  const after = workedOf(asRead);
+  expect(before.version).not.toBe(after.version);
+  const [early, late] = await renderWorked([before, after]);
+  expect(early).not.toBe(late);
+  expect(late).toContain("read");
 });

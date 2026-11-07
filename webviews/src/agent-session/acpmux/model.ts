@@ -1534,22 +1534,29 @@ const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
 /// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
 /// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
 /// confused").
+/// Each stretch starts as ToolRows draws it (toolGroups.ts `stretchStart`): a folding stretch is its
+/// summary line, with its groups open under it when the line starts open (`runOpen`); another
+/// stretch is its entries, groups closed or open alike.
 function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
-  return stretches.reduce(
-    (height, stretch) =>
-      height +
-      (stretch.fold
-        ? toolRowHeight()
-        : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width), 0)),
-    0,
-  );
+  return stretches.reduce((height, stretch) => {
+    const start = stretchStart(row, stretch);
+    const entries = (closed: boolean) =>
+      stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width, closed), 0);
+    return (
+      height + (stretch.fold ? toolRowHeight() + (start.lineOpen ? entries(false) : 0) : entries(start.groupsClosed))
+    );
+  }, 0);
 }
 
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
-function foldedGroupHeight(group: ToolGroup, width: number): number {
+/// Open (`closed` false), a group is its line over its calls, but an edits group stays closed
+/// (ToolGroupRow.tsx).
+function foldedGroupHeight(group: ToolGroup, width: number, closed = true): number {
+  if (group.type === "group" && !closed && group.kind !== "edits")
+    return toolRowHeight() + group.items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
   if (group.type === "send")
     return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
   // A group of sends starts closed: its head, a message row naming the recipients
@@ -1979,8 +1986,10 @@ function fallbackRowHeight(
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && row.items?.length) {
       const groups = toolGroups(row.items);
-      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(row.items) && !row.runOpen) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      // A run line open from the start (`runOpen`) draws each stretch's line over its open groups.
+      if (row.runOpen || groups.some(staysInSight))
+        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     const items = row.items ?? [];
     let steps = items.length
@@ -1993,10 +2002,7 @@ function fallbackRowHeight(
         if (group.type === "sendGroup" && group.items.length > 1)
           steps +=
             messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    // A run line open from the start (`runOpen`) draws its line (the run's summary, or its one group's)
-    // over its calls; a run of one call is that call's row alone.
-    const line = row.runOpen && items.filter((item) => item.tool).length > 1 ? toolRowHeight() : 0;
-    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + line + steps);
+    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
@@ -2906,7 +2912,7 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
