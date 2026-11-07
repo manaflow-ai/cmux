@@ -484,6 +484,40 @@ struct BrowserToolbarReloadDraftTests {
         #expect(kept["text"] as? String == "hello!")
     }
 
+    @Test func aTabShownAgainRestsOnTheDraftItBringsNotAStaleReport() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.showTab("tab-a", shownURL: nil)
+        bar.pushNow()
+        content.onMessage?("command", ["type": "status", "editing": true, "text": "old", "tab": "tab-a", "binding": bar.binding,
+                                       "draft": ["text": "old", "selection": [3, 0]]])
+        // The tab moves to another pane, gets newer text there, and comes back with it.
+        bar.showTab("tab-b", shownURL: nil)
+        bar.showTab("tab-a", shownURL: nil, draft: OmnibarDraft(text: "newer", selection: NSRange(location: 5, length: 0)))
+        bar.pushNow()
+        let draft = try #require(content.pushed.last?["draft"] as? [String: Any])
+        #expect(draft["text"] as? String == "newer")
+    }
+
+    @Test func aReloadedPageNeverRunsAnAckedRequestAgain() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.pushNow()
+        bar.send(BrowserToolbarHostEvent.focus("keyboard"))
+        bar.pushNow()
+        let queued = try #require(content.pushed.last?["events"] as? [[String: Any]])
+        let last = try #require(queued.last?["seq"] as? Int)
+        content.onMessage?("command", ["type": "ack", "seq": last, "binding": bar.binding])
+        let kept = try #require(content.kept?["events"] as? [[String: Any]])
+        #expect(kept.isEmpty)
+    }
+
     @Test func restoringFocusGivesTheKeysBackWhileTheStatusStillSaysEditing() throws {
         let content = RecordingContent()
         let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())

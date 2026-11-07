@@ -266,6 +266,9 @@ public final class BrowserToolbarWebView: NSView {
     /// binding is the old tab's and is dropped; its running query and its card go.
     func beginBinding() {
         binding += 1
+        // The text the page reported belonged to the old binding: the tab shown next brings its own
+        // draft (`showTab`), which a stale report must never override.
+        liveDraft = nil
         queryTask?.cancel()
         queryTask = nil
         popup.dismiss()
@@ -299,7 +302,7 @@ public final class BrowserToolbarWebView: NSView {
                      "glass": drawsBarGlass],
             "metrics": ToolbarRowMetrics.wire(scale: scale, withButtons: showsButtons, barTop: barTop(scale: scale)),
             "binding": binding,
-            "events": events.map { ["seq": $0.seq, "binding": $0.binding, "event": $0.event] as [String: Any] },
+            "events": eventsWire,
         ]
     }
 
@@ -309,6 +312,11 @@ public final class BrowserToolbarWebView: NSView {
         let top = ToolbarRowMetrics.barTop(scale: scale, withButtons: showsButtons)
         guard toolbarOpensUpward, bounds.height > 0 else { return top }
         return bounds.height - top - ToolbarRowMetrics.barHeight
+    }
+
+    /// The requests the page has not acked yet.
+    private var eventsWire: [[String: Any]] {
+        events.map { ["seq": $0.seq, "binding": $0.binding, "event": $0.event] as [String: Any] }
     }
 
     /// The draft the state carries: the shown tab's latest unsent text, else the one it brought.
@@ -356,7 +364,14 @@ public final class BrowserToolbarWebView: NSView {
         case .status(let next): statusChanged(next)
         case .popup(let rows, let highlighted, let upward): showPopup(rows, highlighted: highlighted, upward: upward)
         case .layout(let report): applyLayout(report)
-        case .ack(let seq): events.removeAll { $0.seq <= seq }
+        case .ack(let seq):
+            events.removeAll { $0.seq <= seq }
+            // A reloaded page starts from the kept state: it must not run an acked request again.
+            if var kept = lastPushedState {
+                kept["events"] = eventsWire
+                lastPushedState = kept
+                content?.keepForReload(kept)
+            }
         case .pageInfo: onPageInfo?()
         case .bookmark: onBookmarkStar?(anchor("star") ?? self)
         case .focusModeBadge: onFocusModeBadgePress?()
