@@ -24,7 +24,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon, PlayTriangle, Retry, Spinner } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, PlayTriangle, Retry } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
@@ -43,6 +43,8 @@ import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTi
 import { FileAttachment } from "../FileAttachment";
 import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { PasteLoadingMark } from "./pasteLoading";
+import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
 const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -1042,6 +1044,7 @@ function PendingChip({
   onRetry?(id: string): void;
 }) {
   const t = useT();
+  const look = usePasteLoadingLook();
   const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
   const remove = onCancel && (
     <button
@@ -1083,12 +1086,18 @@ function PendingChip({
       </div>
     );
   return (
-    <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
-      {chip.progress === undefined ? (
-        <Spinner loading size={16} className="acpmux-attachment-spinner" />
-      ) : (
-        <UploadProgress value={chip.progress} name={name} />
-      )}
+    <div
+      className={`acpmux-attachment ${kind} acpmux-attachment-pending ${PASTE_LOADING_CLASS}`}
+      data-paste-look={look}
+      aria-busy="true"
+      aria-label={name}
+    >
+      <PasteLoadingMark
+        look={look}
+        size={16}
+        className="acpmux-attachment-spinner"
+        upload={chip.progress === undefined ? undefined : <UploadProgress value={chip.progress} name={name} />}
+      />
       {!square && <span>{chip.name}</span>}
       {remove}
     </div>

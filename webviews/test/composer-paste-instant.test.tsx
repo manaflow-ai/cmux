@@ -422,7 +422,12 @@ test("a screenshot pasted mid-text loads at the caret, and the strip above never
 // prompt, Select All) takes the selection's place, its placeholder there in the paste's frame; it
 // never waits in the strip above and jumps into the text once read.
 test.each([
-  ["a selection across two lines", "first line\n\nsecond line", (field: MarkdownFieldHandleLike) => field.writeText("first line\nsecond line", "first ".length, "first line\nsecond".length)],
+  [
+    "a selection across two lines",
+    "first line\n\nsecond line",
+    (field: MarkdownFieldHandleLike) =>
+      field.writeText("first line\nsecond line", "first ".length, "first line\nsecond".length),
+  ],
   ["the whole prompt", "first line\n\nsecond line", (field: MarkdownFieldHandleLike) => field.selectAll()],
 ] as const)("a screenshot pasted over %s loads where the selection was", async (_what, draft, select) => {
   const composer = await openComposer();
