@@ -54,9 +54,6 @@ export interface HeaderState {
   readonly floatingChat: boolean;
   /// The header offers Session Info (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx).
   readonly sessionInfo: boolean;
-  /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
-  /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).
-  readonly browserOpensPreview: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
@@ -81,7 +78,6 @@ let current: HeaderState = {
   lit: [],
   floatingChat: false,
   sessionInfo: false,
-  browserOpensPreview: true,
   moves: [],
   moveTargets: [],
   version: 0,
@@ -96,7 +92,6 @@ export function setHeaderState(value: unknown): void {
     lit?: unknown;
     floatingChat?: unknown;
     inspector?: unknown;
-    browserOpensPreview?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
     moveTargets?: unknown;
@@ -111,8 +106,6 @@ export function setHeaderState(value: unknown): void {
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     // `inspector` is the wire name the App sends (AgentPaneHeaderState.swift); kept so either side of the rename agrees.
     sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
-    browserOpensPreview:
-      typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
     moveTargets: Array.isArray(raw.moveTargets)

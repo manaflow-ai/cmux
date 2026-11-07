@@ -127,6 +127,9 @@ private struct CloudMachineChatsScreen: View {
     @State private var error: String?
     @State private var refresh = 0
     @State private var openedPreferred = false
+    @State private var starting = false
+    @State private var startFailed = false
+    @State private var startError = ""
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
     @State private var shown = CloudChatList.pageSize
 
@@ -161,7 +164,7 @@ private struct CloudMachineChatsScreen: View {
                     .overlay {
                         if relay.hub.sessions.isEmpty {
                             ContentUnavailableView("No chats", systemImage: "bubble.left",
-                                                   description: Text("Start a chat on this Cloud machine from your Mac."))
+                                                   description: Text("Tap New Chat to start one on this Cloud machine."))
                         }
                     }
                 }
@@ -179,6 +182,16 @@ private struct CloudMachineChatsScreen: View {
             ToolbarItem(placement: .primaryAction) {
                 Button("Reconnect", systemImage: "arrow.clockwise") { refresh += 1 }
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button("New Chat", systemImage: "square.and.pencil") { startChat() }
+                    .disabled(starting || relay?.hub.isReady != true)
+                    .accessibilityIdentifier("cloudChats.new")
+            }
+        }
+        .alert("Couldn't start the chat", isPresented: $startFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(startError)
         }
         .navigationDestination(item: $selectedSession) { sessionID in
             if let store = relay?.store(sessionID: sessionID) {
@@ -197,12 +210,28 @@ private struct CloudMachineChatsScreen: View {
                 self.error = "Couldn't connect. Try again."
             }
         }
+        .overlay { if starting { ProgressView("Starting chat…") } }
         .onChange(of: relay?.hub.isReady, initial: true) { _, ready in
             guard ready == true, !openedPreferred, let preferredSession,
                   relay?.hub.sessions[preferredSession]?.peer == nil,
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true
             selectedSession = preferredSession
+        }
+    }
+
+    /// The new chat opens as soon as the machine started it; the Mac shows the same tab.
+    private func startChat() {
+        guard let relay, !starting else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            do {
+                selectedSession = try await relay.startChat()
+            } catch {
+                startError = (error as? CloudChatStartError)?.message ?? "Try again."
+                startFailed = true
+            }
         }
     }
 }

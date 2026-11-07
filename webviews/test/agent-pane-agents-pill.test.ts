@@ -167,8 +167,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    // The read in flight draws no row of its own (Debug toggle agentPane.debug.codexToolRuns, on by
-    // default): the turn's live line names it by its file (Thinking.tsx).
+    // The read in flight draws no row of its own: the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     if (!tray) await trayOff(page);
     return page;

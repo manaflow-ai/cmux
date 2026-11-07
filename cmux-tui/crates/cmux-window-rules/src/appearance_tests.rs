@@ -1,12 +1,7 @@
 use super::*;
 
-fn ask(scope: &str, property: Option<&str>, levels: &[&str], set: bool) -> AppearanceAsk {
-    AppearanceAsk {
-        scope: Some(scope.to_owned()),
-        property: property.map(str::to_owned),
-        property_levels: levels.iter().map(|level| (*level).to_owned()).collect(),
-        set,
-    }
+fn ask(scope: &str, property: Option<&str>, set: bool) -> AppearanceAsk {
+    AppearanceAsk { scope: Some(scope.to_owned()), property: property.map(str::to_owned), set }
 }
 
 fn apply(level: &str, theme_action: Option<&'static str>, properties: &[&str]) -> Appearance {
@@ -21,12 +16,12 @@ fn apply(level: &str, theme_action: Option<&'static str>, properties: &[&str]) -
 fn a_scope_must_be_a_verbs_level_and_a_property_known() {
     for scope in ["app", "rule", "screen"] {
         assert_eq!(
-            appearance(ask(scope, Some("tint"), &["app", "rule"], true)),
+            appearance(ask(scope, Some("tint"), true)),
             Appearance::Refused { refusal: AppearanceRefusal::BadProperty }
         );
     }
     assert_eq!(
-        appearance(ask("pane", Some("glow"), &[], false)),
+        appearance(ask("pane", Some("glow"), false)),
         Appearance::Refused { refusal: AppearanceRefusal::BadProperty }
     );
     assert_eq!(
@@ -38,29 +33,25 @@ fn a_scope_must_be_a_verbs_level_and_a_property_known() {
 #[test]
 fn set_needs_a_property_set_at_the_level() {
     assert_eq!(
-        appearance(ask("pane", None, &[], true)),
+        appearance(ask("pane", None, true)),
         Appearance::Refused { refusal: AppearanceRefusal::BadProperty }
     );
     assert_eq!(
-        appearance(ask("tab", Some("background"), &["window", "pane"], true)),
+        appearance(ask("tab", Some("background"), true)),
         Appearance::Refused { refusal: AppearanceRefusal::NotAtLevel }
     );
-    assert_eq!(
-        appearance(ask("pane", Some("tint"), &["pane", "tab"], true)),
-        apply("pane", None, &["tint"])
-    );
+    assert_eq!(appearance(ask("pane", Some("tint"), true)), apply("pane", None, &["tint"]));
 }
 
 #[test]
 fn a_levels_theme_goes_through_its_theme_action() {
-    let all = ["app", "window", "workspace", "rule", "pane", "tab"];
     assert_eq!(
-        appearance(ask("window", Some("theme"), &all, true)),
+        appearance(ask("window", Some("theme"), true)),
         apply("window", Some("space.setTheme"), &[])
     );
-    assert_eq!(appearance(ask("pane", Some("theme"), &all, true)), apply("pane", None, &["theme"]));
+    assert_eq!(appearance(ask("pane", Some("theme"), true)), apply("pane", None, &["theme"]));
     assert_eq!(
-        appearance(ask("tab", Some("theme"), &all, false)),
+        appearance(ask("tab", Some("theme"), false)),
         apply("tab", Some("terminal.clearTheme"), &[])
     );
 }
@@ -68,24 +59,27 @@ fn a_levels_theme_goes_through_its_theme_action() {
 #[test]
 fn reset_with_no_property_resets_every_one_and_forwards_the_theme() {
     assert_eq!(
-        appearance(ask("workspace", None, &[], false)),
+        appearance(ask("workspace", None, false)),
         apply(
             "workspace",
             Some("workspace.clearTheme"),
-            &["background", "tint", "opacity", "blur", "fontSize", "cursorStyle"]
+            &["background", "tint", "opacity", "fontSize", "cursorStyle"]
         )
     );
     assert_eq!(
-        appearance(ask("pane", None, &[], false)),
-        apply(
-            "pane",
-            None,
-            &["theme", "background", "tint", "opacity", "blur", "fontSize", "cursorStyle"]
-        )
+        appearance(ask("pane", None, false)),
+        apply("pane", None, &["theme", "background", "tint", "opacity", "fontSize", "cursorStyle"])
     );
+    assert_eq!(appearance(ask("window", Some("tint"), false)), apply("window", None, &["tint"]));
+}
+
+#[test]
+fn a_reset_skips_a_property_not_set_at_the_level() {
+    assert_eq!(appearance(ask("tab", Some("background"), false)), apply("tab", None, &[]));
+    assert_eq!(appearance(ask("workspace", Some("blur"), false)), apply("workspace", None, &[]));
     assert_eq!(
-        appearance(ask("window", Some("tint"), &[], false)),
-        apply("window", None, &["tint"])
+        appearance(ask("workspace", Some("blur"), true)),
+        Appearance::Refused { refusal: AppearanceRefusal::NotAtLevel }
     );
 }
 

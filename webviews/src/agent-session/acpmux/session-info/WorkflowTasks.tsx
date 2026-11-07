@@ -41,6 +41,7 @@ import { TASK_ICONS } from "./taskIcons";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -285,20 +286,23 @@ function WorkflowPhaseRow({
       </span>
       {open && opens && (
         <ul className="acpmux-session-info-list acpmux-workflow-phase__agents">
-          {live.map((agent) => (
-            <WorkflowAgentRow
-              key={agent.id}
-              workflow={workflow}
-              agent={agent}
-              now={now}
-              shared={shared}
-              commands={commandsOf(agent)}
-              onStopCommand={onStopCommand}
-              onOpenSubagent={onOpenSubagent}
-              onOpenWorkflowAgent={onOpenWorkflowAgent}
-              variant={agentRowVariant}
-            />
-          ))}
+          <WindowedRows
+            items={live}
+            render={(agent) => (
+              <WorkflowAgentRow
+                key={agent.id}
+                workflow={workflow}
+                agent={agent}
+                now={now}
+                shared={shared}
+                commands={commandsOf(agent)}
+                onStopCommand={onStopCommand}
+                onOpenSubagent={onOpenSubagent}
+                onOpenWorkflowAgent={onOpenWorkflowAgent}
+                variant={agentRowVariant}
+              />
+            )}
+          />
         </ul>
       )}
     </li>

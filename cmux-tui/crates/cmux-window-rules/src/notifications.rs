@@ -52,9 +52,13 @@ pub struct Plan {
 
 /// The unread tabs oldest first: by notification time, then tree order.
 pub fn order(unread: &[UnreadTab]) -> Vec<usize> {
-    let mut indices: Vec<usize> = (0..unread.len()).collect();
-    indices.sort_by_key(|&index| (unread[index].created_at_ms.unwrap_or(0), index));
-    indices
+    let mut keyed: Vec<(u64, usize)> = unread
+        .iter()
+        .enumerate()
+        .map(|(index, tab)| (tab.created_at_ms.unwrap_or(0), index))
+        .collect();
+    keyed.sort_unstable();
+    keyed.into_iter().map(|(_, index)| index).collect()
 }
 
 /// What `verb` does with `unread`.

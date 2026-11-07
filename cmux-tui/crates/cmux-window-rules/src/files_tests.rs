@@ -104,11 +104,11 @@ fn vscode_serves_a_terminals_folder_or_asks_the_person() {
     );
     assert_eq!(vscode_open(VSCodeFacts { terminal: false, ..facts.clone() }), VSCodeOpen::NoFolder);
     assert_eq!(
-        vscode_open(VSCodeFacts { cwd: Some("~/w".to_owned()), ..facts.clone() }),
+        vscode_open(VSCodeFacts { cwd: Some("~/w".to_owned()), ..facts }),
         VSCodeOpen::NoFolder
     );
     assert_eq!(
-        vscode_open(VSCodeFacts { by_person: true, cwd: None, ..facts.clone() }),
+        vscode_open(VSCodeFacts { by_person: true, cwd: None, ..facts }),
         VSCodeOpen::Panel { folder: None }
     );
     assert_eq!(vscode_open(VSCodeFacts { local: false, ..facts.clone() }), VSCodeOpen::ThisMacOnly);

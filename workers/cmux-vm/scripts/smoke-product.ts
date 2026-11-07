@@ -14,8 +14,11 @@
  *     bun scripts/smoke-product.ts
  *
  * Without CMUX_VM_SMOKE_IMAGE it boots the first image GET /v1/vm-images lists for the caller. The VM is deleted
- * by its exact id, also when a step fails. No token is ever printed.
+ * by its exact id, also when a step fails. No token is ever printed. In GitHub Actions the step output boot_image
+ * names the image the create's receipt confirmed.
  */
+import { appendFileSync } from "node:fs";
+
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
 const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
 const tokenRequestToken = process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] ?? "";
@@ -139,6 +142,9 @@ try {
     throw new Error(`create receipt names boot image ${JSON.stringify(bootImage)}, not ${image.id}@${image.revision}`);
   }
   console.log("ok  boot image receipt");
+  // The step output boot_image: what cmux-vm.yml's image-roll-settle checks a roll or rollback booted.
+  const githubOutput = process.env["GITHUB_OUTPUT"] ?? "";
+  if (githubOutput !== "" && /^[a-z][a-z0-9-]{0,62}$/u.test(image.id)) appendFileSync(githubOutput, `boot_image=${image.id}\n`);
   // The CI trust row's backstop (the Worker forces it and its tests check the provider request): if this job dies
   // before its cleanup, the VM pauses within the run cap and is deleted. Reported, not asserted: the receipt shows
   // what the provider echoes.

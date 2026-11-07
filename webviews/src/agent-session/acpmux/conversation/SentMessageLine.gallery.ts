@@ -108,11 +108,6 @@ const failed = bash(
       'Exit code 4\nacpmux: no_session: no session matches "perf-lane"; run `acpmux ls` or `acpmux ensure perf-lane`',
   },
 );
-const running = bash(
-  `acpmux send coord-deputy '${REPORT}'`,
-  "Report merge to coord-deputy and wait for the reply",
-  "in_progress",
-);
 
 /// A cmux-subsessions `send_message` (Claude Code's shape): the same row.
 const subsessionSend = tool("mcp__cmux-subsessions__send_message", "other", "completed", {
@@ -251,14 +246,6 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openFirst(ctx);
       },
-    },
-    "running-row": {
-      note: "A send that waits for the reply, in flight, with the Codex-style runs off: its own row, with the working spinner (with them on, the live line names it: agent-pane.sending-line).",
-      theme: { codexToolRuns: false },
-      snapshot: chat([user("Report the merge and wait for the deputy's answer.", 1), activity([running], 0.8)], {
-        title: "net-retries",
-        isWorking: true,
-      }),
     },
     "look-arrow": {
       note: "Gallery version: #24977's arrow line, → coord-deputy: <first line> (theme sentLook arrow).",

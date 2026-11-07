@@ -6,7 +6,7 @@
 // that for one folder level, with its own field), so these parts are implemented here, once. The
 // model menu's columns (QuickModelColumns.tsx: the harness rail, the models, a model's settings and
 // the account card) are built from them.
-import type { HTMLAttributes, KeyboardEvent, Ref } from "react";
+import type { HTMLAttributes, KeyboardEvent, MouseEvent, Ref } from "react";
 
 type DivProps = Omit<HTMLAttributes<HTMLDivElement>, "role"> & {
   [data: `data-${string}`]: string | undefined;
@@ -31,20 +31,28 @@ export function DrivenRow({
   onPick,
   tabbable,
   ...rest
-}: Omit<DivProps, "onClick"> & { kind: DrivenRowKind; onPick(): void; tabbable?: boolean }) {
+}: Omit<DivProps, "onClick"> & {
+  kind: DrivenRowKind;
+  /** The pick, with the click or key that made it (a caller may read its modifiers). */
+  onPick(event: MouseEvent<HTMLDivElement> | KeyboardEvent<HTMLDivElement>): void;
+  tabbable?: boolean;
+}) {
   return (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- `kind` is the row's role (option, tab, radio, switch, button)
     <div
       {...rest}
       role={kind}
       tabIndex={tabbable ? 0 : -1}
-      onPointerDown={(event) => event.preventDefault()}
+      onPointerDown={(event) => {
+        rest.onPointerDown?.(event);
+        event.preventDefault();
+      }}
       onClick={onPick}
       onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         event.stopPropagation();
-        onPick();
+        onPick(event);
       }}
     />
   );
