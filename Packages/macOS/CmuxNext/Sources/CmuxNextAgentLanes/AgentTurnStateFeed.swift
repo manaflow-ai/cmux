@@ -201,8 +201,12 @@ public final class AgentTurnStateFeed {
                                peer: (params["peer"] as? String).flatMap { name in
                                    summary.map { (name: name, stale: $0["stale"] as? Bool == true) }
                                }, sessionName: change.sessionName,
-                               // A purged peer row says so: that peer's session id left (`peer` with no summary).
-                               peerRow: (params["peer"] as? String).map { (name: $0, row: summary.flatMap(AgentPeerRow.of(summary:))) })
+                               // Only a purge removes a peer row (that peer's session id left); any other
+                               // change of the peer's session is its row, named by the push's `peer`.
+                               peerRow: (params["peer"] as? String).flatMap { name -> (name: String, row: AgentPeerRow?)? in
+                                   purged ? (name: name, row: nil)
+                                       : summary.map { (name: name, row: AgentPeerRow.of(summary: $0, peer: name)) }
+                               })
             } else if message["method"] as? String == "_acpmux/peer_state_changed", let params = message["params"] as? [String: Any],
                       let peer = params["peer"] as? String, !peer.isEmpty, let state = params["state"] as? String {
                 self = .peerState(peer: peer, state: state)

@@ -152,9 +152,10 @@ public nonisolated struct AgentPeerRow: Hashable, Sendable {
         self.state = state
     }
 
-    /// The peer row of a session summary; nil for this Mac's own session.
-    public static func of(summary: [String: Any]) -> AgentPeerRow? {
-        (summary["peer"] as? String).map {
+    /// The peer row of a session summary; nil for this Mac's own session. `peer` names the peer
+    /// of a push whose summary does not repeat it.
+    public static func of(summary: [String: Any], peer: String? = nil) -> AgentPeerRow? {
+        (summary["peer"] as? String ?? peer).map {
             AgentPeerRow(name: $0, stale: summary["stale"] as? Bool == true, state: AgentTurnState.of(summary: summary))
         }
     }
