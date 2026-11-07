@@ -18,9 +18,10 @@ import Testing
 /// through the key's close (`showPaneClose`, which Cmd-W on a pane's last tab and the close-pane action both reach) and
 /// through the last-tab path, whose daemon echoes (the emptied pane, then the tree without it) land mid-spring. On every
 /// 120 Hz frame of the frame owner, for every pane that moves or resizes:
-/// - (a) each of its edges (x, y, width, height in the window) moves only toward its rest, never past it;
-/// - (b) every moving component of every pane is at the same fraction of its travel (one curve: a shift that runs ahead
-///   of a growth, or a second spring after the first, breaks it);
+/// - (a) each of its four edges in the window moves only toward its rest, never past it (edges, not origin and size: each
+///   edge lands on the pixel grid on its own, so a size can step a pixel back while both its edges move steadily);
+/// - (b) every moving edge of every pane is at the same fraction of its travel (one curve: a shift that runs ahead of a
+///   growth, or a second spring after the first, breaks it);
 /// - (c) its terminal's held surface never moves away from its rest and never jumps more in a frame than its pane's
 ///   edge does (the text rides the pane, `TerminalHostView` `surfacePlacement`);
 /// - (d) nothing moves after the landing frame (no pop-in after the motion ended).
@@ -83,10 +84,7 @@ struct PaneCloseShapeMatrixTests {
               closes: ["left", "A"]),
     ]
 
-    /// The slack below which a difference is rounding: each edge lands on the 2x pixel grid on its own (0.5 pt), so a
-    /// width and an origin can each be half a point off their exact curve.
-    static let tolerance: CGFloat = 1
-    /// Components that travel less than this are left out of the fraction check (their rounding is most of their travel).
+    /// Edges that travel less than this are left out of the fraction check (their rounding is most of their travel).
     static let minTravel: CGFloat = 4
 
     @Test func everyCloseOfEveryShapeMovesEachPaneOnOneCurveToItsRest() throws {
@@ -138,7 +136,10 @@ struct PaneCloseShapeMatrixTests {
         try #require(count > 3, "the close did not spring (\(count) frames)")
         rig.root.layoutSubtreeIfNeeded()
         let rest = try sample(survivors, rig)
-        return check(frames, rest: rest)
+        // Each edge lands on the window's pixel grid on its own (`pixelEdges`): half a pixel off its exact curve at most,
+        // and the reference edge's fraction as much again, so one pixel is the slack of the fraction check.
+        let pixel = 1 / max(1, rig.window.backingScaleFactor)
+        return check(frames, rest: rest, tolerance: pixel + 0.01)
     }
 
     static func show(_ layout: ScreenLayout, _ rig: Rig) {
@@ -156,14 +157,14 @@ struct PaneCloseShapeMatrixTests {
         return samples
     }
 
-    /// The pane edges and components the checks read: x, y, width, height.
-    static let components: [(String, (CGRect) -> CGFloat)] = [("x", \.minX), ("y", \.minY), ("width", \.width), ("height", \.height)]
+    /// The pane edges the checks read, in the window: leading, trailing, bottom, top.
+    static let components: [(String, (CGRect) -> CGFloat)] = [("minX", \.minX), ("maxX", \.maxX), ("minY", \.minY), ("maxY", \.maxY)]
 
-    static func check(_ frames: [[PaneID: Sample]], rest: [PaneID: Sample]) -> [String] {
+    static func check(_ frames: [[PaneID: Sample]], rest: [PaneID: Sample], tolerance: CGFloat) -> [String] {
         var found: [String] = []
         guard let start = frames.first else { return ["no frames"] }
         let panes = rest.keys.sorted { $0.rawValue < $1.rawValue }
-        // (a) and (d): each component of each pane moves only toward its rest, never past it, and stays put after the landing.
+        // (a) and (d): each edge of each pane moves only toward its rest, never past it, and stays put after the landing.
         var trace = MotionTargetTrace()
         for pane in panes {
             for (name, read) in components {
@@ -193,7 +194,7 @@ struct PaneCloseShapeMatrixTests {
             }
         }
         found += trace.violations.map { "(\($0.kind == .afterEnd ? "d" : $0.element.contains("surface") ? "c" : "a")) \($0)" }
-        // (b): one curve. Every moving component of every pane is at the fraction of its travel the longest one is at.
+        // (b): one curve. Every moving edge of every pane is at the fraction of its travel the longest one is at.
         var moving: [(label: String, begin: CGFloat, end: CGFloat, read: (CGRect) -> CGFloat, pane: PaneID)] = []
         for pane in panes {
             guard let begin = start[pane]?.pane, let end = rest[pane]?.pane else { continue }
