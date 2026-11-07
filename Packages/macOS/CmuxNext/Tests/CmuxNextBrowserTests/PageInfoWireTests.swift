@@ -42,3 +42,22 @@ struct PageInfoWireTests {
         #expect((decoded["certificate"] as? [String: Any])?["valid"] as? Bool == true)
     }
 }
+
+/// A command the bubble's page queued is for the site it showed: one that arrives after the bubble
+/// closed or the tab navigated must not act on the new site.
+struct PageInfoPageCommandGateTests {
+    private let shown = URL(string: "https://a.example/page")!
+
+    @Test func aCommandForTheShownSiteIsAccepted() {
+        #expect(PageInfoController.acceptsPageCommand(isOpen: true, openedURL: shown, current: shown))
+    }
+
+    @Test func aCommandQueuedBeforeANavigationIsDropped() {
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, openedURL: shown, current: URL(string: "https://b.example/")))
+    }
+
+    @Test func aCommandAfterTheBubbleClosedIsDropped() {
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: false, openedURL: shown, current: shown))
+        #expect(!PageInfoController.acceptsPageCommand(isOpen: true, openedURL: nil, current: nil))
+    }
+}

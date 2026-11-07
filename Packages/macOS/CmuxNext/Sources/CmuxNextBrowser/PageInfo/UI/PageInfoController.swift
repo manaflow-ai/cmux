@@ -203,7 +203,10 @@ public final class PageInfoController {
     private func received(_ kind: String, _ params: [String: Any]) {
         switch kind {
         case "command":
-            if let command = PageInfoCommand(wire: params) { send(command) }
+            // A command the page queued before a close or a navigation is for a site no longer shown.
+            guard Self.acceptsPageCommand(isOpen: isOpen, openedURL: openedURL, current: tab?.state.url),
+                  let command = PageInfoCommand(wire: params) else { return }
+            send(command)
         case "size":
             guard let height = (params["height"] as? NSNumber)?.doubleValue, height > 0,
                   (params["revision"] as? NSNumber)?.intValue == revision else { return }
@@ -221,6 +224,12 @@ public final class PageInfoController {
         default:
             break
         }
+    }
+
+    /// The page's commands act on the site the bubble shows: only while it is open (or opening)
+    /// and the tab is still on the address it opened for.
+    static func acceptsPageCommand(isOpen: Bool, openedURL: URL?, current: URL?) -> Bool {
+        isOpen && openedURL != nil && current == openedURL
     }
 
     private static func pageHasFocus(_ tab: any BrowserTab, in window: NSWindow) -> Bool {
