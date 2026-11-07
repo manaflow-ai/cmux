@@ -34,7 +34,12 @@ import AppKit
         guard reached?.id != drag.openZone else { return }
         drag.openZone = reached?.id
         drag.docGeometry = nil
-        if drag.group != nil { list.rebaseGroupDrag(drag) }
+        if let top = drag.group?.plan.groupTop {
+            // The group's own place, shut, then with the new zone: a zone above it moves it down by the zone's height.
+            let shut = top - (open.map { $0.at < top ? $0.height : 0 } ?? 0)
+            let moved = shut + (reached.map { $0.at < shut ? $0.height : 0 } ?? 0)
+            list.rebaseGroupDrag(drag, shift: moved - top)
+        }
         list.showDragLayout()
     }
 

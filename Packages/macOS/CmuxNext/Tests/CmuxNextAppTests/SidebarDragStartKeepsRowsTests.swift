@@ -247,4 +247,74 @@ import Testing
         #expect(position.section == .pinned, "back over its slot, the drop goes to \(position.section)")
         list.cancelDrag()
     }
+
+    /// A group dragged up to an empty titled section above it opens that section's zone and drops there: its plan,
+    /// made again with the zone open, keeps the group's own place as its origin, so the release is no cancel.
+    @Test func aGroupDropsIntoAnEmptySectionAboveIt() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        _ = NSApplication.shared
+        let later = LayoutSection(id: LayoutSectionID("sec_later"), title: "Later", region: .top, items: [])
+        let group = GroupID("g")
+        let model = SidebarModel(sections: [
+            SidebarSection(kind: .custom(SidebarCustomSection(id: later.id.rawValue)), nodes: []),
+            SidebarSection(kind: .machine(Self.machine), nodes: [
+                .workspace(SidebarWorkspace(id: WorkspaceID("a"), title: "a")),
+                .group(SidebarGroup(id: group, name: "G", color: .green, workspaces: [SidebarWorkspace(id: WorkspaceID("g1"), title: "g1")])),
+                .workspace(SidebarWorkspace(id: WorkspaceID("b"), title: "b")),
+            ]),
+        ])
+        let list = SidebarListView(model: model)
+        var metrics = SidebarRegionMetrics.standard
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
+        list.blocks = SidebarListBlocks(sections: [later.id.rawValue: later], infos: [:], collapsed: [], look: .quiet, metrics: metrics,
+                                        drawsLines: false, appHeights: [:])
+        var drops: [([String], SidebarDocTarget)] = []
+        let keys = ["sec_later", "sec_m_local", "itm_a", "itm_b", "itm_g1", "itm_g"]
+        model.docDrag = SidebarDocDrag(item: { key in
+            switch key {
+            case let .workspace(id): "itm_" + id.rawValue
+            case .group: "itm_g"
+            default: nil
+            }
+        }, section: { id in
+            switch id {
+            case .machine: "sec_m_local"
+            case let .custom(custom): custom
+            default: nil
+            }
+        }, begin: { dragged in
+            Dictionary(uniqueKeysWithValues: keys.map { key in
+                (key, dragged.contains(key) ? SidebarDocAcceptance(before: false, into: false, after: false, refusal: "self")
+                    : SidebarDocAcceptance(before: true, into: true, after: true))
+            })
+        }, drop: { items, target in drops.append((items, target)) })
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+        list.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(list)
+        defer { window.close() }
+        list.leftButtonIsDown = { false }
+        window.orderFrontRegardless()
+        list.reload(animated: false)
+        let block = try #require(list.displayed.row(for: .block("sec_later")), "the empty titled section draws no title")
+        let header = try #require(list.displayed.row(for: .group(group)))
+        let start = NSPoint(x: 80, y: header.y + header.height / 2)
+        list.press = SidebarPress(key: .group(group), point: start)
+        list.beginDrag(try #require(list.press))
+        let drag = try #require(list.drag, "the group did not lift")
+        try #require(drag.group != nil && drag.docItems != nil, "not a document group drag")
+        var y = start.y
+        let title = block.y + block.height / 2
+        while abs(y - title) > 0.5 {
+            y = max(title, y - 6)
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        #expect(drag.openZone == "sec_later", "the group at the title did not open its zone")
+        let plan = try #require(drag.group)
+        #expect(plan.slot != plan.plan.origin, "the zone's slot is taken for the group's own place")
+        list.finishDrag()
+        #expect(drops.count == 1, "the release into the empty section sent \(drops.count) drops")
+    }
 }
