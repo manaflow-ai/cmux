@@ -79,12 +79,6 @@ nonisolated enum BrowserPasswordsSettingsSchema {
             ),
         ]
     }
-
-    /// The person decides what the password manager saves, suggests and writes out (decision P2:
-    /// agents see no sites or usernames, and change none of this).
-    static var refusedKeys: [String: SettingsSchema.AgentRefusal] {
-        Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, .privacy) })
-    }
 }
 
 extension BrowserPasswordsSetting {

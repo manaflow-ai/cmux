@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCloudUI
 import CmuxNextPages
+import CmuxNextServer
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
@@ -53,8 +54,8 @@ enum FirstPartyPageSchemes {
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
         .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .passwords, .editor,
-        .chiefInspector, .debugSettings, .homeChannels, .homeMessages,
-        .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage, .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress,
+        .chiefInspector, .debugSettings, .homeChannels, .homeMessages, .changelog, .coderouter, .files, .artifacts, .stats, .chiefUsage,
+        .mobilePairing, .agentActivity, .importHistory, .github, .cloudProgress, .machines,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
