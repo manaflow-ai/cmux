@@ -47,6 +47,7 @@ import-history
 keybindings
 machines
 mobile-pairing
+overlay
 passwords
 settings
 stats
