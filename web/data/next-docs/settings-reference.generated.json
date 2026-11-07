@@ -2279,7 +2279,7 @@
           "title": "Window Style",
           "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
           "kind": "choice",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "group": "Panes",
           "values": [
             "default",
@@ -5743,7 +5743,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {
