@@ -229,21 +229,25 @@ struct AgentShareTests {
             == ["share_id": .string("s1"), "state": .string("revoked")])
     }
 
-    /// Invites go on the chat's invite share: the newest live share of that chat that already has
-    /// invitees. A guest link with none (24 hours, one use) is left to the link, so the run makes a
-    /// share for invites instead.
+    /// The sheet's invite link is the chat's invite share's: the newest live share of that chat that
+    /// already has invitees. A guest link with none (24 hours, one use) is left to the link.
     @Test func anInviteGoesOnTheChatsInviteShare() {
         let invitee = AgentSessionShareInvitee(account: "@theo", role: "talk", invitedAt: 1, state: "invited")
         let removed = AgentSessionShareInvitee(account: "a@cmux.com", role: "view", invitedAt: 1, state: "removed")
+        func share(_ id: String, _ state: String, session: String = AgentShareTests.session, at createdAt: UInt64,
+                   _ invitees: [AgentSessionShareInvitee] = []) -> AgentSessionShare {
+            AgentSessionShare(shareId: id, state: state, session: session, surface: 1, createdAt: createdAt,
+                              inviteUrl: "https://room.example/i/\(id)", invitees: invitees)
+        }
         let shares = [
-            AgentSessionShare(shareId: "link", state: "active", session: Self.session, surface: 1, createdAt: 9),
-            AgentSessionShare(shareId: "old", state: "active", session: Self.session, surface: 1, createdAt: 2, invitees: [invitee]),
-            AgentSessionShare(shareId: "new", state: "active", session: Self.session, surface: 1, createdAt: 5, invitees: [removed]),
-            AgentSessionShare(shareId: "ended", state: "revoked", session: Self.session, surface: 1, createdAt: 8, invitees: [invitee]),
-            AgentSessionShare(shareId: "other", state: "active", session: "another-chat", surface: 1, createdAt: 7, invitees: [invitee]),
+            share("link", "active", at: 9),
+            share("old", "active", at: 2, [invitee]),
+            share("new", "active", at: 5, [removed]),
+            share("ended", "revoked", at: 8, [invitee]),
+            share("other", "active", session: "another-chat", at: 7, [invitee]),
         ]
-        #expect(AgentShareInvites.inviteShare(of: Self.session, in: shares) == "new")
-        #expect(AgentShareInvites.inviteShare(of: Self.session, in: [shares[0]]) == nil, "a guest link is not the invite share")
+        #expect(AgentShareInvites.inviteLink(of: Self.session, in: shares) == "https://room.example/i/new")
+        #expect(AgentShareInvites.inviteLink(of: Self.session, in: [shares[0]]) == nil, "a guest link is not the invite share")
         // Uninvite finds every share of the chat that still invites the account, in any case.
         #expect(AgentShareInvites.sharesInviting(" @Theo ", of: Self.session, in: shares) == ["old", "ended"])
         #expect(AgentShareInvites.sharesInviting("a@cmux.com", of: Self.session, in: shares).isEmpty, "a removed invitee is not invited")

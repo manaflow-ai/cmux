@@ -53,6 +53,7 @@ import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { useCountedRender } from "../perfRender";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
@@ -78,6 +79,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -132,6 +134,10 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
+import { chatPlace, type ChatPlace } from "../chatMachine";
+import { usageEntries, type UsageEntry } from "./usageEntries";
+import { samePanelProps } from "./samePanelProps";
+import type { AlsoHere } from "./alsoHere";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./sessionInfo.css";
 
@@ -562,6 +568,7 @@ export function useSessionInfo({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -643,6 +650,9 @@ export function useSessionInfo({
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
+  /// whose prompt text acpmux does not hand this pane.
+  onViewPrompt?: () => void;
   /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -694,8 +704,8 @@ export function useSessionInfo({
   // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
   const scopeId = subagent?.agent.id;
   useEffect(() => backFromAside(), [scopeId, backFromAside]);
-  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
-  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // Lucas, 2026-11-06: "In a narrow layout: it becomes a popover and starts closed." (Every new chat
+  // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
   // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
@@ -725,6 +735,7 @@ export function useSessionInfo({
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
+  const stableOnViewPrompt = useStableCallback(onViewPrompt);
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
@@ -851,6 +862,7 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
+        onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
         onShowUsage={stableOnShowUsage}
         onRender={onRender}
@@ -933,6 +945,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -997,6 +1010,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -1008,6 +1022,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   scope?: SubagentScope;
 }) {
   onRender?.();
+  useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
   const native = useNativeSessionInfoHost();
   const t = useT();
@@ -1235,6 +1250,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
@@ -1289,8 +1309,16 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
   );
   // The rest of what the sections take from the snapshot and the App, kept the same way.
-  const allSessions = useSameValue(scope ? undefined : snapshot.sessions);
+  // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
+  // time any chat anywhere changes (its status, its indicator, its time), which drew every section
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
+  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  const everyChat = drawn && !scope ? snapshot.sessions : undefined;
+  const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
+  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
+  // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
+  const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
@@ -1337,19 +1365,24 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const toolCalls = useSameValue(
     useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
   );
-  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
-  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
-  // panel lists another agent, not each streamed token's copy.
+  // The rows the sections read for the chat's gallery (its images: `artifacts`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
   if (
-    galleryRows.current.length !== rows.length ||
+    galleryRows.current.any !== any ||
     galleryRows.current.artifacts !== artifacts ||
     galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
+    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -1439,6 +1472,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
+          place={place}
           repository={repository}
           grants={scope ? undefined : grants}
           cloudRepositoryAvailable={cloudRepositoryAvailable}
@@ -1473,6 +1507,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
           onCompact={scope ? undefined : onCompact}
+          onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
           revealed={revealed}
@@ -1495,7 +1530,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     );
   if (!drawn) return null;
   return (
-    <SessionInfoPanel
+    <MemoSessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={panelWidth}
       placement={push ? "push" : "overlay"}
@@ -1517,12 +1552,14 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        outputFiles={outputFiles}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
@@ -1539,7 +1576,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenWorkflowAgent={onOpenWorkflowAgent}
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
-        allSessions={allSessions}
+        usageSessions={usageSessions}
+        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1562,10 +1600,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
+        onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
-    </SessionInfoPanel>
+    </MemoSessionInfoPanel>
   );
 });
 
@@ -1615,6 +1654,7 @@ export function SessionInfoPanel({
   chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
+  useCountedRender("session-info:panel");
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
@@ -1672,6 +1712,9 @@ export function SessionInfoPanel({
       }}
       inert={presence?.leaving}
       className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
+      // Its glass is the App's own popover glass, drawn under the page (ui/glass/hostGlass.ts; Leo,
+      // 2026-11-06: "the fucking session info. Like, wait, why the fuck is this not glass?").
+      data-host-glass={glass ? "popover" : undefined}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
@@ -1762,14 +1805,24 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// No files made (a stable value, so the sections' memo holds).
+const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+
+/// The panel frame for SessionInfoPresence, drawn again only when what it is handed changes
+/// (samePanelProps.ts): a snapshot that changes nothing it draws leaves the frame and its sections be.
+const MemoSessionInfoPanel = memo(function MemoSessionInfoPanel(props: Parameters<typeof SessionInfoPanel>[0]) {
+  return <SessionInfoPanel {...props} />;
+}, samePanelProps);
 
 /// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
 const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+  useCountedRender("session-info:sections");
   return <SessionInfo {...props} />;
 });
 
@@ -1778,12 +1831,14 @@ export function SessionInfo({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable,
   made,
   artifacts = 0,
   documents = [],
   rows = [],
+  outputFiles,
   plan,
   toolCalls,
   agents = [],
@@ -1814,12 +1869,15 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
+  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
   onOpenOutputFile,
   onShowCall,
   allSessions,
+  usageSessions = allSessions,
+  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -1837,6 +1895,8 @@ export function SessionInfo({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
@@ -1848,6 +1908,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
+  outputFiles?: ReturnType<typeof chatOutputs>;
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -1898,9 +1960,15 @@ export function SessionInfo({
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Context's View Prompt (useSessionInfo's).
+  onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
+  /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
+  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  usageSessions?: readonly UsageEntry[];
+  alsoHere?: readonly AlsoHere[];
   /// Opens one of them.
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -2027,7 +2095,7 @@ export function SessionInfo({
   }, [onSection, light]);
   // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
   useEffect(() => onShowUsage?.(), [onShowUsage]);
-  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
+  const anyUsage = useMemo(() => !!usageSessions?.some((entry) => entry.usageStats), [usageSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
@@ -2035,7 +2103,7 @@ export function SessionInfo({
   // What the chat made for the person (chatOutputs.ts): the documents its replies link to and the
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
-  const madeFiles = useMemo(() => chatOutputs(rows, cwd), [rows, cwd]);
+  const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -2046,7 +2114,7 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -2090,6 +2158,7 @@ export function SessionInfo({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
@@ -2124,7 +2193,13 @@ export function SessionInfo({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} rowsOnly />
+      <ContextSection
+        usage={usage}
+        percent={percent}
+        breakdown={summary?.contextBreakdown}
+        rowsOnly
+        onViewPrompt={onViewPrompt}
+      />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
@@ -2140,19 +2215,20 @@ export function SessionInfo({
       title={t("rail.connectors")}
       open={hasConnectors && state.connectors}
       onOpenChange={hasConnectors ? fold("connectors") : undefined}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
         !hasConnectors
           ? t("sessionInfo.none")
-          : reconnect > 0
-            ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-            : mcp.length === 0 && imessage && imessage.data.status !== "connected"
-              ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+          : mcp.length === 0 && imessage
+            ? imessage.data.status === "connected"
+              ? t("rail.connected", { count: 1 })
+              : t("imessage.connect")
+            : connectorSummary.kind === "reconnect"
+              ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+              : connectorSummary.kind === "connecting"
+                ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+                : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
@@ -2274,7 +2350,8 @@ export function SessionInfo({
   const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const alsoHereRows = useAlsoHere(chatId, allSessions);
+  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
+  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
   const alsoHereSection = alsoHereRows.length > 0 && (
     <SessionInfoSection
       id="alsoHere"
@@ -2335,7 +2412,7 @@ export function SessionInfo({
       <UsageSection
         own={ownUsage}
         planLimits={planLimits}
-        sessions={allSessions ?? []}
+        sessions={usageSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}

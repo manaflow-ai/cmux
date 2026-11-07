@@ -282,6 +282,8 @@ mod elicitation;
 mod elicitation_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod foreground_work;
+#[cfg(test)]
+mod foreground_work_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
@@ -692,8 +694,8 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
-    /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
-    Withdraw,
+    /// A steer's take-back (`MUX_STEER_WITHDRAW`) of this promptId, answered when claude takes it.
+    Withdraw(String),
     /// A chat's prompt-suggestions pick (`prompt_suggestions.rs`), answered when claude answers.
     Suggestions,
 }

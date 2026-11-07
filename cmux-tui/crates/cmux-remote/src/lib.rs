@@ -7,6 +7,7 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
@@ -33,7 +34,7 @@ mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
 #[cfg(unix)]
-mod unix_socket;
+pub mod unix_socket;
 pub mod update_need;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;

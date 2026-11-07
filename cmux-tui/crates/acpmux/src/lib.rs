@@ -77,6 +77,7 @@ pub mod harness_config;
 pub mod harness_fixture;
 pub mod harness_health;
 pub mod harness_icon_set;
+pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
 pub mod host_load;
@@ -103,6 +104,7 @@ pub mod name_match;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
+pub mod oom_rank;
 pub mod opaque_agent_id;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]

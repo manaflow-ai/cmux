@@ -639,7 +639,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     ///   - advertised: The capabilities the connection advertises.
     ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
     ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes `SidebarMirror.isLinked` from its composition root).
+    ///     (the App passes true from its composition root).
     public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
                                              echoesPlacementShift: Bool = false) -> [String] {
         // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
