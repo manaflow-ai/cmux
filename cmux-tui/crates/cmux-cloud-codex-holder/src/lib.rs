@@ -10,6 +10,10 @@
 //! questions (the Cloud credential, a machine's owner and status, the consent) and shows the
 //! device-code prompt.
 
+// Unix only (pipes, signals, file modes): empty elsewhere, so a whole-workspace build on Windows
+// still builds. Its one user, cmux-tui's `cloud codex-holder`, is unix-only too.
+#![cfg(unix)]
+
 pub mod adapter;
 pub mod broker;
 mod broker_files;
