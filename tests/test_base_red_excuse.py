@@ -4161,6 +4161,50 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.compiled()
         self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
 
+    # A head that predates app-ffi-pin.json (review of 6bc829a2): its Package.swift's template-form canonical block is
+    # still read, so an open PR in that form is judged as before the pin moved to data.
+    @staticmethod
+    def template_manifest(sha, repo=REPO, checksum=CHECKSUM):
+        return ("// The FFI pin (scripts/cmux-next/check-app-ffi-pin.sh): https://example.com/x\n"
+                "let appFFI: Target = .binaryTarget(\n    name: \"CCmuxAppFFI\",\n"
+                f"    url: \"https://github.com/{repo}/releases/download/cmux-app-ffi-{sha}/"
+                "CCmuxAppFFI.xcframework.zip\",\n"
+                f"    checksum: \"{checksum}\"\n)\n"
+                "    targets: [\n        appFFI,\n    ] + [appFFI]\n")
+
+    def template_at_head(self, sha, manifest=None):
+        self.pinned, self.source = sha, sha
+        self.pin_file = None  # GitHub serves no app-ffi-pin.json at this head
+        self.manifest = self.template_manifest(sha) if manifest is None else manifest
+
+    def test_a_template_form_head_that_compiled_against_a_base_pin_is_excused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn(f"pins cmux-app-ffi-{self.STEP_B_PIN}, a published release built from 1f63d516ecfc",
+                      self.judge()[0])
+        self.assertEqual(excuse.ffi_binary_target(None, self.manifest, REPO), (self.STEP_B_PIN, self.CHECKSUM, ""))
+
+    def test_a_template_form_head_off_its_canonical_block_is_refused(self):
+        self.template_at_head(self.STEP_B_PIN)
+        for manifest, why in (
+                (self.manifest.replace("    name:", "  name:"), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + "/* x */\n", "has '/\\*'"),
+                (self.manifest.replace("checksum: ", "checksum:  "), "is not the canonical CCmuxAppFFI pin line"),
+                (self.manifest + 'let b: Target = .binaryTarget(name: "X", path: "x")\n', "has 2 'binaryTarget'")):
+            with self.subTest(why=why):
+                self.refused_unread(why, manifest=manifest)
+                self.pin_file = None
+
+    def test_a_head_with_no_pin_file_but_the_loader_is_refused(self):
+        # The JSON-era Package.swift without its pin file reads in the template form, which refuses it: never looser.
+        self.pin_file = None
+        self.pr_files(*self.STEP_B)
+        self.compiled()
+        with self.assertRaisesRegex(excuse.Refused, "has 0 'releases/download/', not one"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
     def test_a_step_b_pin_with_no_compile_pass_is_refused_naming_it(self):
         self.pr_files(*self.STEP_B)
         with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/app-ffi-pin.json: a PR that moves "
@@ -4282,11 +4326,14 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
     def test_a_missing_pin_file_or_manifest_is_refused(self):
         self.pr_files(*self.STEP_B)
         self.compiled()
-        for name in ("pin_file", "manifest"):
+        # A missing pin file reads the head in the template form, which refuses this loader-only Package.swift; a
+        # missing Package.swift is no answer at all.
+        for name, why in (("pin_file", "Package.swift has 0 'releases/download/', not one"),
+                          ("manifest", "is not a text file GitHub served")):
             with self.subTest(missing=name):
                 self.pin_at_head(self.STEP_B_PIN)
                 setattr(self, name, None)
-                with self.assertRaisesRegex(excuse.Refused, "is not a text file GitHub served"):
+                with self.assertRaisesRegex(excuse.Refused, why):
                     self.judge()
         self.assertEqual(self.releases, [])
 

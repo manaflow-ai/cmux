@@ -210,6 +210,61 @@ def check_dump(dump: str, pin_text: str, repo: str = REPO) -> tuple[str, str]:
     return sha, checksum
 
 
+# The template form a head that predates app-ffi-pin.json still has (2026-11-07, review of 6bc829a2): Package.swift's own
+# canonical CCmuxAppFFI block, read by the fail-closed match this file used before the pin moved to data. Only
+# base_red_excuse.py reads it, for a PR whose head has no app-ffi-pin.json, until no open PR is in that form.
+TEMPLATE_ONCE = ("binaryTarget", "releases/download/", "xcframework.zip", "checksum:")
+TEMPLATE_OTHER_LINES = (
+    re.compile(r"^\s*//[^\n]*$"),  # a whole-line comment
+    re.compile(rf'^\s+"{TARGET}",?$'),  # an element of a multi-line dependencies list
+    re.compile(r"^\s+appFFI,?$"),  # the target in the package's target list
+    re.compile(r"^\s+\] \+ \[appFFI\],?$"),  # the target list's end, the target appended
+    re.compile(rf"^\s+dependencies: \[{ELEMENT}(?:, {ELEMENT})*\],?$"),  # a one-line dependencies list
+)
+
+
+def template_block(repo: str = REPO) -> tuple[re.Pattern[str], ...]:
+    """The template form's canonical block, anchored: the url's release sha and the checksum are its only groups."""
+    return (
+        re.compile(r"^let appFFI: Target = \.binaryTarget\($"),
+        re.compile(rf'^    name: "{TARGET}",$'),
+        re.compile(r'^    url: "https://github\.com/' + re.escape(repo)
+                   + rf'/releases/download/cmux-app-ffi-([0-9a-f]{{40}})/{TARGET}\.xcframework\.zip",$'),
+        re.compile(r'^    checksum: "([0-9a-f]{64})"$'),
+        re.compile(r"^\)$"),
+    )
+
+
+def read_template(text: str, repo: str = REPO) -> tuple[str, str]:
+    """(source sha, checksum) of TEXT, a template-form Package.swift's whole text: no hiding construct anywhere, each
+    TEMPLATE_ONCE token once, the canonical block line for line, and every other CCmuxAppFFI or appFFI line one of
+    TEMPLATE_OTHER_LINES. Anything else raises NotCanonical."""
+    for token in FORBIDDEN:
+        if token in text:
+            line = text[:text.index(token)].count("\n") + 1
+            raise NotCanonical(f"Package.swift line {line} has {token!r}, which no canonical pin file has")
+    for token in TEMPLATE_ONCE:
+        if text.count(token) != 1:
+            raise NotCanonical(f"Package.swift has {text.count(token)} {token!r}, not one")
+    lines = text.split("\n")
+    start = next(i for i, line in enumerate(lines) if "binaryTarget" in line)
+    block, found = template_block(repo), []
+    for offset, pattern in enumerate(block):
+        line = lines[start + offset] if start + offset < len(lines) else ""
+        match = pattern.fullmatch(line)
+        if not match:
+            raise NotCanonical(f"Package.swift line {start + offset + 1} is not the canonical {TARGET} pin line "
+                               f"{pattern.pattern!r}: {line[:160]!r}")
+        found.extend(match.groups())
+    for index, line in enumerate(lines):
+        if start <= index < start + len(block) or (TARGET not in line and "appFFI" not in line):
+            continue
+        if not any(pattern.fullmatch(line) for pattern in TEMPLATE_OTHER_LINES):
+            raise NotCanonical(f"Package.swift line {index + 1} names {TARGET} or appFFI outside the canonical pin and its "
+                               f"fixed reference shapes: {line[:160]!r}")
+    return found[0], found[1]
+
+
 def main(argv: list[str]) -> int:
     try:
         if argv[:1] == ["read"] and len(argv) <= 2:

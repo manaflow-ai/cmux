@@ -1042,7 +1042,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
 # when both hold: (a) the release its head pins (app-ffi-pin.json, read strictly by app_ffi_pin.py: this repository's
 # own cmux-app-ffi-<sha> release download and its checksum, with Package.swift holding the one fixed loader block that
-# reads that file, its checksum comment line equal to that checksum, and no pin of its own; any other shape refuses) is
+# reads that file, its checksum comment line equal to that checksum, and no pin of its own; or, at a head that predates
+# the pin file, Package.swift's template-form canonical CCmuxAppFFI block; any other shape refuses) is
 # published, its SOURCE_SHA names that sha, its SHA256SUMS carries that checksum for the archive, and that sha is on
 # the PR's base (an ancestor of the base tip); (b) the app compile check passed at the
 # PR's exact head (compile_pass_at). The pin file at the head is the pin that compile built with: the loader hands its
@@ -1068,19 +1069,31 @@ _spec.loader.exec_module(app_ffi_pin)
 
 
 def ffi_binary_target(pin_file: str | None, manifest: str | None, repo: str) -> tuple[str | None, str | None, str]:
-    """(source sha, checksum, "") of PIN_FILE (app-ffi-pin.json's text) when it is canonical and MANIFEST (Package.swift's
-    text) holds the one fixed loader block and no pin of its own (app_ffi_pin.read and check_manifest); else (None,
-    None, why). None for a file means it is missing at that commit."""
-    if pin_file is None:
-        return None, None, f"{FFI_PIN_FILE} is missing"
+    """(source sha, checksum, "") of the head's pin; else (None, None, why). With PIN_FILE (app-ffi-pin.json's text) it
+    is that file's pin, read strictly, and MANIFEST (Package.swift's text) must hold the one fixed loader block and no
+    pin of its own (app_ffi_pin.read and check_manifest). Without it (None: the head predates the pin file) it is
+    MANIFEST's template-form canonical CCmuxAppFFI block (app_ffi_pin.read_template), so a PR still in that form is
+    read as before. None for MANIFEST means it is missing at that commit."""
     if manifest is None:
         return None, None, f"{FFI_PIN_MANIFEST} is missing"
     try:
-        sha, checksum = app_ffi_pin.read(pin_file, repo)
-        app_ffi_pin.check_manifest(manifest, checksum)
+        if pin_file is not None:
+            sha, checksum = app_ffi_pin.read(pin_file, repo)
+            app_ffi_pin.check_manifest(manifest, checksum)
+        else:
+            sha, checksum = app_ffi_pin.read_template(manifest, repo)
     except app_ffi_pin.NotCanonical as why:
         return None, None, str(why)
     return sha, checksum, ""
+
+
+def ffi_pin_file_at(repo: str, sha: str, github) -> str | None:
+    """app-ffi-pin.json's text at SHA, or None when GitHub serves none there (the head is in the template form). A head
+    whose file is unread is read in the template form, which refuses a JSON-era Package.swift: never a looser read."""
+    try:
+        return source_text(repo, sha, FFI_PIN_FILE, github)
+    except Refused:
+        return None
 
 
 def ffi_release_file(repo: str, tag: str, name: str) -> str | None:
@@ -1104,7 +1117,7 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
     """(audit, "") when the head SHA's app FFI pin (its one CCmuxAppFFI binary target) is a published release of REPO
     built from a commit on BASE, its checksum the release's archive entry, and the app compile check passed at SHA
     (the published base pin rule above); else (None, the part of that rule that does not hold)."""
-    pin, checksum, why = ffi_binary_target(source_text(repo, sha, FFI_PIN_FILE, github),
+    pin, checksum, why = ffi_binary_target(ffi_pin_file_at(repo, sha, github),
                                            source_text(repo, sha, FFI_PIN_MANIFEST, github), repo)
     if pin is None:
         return None, why
