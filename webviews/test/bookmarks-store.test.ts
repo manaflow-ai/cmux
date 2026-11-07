@@ -229,6 +229,42 @@ test("a profile change drops the old profile's search results until the new prof
   expect(searches.at(-1)?.params).toEqual({ browser_profile_id: "work", text: "git" });
 });
 
+test("after a profile change, the old profile's rows are gone and no change is sent until the new listing lands", async () => {
+  let profile = "default";
+  let failList = false;
+  class Switching extends MockBookmarksProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      if (op === HostOps.state) {
+        const state = await super.call<Record<string, unknown>>(op, params);
+        return { ...state, browser_profile_id: profile } as R;
+      }
+      if (op === BookmarkOps.list && failList) {
+        this.calls.push({ op, params: params as Record<string, unknown> });
+        throw pageError("operation.failed", "the listing stalled", true);
+      }
+      return super.call<R>(op, params);
+    }
+  }
+  const { store, provider } = await started(new Switching());
+  const docs = byTitle(store, "Docs");
+  failList = true;
+  profile = "work";
+  provider.emitHostChanged("state");
+  for (let i = 0; i < 5; i++) await tick();
+  expect(store.getSnapshot().profile).toBe("work");
+  expect(store.getSnapshot().tree.nodes.size).toBe(0);
+  // A row id the page still names (a stale drag, a key) sends nothing for the new profile.
+  await store.deleteSelection([docs.id]);
+  await store.dropInto([docs.id], "other");
+  store.startAddBookmark();
+  store.setEditor({ title: "x", url: "example.com" });
+  expect(await store.commitEditor()).toBe(false);
+  expect(applies(provider)).toEqual([]);
+  failList = false;
+  await store.relist();
+  expect(store.getSnapshot().tree.nodes.size).toBeGreaterThan(0);
+});
+
 test("deleting a folder with its child selected is one apply that deletes the folder once", async () => {
   const { store, provider } = await started();
   const work = byTitle(store, "Work");

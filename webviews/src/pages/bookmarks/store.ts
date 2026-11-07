@@ -96,6 +96,8 @@ export interface BookmarksStoreOptions {
   onRevealed?: (id: string) => void;
   /** Said when a selection needs more ops than one apply takes (`page.tooMany`). */
   tooManyMessage?: string;
+  /** Said when a change is asked for before the page's profile's bookmarks are listed. */
+  notListedMessage?: string;
 }
 
 const EMPTY_TREE = buildTree([]);
@@ -120,6 +122,9 @@ export class BookmarksStore {
   private saving = false;
   /** A `reveal` of a node the tree does not hold yet. */
   private pendingReveal?: string;
+  /** The profile whose listing the tree shows: until the page's profile's listing lands, its rows
+   * are not that profile's and no change is sent (ids are global; a delete would hit the old one). */
+  private listedProfile?: string;
 
   constructor(
     private readonly client: PageClient | null,
@@ -256,7 +261,16 @@ export class BookmarksStore {
       titles: { bar: state.bar_title, other: state.other_title },
       canSetFolderIcons: state.can_set_folder_icons,
       ...(switched
-        ? { folder: "bar", selection: [], focus: undefined, editor: undefined, revision: -1, results: null }
+        ? {
+            folder: "bar",
+            selection: [],
+            focus: undefined,
+            editor: undefined,
+            revision: -1,
+            results: null,
+            tree: EMPTY_TREE,
+            loading: true,
+          }
         : {}),
     });
     await this.relist();
@@ -266,11 +280,11 @@ export class BookmarksStore {
   async relist(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    const profile = this.snapshot.profile;
     try {
-      const listing = await this.client.call<ListResult>(BookmarkOps.list, {
-        browser_profile_id: this.snapshot.profile,
-      });
-      if (generation !== this.generation) return;
+      const listing = await this.client.call<ListResult>(BookmarkOps.list, { browser_profile_id: profile });
+      if (generation !== this.generation || profile !== this.snapshot.profile) return;
+      this.listedProfile = profile;
       this.take(listing);
     } catch (error) {
       if (generation !== this.generation) return;
@@ -581,6 +595,16 @@ export class BookmarksStore {
     answered?: (lost: boolean) => void,
   ): Promise<Notice | null> {
     if (!this.client) return null;
+    if (this.listedProfile !== this.snapshot.profile) {
+      // The rows on screen are not this profile's yet: nothing is sent; the re-list brings them.
+      const notListed: Notice = {
+        kind: "failed",
+        message: this.options.notListedMessage ?? "Bookmarks are still loading.",
+      };
+      if (report) this.set({ notice: notListed });
+      void this.relist();
+      return notListed;
+    }
     try {
       await this.client.call(BookmarkOps.apply, { ops, idempotency_key: key });
       answered?.(false);
