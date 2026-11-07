@@ -89389,8 +89389,11 @@
         "window",
         "home",
         "chat",
-        "side",
-        "left",
+        "float",
+        "panel",
+        "show",
+        "hide",
+        "toggle",
         "focus",
         "open"
       ],
@@ -89419,7 +89422,7 @@
       "targets" : [
         "window"
       ],
-      "title" : "Open Chief Dock",
+      "title" : "Show/Hide Chief",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
