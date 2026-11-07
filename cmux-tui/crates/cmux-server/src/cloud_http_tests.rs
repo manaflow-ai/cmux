@@ -248,14 +248,14 @@ fn an_address_change_fails_the_request_in_flight_and_drops_the_pool() {
     let http = JsonPoster::allowing_http_on(&network).unwrap();
     let get = || http.request_until(&url, None, None, Instant::now() + Duration::from_secs(10));
     assert_eq!(get().unwrap().0, 200);
-    let changer = network.clone();
     let change = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
-        changer.send_modify(|changes| *changes += 1);
+        network.send_modify(|changes| *changes += 1);
+        network
     });
     let started = Instant::now();
     assert!(get().is_err(), "the pooled connection is silent");
-    change.join().unwrap();
+    let _network = change.join().unwrap();
     assert!(started.elapsed() < Duration::from_secs(5), "the change failed the request at once");
     assert_eq!(get().unwrap().0, 200);
     assert_eq!(
