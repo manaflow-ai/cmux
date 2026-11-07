@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -56,6 +57,13 @@ enum NewWorkspacePlacements {
         if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
+    }
+
+    /// A new workspace's key, placed like Cmd-N's on any machine: a create with no slot of its own never lands at its daemon's.
+    static func placedKey(in windows: WindowManager) -> WorkspaceKey {
+        let key = WorkspaceKey.generate()
+        expect(key.rawValue, in: nil, byDefault: rule(for: nil, in: windows), windows: windows)
+        return key
     }
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.

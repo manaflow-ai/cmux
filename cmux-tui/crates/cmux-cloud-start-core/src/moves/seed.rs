@@ -26,9 +26,13 @@ pub struct Progress {
     pub install_url: Option<String>,
 }
 
+// A number of any form, truncated, as the app's NSNumber read it. f64 has no `TryFrom` into
+// i64, and `as` saturates (NaN reads 0), so the cast never panics.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "an f64 count truncates and saturates on purpose, as the app's NSNumber read it"
+)]
 fn int(fields: &Map<String, Value>, key: &str) -> Option<i64> {
-    // A number of any form, truncated, as the app's NSNumber read it.
-    #[allow(clippy::cast_possible_truncation)]
     fields
         .get(key)
         .and_then(|value| value.as_i64().or_else(|| value.as_f64().map(|value| value as i64)))

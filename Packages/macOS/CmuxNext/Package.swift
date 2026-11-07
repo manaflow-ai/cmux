@@ -1311,13 +1311,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextCloudUI",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign"],
+            // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
+            dependencies: ["CmuxNextCloud", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCloudUITests",
-            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextCloud", "CmuxNextCloudUI", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Machines reached over the user's own OpenSSH: destinations, the
@@ -1609,8 +1610,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
-            // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
-            swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",

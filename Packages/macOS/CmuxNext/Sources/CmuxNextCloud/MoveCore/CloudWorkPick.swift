@@ -43,8 +43,13 @@ public struct CloudWorkPick: Equatable, Sendable {
         var names: [String], machineConfig: Bool
     }
 
+    /// The GitHub repo the Rust pick names (`machine_repo::Repo`): its ref is set only when it is pushed and safe to quote.
+    private struct PickedRepo: Decodable {
+        var owner: String, name: String, ref: String?
+    }
+
     private struct Picked: Decodable {
-        var root: String, repoKey: String?, cloneRef: String?, branch: String?, pushed: Bool, sizeMb: Int?, rootFiles: [String]
+        var root: String, repoKey: String?, repo: PickedRepo?, branch: String?, pushed: Bool, sizeMb: Int?, rootFiles: [String]
         var taskKind: CloudTaskKind, hasMachineConfig: Bool, needsCodexBroker: Bool
     }
 
@@ -74,11 +79,8 @@ public struct CloudWorkPick: Equatable, Sendable {
         let facts = Facts(folder: folder, text: text, harness: harness, top: top, branch: branch, upstream: upstream, remote: remote,
                           objects: objects, names: listing?.names ?? [], machineConfig: listing?.machineConfig ?? false)
         guard let picked = CloudMoveCore().call("work_pick", facts, as: Picked.self) else { return CloudWorkPick(root: root) }
-        // A branch name the repo step can't carry unquoted (git allows a `'`) clones the default branch; only a
-        // remote with a key can name a GitHub repo.
-        let ref = picked.cloneRef.flatMap { CloudMachineRepo.isRef($0) ? $0 : nil }
-        let github = picked.repoKey == nil ? nil : remote.flatMap { try? CloudMachineRepo.parse($0) }.flatMap { $0.isGitHub ? $0 : nil }
-        return CloudWorkPick(root: picked.root, repoKey: picked.repoKey, repo: github.map { CloudMachineRepo(owner: $0.owner, name: $0.name, ref: ref) },
+        let repo = picked.repo.map { CloudMachineRepo(owner: $0.owner, name: $0.name, ref: $0.ref) }
+        return CloudWorkPick(root: picked.root, repoKey: picked.repoKey, repo: repo,
                              branch: picked.branch, pushed: picked.pushed, sizeMb: picked.sizeMb, rootFiles: picked.rootFiles,
                              taskKind: picked.taskKind, hasMachineConfig: picked.hasMachineConfig, needsCodexBroker: picked.needsCodexBroker)
     }

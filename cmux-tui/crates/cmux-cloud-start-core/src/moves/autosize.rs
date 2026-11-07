@@ -3,6 +3,7 @@
 //! size or an environment). The app runs the local git commands (bounded, no network) and lists
 //! the folder; here their output becomes `POST /api/vm`'s `autosize` (web/services/vms/autosize.ts).
 
+use crate::machine_repo::{self, Repo};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -114,10 +115,10 @@ pub fn objects_mb(text: &str) -> Option<i64> {
             continue;
         }
         let Ok(value) = value.parse::<i64>() else { continue };
-        kib += value;
+        kib = kib.saturating_add(value);
         seen = true;
     }
-    seen.then(|| ((kib + 1023) / 1024).max(1))
+    seen.then(|| kib.saturating_add(1023).checked_div(1024).unwrap_or(0).max(1))
 }
 
 /// `host/owner/name[/…]`, lower-cased, from a remote URL (`https://`, `ssh://`, `git://` or git's
@@ -143,8 +144,9 @@ pub fn repo_key(remote: &str) -> Option<String> {
         }
         (host, path.to_owned())
     } else if let Some(colon) = text.find(':').filter(|_| !text.starts_with('/')) {
-        let authority = &text[..colon];
-        (authority.rsplit('@').next().unwrap_or(authority).to_owned(), text[colon + 1..].to_owned())
+        let (authority, rest) = text.split_at_checked(colon)?;
+        let rest = rest.strip_prefix(':').unwrap_or(rest);
+        (authority.rsplit('@').next().unwrap_or(authority).to_owned(), rest.to_owned())
     } else {
         return None;
     };
@@ -153,7 +155,7 @@ pub fn repo_key(remote: &str) -> Option<String> {
     if let Some(last) = segments.last_mut()
         && last.to_lowercase().ends_with(".git")
     {
-        last.truncate(last.len() - 4);
+        last.truncate(last.len().saturating_sub(4));
     }
     if segments.len() < 2
         || segments.iter().any(|segment| segment.is_empty() || segment == "." || segment == "..")
@@ -207,15 +209,20 @@ pub struct Facts {
     pub machine_config: bool,
 }
 
-/// Everything a Cloud machine for a chat needs. The GitHub repository a new machine clones is the
-/// app's to name from `remote` (its repo spec rules), at `clone_ref` when that is pushed.
+/// Everything a Cloud machine for a chat needs, with the GitHub repository a new machine clones.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkPick {
     /// The working copy's top (git), else the chat's folder itself.
     pub root: String,
     pub repo_key: Option<String>,
-    /// The branch the remote has, when this one is pushed: the ref a new machine clones.
+    /// The GitHub repository a new machine can clone (`cloud new-machine --repo`), at
+    /// `clone_ref` when that is set, else at the remote's default branch. None for a local
+    /// path, a remote that is not GitHub, or no remote.
+    pub repo: Option<Repo>,
+    /// The branch the remote has, when this one is pushed, `repo` is set and the name is a safe
+    /// ref ([`machine_repo::is_ref`]: the repo step single-quotes it, and git allows a `'`): the
+    /// ref a new machine clones. `repo`'s own `ref`.
     pub clone_ref: Option<String>,
     pub branch: Option<String>,
     pub pushed: bool,
@@ -229,11 +236,26 @@ pub struct WorkPick {
 
 pub fn work_pick(facts: &Facts) -> WorkPick {
     let pushed = facts.upstream.as_deref().is_some_and(is_pushed);
+    // A local path remote (`../paint`, even `octo/paint`) has no key and names no GitHub repo.
+    let key = facts.remote.as_deref().and_then(repo_key);
+    let github = key
+        .as_ref()
+        .and(facts.remote.as_deref())
+        .and_then(|remote| machine_repo::parse(remote).ok())
+        .filter(Repo::is_github);
+    // A branch name the repo step can't carry unquoted clones the default branch.
+    let clone_ref = github
+        .as_ref()
+        .and(facts.upstream.as_deref())
+        .and_then(remote_branch)
+        .filter(|branch| pushed && machine_repo::is_ref(branch));
+    let repo =
+        github.map(|repo| Repo { r#ref: clone_ref.clone(), ..Repo::new(&repo.owner, &repo.name) });
     WorkPick {
         root: facts.top.clone().unwrap_or_else(|| facts.folder.clone()),
-        // A local path remote (`../paint`, even `octo/paint`) has no key.
-        repo_key: facts.remote.as_deref().and_then(repo_key),
-        clone_ref: facts.upstream.as_deref().and_then(remote_branch).filter(|_| pushed),
+        repo_key: key,
+        repo,
+        clone_ref,
         branch: facts.branch.clone(),
         pushed,
         size_mb: facts.objects.as_deref().and_then(objects_mb),

@@ -160,6 +160,15 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     );
     assert_eq!(pick["taskKind"], "test");
     assert_eq!(pick["rootFiles"], json!(["package.json"]));
+    assert_eq!(pick["repo"], Value::Null, "no remote names no repo");
+    let github = ok(
+        c"cloud_move_work_pick",
+        json!({"folder": "/p", "top": "/p", "remote": "git@github.com:octo/paint.git",
+               "upstream": "refs/heads/it's\u{0}\u{0}origin"}),
+    );
+    assert_eq!(github["repo"]["owner"], "octo");
+    assert_eq!(github["repo"]["ref"], Value::Null, "an unquotable branch clones the default");
+    assert_eq!(github["cloneRef"], Value::Null);
     assert_eq!(
         ok(c"cloud_move_autosize_body", json!({"taskKind": "build"}))["body"],
         json!({"taskKind": "build"})

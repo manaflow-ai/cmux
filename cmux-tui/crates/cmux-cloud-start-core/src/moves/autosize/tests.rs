@@ -84,6 +84,10 @@ fn a_swift_packages_pick_names_its_repo_branch_and_root_files() {
     assert_eq!(pick.root, "/w/work");
     assert_eq!(pick.repo_key.as_deref(), Some("github.com/manaflow-ai/cmux"));
     assert_eq!(pick.clone_ref.as_deref(), Some("feature/pick"));
+    let repo = pick.repo.clone().expect("a GitHub remote names its repo");
+    assert_eq!((repo.owner.as_str(), repo.name.as_str()), ("Manaflow-AI", "cmux"));
+    assert_eq!(repo.r#ref.as_deref(), Some("feature/pick"));
+    assert!(repo.is_github());
     assert!(pick.pushed && pick.has_machine_config && pick.needs_codex_broker);
     assert_eq!(pick.root_files, [".cmux", "Package.swift", "Sources"]);
     assert_eq!(pick.size_mb, Some(1));
@@ -110,6 +114,7 @@ fn an_unpushed_branch_is_picked_without_its_ref() {
     });
     assert!(!pick.pushed);
     assert_eq!(pick.clone_ref, None, "the machine clones the default branch");
+    assert_eq!(pick.repo.and_then(|repo| repo.r#ref), None);
     let none = work_pick(&Facts { upstream: None, ..facts() });
     assert!(!none.pushed && none.clone_ref.is_none());
 }
@@ -141,4 +146,37 @@ fn the_root_files_fit_the_servers_limits() {
     assert_eq!(files.len(), MAX_ROOT_FILES);
     assert_eq!(files[0], "f000");
     assert!(files.iter().all(|name| name.len() <= MAX_NAME_LENGTH));
+}
+
+#[test]
+fn a_branch_name_the_repo_step_cant_quote_clones_the_default_branch() {
+    for branch in ["it's", "x$(touch pwned)", "two words", "-rf", "a..b", "a;b", "a`b`"] {
+        let pick = work_pick(&Facts {
+            branch: Some(branch.into()),
+            upstream: Some(format!("refs/heads/{branch}\0\0origin")),
+            ..facts()
+        });
+        assert!(pick.pushed, "{branch}");
+        assert_eq!(pick.clone_ref, None, "{branch}");
+        let repo = pick.repo.expect("the repo is still GitHub's");
+        assert_eq!(repo.r#ref, None, "{branch}");
+    }
+}
+
+#[test]
+fn only_a_github_remote_names_a_repo_and_a_clone_ref() {
+    // A local path, a remote on another host, and a remote git could not read.
+    for remote in
+        [Some("../paint"), Some("octo/paint"), Some("https://gitlab.com/octo/paint.git"), None]
+    {
+        let pick = work_pick(&Facts { remote: remote.map(str::to_owned), ..facts() });
+        assert_eq!(pick.repo, None, "{remote:?}");
+        assert_eq!(pick.clone_ref, None, "{remote:?}");
+        assert!(pick.pushed, "{remote:?}: pushed reads the upstream alone");
+    }
+    let gitlab =
+        work_pick(&Facts { remote: Some("https://gitlab.com/octo/paint.git".into()), ..facts() });
+    assert_eq!(gitlab.repo_key.as_deref(), Some("gitlab.com/octo/paint"), "it still keys the size");
+    let ssh = work_pick(&Facts { remote: Some("git@github.com:octo/paint.git".into()), ..facts() });
+    assert_eq!(ssh.repo.map(|repo| (repo.owner, repo.name)), Some(("octo".into(), "paint".into())));
 }
