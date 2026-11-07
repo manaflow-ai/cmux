@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -2000,6 +2001,37 @@ class RollupsFromNeeds(unittest.TestCase):
         import yaml  # noqa: F401,PLC0415 - deriving reads YAML; a host without it must not pass this silently
         self.assertEqual(json.loads(excuse.ROLLUPS_FILE.read_text()), excuse.derive_rollups(),
                          "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+
+    def test_a_host_without_pyyaml_derives_with_the_vendored_copy(self):
+        # merge_hold runs this script as `python3 -I` under Homebrew's Python, which has no PyYAML: every
+        # cmuxterm-hq rollup red was refused there with "no YAML parser" (2026-11-07, hq#7398). In a fresh
+        # interpreter whose `import yaml` fails, the rollups derive from the vendored copy, the same as with PyYAML.
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "ci.yml").write_text(CI_YML)
+            (Path(root) / "ci-guards.yml").write_text(GUARDS_YML)
+            probe = (
+                "import importlib.abc, importlib.machinery, importlib.util, json, sys\n"
+                "from pathlib import Path\n"
+                "class OnlyVendoredYaml(importlib.abc.MetaPathFinder):\n"
+                "    def find_spec(self, name, path=None, target=None):\n"
+                "        if name != 'yaml':\n"
+                "            return None\n"
+                "        vendor = [p for p in sys.path if p.endswith('_vendor')]\n"
+                "        if not vendor:\n"
+                "            raise ImportError('no PyYAML on this host')\n"
+                "        return importlib.machinery.PathFinder.find_spec(name, vendor)\n"
+                "sys.meta_path.insert(0, OnlyVendoredYaml())\n"
+                "spec = importlib.util.spec_from_file_location('bre', sys.argv[1])\n"
+                "m = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(m)\n"
+                "print(json.dumps(m.derive_rollups(Path(sys.argv[2]))))\n"
+                "print(m.yaml_module().__file__)\n")
+            done = subprocess.run([sys.executable, "-I", "-c", probe, str(ROOT / "scripts/ci/base_red_excuse.py"), root],
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        derived, where = done.stdout.strip().splitlines()
+        self.assertIn(str(Path("_vendor") / "yaml" / "__init__.py"), where)
+        self.assertEqual(json.loads(derived), self.derive())
 
     def test_needs_are_followed_and_named_as_actions_names_them(self):
         got = self.derive()
