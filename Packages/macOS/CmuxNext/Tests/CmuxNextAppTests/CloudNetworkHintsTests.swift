@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDaemonService
 import CmuxNextCloud
 import Foundation
 import Testing
@@ -34,9 +35,9 @@ struct CloudNetworkHintsTests {
 
     @Test func theRefusalComesFromTheIDArgument() throws {
         #expect(throws: ActionFailure(message: CloudStrings.ruleIDRequired)) {
-            try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string("  ")]), CloudStrings.ruleIDRequired)
+            try CloudHandlerRules().id(ActionInvocation(arguments: ["path": .string("  ")]), missing: "ruleIDRequired")
         }
-        #expect(try CloudHandlers.idArgument(ActionInvocation(arguments: ["path": .string(" net-1 ")]), CloudStrings.networkIDRequired) == "net-1")
+        #expect(try CloudHandlerRules().id(ActionInvocation(arguments: ["path": .string(" net-1 ")]), missing: "networkIDRequired") == "net-1")
     }
 
     /// The example in the create refusal is a rule the handler accepts.
