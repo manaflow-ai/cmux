@@ -41,8 +41,7 @@ const run = (...items: AcpmuxActivity[]): AcpmuxRow => ({
   at: prompt.at,
   items,
 });
-const line = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).find((row) => row.kind === THINKING)!;
+const line = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).find((row) => row.kind === THINKING)!;
 const words = (node: ReactNode) =>
   renderMarkup(
     <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,

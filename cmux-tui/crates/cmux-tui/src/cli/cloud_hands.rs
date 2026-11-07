@@ -353,13 +353,17 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
     }
 
     /// Ends the socket, the read and the route calls of the current start; each call
-    /// still waiting answers that its session ended.
+    /// and refresh still waiting answers that its session ended.
     fn halt(&mut self) {
         for task in [self.socket.take(), self.read.take()].into_iter().flatten() {
             task.abort();
         }
         for (id, call) in std::mem::take(&mut self.calls) {
             call.abort();
+            self.reply(id, Err(Failure::new("not_signed_in", "the session ended")));
+        }
+        // The read they wait on is gone with its session: a new start never answers them.
+        for id in std::mem::take(&mut self.refreshes) {
             self.reply(id, Err(Failure::new("not_signed_in", "the session ended")));
         }
     }
@@ -377,9 +381,6 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         let changes = self.tracker.clear();
         self.show(changes);
         (self.emit)(json!({ "event": "hands", "hands": [] }));
-        for id in std::mem::take(&mut self.refreshes) {
-            self.reply(id, Err(Failure::new("not_signed_in", "not signed in")));
-        }
     }
 
     /// Reads the hands and the waiting requests of each hand that has any;

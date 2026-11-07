@@ -214,11 +214,11 @@ function groupNode(
 }
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
-/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
-/// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs; coordination cards stay in sight
-/// between such lines (`runStretches`). Off, each group and call keeps its own line.
+/// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
+/// (toolRunSummary.ts: "Read 6 files, ran 4 commands"), and a run that is one group under that
+/// group's closed line ("Ran 3 commands"), so finished work is one click away between the
+/// paragraphs; coordination cards stay in sight between such lines (`runStretches`). A run not
+/// folded (`foldRun` unset) keeps each group and call on its own line.
 /// Whether the whole run folds under one summary line.
 export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
   const stretches = runStretches(row, groups);

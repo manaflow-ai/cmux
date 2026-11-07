@@ -162,6 +162,10 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
+    /// The permission mode an owner's Claude turn runs in
+    /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
+    /// None (a turn that carries another person's text): the session's own.
+    pub permission_mode: Option<String>,
 }
 
 /// A turn session kept after its turn (`Settings::keep_turn_session`): the
@@ -579,13 +583,42 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
-    // codex under approve-all: no workspace-write sandbox, so the turn's
-    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
-    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
-        && let Err(e) = agents.set_mode(&session, mode)
+    // A Manual turn on a Claude harness runs under `ask` (brain/turns.rs, from
+    // the brain's guess of the family): under any other policy acpmux would
+    // allow every ask, so a session that turned out Claude is refused.
+    if admitted.family == crate::acpmux::Family::Claude
+        && start.permission_mode.as_deref() == Some("default")
+        && start.session.policy != crate::approval::ASK
     {
+        let reason = format!(
+            "the turn's permission mode is Manual, but its session runs under {}",
+            start.session.policy
+        );
+        log(&format!("turn {}: {reason}", start.key));
+        let _ = agents.end_session(&session);
+        return refused(trace, start, &reason);
+    }
+    // codex under approve-all: no workspace-write sandbox, so the turn's
+    // cmux calls reach the app and daemon sockets (E6). A Claude turn under
+    // approve-all: the Chief's permission mode (cmux#37392), set on a kept
+    // session too, so a change applies from the next turn. Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_turn_mode(
+        admitted.family,
+        &start.session.policy,
+        start.permission_mode.as_deref(),
+    ) && let Err(e) = agents.set_mode(&session, mode)
+    {
+        // A narrower mode the person or the Chief chose (Auto, Manual) that did
+        // not apply: the session may run wider (a kept bypass session, or
+        // Claude Code's own Auto under Manual), so the turn never runs in it.
+        if admitted.family == crate::acpmux::Family::Claude && mode != "bypassPermissions" {
+            let reason = format!("the turn's permission mode {mode} did not apply: {e}");
+            log(&format!("turn {}: {reason}", start.key));
+            let _ = agents.end_session(&session);
+            return refused(trace, start, &reason);
+        }
         log(&format!(
-            "turn {}: {e}; its cmux calls may be sandboxed",
+            "turn {}: {e}; it runs in the session's current mode",
             start.key
         ));
     }
