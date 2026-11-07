@@ -204,7 +204,6 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--acpmux-header-tool-on, color-mix(in srgb, var(--agent-text) 12%, transparent));
   opacity: 0;
   transform: scale(0.5);
   pointer-events: none;
@@ -213,7 +212,10 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 .acpmux-header-tools[data-header-motion] .acpmux-header-tool > .acpmux-header-glyph {
   position: relative;
 }
+/* The fill only in the pressed state, so no header tool draws one at rest (chat-header-plain-icons.test.ts):
+   the plate grows in with it, and closing drops it at once. */
 .acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open])::before {
+  background: var(--acpmux-header-tool-on, color-mix(in srgb, var(--agent-text) 12%, transparent));
   opacity: 1;
   transform: none;
 }
@@ -232,11 +234,10 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
-/* The activity dot: a crisp 6px circle at the icon's top right, ringed in the page's colour so it
-   reads apart from the glyph. It breathes only while the turn runs (`working`, the only loop, and
-   only with full motion); with changes left and no turn it holds still. No work, no dot. */
-.acpmux-header-tools[data-activity-on="changes"] [data-quick-action="changes"]::after,
-.acpmux-header-tools[data-activity-on="panel"] .acpmux-header-panel-toggle::after {
+/* The activity dot: a crisp 6px circle at Changes' top right, ringed in the page's colour so it reads
+   apart from the glyph. It is still, as every status dot is (no-breathing-dots.test.ts): it shows while
+   the turn runs or changes wait, and is gone when there is no work. */
+.acpmux-header-tools[data-activity-on="changes"] [data-quick-action="changes"]::after {
   content: "";
   position: absolute;
   top: 0;
@@ -248,21 +249,6 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   background: var(--agent-accent, var(--agent-text));
   box-shadow: 0 0 0 1.5px var(--agent-page-bg, Canvas);
   pointer-events: none;
-}
-.acpmux-header-tools[data-header-motion] .acpmux-header-panel-toggle {
-  position: relative;
-}
-.acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="changes"] [data-quick-action="changes"]::after,
-.acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="panel"] .acpmux-header-panel-toggle::after {
-  animation: acpmux-header-breathe var(--acpmux-header-breathe-period, 1200ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) infinite alternate;
-}
-@keyframes acpmux-header-breathe {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.3;
-  }
 }
 
 /* The morph's ghost (morphIntoTab): the glyph's square that travels to the page's right edge and

@@ -34,7 +34,7 @@ test("each style adds to the one before it, and still adds nothing", () => {
   ]);
 });
 
-test("the activity dot shows only while there is work, on Changes when it shows", () => {
+test("the activity dot shows only while there is work, only on Changes", () => {
   expect(activityCue(["changes", "terminal"], { working: false, hasChanges: false })).toBeUndefined();
   expect(activityCue(["changes", "terminal"], { working: true, hasChanges: true })).toEqual({
     on: "changes",
@@ -44,8 +44,6 @@ test("the activity dot shows only while there is work, on Changes when it shows"
     on: "changes",
     cue: "pending",
   });
-  expect(activityCue(["terminal", "browser"], { working: true, hasChanges: false })).toEqual({
-    on: "panel",
-    cue: "working",
-  });
+  // Only Changes carries it: a dot on any other icon would read as that icon's state.
+  expect(activityCue(["terminal", "browser"], { working: true, hasChanges: false })).toBeUndefined();
 });

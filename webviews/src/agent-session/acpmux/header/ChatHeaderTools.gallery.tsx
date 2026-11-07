@@ -530,7 +530,7 @@ const motionVariants = {
     play: motionLit(["splitRight"]),
   },
   "motion-cue-working": {
-    note: "Header motion: cue. While the chat's turn runs, a crisp 6px round dot on Changes breathes (1.2 s, opacity only, the only loop, and only while a turn runs).",
+    note: "Header motion: cue. While the chat's turn runs, a crisp 6px round dot sits still on Changes (no breathing: status dots never pulse).",
     props: { ...motionBase("animated-cue"), working: true },
   },
   "motion-cue-pending": {

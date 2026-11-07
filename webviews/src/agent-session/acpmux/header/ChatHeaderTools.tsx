@@ -238,7 +238,7 @@ export function ChatHeaderTools({
   inbox?: ReactNode;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
-  /// The chat's turn runs: with a motion style, the activity dot breathes (headerMotion.ts).
+  /// The chat's turn runs: with a motion style, Changes carries the activity dot (headerMotion.ts).
   working?: boolean;
   /// The motion style, when the gallery picks one; else the App's (`agentChat.headerMotion`).
   motion?: HeaderMotionStyle;

@@ -4,8 +4,9 @@
 // with no change at all. The three others build on each other, subtle to bold:
 //
 // - `animated-cue`: a pressed plate that grows out of its glyph when its panel opens and shrinks back
-//   into it when the panel closes, and an activity dot: on Changes (else the first icon) while the
-//   chat's turn runs it breathes, and once the turn is over with changes left it holds still.
+//   into it when the panel closes, and an activity dot on Changes while the turn runs or changes wait.
+//   The dot is still, as every status dot is (Leo 2026-10-21: "we need to guarantee the breathing dot
+//   doesnt come back"; no-breathing-dots.test.ts).
 // - `animated-spring`: the cue, plus an icon that becomes relevant (Changes after the first edit,
 //   Preview when a page appears) arrives with the one spring, and the icons beside it glide over to
 //   make room instead of jumping.
@@ -15,7 +16,7 @@
 //
 // Every motion is transform and opacity only (composited: full refresh rate, no layout per frame),
 // interruptible (a new change starts from what is on screen), and idle costs nothing: no timer, no
-// frame loop, and the only loop (the breathing dot) runs only while a turn runs. Every motion asks
+// frame loop, and no loop. Every motion asks
 // `motionMode()`, the pane's motion gate (the host's Motion switch for the agent pane, which sets
 // `--agent-motion-in` to 0 when its animations are off, `data-agent-motion`, Reduce Motion and a
 // hidden page): off draws every end state at once; Reduce Motion keeps the fades and drops the travel.
@@ -37,16 +38,16 @@ export const motionSprings = (style: HeaderMotionStyle) => style === "animated-s
 export const motionMorphs = (style: HeaderMotionStyle) => style === "animated-morph";
 
 /**
- * Where the activity dot sits, and how: on Changes when it shows, else on the right-side panel's
- * toggle (the first icon, whose panel follows the turn); `working` breathes while the turn runs,
- * `pending` holds still while changes wait. Nothing while there is no work.
+ * Whether the activity dot shows, and why: on Changes while the turn runs (`working`) or changes wait
+ * (`pending`); the dot looks the same for both and never moves. Nothing while there is no work or
+ * Changes is not drawn.
  */
 export function activityCue(
   ids: readonly string[],
   { working, hasChanges }: { working: boolean; hasChanges: boolean },
-): { on: "changes" | "panel"; cue: "working" | "pending" } | undefined {
-  if (!working && !hasChanges) return undefined;
-  return { on: ids.includes("changes") ? "changes" : "panel", cue: working ? "working" : "pending" };
+): { on: "changes"; cue: "working" | "pending" } | undefined {
+  if ((!working && !hasChanges) || !ids.includes("changes")) return undefined;
+  return { on: "changes", cue: working ? "working" : "pending" };
 }
 
 /** The x translation a running animation leaves on `element` (0 when none). */
