@@ -27,7 +27,7 @@ os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
-    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path: None, create=True)
+    patch = unittest.mock.patch.object(excuse, "git_text", lambda repo, ref, path, **_: None, create=True)
     patch.start()
     unittest.addModuleCleanup(patch.stop)
     # The fakes reuse run ids with other jobs from test to test: no base job list is kept on disk unless a test asks.
@@ -2235,6 +2235,8 @@ if args[:2] == ["api", "graphql"]:
     blob = None
     if os.path.isfile(found):
         blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    elif os.path.isdir(found):
+        blob = {}  # a commit (a ref GitHub resolves) or a tree: none of the Blob fields
     print(json.dumps({"data": {"repository": {"object": blob}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
@@ -2293,6 +2295,34 @@ class SourceReads(unittest.TestCase):
         self.assertIn("'Skill test scope'", lines)
         self.assertEqual(gh.source_routes, [])
         self.assertTrue(all(call["override"] is None for call in self.calls()))
+
+    def test_only_a_definite_graphql_absence_reads_as_no_file(self):
+        # Review of #37645 at 26bbaceb, F1: a file is absent only when GitHub resolves the ref and names nothing at
+        # the path; a ref it does not resolve, or a file it will not serve as text, is unread and refuses.
+        github = excuse.GitHub()
+        self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", github))
+        self.assertEqual(excuse.source_text_if_present(HQ, "main", ".github/workflows/skills-tests.yml", github),
+                         SKILLS_YML)
+        with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+            excuse.source_text_if_present(HQ, "gone", "no/such/file.json", github)
+        (self.tree / HQ / "main/dir.json").mkdir()
+        with self.assertRaisesRegex(excuse.Refused, "not a text file"):
+            excuse.source_text_if_present(HQ, "main", "dir.json", github)
+        with unittest.mock.patch.object(excuse.GitHub, "run", side_effect=excuse.Refused("HTTP 502")):
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 502"):
+                excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub())
+
+    def test_git_answers_a_definite_absence_and_spends_no_api(self):
+        work = self.origin()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            self.assertIsNone(excuse.source_text_if_present(HQ, "main", "no/such/file.json", excuse.GitHub()))
+        self.assertEqual(self.calls(), [])
+        missing = (self.tmp / "no-such-origin").as_uri()
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing):
+            with self.assertRaisesRegex(excuse.Refused, "resolves no such ref"):
+                excuse.source_text_if_present(HQ, "gone", "no/such/file.json", excuse.GitHub())
 
     def git(self, *args, cwd=None):
         return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -4013,6 +4043,14 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
             return text
 
+        def blob_if_present(self, repo, ref, path):
+            # pin_file None: GitHub definitely serves no file there. pin_unread: the read failed (no answer at all).
+            if self.case.pin_unread:
+                raise excuse.Refused(f"{repo}@{ref}: GitHub did not serve {ref}:{path}")
+            if path == excuse.FFI_PIN_FILE and self.case.pin_file is None:
+                return None
+            return self.blob(repo, ref, path)
+
         def json(self, route, *, paginate=False):
             if f"/compare/feat-cmux-next...{self.case.pinned}" in route:
                 return {"status": self.case.compare}
@@ -4031,6 +4069,7 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         # The published base pin rule's inputs, by default all of it but the compile pass.
         self.pin_at_head(self.STEP_B_PIN)
         self.compare, self.statuses = "behind", []
+        self.pin_unread = False
         self.releases: list[str] = []
         self.sums = None  # SHA256SUMS: by default the pinned checksum's archive entry
         published = unittest.mock.patch.object(excuse, "ffi_release_file", self.release_file)
@@ -4202,6 +4241,17 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files(*self.STEP_B)
         self.compiled()
         with self.assertRaisesRegex(excuse.Refused, "has 0 'releases/download/', not one"):
+            self.judge()
+        self.assertEqual(self.releases, [])
+
+    def test_an_unread_pin_file_is_refused_not_read_as_the_template_form(self):
+        # Review of 26bbaceb, F1: only a definite absence reads the head in the template form. A failed read refuses,
+        # even when the head's Package.swift is a template-form pin that would be excused.
+        self.template_at_head(self.STEP_B_PIN)
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.pin_unread = True
+        with self.assertRaisesRegex(excuse.Refused, "GitHub did not serve"):
             self.judge()
         self.assertEqual(self.releases, [])
 
