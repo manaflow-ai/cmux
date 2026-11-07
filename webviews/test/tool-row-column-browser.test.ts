@@ -214,11 +214,13 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
         const fixture = page.locator("[data-fixture-mixed]");
         await fixture
           .getByRole("button", {
-            name: working ? "Ran 2 commands and used 2 tools" : "Ran 2 commands and used 3 tools",
+            name: "Ran 2 commands and used 3 tools",
           })
           .click();
         const steps = fixture.locator("[data-mixed-tool-steps]");
-        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(working ? 4 : 5);
+        // A finished call stays in its run while the live line reads Thinking (#37635): live or
+        // finished, the run lists every call.
+        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
         expect(await steps.locator(".is-run").count()).toBe(0);
         const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) =>
           rows.map((row) => ({
