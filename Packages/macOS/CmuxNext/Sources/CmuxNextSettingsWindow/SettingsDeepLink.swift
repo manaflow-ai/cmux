@@ -29,9 +29,11 @@ public struct SettingsDeepLink: Equatable, Sendable {
     /// Menu…'s): the host opens a route only when it differs from the last one it opened, and the
     /// person may have jumped to another part since, so a repeat Change Background… lands again.
     public static func personalizationRoute(part: String? = nil, workspace: String? = nil,
-                                            open: UInt64 = DispatchTime.now().uptimeNanoseconds) -> String {
+                                            open: UInt64? = nil) -> String {
         var query: [String] = []
-        if let part { query.append(contentsOf: ["focus=personalization.\(part)", "open=\(open)"]) }
+        if let part {
+            query.append(contentsOf: ["focus=personalization.\(part)", "open=\(open ?? DispatchTime.now().uptimeNanoseconds)"])
+        }
         if let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("workspace=\(id)") }
         return "#/settings/personalization" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
     }
