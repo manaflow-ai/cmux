@@ -64,8 +64,10 @@ public final class SidebarGroupEditor {
     private(set) var shownAnchor: PopupAnchor?
     private(set) weak var shownParent: NSWindow?
 
-    /// About the Chrome bubble's width at the sidebar's type size.
-    public static var width: CGFloat { Metrics.space6 * 15 }
+    /// About the Chrome bubble's width at the sidebar's type size, in CSS pixels at 100% page zoom. The page scales
+    /// its controls by the Interface Size (`Typography.userScale`, its `--cmux-interface-scale`), so the width does
+    /// too: the density's spacing, unscaled, times that.
+    public static var width: CGFloat { Metrics.space6 / Metrics.scale(1) * 15 * Typography.userScale }
 
     /// The card's frame on screen for a card `height` tall opened at `anchor` over `parent`: under the
     /// control that opened it, on the anchor's edge, above it when there is no room below, inside the window.

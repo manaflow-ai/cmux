@@ -99,6 +99,10 @@ public final class GroupEditorService: SidebarGroupEditorSurface {
         push(opened)
         guard ordersFront else { return }
         warm.panel.ready(over: parent, frame: frame(anchor: anchor, parent: parent))
+        // The keys come to the editor now, as the native bubble's did, so a name typed before the page has painted
+        // goes into its field (the page focuses it as it draws the session), not into the window under it.
+        warm.panel.makeKey()
+        warm.page.focusPage()
         let session = opened.session
         deadline.schedule(after: Self.readyDeadline) { @MainActor [weak self] in
             guard let self, self.open?.session == session, self.open?.shown == false else { return }
