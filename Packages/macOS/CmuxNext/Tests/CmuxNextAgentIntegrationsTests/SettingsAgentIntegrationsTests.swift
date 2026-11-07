@@ -20,6 +20,13 @@ import Testing
     ],"skipped":[],"errors":[],"activation":"restart agents"}
     """#
 
+    nonisolated static let skillsStatus = #"""
+    {"action":"status","providers":[
+      {"provider":"claude","path":"/h/.claude/skills","state":"absent","changed":false,"skills":[]},
+      {"provider":"agents","path":"/h/.agents/skills","state":"conflict","reason":"not_owned","detail":"/h/.agents/skills already holds cmux-browser that cmux did not install; cmux leaves it alone","changed":false,"skills":[]}
+    ],"errors":[]}
+    """#
+
     /// A call backed by the person's click in the page (the host's record).
     nonisolated static let click = PageCallContext(page: "cmux.settings", userGesture: true, gestureEvent: 1)
     /// A call a page script made on its own.
@@ -34,7 +41,10 @@ import Testing
     static func model(_ recorder: Recorder, cli: URL? = SettingsAgentIntegrationsTests.cli) -> SettingsAgentIntegrations {
         SettingsAgentIntegrations(cli: { cli }, runCLI: { _, arguments in
             recorder.calls.append(arguments)
-            if arguments.contains("status") { return (0, Data(SettingsAgentIntegrationsTests.status.utf8), Data()) }
+            if arguments.contains("status") {
+                let text = arguments.contains("skills") ? SettingsAgentIntegrationsTests.skillsStatus : SettingsAgentIntegrationsTests.status
+                return (0, Data(text.utf8), Data())
+            }
             return recorder.reply
         })
     }
@@ -45,7 +55,7 @@ import Testing
         #expect(recorder.calls.isEmpty)
         #expect(model.state["providers"]?.arrayValue?.isEmpty == true)
         _ = try await model.run(["action": "refresh"], context: Self.script)
-        #expect(recorder.calls == [["--json", "agent", "hook", "status"]])
+        #expect(recorder.calls == [["--json", "agent", "hook", "status"], ["--json", "agent", "skills", "status"]])
         let rows = try #require(model.state["providers"]?.arrayValue)
         #expect(rows.map { $0["id"]?.stringValue } == ["claude", "codex", "amp", "pi", "gemini"])
         #expect(rows.map { $0["state"]?.stringValue } == ["installed", "partial", "conflict", "unavailable", "absent"])
@@ -64,9 +74,9 @@ import Testing
         _ = try await model.run(["action": "repair", "id": "codex"], context: Self.click)
         _ = try await model.run(["action": "remove", "id": "claude"], context: Self.click)
         #expect(recorder.calls == [
-            ["--json", "agent", "hook", "install", "gemini"], ["--json", "agent", "hook", "status"],
-            ["--json", "agent", "hook", "install", "codex"], ["--json", "agent", "hook", "status"],
-            ["--json", "agent", "hook", "uninstall", "claude"], ["--json", "agent", "hook", "status"],
+            ["--json", "agent", "hook", "install", "gemini"], ["--json", "agent", "hook", "status"], ["--json", "agent", "skills", "status"],
+            ["--json", "agent", "hook", "install", "codex"], ["--json", "agent", "hook", "status"], ["--json", "agent", "skills", "status"],
+            ["--json", "agent", "hook", "uninstall", "claude"], ["--json", "agent", "hook", "status"], ["--json", "agent", "skills", "status"],
         ])
     }
 
@@ -131,5 +141,31 @@ import Testing
         let row = try #require(model.state["providers"]?.arrayValue?.first { $0["id"]?.stringValue == "gemini" })
         #expect(row["error"] == .null)
         #expect(row["errorKind"]?.stringValue == "notFinished")
+    }
+
+    /// cmux skills for agents outside cmux's chats: opt-in rows per global folder, installed only on a
+    /// click, never over a folder cmux did not write (Aziz 2026-11-06).
+    @Test func skillsRowsInstallOnAClickAndNeverOverAConflict() async throws {
+        let recorder = Recorder()
+        let model = Self.model(recorder)
+        _ = try await model.run(["action": "refresh"], context: Self.script)
+        let skills = try #require(model.state["skills"])
+        #expect(skills["command"]?.stringValue == "cmux agent skills install --global")
+        let rows = try #require(skills["providers"]?.arrayValue)
+        #expect(rows.map { $0["id"]?.stringValue } == ["claude", "agents"])
+        #expect(rows.map { $0["state"]?.stringValue } == ["absent", "conflict"])
+        recorder.calls = []
+        await #expect(throws: PageError.self) {
+            try await model.run(["action": "install", "kind": "skills", "id": "claude"], context: Self.script)
+        }
+        await #expect(throws: PageError.self) {
+            try await model.run(["action": "install", "kind": "skills", "id": "agents"], context: Self.click)
+        }
+        #expect(recorder.calls.isEmpty)
+        _ = try await model.run(["action": "install", "kind": "skills", "id": "claude"], context: Self.click)
+        _ = try await model.run(["action": "remove", "kind": "skills", "id": "agents"], context: Self.click)
+        #expect(recorder.calls.filter { !$0.contains("status") } == [
+            ["--json", "agent", "skills", "install", "claude"], ["--json", "agent", "skills", "uninstall", "agents"],
+        ])
     }
 }

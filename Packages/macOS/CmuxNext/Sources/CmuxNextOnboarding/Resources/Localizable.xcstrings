@@ -10006,6 +10006,32 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "登入你使用的代理程式 CLI。你也可以稍後在設定中完成。"}}
       }
     },
+    "onboarding.agents.skillsHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agents you start in a terminal don’t get cmux’s skills unless you install them: Settings > Agents > Agent integrations, or run cmux agent skills install --global."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الوكلاء الذين تشغّلهم في طرفية لا يحصلون على مهارات cmux إلا إذا ثبّتها: الإعدادات > الوكلاء > تكاملات الوكلاء، أو شغّل cmux agent skills install --global."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Agenti koje pokrenete u terminalu ne dobijaju cmux vještine dok ih ne instalirate: Postavke > Agenti > Integracije agenata, ili pokrenite cmux agent skills install --global."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agenter, du starter i en terminal, får ikke cmux’ færdigheder, medmindre du installerer dem: Indstillinger > Agenter > Agentintegrationer, eller kør cmux agent skills install --global."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agenten, die du in einem Terminal startest, erhalten die cmux-Skills erst nach der Installation: Einstellungen > Agenten > Agent-Integrationen, oder führe cmux agent skills install --global aus."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los agentes que inicias en una terminal no reciben las habilidades de cmux a menos que las instales: Ajustes > Agentes > Integraciones de agentes, o ejecuta cmux agent skills install --global."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les agents lancés dans un terminal n’ont les compétences cmux que si vous les installez : Réglages > Agents > Intégrations d’agents, ou lancez cmux agent skills install --global."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Gli agenti avviati in un terminale non ricevono le skill di cmux finché non le installi: Impostazioni > Agenti > Integrazioni agente, oppure esegui cmux agent skills install --global."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルで起動したエージェントは、インストールするまで cmux のスキルを使えません: 設定 > エージェント > エージェント連携、または cmux agent skills install --global を実行します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងទែមីណាល់ មិនទទួលបានជំនាញ cmux ទេ លុះត្រាតែអ្នកដំឡើង៖ ការកំណត់ > ភ្នាក់ងារ > ការរួមបញ្ចូលភ្នាក់ងារ ឬដំណើរការ cmux agent skills install --global។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널에서 시작한 에이전트는 설치하기 전에는 cmux 스킬을 받지 않습니다: 설정 > 에이전트 > 에이전트 통합, 또는 cmux agent skills install --global을 실행하세요."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agenter du starter i en terminal, får ikke cmux-ferdighetene med mindre du installerer dem: Innstillinger > Agenter > Agentintegrasjoner, eller kjør cmux agent skills install --global."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Agenci uruchomieni w terminalu nie dostają umiejętności cmux, dopóki ich nie zainstalujesz: Ustawienia > Agenci > Integracje agentów albo uruchom cmux agent skills install --global."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Agentes que você inicia em um terminal não recebem as habilidades do cmux, a menos que você as instale: Ajustes > Agentes > Integrações de agentes, ou execute cmux agent skills install --global."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Агенты, запущенные в терминале, получают навыки cmux только после установки: Настройки > Агенты > Интеграции агентов или выполните cmux agent skills install --global."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เอเจนต์ที่คุณเริ่มในเทอร์มินัลจะไม่ได้รับทักษะของ cmux จนกว่าคุณจะติดตั้ง: การตั้งค่า > เอเจนต์ > การผสานเอเจนต์ หรือรัน cmux agent skills install --global"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminalde başlattığınız ajanlar, yüklemediğiniz sürece cmux becerilerini almaz: Ayarlar > Ajanlar > Ajan entegrasyonları veya cmux agent skills install --global çalıştırın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Агенти, запущені в терміналі, отримують навички cmux лише після встановлення: Налаштування > Агенти > Інтеграції агентів або виконайте cmux agent skills install --global."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Các tác tử bạn khởi động trong terminal sẽ không có kỹ năng của cmux trừ khi bạn cài đặt: Cài đặt > Tác tử > Tích hợp tác tử, hoặc chạy cmux agent skills install --global."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你在终端中启动的智能体不会获得 cmux 技能，除非你安装它们：设置 > 智能体 > 智能体集成，或运行 cmux agent skills install --global。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你在終端機中啟動的代理程式不會取得 cmux 技能，除非你安裝它們：設定 > 代理程式 > 代理程式整合，或執行 cmux agent skills install --global。"}}
+      }
+    },
     "onboarding.agents.checking": {
       "extractionState": "manual",
       "localizations": {
