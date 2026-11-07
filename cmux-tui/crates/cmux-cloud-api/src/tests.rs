@@ -1288,3 +1288,46 @@ fn a_run_start_that_is_not_one_is_refused_as_it_is_and_sends_nothing() {
     }
     assert!(seen.lock().unwrap().is_empty());
 }
+
+// MARK: review follow-ups (#37526)
+
+#[test]
+fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let started = tokio::time::Instant::now();
+        let deadline = started + previews::PREVIEW_TIMEOUT;
+        // The answer takes 25 s, then its refusal's body 20 s more: 30 s in all, not 45.
+        let sent = async {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            Err::<Value, ()>(())
+        };
+        let failure = previews::within(deadline, "/p".into(), sent, |()| async {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            Failure::http(500, None, None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(failure, Failure::TimedOut("/p".into()));
+        assert_eq!(started.elapsed(), Duration::from_secs(30));
+
+        // A refusal read in time is the refusal.
+        let started = tokio::time::Instant::now();
+        let deadline = started + previews::PREVIEW_TIMEOUT;
+        let sent = async {
+            tokio::time::sleep(Duration::from_secs(25)).await;
+            Err::<Value, ()>(())
+        };
+        let failure = previews::within(deadline, "/p".into(), sent, |()| async {
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            Failure::http(500, None, None)
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(failure, Failure::http(500, None, None));
+    });
+}
