@@ -41,8 +41,8 @@ nonisolated enum TabSettingsSchema {
                 NewTabPosition.configPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position"),
-                help: SettingsText.keyed("settings.tabs.newTabPosition.help", "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
+                title: SettingsText.keyed("settings.tabs.newTabPosition", "New Tab Position (Cmd-T)"),
+                help: SettingsText.keyed("settings.tabs.newTabPosition.help", "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."),
                 kind: .choice([
                     SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
                     SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
@@ -52,10 +52,24 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["new tab", "cmd-t", "position", "order", "right", "end", "after", "start", "first", "beginning", "insert"]
             ),
             SettingDescriptor(
+                NewTabPosition.buttonPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabButtonPosition", "New Tab Position (+ Button)"),
+                help: SettingsText.keyed("settings.tabs.newTabButtonPosition.help", "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."),
+                kind: .choice([
+                    SettingChoice(NewTabPosition.afterCurrent.rawValue, SettingsText.keyed("settings.choice.newTabPositionAfterCurrent", "After the Current Tab")),
+                    SettingChoice(NewTabPosition.end.rawValue, SettingsText.keyed("settings.choice.newTabPositionEnd", "At the End")),
+                    SettingChoice(NewTabPosition.start.rawValue, SettingsText.keyed("settings.choice.newTabPositionStart", "At the Start")),
+                ]),
+                default: .string(NewTabPosition.buttonDefault.rawValue),
+                keywords: ["new tab", "plus", "+", "button", "position", "order", "right", "end", "after", "start", "first", "last", "insert"]
+            ),
+            SettingDescriptor(
                 PlusButtonSetting.configPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.tabs.plusButton", "New Tab Button"),
+                title: SettingsText.keyed("settings.tabs.plusButton", "+ Button Visibility"),
                 help: SettingsText.keyed("settings.tabs.plusButton.help", "On Hover shows each tab bar's + only while the pointer is over that tab bar."),
                 kind: .choice([
                     SettingChoice(PlusButtonMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),

@@ -124,14 +124,14 @@
         },
         {
           "key": "tabs.newTabPosition",
-          "note": "Where Cmd-T and the strip's + put a new tab (cx-d0d.58). Right after the current tab by default (Lawrence 2026-10-20, was the end as in Chrome); New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore the setting.",
+          "note": "Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.",
           "title": {
             "key": "settings.tabs.newTabPosition",
-            "text": "New Tab Position"
+            "text": "New Tab Position (Cmd-T)"
           },
           "help": {
             "key": "settings.tabs.newTabPosition.help",
-            "text": "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
+            "text": "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab."
           },
           "kind": "choice",
           "swift_owner": "NewTabPosition",
@@ -180,11 +180,72 @@
           ]
         },
         {
+          "key": "tabs.newTabButtonPosition",
+          "name": "button",
+          "note": "Where the strip's + (and the vertical list's New Tab row) puts the new tab.",
+          "title": {
+            "key": "settings.tabs.newTabButtonPosition",
+            "text": "New Tab Position (+ Button)"
+          },
+          "help": {
+            "key": "settings.tabs.newTabButtonPosition.help",
+            "text": "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T)."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabPosition",
+            "generated": false
+          },
+          "swift_owner": {
+            "type": "NewTabPosition",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "afterCurrent",
+              "title": {
+                "key": "settings.choice.newTabPositionAfterCurrent",
+                "text": "After the Current Tab"
+              }
+            },
+            {
+              "value": "end",
+              "title": {
+                "key": "settings.choice.newTabPositionEnd",
+                "text": "At the End"
+              }
+            },
+            {
+              "value": "start",
+              "title": {
+                "key": "settings.choice.newTabPositionStart",
+                "text": "At the Start"
+              }
+            }
+          ],
+          "default": "end",
+          "keywords": [
+            "new tab",
+            "plus",
+            "+",
+            "button",
+            "position",
+            "order",
+            "right",
+            "end",
+            "after",
+            "start",
+            "first",
+            "last",
+            "insert"
+          ]
+        },
+        {
           "key": "tabs.plusButton",
           "note": "R120: whether each tab bar's + shows only on hover.",
           "title": {
             "key": "settings.tabs.plusButton",
-            "text": "New Tab Button"
+            "text": "+ Button Visibility"
           },
           "help": {
             "key": "settings.tabs.plusButton.help",

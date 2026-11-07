@@ -58,6 +58,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cmux-action-catalog"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -71,6 +78,7 @@ name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
+ "cmux-action-catalog",
  "cmux-agent-pane-policy",
  "cmux-layout-reducer-ffi",
  "cmux-motion",

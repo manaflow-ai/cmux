@@ -16,9 +16,12 @@ extension NativeNewTabPageSetting {
 }
 
 extension NewTabPosition {
-    /// `tabs.newTabPosition`: Where Cmd-T and the strip's + put a new tab (cx-d0d.58). Right after the current tab by default (Lawrence 2026-10-20, was the end as in Chrome); New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore the setting.
+    /// `tabs.newTabPosition`: Where Cmd-T (tabs.newTabPosition) and the strip's + (tabs.newTabButtonPosition) put a new tab (cx-d0d.58). Cmd-T: right after the current tab by default (Lawrence 2026-10-20); the +: at the end, after the last tab, by default (Lucas 2026-11-07). New Tab After Current Tab, New Tab at Start and New Tab at End (and the tab menu's New Tab to the Right) ignore both settings.
     public nonisolated static let configPath = ["tabs", "newTabPosition"]
     public nonisolated static let fallback: NewTabPosition = .afterCurrent
+    /// `tabs.newTabButtonPosition`: Where the strip's + (and the vertical list's New Tab row) puts the new tab.
+    public nonisolated static let buttonPath = ["tabs", "newTabButtonPosition"]
+    public nonisolated static let buttonDefault: NewTabPosition = .end
 }
 
 extension PlusButtonSetting {
