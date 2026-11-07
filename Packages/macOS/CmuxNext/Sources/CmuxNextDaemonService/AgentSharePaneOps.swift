@@ -11,8 +11,8 @@ extension AgentShareActions {
     /// The dialog's link lasts a week and works for anyone who has it (bounded by the daemon).
     static let paneLinkTTL: UInt64 = 604_800
     static let paneLinkUses: UInt32 = 1000
-    /// Manage links…: Settings > Accounts at its Shared links card (`shared-links`).
-    public static let sharedLinksRoute = "#/settings/accounts?focus=shared-links"
+    /// Manage links…: Settings > Privacy and Security at its Shared Links card.
+    public static let sharedLinksRoute = "#/settings/privacy?focus=card.sharedLinks"
     /// Why the dialog can do nothing here: this tab shows no started agent chat on this Mac.
     public static var paneUnavailable: String { AgentShareStrings.notAChat }
 
