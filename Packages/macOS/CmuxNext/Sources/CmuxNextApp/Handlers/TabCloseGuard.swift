@@ -116,8 +116,8 @@ enum TabCloseGuard {
     /// The warnings and the closing live terminals' working agents and others (a read asks those); nil: nothing asks.
     private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel])? {
         let snapshot = services.settings?.snapshot
-        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
+        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
+        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.warnBeforeClosingAgentSessionDefault
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
         guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
         // A terminal with a working agent is that agent's question, never the program one.

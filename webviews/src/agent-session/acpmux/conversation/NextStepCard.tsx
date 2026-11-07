@@ -1,8 +1,9 @@
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
 import { inlineText } from "../question/inlineText";
 import type { NextStepAsk } from "./nextStepAsk";
+import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
 /// A tagged ask at the end of a turn (nextStepAsk.ts) as Claude desktop's next-step box draws it
@@ -24,6 +25,7 @@ export const NextStepCard = memo(function NextStepCard({
   superseded = false,
   onAnswer,
   registerKey,
+  answerKey,
 }: {
   ask: NextStepAsk;
   /// The answer a later prompt picked, or once `superseded`, what the person said after the card.
@@ -34,9 +36,21 @@ export const NextStepCard = memo(function NextStepCard({
   onAnswer?: (text: string) => Promise<unknown>;
   /// Hands the first answer to the composer's ⌘↩ while the card waits (TurnActions `nextStepKey`).
   registerKey?: (fire: () => void) => () => void;
+  /// The card's key (waitingAskStore.ts `askKey`): its copies share one answer on its way, and the
+  /// answer it sends settles this card, not a newer one with the same answers.
+  answerKey?: string;
 }) {
   const t = useT();
-  const [sending, setSending] = useState<string>();
+  // The answer on its way and whether the last one failed: the card says so and keeps its
+  // buttons, never drops it. Shared by the card's copies when it has a key.
+  const [own, setOwn] = useState<AnswerState>({});
+  const shared = useSyncExternalStore(
+    subscribeAnswers,
+    () => (answerKey ? answerState(answerKey) : own),
+    () => own,
+  );
+  const { sending, failed = false } = answerKey ? shared : own;
+  const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const settled = answer !== undefined || superseded;
@@ -66,8 +80,12 @@ export const NextStepCard = memo(function NextStepCard({
   }
   const send = (label: string) => {
     if (!onAnswer || sending !== undefined) return;
-    setSending(label);
-    void onAnswer(label).finally(() => setSending(undefined));
+    if (answerKey) claimAnswer(answerKey, label);
+    update({ sending: label });
+    void onAnswer(label).then(
+      () => update({}),
+      () => update({ failed: true }),
+    );
   };
   return (
     <fieldset className="acpmux-next-step" aria-label={ask.question}>
@@ -92,6 +110,7 @@ export const NextStepCard = memo(function NextStepCard({
           ))}
         </div>
       )}
+      {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );
 });
