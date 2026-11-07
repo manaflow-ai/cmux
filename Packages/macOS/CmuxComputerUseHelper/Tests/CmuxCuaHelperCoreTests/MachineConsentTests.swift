@@ -394,6 +394,15 @@ import Testing
         #expect(ConsentGate.capability == "machine-consent-gate-v1")
     }
 
+    /// acpmux sends a call only to a helper that says it reads the screen lock right before a
+    /// tool runs (review of cmux#37239, round 8); an older helper gets `cua_helper_outdated`.
+    @Test(.timeLimit(.minutes(1))) func theAdmissionReplyAdvertisesTheLockCheckAtExecution() throws {
+        let client = try Client(tools: UnavailableTools(reason: "test"), consent: UnavailableConsent())
+        let capabilities = client.admitted["capabilities"] as? [String] ?? []
+        #expect(capabilities.contains("screen-lock-at-execution-v1"), "\(capabilities)")
+        #expect(capabilities.contains("machine-consent-gate-v1"), "\(capabilities)")
+    }
+
     // MARK: readOnlyHint parity with acpmux's bridge
 
     /// acpmux's bridge reads the helper's served `tools/list`: a tool is

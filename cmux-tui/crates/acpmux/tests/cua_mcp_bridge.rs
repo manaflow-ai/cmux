@@ -504,3 +504,64 @@ async fn a_call_whose_mac_locks_during_the_consent_wait_never_reaches_the_helper
     assert_eq!(reply["result"]["structuredContent"]["error"], "mac_locked", "{reply}");
     peer.await.unwrap();
 }
+
+/// A v2 helper built before it read the screen lock at execution (review of #37239, round 8): a
+/// call the bridge passed while unlocked could wait in it on consent or a takeover and run after
+/// the Mac locked. Its admission reply does not list the lock capability, so the bridge sends it
+/// no call: each one answers `cua_helper_outdated`, unlocked or not.
+#[tokio::test]
+async fn a_v2_helper_that_does_not_say_it_checks_the_lock_gets_no_call() {
+    use acpmux::cua_v2::{Helper, serve_gated};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (client, server) = tokio::io::duplex(4096);
+    let client = std::sync::Mutex::new(Some(client));
+    let peer = tokio::spawn(async move {
+        let mut server = tokio::io::BufReader::new(server);
+        let mut line = String::new();
+        server.read_line(&mut line).await.unwrap();
+        // What a helper built before the lock check answers.
+        let hello = json!({"ok":true,"protocol":1,"capabilities":["machine-consent-gate-v1"]});
+        server.get_mut().write_all(format!("{hello}\n").as_bytes()).await.unwrap();
+        let mut calls = Vec::new();
+        loop {
+            line.clear();
+            if server.read_line(&mut line).await.unwrap() == 0 {
+                return calls;
+            }
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let reply = if request["method"] == "machine/consent" {
+                json!({"id":request["id"],"ok":true,"result":{"consentRequired":true,
+                    "consent":{"screen":"granted","control":"granted"}}})
+            } else {
+                calls.push(request.clone());
+                json!({"id":request["id"],"ok":true,"result":{"content":[]}})
+            };
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+        }
+    });
+    let input = format!(
+        "{}\n",
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":2}}})
+    );
+    let mut output = Vec::new();
+    serve_gated(
+        tokio::io::BufReader::new(input.as_bytes()),
+        &mut output,
+        || {
+            let stream = client.lock().unwrap().take();
+            async move {
+                Helper::admit(stream.ok_or_else(|| anyhow::anyhow!("one helper"))?, SECRET).await
+            }
+        },
+        || false,
+    )
+    .await
+    .unwrap();
+    let reply: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(reply["id"], 1);
+    assert_eq!(reply["result"]["isError"], true, "{reply}");
+    assert_eq!(reply["result"]["structuredContent"]["error"], "cua_helper_outdated", "{reply}");
+    let calls = peer.await.unwrap();
+    assert!(calls.is_empty(), "the older helper got a call: {calls:?}");
+}
