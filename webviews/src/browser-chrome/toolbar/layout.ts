@@ -37,9 +37,24 @@ export function layoutChanged(previous: LayoutReport | null, next: LayoutReport)
   );
 }
 
+const isHigh = (unit: number) => unit >= 0xd800 && unit <= 0xdbff;
+const isLow = (unit: number) => unit >= 0xdc00 && unit <= 0xdfff;
+
+/** Whether UTF-16 index `index` falls inside a surrogate pair (an emoji, an astral letter). */
+function splitsPair(text: string, index: number): boolean {
+  return index > 0 && index < text.length && isLow(text.charCodeAt(index)) && isHigh(text.charCodeAt(index - 1));
+}
+
+/** The UTF-16 length of the character starting at `index`: 2 for a surrogate pair, else 1. */
+const unitsAt = (text: string, index: number) => (splitsPair(text, index + 1) ? 2 : 1);
+
+/** The UTF-16 length of the character ending at `index`. */
+const unitsBefore = (text: string, index: number) => (splitsPair(text, index - 1) ? 2 : 1);
+
 /**
  * The caret index nearest `x` (px from the text's start, scroll included) in `text`, with
  * `measure(prefix)` the width of a prefix: a binary search, so a long URL costs log(n) measures.
+ * Indices are UTF-16 (the input's selection), never inside a surrogate pair.
  */
 export function indexAtX(text: string, x: number, measure: (prefix: string) => number): number {
   if (x <= 0 || text === "") return 0;
@@ -50,11 +65,13 @@ export function indexAtX(text: string, x: number, measure: (prefix: string) => n
     if (measure(text.slice(0, mid)) <= x) low = mid;
     else high = mid - 1;
   }
+  if (splitsPair(text, low)) low--;
   if (low >= text.length) return text.length;
   // Past the middle of the next character: the caret goes after it.
+  const next = low + unitsAt(text, low);
   const before = measure(text.slice(0, low));
-  const after = measure(text.slice(0, low + 1));
-  return x - before > (after - before) / 2 ? low + 1 : low;
+  const after = measure(text.slice(0, next));
+  return x - before > (after - before) / 2 ? next : low;
 }
 
 /** A word's characters: letters, digits, marks and `_`; dots, slashes and the rest separate words. */
@@ -67,10 +84,11 @@ const WORD = /[\p{L}\p{N}\p{M}_]/u;
  */
 export function wordRangeAt(text: string, index: number): TextRange | null {
   if (text === "") return null;
-  const at = Math.min(Math.max(index, 0), text.length);
+  let at = Math.min(Math.max(index, 0), text.length);
+  if (splitsPair(text, at)) at--;
   let start = at;
   let end = at;
-  while (start > 0 && WORD.test(text[start - 1])) start--;
-  while (end < text.length && WORD.test(text[end])) end++;
+  while (start > 0 && WORD.test(text.slice(start - unitsBefore(text, start), start))) start -= unitsBefore(text, start);
+  while (end < text.length && WORD.test(text.slice(end, end + unitsAt(text, end)))) end += unitsAt(text, end);
   return { location: start, length: end - start };
 }

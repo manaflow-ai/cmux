@@ -196,6 +196,20 @@ describe("layout", () => {
     expect(wordRangeAt(text, 16)).toEqual({ location: 13, length: 3 });
     expect(wordRangeAt("", 0)).toBeNull();
   });
+
+  test("a caret never lands inside a surrogate pair, and astral letters are word characters", () => {
+    // Each character 10 px wide, an emoji (two UTF-16 units) included.
+    const measure = (prefix: string) => Array.from(prefix).length * 10;
+    const emoji = "a\u{1F600}b.com";
+    expect(indexAtX(emoji, 14, measure)).toBe(1);
+    expect(indexAtX(emoji, 16, measure)).toBe(3);
+    expect(indexAtX(emoji, 21, measure)).toBe(3);
+    // Mathematical bold A and B are letters outside the BMP.
+    const bold = "\u{1D400}\u{1D401}c.com";
+    expect(wordRangeAt(bold, 2)).toEqual({ location: 0, length: 5 });
+    expect(wordRangeAt(bold, 1)).toEqual({ location: 0, length: 5 });
+    expect(wordRangeAt(bold, 9)).toEqual({ location: 6, length: 3 });
+  });
 });
 
 class FakeField implements OmnibarFieldSurface {
