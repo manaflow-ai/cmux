@@ -55,6 +55,25 @@ impl Hub {
             return;
         }
         let Some(last) = last else { return };
+        // A kill can lose the metadata save of a turn whose result is in the log: the event
+        // journal writes a log line to its file at once and queues the metadata record behind
+        // it, so `session.json` (or its journaled image) can name an older turn. The log's newest
+        // result is the truth; take its summary when the saved one names another turn.
+        // Only a summary this chat saved is corrected, as the live path writes it
+        // (`record_last_turn`): never from a trigger delivery's result, and not on a chat that
+        // saved none (a fork's copied results are its parent's; a watched chat's are not its own).
+        // The log's result must also be newer than the saved summary.
+        if last.msg.get("trigger") != Some(&Value::Bool(true)) {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let logged = last.msg.get("turnId");
+            if let Some(saved) = meta.last_turn.as_ref()
+                && logged.is_some()
+                && saved.get("turnId") != logged
+                && saved.get("endedAt").and_then(Value::as_u64).is_none_or(|ended| ended < last.at)
+            {
+                meta.last_turn = Some(last_turn_summary(&last));
+            }
+        }
         // The durable trigger dispatcher owns retries; a generic continuation
         // would lose the verified principal and become an ordinary human turn.
         if last.msg.get("trigger") == Some(&Value::Bool(true)) {
@@ -185,15 +204,8 @@ impl Hub {
             manual = None;
         }
         // Refresh the durable last-turn summary before every skip/configuration decision.
-        let mut summary = serde_json::Map::new();
-        for key in super::super::views::LAST_TURN_KEYS {
-            if let Some(value) = last.msg.get(key) {
-                summary.insert(key.to_owned(), value.clone());
-            }
-        }
-        summary.insert("endedAt".into(), json!(last.at));
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
-            Some(Value::Object(summary));
+            Some(last_turn_summary(&last));
 
         // A copied machine's first start (`clone_boot.rs`): the wait belongs to the machine it
         // was copied from. Settle it here for good, so no later start of the copy restores it.
@@ -405,6 +417,23 @@ impl Hub {
             hub.resume_or_compact(&session, cut, attempt).await;
         });
     }
+}
+
+/// The chat's last-turn summary (`lastTurn`) from a `turn_result` record.
+fn last_turn_summary(result: &EventRecord) -> Value {
+    let mut summary = serde_json::Map::new();
+    for key in super::super::views::LAST_TURN_KEYS {
+        if let Some(value) = result.msg.get(key) {
+            summary.insert(key.to_owned(), value.clone());
+        }
+    }
+    summary.insert("endedAt".into(), json!(result.at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = result.msg.get(key) {
+            summary.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(summary)
 }
 
 #[cfg(test)]

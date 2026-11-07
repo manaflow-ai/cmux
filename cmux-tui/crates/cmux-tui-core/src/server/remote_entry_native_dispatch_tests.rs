@@ -445,6 +445,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",
     "ungroup-screen-group",

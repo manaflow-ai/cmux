@@ -265,6 +265,14 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
+    /// The turn's Stop count while a retry's agent start runs (`start_retry.rs`, `NO_RETRY`
+    /// otherwise): a Stop since ends that start.
+    pub(super) start_retry_cancels: AtomicU64,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
@@ -365,6 +373,9 @@ pub struct Session {
     /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
     /// stalled end decided at one value is not carried out at another.
     pub(super) stalled_gen: AtomicU64,
+    /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
+    /// schedule no second end.
+    pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,

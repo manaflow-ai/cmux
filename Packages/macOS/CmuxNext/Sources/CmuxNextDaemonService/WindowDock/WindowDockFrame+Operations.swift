@@ -90,7 +90,7 @@ public extension WindowDockFrame {
               !frameDocks.isDocked(leave.home), !frameDocks.isDocked(target) else { return }
         let keep = frameDocks.dock(at: leave.edge)
         frameDocks.dock(leave.home, at: leave.edge, mode: keep?.mode ?? .docked,
-                        extentPermille: keep?.extentPermille ?? WindowDocks.defaultExtentPermille)
+                        extentPermille: keep?.extentPermille ?? WindowDocks.defaultExtentPermille, byLink: true)
         frameStageWorkspaceID = target
     }
 
@@ -100,6 +100,7 @@ public extension WindowDockFrame {
     func openChiefDock(_ home: String, edge: DockEdge) {
         if frameDocks.isDocked(home) {
             _ = frameDocks.reveal(home)
+            frameDocks.choose(home) // Cmd-I on a Home a link docked: now the person's choice (cmux#37365).
         } else {
             dockWorkspace(home, at: edge)
         }
@@ -121,7 +122,7 @@ public extension WindowDockFrame {
         return true
     }
 
-    /// Shows or hides the target dock (Show or Hide Dock); whether it shows now, nil with no dock. Hiding the dock
+    /// Shows or hides the target dock (Show/Hide Dock); whether it shows now, nil with no dock. Hiding the dock
     /// that has the focus gives it to the stage.
     @discardableResult
     func toggleTargetDock() -> Bool? {
@@ -134,7 +135,7 @@ public extension WindowDockFrame {
         return result == .shown
     }
 
-    /// The target dock's no-tab-bar mode on or off (Show or Hide Dock Tab Bar); the new mode, nil with no dock.
+    /// The target dock's no-tab-bar mode on or off (Show/Hide Dock Tab Bar); the new mode, nil with no dock.
     /// Its panes read it in their strip map (``dockHidesTabBar(of:shownTabs:)``), so each shows or hides its bar now.
     @discardableResult
     func toggleTargetDockTabBar() -> Bool? {

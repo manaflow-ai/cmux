@@ -4,7 +4,7 @@ import CmuxNextLayout
 /// The window frame's dock actions (plans/cmux-next/docked-workspace-DESIGN.md): Dock Workspace
 /// Left/Right/Top/Bottom, Undock Workspace, Float Docked Workspace, Toggle Left/Right/Top/Bottom Dock and Toggle
 /// Dock Corners, and the window dock's (user 2026-11-05) Open Chief Dock (Cmd-I), Move Pane to Dock, Move Dock to
-/// Left/Right/Top/Bottom, Show or Hide Dock, Show or Hide Dock Tab Bar and Focus Dock. Every entry point (palette,
+/// Left/Right/Top/Bottom, Show/Hide Dock, Show/Hide Dock Tab Bar and Focus Dock. Every entry point (palette,
 /// keyboard, CLI verb, MCP, `action.run`) ends in one ``WindowDockFrame`` operation, which changes window view
 /// state in this turn: no await, no daemon round trip (a dock on an empty edge, Move Pane to Dock with no dock and
 /// Open Chief Dock with no Home yet make their workspace in tracked background work). Off (Debug Settings

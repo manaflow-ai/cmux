@@ -68,6 +68,9 @@ fn persisted_three_failure_projection_restores_and_clears_on_success() {
         )
         .unwrap();
     store.flush().unwrap();
+    // The writer's shutdown seal: it lives on below, and in one process the journal's lock
+    // passes to the next open only on it.
+    store.seal();
     let store_config = config.store.clone();
     let hub = Hub::new(config, acpmux::store::open(&store_config, &root).unwrap());
     let recovered = hub.session_summary(&hub.resolve(id).unwrap());

@@ -10,12 +10,23 @@ import CmuxNextSidebar
 // focus model, titlebar and actions see; the others are parked contents (no focus topology) whose views stay on
 // screen in their slots. A press in one focuses it (`ShellWindow.sendEvent`), as does a click on its sidebar row; a
 // click on a row off screen shows that workspace alone. `SidebarModel.onScreen` is the set on screen. With the
-// toggle off none of this runs: the set stays nil and onScreen empty.
+// toggle off the set stays nil and onScreen empty, also while window docks arrange the frame (`setOnScreen`).
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
     /// The setting or Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
     static var multiViewEnabled: Bool { SidebarTunables.multiViewOn }
+
+    /// A relaunch keeps the Chief docked only when the person docked it (cmux#37365, "i dont want this by default"):
+    /// the first arrangement of restored docks drops a Home dock a link from the Chief made, or one an older build
+    /// saved (links docked the Chief by default then), unless `home.chiefDock.openBeside` is on. Runs once, after
+    /// the docks of workspaces the store does not list yet were pruned, so every dock left is known as Home or not.
+    func dropUnchosenChiefDocks(_ docks: inout WindowDocks) {
+        guard state.restoredDocksUnchecked else { return }
+        state.restoredDocksUnchecked = false
+        guard !services.chiefDockOpensBeside else { return }
+        docks.dropUnchosenHomeDocks { self.services.workspace(id: $0)?.isAnyHome == true }
+    }
 
     /// Puts the window frame on screen: its docked workspaces (`window.dockedWorkspaces`, `state.docks`) at their
     /// edges, and on the stage the workspace the sidebar selected, or `state.viewSet` around it (`sidebar.multiView`).
@@ -43,6 +54,7 @@ extension WindowController {
             if docking { docks.dock(id, at: edge) }
         }
         docks.prune(keeping: alive)
+        if docking { dropUnchosenChiefDocks(&docks) }
         _ = docks.reveal(shown)
         let stage = docks.isEmpty ? shown : docks.stage(focused: shown, previous: state.stageWorkspaceID,
                                                          recency: state.workspaceRecency, listed: members)
@@ -245,7 +257,7 @@ extension WindowController {
     }
 
     private func setOnScreen(_ ids: Set<String>) {
-        let value = Set(ids.map(SidebarWorkspaceID.init))
+        let value = Self.multiViewEnabled ? Set(ids.map(SidebarWorkspaceID.init)) : []
         if sidebar.model.onScreen != value { sidebar.model.onScreen = value }
     }
 }

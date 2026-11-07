@@ -60,13 +60,14 @@ extension SettingsSchema {
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors",
         "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
         "sidebar.controlsOnHover", // sidebar control visibility (looks only)
-        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
         "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
+        "tabs.newTabButtonPosition", // where the + puts a tab; looks only, ends no work
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
         "tabs.nativeNewTabPage", // which New Tab page opens; ends no work
@@ -250,6 +251,9 @@ extension SettingsSchema {
         // box types only what the person writes.
         "home.chiefPetEnabled",
         "home.chiefPetMascot",
+        // Where the docked Chief sits and where its links open (layout choices, like pane placement).
+        "home.chiefDock.edge",
+        "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
@@ -267,6 +271,8 @@ extension SettingsSchema {
         .merging(refusedTable) { first, _ in first }
         // Which agents the Chief's subagents may run on (and so whose usage they spend): the person decides.
         .merging(ChiefRoutingSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
+        // How far the Chief's own turns act without asking is the person's to choose, never an agent's (cmux#37392).
+        .merging(ChiefPermissionSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         // Which subagents show in the sidebar is the person's to shape, not an agent's.
         .merging(ChiefSidebarSettingsSchema.keys.map { ($0, AgentRefusal.userOnly) }) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
@@ -293,6 +299,9 @@ extension SettingsSchema {
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         "workspaces.hibernation.hiddenSpaceMinutes": .userOnly,
+        // Freeing ends shells (sidebar-recents-and-freeing-DESIGN.md): an agent must not turn it on to end the person's work.
+        "workspaces.freeing.enabled": .destructive, "workspaces.freeing.idleMinutes": .destructive,
+        "workspaces.freeing.agents": .destructive, "workspaces.freeing.runningCommands": .destructive,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window

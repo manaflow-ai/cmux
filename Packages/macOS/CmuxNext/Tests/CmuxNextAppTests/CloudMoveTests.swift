@@ -2,11 +2,14 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextSettings
+import CmuxNextDesign
+@testable import CmuxNextSettings
+@testable import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -51,6 +54,49 @@ struct CloudMoveTests {
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
         }
+    }
+
+    /// Move to Cloud's new Cloud workspace is placed like every new workspace (`workspaces.newPlacement`, here
+    /// After Current): right below the workspace the window shows, not at the slot the machine's daemon gives it
+    /// (Leo 2026-11-06: "there should just be one behavior"; the review of #37328, F1).
+    @Test func theMovedChatsCloudWorkspaceGoesRightBelowTheSelectedOne() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let url = move.project.deletingLastPathComponent().appendingPathComponent("cmux.json")
+            try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: url)
+            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                              managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            await settings.reload()
+            services.settings = settings
+            try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
+            let controller = try #require(services.windows.active)
+            @MainActor func rows() -> [String] {
+                controller.sidebar.container.sidebarView.list.displayed.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
+            }
+            // A second workspace here, so a row placed at the end differs from one right below the selected one.
+            let connection = try #require(services.daemon.connection)
+            try await connection.createWorkspace(name: "Second", key: WorkspaceKey.generate())
+            @MainActor func locals() -> [String] { services.daemon.store.workspaces.filter { $0.kind != SidebarMapping.homeKind }.map(\.id) }
+            try await Self.waitUntil { locals().count >= 2 && locals().allSatisfy(rows().contains) }
+            let selected = try #require(locals().first { rows().last != $0 }, "rows: \(rows())")
+            _ = services.windows.reveal(workspaceID: selected)
+            try await Self.waitUntil { controller.state.workspaceID == selected && controller.state.page == nil }
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "no chat tab on the machine")
+            let cloud = try #require(move.machine.daemon.store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } }).id
+            try await Self.waitUntil { rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty }
+            let shown = rows()
+            #expect(shown.firstIndex(of: cloud) == shown.firstIndex(of: selected).map { $0 + 1 },
+                    "the Cloud workspace is not right below the selected one: \(shown), selected \(selected), cloud \(cloud)")
+        }
+    }
+
+    /// Waits up to 30 seconds for `condition`.
+    private static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
     }
 
     /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a

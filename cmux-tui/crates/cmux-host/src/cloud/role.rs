@@ -47,6 +47,11 @@ use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
 use crate::linux::spawn::lookup_user;
 
+/// How often, and how far apart, a carrier bind waits for the session
+/// host's Noise key before binding without it (about 15 s in all).
+const NOISE_KEY_WAITS: u32 = 30;
+const NOISE_KEY_WAIT_MS: u64 = 500;
+
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
@@ -214,6 +219,10 @@ impl Http for PosterHttp {
 
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.post(url, body, bearer)
+    }
+
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.0.post_empty(url, bearer)
     }
 
     fn request_until(
@@ -448,6 +457,12 @@ impl Role for CloudRole {
                 self.send("resume");
                 Ok(())
             }
+            // The late network attach lands about a second after the bind: a bind or relay token in flight over the
+            // old addresses would otherwise hang to its 20 s bound.
+            HostEvent::AddressesChanged => {
+                cmux_server::cloud_http::network_changed();
+                Ok(())
+            }
             // No request is held open into a snapshot.
             HostEvent::Parked { deadline } | HostEvent::Shutdown { deadline } => {
                 self.halt(*deadline)
@@ -455,6 +470,12 @@ impl Role for CloudRole {
             _ => Ok(()),
         }
     }
+}
+
+/// How long a failed bind waits before its retry. One the machine's address change failed (a fresh machine's network
+/// attach lands about a second after it boots) goes again at once, without growing the backoff.
+fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
+    if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
 struct Client {
@@ -507,6 +528,9 @@ struct Worker {
     relay: Option<Relay>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// Binds put off while a carrier bind waits for the session host's
+    /// Noise key (its identity file appears once the host has started).
+    noise_key_waits: u32,
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
@@ -559,6 +583,7 @@ impl Worker {
             relay: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            noise_key_waits: 0,
             workload: super::workload::Tracker::default(),
             workload_at: None,
             rng: SystemRandom::new(),
@@ -676,7 +701,14 @@ impl Worker {
         let words: Vec<String> = take_lines(&mut self.control_buf);
         for word in words {
             match word.as_str() {
-                "stop" => return Ok(true),
+                "stop" => {
+                    // cmux-host is stopping (a restart, an update): the relay's chats keep their turns in acpmux,
+                    // and the next cmux-host reattaches. Dropping the Relay instead (a rebind) cancels them.
+                    if let Some(relay) = self.relay.take() {
+                        relay.detach();
+                    }
+                    return Ok(true);
+                }
                 "resume" => {
                     // Connections from before a pause are stale, and the guest's clock did not count the pause, so
                     // nothing here would notice for a minute: the relay dials again before a chat can go down its
@@ -911,7 +943,30 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        let result = bind_machine(&mut self.store, &http, &key, &wg, &daemon, wall_ms());
+        // Only a bind with a relay carrier sends its daemon's Noise key. The
+        // token is not spent yet, so a short wait for the key costs nothing;
+        // after it the bind goes on without (the field is optional).
+        let carrier = self
+            .store
+            .read(BIND_FILE)
+            .and_then(|text| super::wire::parse_bind_file(&text).ok())
+            .is_some_and(|file| file.carrier.is_some());
+        let noise_key = carrier.then(|| self.daemon_noise_key()).flatten();
+        if carrier && noise_key.is_none() && self.noise_key_waits < NOISE_KEY_WAITS {
+            self.noise_key_waits += 1;
+            self.bind_retry_at = Some(self.now() + NOISE_KEY_WAIT_MS);
+            return log("bind: waiting for the session host's Noise key");
+        }
+        let changes = cmux_server::cloud_http::network_changes();
+        let result = bind_machine(
+            &mut self.store,
+            &http,
+            &key,
+            &wg,
+            &daemon,
+            noise_key.as_deref(),
+            wall_ms(),
+        );
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -922,10 +977,19 @@ impl Worker {
                 self.start_live(*bound, key, http, daemon);
             }
             BindResult::Retry(_) => {
-                self.bind_retry_at = Some(self.now() + self.bind_backoff.next(0, random_unit()));
+                let changed = cmux_server::cloud_http::network_changes() != changes;
+                self.bind_retry_at =
+                    Some(self.now() + bind_retry_wait(&mut self.bind_backoff, changed));
             }
             _ => {}
         }
+    }
+
+    /// The session host's Noise static public key, from its identity file.
+    fn daemon_noise_key(&self) -> Option<String> {
+        let home = relay_runner().ok()?.home;
+        let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
+        super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }
 
     /// The agent restarted on a bound machine: report again, unless the
@@ -1258,6 +1322,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
+        return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

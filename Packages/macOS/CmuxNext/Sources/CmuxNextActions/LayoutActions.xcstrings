@@ -272,7 +272,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show or Hide Dock"
+            "value": "Show/Hide Dock"
           }
         },
         "ar": {
@@ -404,7 +404,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show or Hide Dock Tab Bar"
+            "value": "Show/Hide Dock Tab Bar"
           }
         },
         "ar": {
