@@ -102,7 +102,7 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
+          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
@@ -125,7 +125,7 @@ export function TasksSection({
     const shows = !!onShowCall && (calls?.has(call) ?? false);
     const body = (
       <>
-        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row className="acpmux-row-glyph" />
+        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
         <span className="acpmux-session-info-task__command">{entry.item.text}</span>
         {trailing !== undefined && (
           <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>

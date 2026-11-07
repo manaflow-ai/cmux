@@ -31,6 +31,10 @@ pub(super) enum Step {
     Parked,
     /// The Noise handshake and the daemon's admission of the grant.
     Handshake,
+    /// The daemon refused the service the dial asked for (`--service
+    /// desktop` on a session that is not the machine owner's, or a machine
+    /// that serves no desktop).
+    Service,
 }
 
 impl Step {
@@ -40,6 +44,7 @@ impl Step {
             Self::Relay => "relay",
             Self::Parked => "parked_timeout",
             Self::Handshake => "handshake",
+            Self::Service => "service_refused",
         }
     }
 
@@ -49,6 +54,7 @@ impl Step {
             Self::Relay => 3,
             Self::Parked => 4,
             Self::Handshake => 5,
+            Self::Service => 6,
         }
     }
 }
@@ -112,11 +118,21 @@ impl Vmk {
 /// and stdout. `path_state` is `relay`, the only path a carrier takes.
 /// `vmk` is the grant's, left out when the grant has none.
 pub(super) fn connected_line(vmk: Option<Vmk>) -> String {
-    let mut value = json!({ "ok": true, "path_state": "relay", "route": "carrier" });
-    if let Some(vmk) = vmk {
-        value["vmk"] = json!(vmk.name());
+    ok_line(&[("path_state", "relay")], vmk)
+}
+
+/// `{"ok":true, <fields>…, "route":"carrier", "vmk"?:…}` as one line.
+fn ok_line(fields: &[(&str, &str)], vmk: Option<Vmk>) -> String {
+    let mut value = serde_json::Map::new();
+    value.insert("ok".into(), json!(true));
+    for (key, text) in fields {
+        value.insert((*key).into(), json!(text));
     }
-    cmux_link::dial::line(&value)
+    value.insert("route".into(), json!("carrier"));
+    if let Some(vmk) = vmk {
+        value.insert("vmk".into(), json!(vmk.name()));
+    }
+    cmux_link::dial::line(&serde_json::Value::Object(value))
 }
 
 /// The longest stdin line `carrier serve` reads, in bytes.
@@ -205,11 +221,7 @@ pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
 /// connected: `{"ok":true,"route":"carrier","vmk"?:…}`, `vmk` as in
 /// [`connected_line`].
 pub(super) fn served_line(vmk: Option<Vmk>) -> String {
-    let mut value = json!({ "ok": true, "route": "carrier" });
-    if let Some(vmk) = vmk {
-        value["vmk"] = json!(vmk.name());
-    }
-    cmux_link::dial::line(&value)
+    ok_line(&[], vmk)
 }
 
 /// The ready line of `carrier serve`, once it listens at `socket`.
@@ -219,11 +231,14 @@ pub(super) fn serving_line(socket: &str) -> String {
 
 /// The reply line of a failed dial.
 pub(super) fn failure_line(error_code: &str, detail: Option<&str>) -> String {
-    let mut value = json!({ "ok": false, "error_code": error_code, "route": "carrier" });
+    let mut value = serde_json::Map::new();
+    value.insert("ok".into(), json!(false));
+    value.insert("error_code".into(), json!(error_code));
     if let Some(detail) = detail.and_then(clip_detail) {
-        value["error_detail"] = json!(detail);
+        value.insert("error_detail".into(), json!(detail));
     }
-    cmux_link::dial::line(&value)
+    value.insert("route".into(), json!("carrier"));
+    cmux_link::dial::line(&serde_json::Value::Object(value))
 }
 
 /// One display line of at most [`MAX_DETAIL_BYTES`], control characters

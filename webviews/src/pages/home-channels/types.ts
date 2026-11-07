@@ -61,6 +61,9 @@ export const HomeOps = {
   chiefAvatar: "cmux.home.chiefAvatar",
   /** A local Chief's own subagents and registered background processes (read-only snapshot). */
   chiefWork: "cmux.home.chiefWork",
+  /** Ranks the Cmd-K palette's rows (`PaletteRankRequest` in, `{sections}` out): the daemon's
+   * `palette.rank`, the shared palette ranker. */
+  paletteRank: "cmux.home.paletteRank",
 } as const;
 
 /** `cmux.home.capabilities`: each entry is hidden when its capability is missing (no dead ends). */

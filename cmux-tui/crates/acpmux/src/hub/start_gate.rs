@@ -356,6 +356,15 @@ impl Hub {
         if self.names_start_level(caller, target, start).await {
             return Ok(StartGrant::StartLevel);
         }
+        // A caller in full access names a full-access mode of any family: a start that names
+        // none inherits it anyway (`full_access_children.rs`).
+        if !start.adopts
+            && start.preset.is_none()
+            && super::start_mode::is_full_access(&start.mode)
+            && self.starter_runs_full_access(caller)
+        {
+            return Ok(StartGrant::Inherit);
+        }
         // The caller's mode now, on the session the daemon bound it to.
         let inherits = match caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) {
             Some(s) => {

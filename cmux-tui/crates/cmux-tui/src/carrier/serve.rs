@@ -58,6 +58,7 @@ use cmux_remote::crypto::StaticIdentity;
 use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -119,6 +120,11 @@ pub(super) fn run(args: &[String]) -> i32 {
 }
 
 async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
+    // The handlers are in place before the bind, so a SIGTERM or SIGINT
+    // that comes once the socket exists always takes the path that removes
+    // it.
+    let terminate = signal(SignalKind::terminate()).ok();
+    let interrupt = signal(SignalKind::interrupt()).ok();
     let listener = match OwnedUnixListener::bind(socket.clone()).await {
         Ok(listener) => listener,
         Err(error) => return super::usage(&error.to_string()),
@@ -128,7 +134,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
     let mut backoff = UnixAcceptBackoff::new();
-    let ended = ended(shared.clone());
+    let ended = ended(shared.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
         tokio::select! {
@@ -137,9 +143,13 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
             accepted = listener.listener().accept() => match accepted {
                 Ok((stream, _)) => {
                     backoff.reset();
+                    // The deadline runs from the accept, not from when the
+                    // task first runs.
+                    let deadline = Instant::now() + shared.deadline;
                     // One past the cap is closed at once.
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
-                        tasks.spawn(connection(stream, shared.clone(), stopped.clone(), permit));
+                        let task = connection(stream, deadline, shared.clone(), stopped.clone(), permit);
+                        tasks.spawn(task);
                     }
                 }
                 Err(error) => match backoff.retry_delay(&error) {
@@ -163,20 +173,19 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
 
 /// Ends when stdin ends or fails, or on SIGTERM or SIGINT. Until then each
 /// stdin line is read as a credential or a carrier answer for later dials.
-async fn ended(shared: Arc<Shared>) {
-    use tokio::signal::unix::{SignalKind, signal};
-    async fn on(kind: SignalKind) {
-        match signal(kind) {
-            Ok(mut signal) => {
+async fn ended(shared: Arc<Shared>, terminate: Option<Signal>, interrupt: Option<Signal>) {
+    async fn on(signal: Option<Signal>) {
+        match signal {
+            Some(mut signal) => {
                 signal.recv().await;
             }
-            Err(_) => std::future::pending().await,
+            None => std::future::pending().await,
         }
     }
     tokio::select! {
         () = read_stdin(&shared) => {}
-        () = on(SignalKind::terminate()) => {}
-        () = on(SignalKind::interrupt()) => {}
+        () = on(terminate) => {}
+        () = on(interrupt) => {}
     }
 }
 
@@ -191,23 +200,26 @@ async fn read_stdin(shared: &Shared) {
     let mut line = Zeroizing::new(Vec::new());
     loop {
         line.clear();
-        let limit = (MAX_STDIN_LINE + 1) as u64;
+        let limit = u64::try_from(MAX_STDIN_LINE).unwrap_or(u64::MAX).saturating_add(1);
         match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
             Ok(0) | Err(_) => return,
             Ok(_) => {}
         }
         let complete = line.last() == Some(&b'\n');
         if !complete && line.len() > MAX_STDIN_LINE {
-            // The rest of an overlong line, up to its newline.
-            loop {
+            // The rest of an overlong line, up to its newline or the end.
+            let ended = loop {
                 line.clear();
                 match (&mut stdin).take(limit).read_until(b'\n', &mut line).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(_) if line.last() == Some(&b'\n') => break,
+                    Ok(0) | Err(_) => break true,
+                    Ok(_) if line.last() == Some(&b'\n') => break false,
                     Ok(_) => {}
                 }
-            }
+            };
             reply(&contract::failure_line(BAD_REQUEST, Some("a stdin line is too long")));
+            if ended {
+                return;
+            }
             continue;
         }
         let text = line.strip_suffix(b"\n").unwrap_or(&line[..]);
@@ -227,6 +239,7 @@ async fn read_stdin(shared: &Shared) {
 /// stream.
 async fn connection(
     stream: UnixStream,
+    deadline: Instant,
     shared: Arc<Shared>,
     mut stopped: watch::Receiver<bool>,
     _permit: OwnedSemaphorePermit,
@@ -235,7 +248,7 @@ async fn connection(
         machine: shared.machine.clone(),
         source: shared.source.clone(),
         identity: shared.identity.clone(),
-        deadline: Instant::now() + shared.deadline,
+        deadline,
         prefetched: shared.prefetched.clone(),
         log: shared.log.clone(),
     };

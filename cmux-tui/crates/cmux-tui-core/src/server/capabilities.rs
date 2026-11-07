@@ -60,6 +60,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -152,6 +153,8 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(cloud_api::CAPABILITY);
     capabilities
 }
 
@@ -392,6 +395,7 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
+        crate::resource_router::palette_rank::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,

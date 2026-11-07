@@ -107,6 +107,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
+    /// False for a page inside native chrome that lays it out in points (a browser chrome
+    /// surface): its CSS pixel stays one point at every `uiScale`, so the sizes it reports and
+    /// the metrics it is given match the native card around it.
+    public var followsUIScale = true {
+        didSet { if followsUIScale != oldValue { applyUIScale() } }
+    }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -339,6 +345,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         inputReadiness.attach(webView)
+        if options.keepsLoadedWeb { WebBundleServedViews.shared.keepLoadedTree(webView) }
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)

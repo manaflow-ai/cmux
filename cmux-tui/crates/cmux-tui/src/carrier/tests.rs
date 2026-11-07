@@ -13,7 +13,9 @@ use super::contract::{
     connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
     stdin_line,
 };
-use super::{DialArgs, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env};
+use super::{
+    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+};
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
@@ -62,6 +64,7 @@ fn each_step_has_its_own_code_and_exit() {
         .map(|s| (s.error_code(), s.exit_code()))
         .collect();
     assert_eq!(codes, [("ticket", 2), ("relay", 3), ("parked_timeout", 4), ("handshake", 5)]);
+    assert_eq!((Step::Service.error_code(), Step::Service.exit_code()), ("service_refused", 6));
 }
 
 #[test]
@@ -89,6 +92,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         parse(&words(&format!("dial --machine {VM}"))),
         Some(DialArgs {
             machine: VM.into(),
+            service: DialService::Mux,
             deadline: Duration::from_secs(180),
             api: None,
             token_file: None,
@@ -106,6 +110,14 @@ fn arguments_are_the_machine_and_one_deadline() {
     .unwrap();
     assert_eq!(full.deadline, Duration::from_millis(5000));
     assert_eq!(full.api.as_deref(), Some("https://api.example"));
+    assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service desktop"))).unwrap().service,
+        DialService::Desktop
+    );
+    assert_eq!(
+        parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
+        DialService::Mux
+    );
     for bad in [
         "dial".to_owned(),
         "connect --machine vm_0123456789abcdefghij".to_owned(),
@@ -116,6 +128,8 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --deadline-ms 600001"),
         format!("dial --machine {VM} --deadline-ms"),
         format!("dial --machine {VM} --host x"),
+        format!("dial --machine {VM} --service ssh"),
+        format!("dial --machine {VM} --service desktop --service desktop"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
@@ -159,6 +173,7 @@ fn serve_takes_the_dial_flags_and_one_absolute_socket() {
         format!("serve --machine {VM} --socket /a --socket /b"),
         "serve --machine vm_short --socket /a".to_owned(),
         format!("dial --machine {VM} --socket /a"),
+        format!("serve --machine {VM} --socket /a --service mux"),
     ] {
         assert_eq!(parse_serve(&words(&bad)), None, "{bad}");
     }
@@ -437,7 +452,7 @@ fn a_handed_over_answer_is_taken_once_and_only_while_fresh() {
     let held = Prefetched::new(Some(fresh.clone()));
     assert!(held.take(expires - 300).is_some());
     assert!(held.take(expires - 300).is_none(), "one attempt takes it");
-    held.put(fresh.clone());
+    held.put(fresh);
     assert!(held.take(expires - 10).is_none(), "a ticket about to expire is dropped");
     assert!(held.take(expires - 300).is_none(), "and not kept");
     let mut grantless = answer_value();

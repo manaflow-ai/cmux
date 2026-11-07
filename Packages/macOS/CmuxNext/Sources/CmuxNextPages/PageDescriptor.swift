@@ -20,6 +20,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Registry actions the page may run through `cmux.app.action.run` (`history.open`). A page
     /// runs nothing else, so a page bug cannot reach unrelated app actions.
     public let actions: Set<String>
+    /// Of ``actions``, those the person's own fresh click or key in the page view runs as theirs
+    /// (origin `user`, as the palette and menus run it), one gesture spent per run
+    /// (``PageGestureActionProvider``): an action whose handler only opens its setup sheet for the person
+    /// (`newCloudMachine` on Home). Page script alone, or a spent gesture, still runs it as `page`.
+    public let gestureActions: Set<String>
     /// The dispatcher commands this page takes on `cmux.page.command` (default: every page command).
     public let commands: Set<String>
     /// Namespace ops the page may only run through `cmux.app.action.run {action: <op>, args}`: the
@@ -52,7 +57,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     public let passiveFrames: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
-                actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
+                actions: Set<String> = [], gestureActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
                 passiveFrames: Bool = false) {
@@ -62,6 +67,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.nativeOps = nativeOps
         self.denied = denied.union(confirmedOps.keys)
         self.actions = actions
+        self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
         // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
@@ -235,6 +241,11 @@ public extension PageDescriptor {
     /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
     /// in a page already running, never a new tab or a new web page.
     static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
+
+    /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
+    /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
+    /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
+    static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

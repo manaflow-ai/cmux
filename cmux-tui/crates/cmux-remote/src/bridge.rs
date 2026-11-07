@@ -229,6 +229,12 @@ impl OpenedMuxControl {
         }
     }
 
+    /// Close the stream without carrying it (a dial that carries another
+    /// service on the same session).
+    pub async fn close(self) {
+        let _ = self.stream.close().await;
+    }
+
     /// Carry one local `cmux.protocol/2` line stream (`reader`, `writer`):
     /// the same bytes the Mac's bridge socket carries, for a caller that has
     /// the stream on its own pipes. Returns when either side ends.

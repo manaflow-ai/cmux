@@ -368,6 +368,11 @@ export interface EventsParams {
    */
   promptIndex?: (boolean | null);
   sessionId: string;
+  /**
+   * Only this subagent's own records: the updates acpmux tagged with it and those that start
+   * or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
+   */
+  subagent?: (string | null);
 }
 
 export type EventsResult = {
@@ -1120,10 +1125,11 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
- * agent process died mid-turn.
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
+ * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
+ * is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited";
+export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next

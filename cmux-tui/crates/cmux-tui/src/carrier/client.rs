@@ -163,16 +163,13 @@ impl LinkGroup for Tracked {
     async fn transport_snapshot(&self) -> cmux_remote::observability::TransportSnapshot {
         self.inner.transport_snapshot().await
     }
-    async fn open(
-        &self,
-        request: cmux_remote::provider::LinkRequest,
-    ) -> Result<Box<dyn cmux_remote::link::FrameLink>, cmux_remote::provider::ProviderError> {
+    async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
         let link = self.inner.open(request).await?;
         self.step.advance(Step::Handshake);
         Ok(link)
     }
-    async fn close(&self) -> Result<(), cmux_remote::provider::ProviderError> {
+    async fn close(&self) -> Result<(), ProviderError> {
         self.inner.close().await
     }
 }
@@ -236,9 +233,7 @@ async fn attempt(
         .await
         .map_err(|e| {
             let detail = e.to_string();
-            if e.is_retryable_carrier_failure()
-                || matches!(e, cmux_remote::provider::ProviderError::Transport(_))
-            {
+            if e.is_retryable_carrier_failure() || matches!(e, ProviderError::Transport(_)) {
                 Failure::retry(Step::Relay, detail)
             } else {
                 Failure::fatal(Step::Relay, detail)
