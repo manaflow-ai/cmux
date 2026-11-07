@@ -221,7 +221,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   });
 
   test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
-    // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
+    // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
     try {
@@ -248,9 +248,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           [...tail.querySelectorAll<HTMLElement>("*")].find(
             (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
           ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
-        const command = tail.querySelector(".acpmux-running-tray__command")!;
+        const command = tail.querySelector(".acpmux-bg-card__command")!;
         const time = tail.querySelector(".acpmux-running-tray__meta")!;
-        const state = leaf("Running");
+        const state = leaf("No output yet");
         const button = tail.querySelector("button")!;
         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
         const labelRange = document.createRange();
@@ -427,6 +427,41 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.close();
     }
   });
+
+  for (const terminal of [true, false])
+    test(`a click on a subagent's command title expands it; Open chat is the way to the subagent (terminal ${terminal})`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(
+        (value) => (window as unknown as { __showOwnedCommand: (t: boolean) => void }).__showOwnedCommand(value),
+        terminal,
+      );
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.mouse.move(0, 0);
+      try {
+        const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
+        const line = page.locator(".acpmux-running-tray .acpmux-agent-line__button", {
+          has: page.locator(".is-code"),
+        });
+        // The title, which names the subagent, is part of the line's toggle: no link of its own.
+        await line.locator(".acpmux-summary-agent__name").click();
+        await settle(page);
+        expect(await opened()).toEqual([]);
+        expect(await line.getAttribute("aria-expanded")).toBe("true");
+        const foot = page.locator(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail-foot");
+        await foot.waitFor();
+        const labels = await foot.locator("button").evaluateAll((buttons) => buttons.map((b) => b.textContent));
+        expect(labels.some((text) => text?.includes("Open chat"))).toBe(true);
+        expect(labels.some((text) => text?.includes("Open in terminal"))).toBe(terminal);
+        await foot.locator("button", { hasText: "Open chat" }).click();
+        expect(await opened()).toEqual(["agent:owner"]);
+      } finally {
+        await page.close();
+      }
+    });
 
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);

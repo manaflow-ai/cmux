@@ -26,8 +26,36 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// keeps them equal). The agent pane has its own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an
     /// app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.artifacts", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.cloud-progress", "cmux.coderouter", "cmux.cookie-import", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.github", "cmux.group-editor", "cmux.history", "cmux.home-channels", "cmux.home-messages",
-        "cmux.icon-picker", "cmux.import-history", "cmux.keybindings", "cmux.machines", "cmux.markdown", "cmux.mobile-pairing", "cmux.page-info", "cmux.passwords", "cmux.settings", "cmux.stats", "cmux.tasks",
+        "cmux.apps",
+        "cmux.artifacts",
+        "cmux.changelog",
+        "cmux.chief-inspector",
+        "cmux.chief-usage",
+        "cmux.chief-views",
+        "cmux.cloud",
+        "cmux.cloud-progress",
+        "cmux.coderouter",
+        "cmux.cookie-import",
+        "cmux.debug-settings",
+        "cmux.diff",
+        "cmux.editor",
+        "cmux.files",
+        "cmux.github",
+        "cmux.group-editor",
+        "cmux.history",
+        "cmux.home-channels",
+        "cmux.home-messages",
+        "cmux.icon-picker",
+        "cmux.import-history",
+        "cmux.keybindings",
+        "cmux.machines",
+        "cmux.markdown",
+        "cmux.mobile-pairing",
+        "cmux.page-info",
+        "cmux.passwords",
+        "cmux.settings",
+        "cmux.stats",
+        "cmux.tasks",
     ]
 
     /// The agent chat's page host (`cmux.agent`), which the server serves at `/agent-pane/` (the
