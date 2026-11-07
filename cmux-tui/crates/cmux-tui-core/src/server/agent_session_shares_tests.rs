@@ -1296,13 +1296,13 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
     let directory = scratch("shares-forget-gone");
     let dir = Some(directory.as_path());
     let shares = LinkShares::default();
-    let terms = ShareTerms {
+    let view = ShareTerms {
         ttl_secs: MAX_TTL_SECS,
         uses: MAX_VIEW_USES,
         create_id: None,
         role: Some(Role::View),
     };
-    let share = shares.insert(dir, "acp_view".into(), 1, terms, false).unwrap();
+    let share = shares.insert(dir, "acp_view".into(), 1, view, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
     let secret = share["secret"].as_str().unwrap().to_owned();
     let join = |attempt: String| {
