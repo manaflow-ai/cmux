@@ -26,9 +26,9 @@
 //!   what it covers; a newer page that does not replaces it, an older one is left out. A peer whose
 //!   `lastSeq` is behind what the copy saw of it, on a link no page joined the copy on (a VM back
 //!   on an older disk, a session moved to a fresh machine), does not replace a copy that holds
-//!   every record past that `lastSeq`: the newer copy stays, and the hub gives the peer those
-//!   records back (`restore.rs`, `hub/journal_restore.rs`); a peer that refuses them, or a copy
-//!   with a gap there, is replaced as before. A journal that went back and then
+//!   records past that `lastSeq`: the newer copy stays, and the hub gives the peer those
+//!   records back (`restore.rs`, `hub/journal_restore.rs`), across a gap when the copy starts
+//!   past it (what is between is gone everywhere); a peer that refuses them is replaced. A journal that went back and then
 //!   ran past where the copy was cannot be told by seq; only a new `createdAt` would tell.
 //! - A live record continues only a copy a page joined on the link it came on, and only at most
 //!   one past what it covers; when the link drops notifications (`_acpmux/lagged`) no record is

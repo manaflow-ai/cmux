@@ -209,10 +209,13 @@ impl PeerSnapshots {
 
 impl Store {
     /// Whether copy `c` stays over `page`, a page of a peer behind it: the peer said where its
-    /// journal ends, and the copy holds every record past it, which the peer can take back.
+    /// journal ends, and the copy holds records past it, which the peer can take back.
     pub(super) fn keeps_ahead(c: &Kept, page: &Page) -> bool {
+        // A copy that starts past where the peer's journal ends stays too: the records between
+        // are gone everywhere, and its own are only here (review of #37284, the move
+        // simulation): they go back with that gap, never dropped.
         let seen = page.host_last_seq.or(page.through);
-        seen.is_some_and(|s| c.head.first_seq <= s + 1 && s < c.head.last_seq)
+        seen.is_some_and(|s| s < c.head.last_seq)
     }
 
     /// Whether the copy of `key`, of generation `generation` and with nothing left to write,
@@ -235,11 +238,8 @@ impl Store {
         let mut out = Vec::new();
         for (mux, generation, last) in rows {
             let key = (peer.to_owned(), mux);
-            let ahead = |c: &Kept| {
-                c.head.generation == Some(generation)
-                    && last < c.head.last_seq
-                    && c.head.first_seq <= last + 1
-            };
+            // Past where the peer's journal ends, with a gap or not (`keeps_ahead`).
+            let ahead = |c: &Kept| c.head.generation == Some(generation) && last < c.head.last_seq;
             if !self.copies.get(&key).is_some_and(ahead) || !self.load(&key) {
                 continue;
             }
