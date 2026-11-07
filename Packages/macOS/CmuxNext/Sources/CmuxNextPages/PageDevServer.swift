@@ -35,6 +35,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.cloud",
         "cmux.cloud-progress",
         "cmux.coderouter",
+        "cmux.cookie-import",
         "cmux.debug-settings",
         "cmux.diff",
         "cmux.editor",

@@ -26,4 +26,6 @@ public enum BrowserChromeWebPage: String, Sendable {
     case siteData = "site-data"
     /// Page Info's certificate viewer window.
     case certificate
+    /// The Import Cookies card at the bottom of a page (`BrowserCookieImportCard`).
+    case cookieImport = "cookie-import"
 }
