@@ -57,8 +57,11 @@ extension AgentPaneCapture {
             let tiff = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { NSBitmapImageRep(data: data)?.tiffRepresentation }.value
             if let tiff { item.setData(tiff, forType: .tiff) }
         case .file(let path):
-            guard let file = AgentPaneRecorder.shared.owned(path) else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
-            item = AgentPaneImageCopies.pasteboardItem(file, data: nil)
+            // The file still the one the page was given (no other put at its path since).
+            guard let owned = AgentPaneRecorder.shared.owned(path),
+                  await Task.detached(priority: WorkPriority.userBlocking.taskPriority, operation: { AgentPaneRecorder.identity(owned.url.path) }).value == owned.identity
+            else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            item = AgentPaneImageCopies.pasteboardItem(owned.url, data: nil)
         case nil:
             return AgentPaneModel.transportFailure(.pathInvalid)
         }
@@ -72,18 +75,20 @@ extension AgentPaneCapture {
     /// then the image's bytes or the recording's copy at the chosen place. `{saved: path}`, or
     /// `{cancelled: true}` for a cancelled panel or one already up.
     @MainActor static func save(_ payload: AgentPaneCapturePayload?, name: String?, in window: NSWindow?) async -> [String: Any] {
-        let source: URL?, bytes: Data?
+        let source: URL?, bytes: Data?, expected: AgentPaneRecorder.FileIdentity?
         let suggested: String
         switch payload {
         case .bytes(let data, let mimeType):
             source = nil
             bytes = data
+            expected = nil
             suggested = name ?? "Screenshot \(stamp(Date())).\(mimeType == "image/jpeg" ? "jpg" : "png")"
         case .file(let path):
-            guard let file = AgentPaneRecorder.shared.owned(path) else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
-            source = file
+            guard let owned = AgentPaneRecorder.shared.owned(path) else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            source = owned.url
             bytes = nil
-            suggested = name ?? file.lastPathComponent
+            expected = owned.identity
+            suggested = name ?? owned.url.lastPathComponent
         case nil:
             return AgentPaneModel.transportFailure(.pathInvalid)
         }
@@ -100,22 +105,23 @@ extension AgentPaneCapture {
         }
         guard let destination = chosen else { return AgentPaneReply.success(["cancelled": true]) }
         let wrote = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
-            Self.write(bytes: bytes, file: source, to: destination)
+            Self.write(bytes: bytes, file: source, expected: expected, to: destination)
         }.value
         guard wrote else { return AgentPaneReply.failure(code: "save_failed", message: AgentPaneModel.captureFailedMessage) }
         return AgentPaneReply.success(["saved": destination.path])
     }
 
     /// Off the main actor: copies `file` to a new `staged` through descriptors. The source is opened
-    /// with `O_NOFOLLOW` and must be a regular file on the open descriptor itself, so a link put in
-    /// the movie's place between the check and the copy is refused, never followed; `staged` must
-    /// not exist yet.
-    nonisolated static func copyRegular(_ file: URL, to staged: URL) -> Bool {
+    /// with `O_NOFOLLOW` and must be a regular file on the open descriptor itself, and the very file
+    /// the page was given (`expected`, its device and inode), so a link or another file put in the
+    /// movie's place is refused, never followed; `staged` must not exist yet.
+    nonisolated static func copyRegular(_ file: URL, expected: AgentPaneRecorder.FileIdentity?, to staged: URL) -> Bool {
         let source = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard source >= 0 else { return false }
         defer { Darwin.close(source) }
         var info = stat()
-        guard fstat(source, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return false }
+        guard fstat(source, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+              expected.map({ $0 == AgentPaneRecorder.FileIdentity(info) }) ?? true else { return false }
         let target = Darwin.open(staged.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
         guard target >= 0 else { return false }
         defer { Darwin.close(target) }
@@ -127,13 +133,13 @@ extension AgentPaneCapture {
     /// step leaves the old file whole. Only that partial copy is removed on failure; the movie
     /// itself stays, for Copy and a later Save. A file that is no longer a regular file (a link put
     /// in its place) is refused (``copyRegular(_:to:)``).
-    nonisolated static func write(bytes: Data?, file: URL?, to destination: URL) -> Bool {
+    nonisolated static func write(bytes: Data?, file: URL?, expected: AgentPaneRecorder.FileIdentity? = nil, to destination: URL) -> Bool {
         let staged = destination.deletingLastPathComponent().appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).part")
         do {
             if let bytes {
                 try bytes.blockingWrite(to: staged)
             } else {
-                guard let file, copyRegular(file, to: staged) else { throw CocoaError(.fileReadNoPermission) }
+                guard let file, copyRegular(file, expected: expected, to: staged) else { throw CocoaError(.fileReadNoPermission) }
             }
             // rename(2) replaces an existing destination atomically (both are in its folder).
             guard rename(staged.path, destination.path) == 0 else { throw CocoaError(.fileWriteUnknown) }

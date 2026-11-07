@@ -183,5 +183,16 @@ struct AgentPaneCaptureCallTests {
         try Data("movie".utf8).write(to: movie)
         #expect(AgentPaneCapture.write(bytes: nil, file: movie, to: destination))
         #expect(try Data(contentsOf: destination) == Data("movie".utf8))
+        // Another file put at the movie's path after the page got it is refused: its identity differs.
+        let given = try #require(AgentPaneRecorder.identity(movie.path))
+        #expect(AgentPaneCapture.write(bytes: nil, file: movie, expected: given, to: destination))
+        // Made while the movie still exists, so it has another inode; then put at the movie's path.
+        let other = root.appendingPathComponent("other.txt")
+        try Data("other".utf8).write(to: other)
+        try FileManager.default.removeItem(at: movie)
+        try FileManager.default.moveItem(at: other, to: movie)
+        #expect(AgentPaneRecorder.identity(movie.path) != given)
+        #expect(!AgentPaneCapture.write(bytes: nil, file: movie, expected: given, to: destination))
+        #expect(try Data(contentsOf: destination) == Data("movie".utf8))
     }
 }

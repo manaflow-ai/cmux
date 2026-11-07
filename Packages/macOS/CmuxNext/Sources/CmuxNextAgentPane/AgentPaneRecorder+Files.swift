@@ -29,6 +29,25 @@ extension AgentPaneRecorder {
         return inside ? URL(fileURLWithPath: path) : nil
     }
 
+    /// A movie file's identity, its device and inode: the file the page was given, so a file put
+    /// at its path afterwards is never the one Copy or Save takes.
+    nonisolated struct FileIdentity: Sendable, Equatable {
+        let device: Int64
+        let inode: UInt64
+
+        init(_ info: stat) {
+            device = Int64(info.st_dev)
+            inode = UInt64(info.st_ino)
+        }
+    }
+
+    /// Off the main actor: the identity of the regular file at `path` (a link is none).
+    nonisolated static func identity(_ path: String) -> FileIdentity? {
+        var info = stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+        return FileIdentity(info)
+    }
+
     /// Off the main actor: moves `movie` into `upload`, a fresh folder made here, and removes its
     /// temporary folder; nil, with `movie` left in place, when it could not. An `upload` that
     /// already exists is someone else's: it is neither used nor removed. Only the folder made

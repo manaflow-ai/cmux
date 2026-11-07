@@ -37,6 +37,10 @@ final class AgentPaneRecorder {
     /// The movies this process wrote, exactly as the page was given them (realpath's spelling):
     /// the only paths `capture.copy` and `capture.save` take.
     private(set) var written: Set<String> = []
+    /// Each written movie's file identity when the page was given its path.
+    private var identities: [String: FileIdentity] = [:]
+    /// A stop is finalizing a movie: no other recording starts until it is done (one at a time).
+    private var finishing = false
     /// Whether the capture bar's save panel is up: one at a time.
     var saving = false
     /// The bar's last press (``AgentPaneCaptureBar/toggle(on:)``): the chat it opened on, held
@@ -97,7 +101,7 @@ final class AgentPaneRecorder {
     /// Starts filming `window`: `{started: true}`, `capture.busy` while one runs, `capture.failed`
     /// when ScreenCaptureKit could not start (no window, macOS before 14.4).
     func start(in window: NSWindow, for model: AgentPaneModel, cursor: Bool, clicks: Bool) async -> [String: Any] {
-        guard !starting, current?.isEnding != false else {
+        guard !starting, !finishing, current?.isEnding != false else {
             return AgentPaneReply.failure(code: "capture.busy", message: AgentPaneModel.captureFailedMessage)
         }
         // One that ended by itself (its window closed, the limit) and was not collected yet: its
@@ -169,14 +173,18 @@ final class AgentPaneRecorder {
         } else {
             return AgentPaneReply.success(["cancelled": true])
         }
+        finishing = true
+        defer { finishing = false }
         guard let made = await recording.finish() else { return AgentPaneReply.success(["cancelled": true]) }
-        var path = made.path
-        if let upload = model.chatUploadFolders?.freshUpload(session: session) {
-            let movie = URL(fileURLWithPath: made.path)
-            let kept = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.keep(movie, in: upload) }.value
-            if let kept { path = kept.path }
-        }
+        let movie = URL(fileURLWithPath: made.path)
+        let upload = model.chatUploadFolders?.freshUpload(session: session)
+        let (path, identity) = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+            let path = (upload.flatMap { Self.keep(movie, in: $0) } ?? movie).path
+            return (path, Self.identity(path))
+        }.value
+        guard let identity else { return AgentPaneReply.success(["cancelled": true]) }
         written.insert(path)
+        identities[path] = identity
         return AgentPaneReply.success(["path": path, "name": made.name, "seconds": made.seconds])
     }
 
@@ -261,9 +269,11 @@ final class AgentPaneRecorder {
         return CGRect(x: window.frame.minX, y: top - window.frame.maxY, width: window.frame.width, height: window.frame.height)
     }
 
-    /// The file at `path` when this bridge wrote it; nil otherwise.
-    func owned(_ path: String) -> URL? {
-        Self.owned(path, in: [Self.folder] + (ChatUploadFolders.standard.map { [$0.root] } ?? []), written: written)
+    /// The file at `path` when this bridge wrote it, with its identity then; nil otherwise.
+    func owned(_ path: String) -> (url: URL, identity: FileIdentity)? {
+        guard let identity = identities[path],
+              let url = Self.owned(path, in: [Self.folder] + (ChatUploadFolders.standard.map { [$0.root] } ?? []), written: written) else { return nil }
+        return (url, identity)
     }
 
     private func removeObservers() {
