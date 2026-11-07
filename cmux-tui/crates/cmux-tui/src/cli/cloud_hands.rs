@@ -35,6 +35,8 @@ mod socket;
 
 use std::collections::HashMap;
 use std::io::{BufRead as _, Write as _};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_cloud_wire::hands::tracker::{Change, Tracker};
@@ -92,7 +94,8 @@ enum Internal {
     Frame(u64, hands::HandFrame),
     Hands(u64, Vec<HandSummary>),
     Listed(u64, u64, Result<Vec<HandApproval>, Failure>),
-    Done(u64, Result<Value, Failure>, Option<(String, Option<HandOutcome>, String)>),
+    /// A route call of `generation` (its id) ended.
+    Done(u64, u64, Result<Value, Failure>, Option<(String, Option<HandOutcome>, String)>),
 }
 
 struct Engine<E> {
@@ -110,6 +113,10 @@ struct Engine<E> {
     refreshes: Vec<u64>,
     tokens: HashMap<u64, oneshot::Sender<Option<String>>>,
     next_token: u64,
+    /// The route calls of the current start, by call id: a stop or a new start aborts them.
+    calls: HashMap<u64, JoinHandle<()>>,
+    /// `generation`, for the calls' own check before they send anything.
+    current: Arc<AtomicU64>,
 }
 
 /// Runs the engine until `input` ends.
@@ -131,6 +138,8 @@ pub(super) async fn serve(
         refreshes: Vec::new(),
         tokens: HashMap::new(),
         next_token: 0,
+        calls: HashMap::new(),
+        current: Arc::new(AtomicU64::new(0)),
     };
     loop {
         tokio::select! {
@@ -279,7 +288,14 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
                     self.reply(id, result.clone());
                 }
             }
-            Internal::Done(id, result, settle) => {
+            // A call of an earlier start: a stop or a new start already answered it.
+            Internal::Done(generation, id, ..) if generation != self.generation => {
+                self.calls.remove(&id);
+            }
+            Internal::Done(_, id, result, settle) => {
+                if self.calls.remove(&id).is_none() {
+                    return;
+                }
                 if let Some((key, outcome, note)) = settle {
                     self.log(note);
                     let changes =
@@ -295,7 +311,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
 
     fn start(&mut self, api: String) {
         self.halt();
-        self.generation = self.generation.wrapping_add(1);
+        self.next_generation();
         self.api = Some(api.clone());
         let (generation, internal, version) =
             (self.generation, self.internal.clone(), self.app_version.clone());
@@ -326,16 +342,27 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         }));
     }
 
-    /// Ends the socket and the read of the current start.
+    /// Ends the socket, the read and the route calls of the current start; each call
+    /// still waiting answers that its session ended.
     fn halt(&mut self) {
         for task in [self.socket.take(), self.read.take()].into_iter().flatten() {
             task.abort();
         }
+        for (id, call) in std::mem::take(&mut self.calls) {
+            call.abort();
+            self.reply(id, Err(Failure::new("not_signed_in", "the session ended")));
+        }
+    }
+
+    /// A new session fence: nothing of an earlier start acts after this.
+    fn next_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.current.store(self.generation, Ordering::SeqCst);
     }
 
     fn stop(&mut self) {
         self.halt();
-        self.generation = self.generation.wrapping_add(1);
+        self.next_generation();
         self.api = None;
         let changes = self.tracker.clear();
         self.show(changes);
@@ -561,7 +588,7 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
     /// Runs one route call off the engine's turn; `finish` reads its answer
     /// (and may settle a request).
     fn spawn_call(
-        &self,
+        &mut self,
         id: u64,
         finish: impl FnOnce(
             Result<Value, Failure>,
@@ -576,13 +603,19 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         let Some(api) = self.api.clone() else {
             return self.reply(id, Err(Failure::new("not_signed_in", "not signed in")));
         };
-        let internal = self.internal.clone();
-        tokio::spawn(async move {
+        let (internal, generation, current) =
+            (self.internal.clone(), self.generation, Arc::clone(&self.current));
+        let call = tokio::spawn(async move {
             let credential = token(&internal).await;
+            // The session may have ended while the token came: send nothing for it.
+            if current.load(Ordering::SeqCst) != generation {
+                return;
+            }
             let answered = http::call(&api, credential.as_deref(), method, &path, body).await;
             let (result, settle) = finish(answered);
-            let _ = internal.send(Internal::Done(id, result, settle));
+            let _ = internal.send(Internal::Done(generation, id, result, settle));
         });
+        self.calls.insert(id, call);
     }
 
     /// `debug.hands`'s state as JSON text (keys sorted).

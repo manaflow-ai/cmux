@@ -172,14 +172,19 @@ impl App {
         tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect(kind)
     }
 
-    async fn call(&mut self, op: &str, params: Value) -> Value {
+    /// Sends one call; its id.
+    fn ask(&mut self, op: &str, params: Value) -> u64 {
         self.next += 1;
         let mut command = json!({"t": "call", "id": self.next, "op": op});
         for (key, value) in params.as_object().unwrap() {
             command[key] = value.clone();
         }
         self.send(command);
-        let id = self.next;
+        self.next
+    }
+
+    /// The reply to call `id` (other replies wait in the backlog).
+    async fn reply(&mut self, id: u64) -> Value {
         let mut other = Vec::new();
         let reply = loop {
             let reply = self.next("reply").await;
@@ -190,6 +195,26 @@ impl App {
         };
         self.backlog.extend(other);
         reply
+    }
+
+    async fn call(&mut self, op: &str, params: Value) -> Value {
+        let id = self.ask(op, params);
+        self.reply(id).await
+    }
+
+    /// Every event that comes within `wait` (token asks answered).
+    async fn drain(&mut self, wait: std::time::Duration) -> Vec<Value> {
+        let mut seen = std::mem::take(&mut self.backlog);
+        let deadline = tokio::time::Instant::now() + wait;
+        while let Ok(Some(event)) = tokio::time::timeout_at(deadline, self.events.recv()).await {
+            if event["event"] == "token" {
+                let credential = self.token();
+                self.send(json!({"t": "token", "id": event["id"], "credential": credential}));
+                continue;
+            }
+            seen.push(event);
+        }
+        seen
     }
 }
 
@@ -427,4 +452,54 @@ async fn each_route_call_of_a_read_takes_a_fresh_token() {
     let waiting = seen.iter().find(|s| s.line.contains("/approvals ")).unwrap();
     assert!(list.bearer.starts_with("tok-") && waiting.bearer.starts_with("tok-"));
     assert_ne!(list.bearer, waiting.bearer, "the approvals read asked for its own token");
+}
+
+/// The usual owner, but an answer takes a while.
+fn slow_answers(seen: &Seen) -> (u16, String) {
+    if seen.line.starts_with("POST ") && seen.line.contains("/approvals/") {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    hands_owner(seen)
+}
+
+/// Answers the call's token ask, so its request is at the owner when this returns.
+async fn in_flight(app: &mut App, seen: &Arc<Mutex<Vec<Seen>>>) {
+    let early = app.drain(std::time::Duration::from_millis(150)).await;
+    app.backlog.extend(early);
+    assert!(
+        seen.lock().unwrap().iter().any(|s| s.line.starts_with("POST ")),
+        "the answer reached the owner"
+    );
+}
+
+#[tokio::test]
+async fn a_call_started_before_stop_never_settles_after_it() {
+    let (api, seen) = owner(slow_answers);
+    let mut app = refreshed(&api).await;
+    let id = app.ask("answer", json!({"key": key(), "allow": false}));
+    in_flight(&mut app, &seen).await;
+    app.send(json!({"t": "stop"}));
+    let reply = app.reply(id).await;
+    assert_eq!(reply["error"]["kind"], "not_signed_in", "{reply}");
+    let after = app.drain(std::time::Duration::from_millis(900)).await;
+    assert!(
+        !after.iter().any(|e| e["event"] == "settled" && e["outcome"] == "denied"),
+        "the old call settled into the stopped session: {after:?}"
+    );
+    assert!(!after.iter().any(|e| e["event"] == "reply" && e["id"] == id), "answered once");
+}
+
+#[tokio::test]
+async fn an_old_starts_call_is_ignored_after_a_restart() {
+    let (api, seen) = owner(slow_answers);
+    let mut app = refreshed(&api).await;
+    let id = app.ask("answer", json!({"key": key(), "allow": false}));
+    in_flight(&mut app, &seen).await;
+    app.start(&api);
+    assert_eq!(app.reply(id).await["error"]["kind"], "not_signed_in");
+    assert_eq!(app.call("refresh", json!({})).await["ok"], true);
+    let after = app.drain(std::time::Duration::from_millis(900)).await;
+    assert!(!after.iter().any(|e| e["event"] == "settled"), "nothing settles: {after:?}");
+    let text = app.call("allow_text", json!({"key": key(), "environment": "e"})).await;
+    assert_eq!(text["ok"], true, "the request still waits: {text}");
 }
