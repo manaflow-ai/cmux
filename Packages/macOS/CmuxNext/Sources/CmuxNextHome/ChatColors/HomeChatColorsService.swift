@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxHomeRender
+import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextPages
 
@@ -11,8 +12,18 @@ public import CmuxNextPages
 /// same store path as a swatch and stream back to the page as state.
 @MainActor
 public final class HomeChatColorsService {
-    /// 340 pt wide; the page's fixed layout is 340 pt high (webviews/src/pages/home-chat-colors/styles.css).
+    /// 340 pt wide at 1x (times the page zoom, ``contentSize``); the page's fixed layout is 340 CSS px high (webviews/src/pages/home-chat-colors/styles.css).
     static let size = NSSize(width: 340, height: 340)
+
+    /// The panel's content size at `zoom`: the page's 340 CSS px square times the zoom
+    /// `PageWebView` applies (`app.uiScale`), so at 1.5x every row still fits and nothing wraps.
+    static func contentSize(zoom: CGFloat) -> NSSize {
+        let zoom = max(zoom, 0.5)
+        return NSSize(width: (size.width * zoom).rounded(), height: (size.height * zoom).rounded())
+    }
+
+    /// The content size now: the page zoom `PageWebView` uses (`DesignSettings.shared.uiScale`).
+    var contentSize: NSSize { Self.contentSize(zoom: DesignSettings.shared.uiScale) }
     /// A titled, opaque utility panel: Chromium can host the page (no see-through overlay).
     public static let engineOptions = PageEngineOptions.standard
 
@@ -22,6 +33,7 @@ public final class HomeChatColorsService {
     private let colorTarget = HomeChatColorsColorTarget()
     /// Whether the system colour panel is ours now (Custom Color opened it and the panel is open).
     private var ownsColorPanel = false
+    private var zoomFollower: Task<Void, Never>?
 
     /// The panel, once shown (tests, `debug.home`).
     var window: NSPanel? { panel }
@@ -74,7 +86,7 @@ public final class HomeChatColorsService {
             self?.releaseColorPanel()
             self?.provider.end()
         }
-        let host = HomeChatColorsHostView(frame: NSRect(origin: .zero, size: Self.size))
+        let host = HomeChatColorsHostView(frame: NSRect(origin: .zero, size: contentSize))
         host.onThemeChange = { [weak provider] in provider?.refresh() }
         if let page = PageWebView(descriptor: .homeChatColors, routes: [PageRoute(prefix: HomeChatColorsProvider.prefix, provider: provider)],
                                   options: Self.engineOptions) {
@@ -82,8 +94,22 @@ public final class HomeChatColorsService {
         }
         self.host = host
         panel.contentView = host
-        panel.setContentSize(Self.size)
+        panel.setContentSize(contentSize)
+        followZoom()
         return panel
+    }
+
+    /// Resizes the panel when `app.uiScale` changes, as the page's zoom follows it. One loop for the
+    /// app-lifetime panel; it ends with the service.
+    private func followZoom() {
+        // task-owner: one loop per panel, which lives as long as the service; ends when the service is gone
+        zoomFollower = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.uiScale }) {
+                guard let self, let panel = self.panel else { return }
+                let size = self.contentSize
+                if panel.contentView?.frame.size != size { panel.setContentSize(size) }
+            }
+        }
     }
 
     /// Opens the system colour panel beside this one, starting from `start`; each change is a pick for `role`.

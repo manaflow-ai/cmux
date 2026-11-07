@@ -150,4 +150,23 @@ import Testing
         #expect(!window.isVisible)
         #expect(service.provider.session == nil)
     }
+
+    /// The page is zoomed by `app.uiScale`; at 1.5x the panel is 510 pt so the 340 CSS px layout
+    /// (every swatch row through Custom Color) still fits, and a scale change resizes it.
+    @Test func thePanelGrowsWithThePageZoom() async throws {
+        let design = DesignSettings.shared
+        let saved = design.uiScale
+        defer { design.uiScale = saved }
+        design.uiScale = 1.5
+        #expect(HomeChatColorsService.contentSize(zoom: 1.5) == NSSize(width: 510, height: 510))
+        let defaults = try #require(UserDefaults(suiteName: "HomeChatColorsPanelTests.\(UUID().uuidString)"))
+        let service = HomeChatColorsService(store: HomeChatColorStore(defaults: defaults), design: design)
+        service.show(conversation: "chat", name: "Ada", over: nil)
+        let window = try #require(service.window)
+        defer { window.orderOut(nil) }
+        #expect(window.contentView?.frame.size == NSSize(width: 510, height: 510))
+        design.uiScale = 1
+        await settle { window.contentView?.frame.width == 340 }
+        #expect(window.contentView?.frame.size == NSSize(width: 340, height: 340))
+    }
 }

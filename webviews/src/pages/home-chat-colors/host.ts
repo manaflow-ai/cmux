@@ -59,13 +59,17 @@ export const RECEIVED_SWATCHES = ["#E9E9EB", "#3B3B3D", "#D6EAFF", "#D9F7E0", "#
 /** The text rows' fixed choices after Automatic: white, then black. */
 export const TEXT_SWATCHES = ["#FFFFFF", "#000000"];
 
-/** `#rrggbb` (or `#RGB`) as the store writes it, `#RRGGBB`; null for anything else. */
+/** A colour as the store writes it (`HomeColor.hex`): `#RRGGBB`, or `#RRGGBBAA` when not opaque
+ * (`cmux chat colors` takes either). `#RGB` widens to `#RRGGBB`; an `FF` alpha is dropped, as the
+ * store drops it; any other alpha is kept, so a translucent colour matches no opaque swatch. Null
+ * for anything else. */
 export function normalizeHex(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  let text = value.trim().replace(/^#/, "");
+  let text = value.trim().replace(/^#/, "").toUpperCase();
   if (text.length === 3) text = text.replace(/./g, "$&$&");
-  if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(text)) return null;
-  return `#${text.slice(0, 6).toUpperCase()}`;
+  if (!/^[0-9A-F]{6}([0-9A-F]{2})?$/.test(text)) return null;
+  if (text.endsWith("FF") && text.length === 8) text = text.slice(0, 6);
+  return `#${text}`;
 }
 
 /** Whether the chat has colours of its own (Reset to Default is enabled). */

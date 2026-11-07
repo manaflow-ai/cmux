@@ -121,3 +121,18 @@ test("Default, Custom Color, Reset, Escape and Return call the host", async () =
     [ops.done, { session: "s1" }],
   ]);
 });
+
+test("a stored colour keeps its alpha and matches no opaque swatch", async () => {
+  const { normalizeHex } = await import("../src/pages/home-chat-colors/host");
+  expect(normalizeHex("#34c75980")).toBe("#34C75980");
+  expect(normalizeHex("#34C759FF")).toBe("#34C759");
+  expect(normalizeHex("#fff")).toBe("#FFFFFF");
+  expect(normalizeHex("blue")).toBeNull();
+  const { emit, ops } = await mount();
+  await emit(ops.session, { id: "s1", conversation: "chat", name: "" });
+  await emit(ops.state, { session: "s1", colors: { sent: "#34C75980" }, preview });
+  const row = rows()[0]!;
+  expect(row.querySelector('[data-color="#34C759"]')!.getAttribute("aria-pressed")).toBe("false");
+  expect(row.querySelector('button[aria-label="Default"]')!.getAttribute("aria-pressed")).toBe("false");
+  expect(row.querySelector<HTMLElement>(".cc-well")!.style.getPropertyValue("--cc-well")).toBe("#34C75980");
+});
