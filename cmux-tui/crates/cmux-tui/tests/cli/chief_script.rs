@@ -1,7 +1,8 @@
 //! The scriptable `cmux chief` verbs (plans/cmux-next/chief-tui.md) against a
 //! real headless daemon: a coding agent reads and drives Chief/Home chats
 //! with no terminal. `chats`, `send --wait`, `wait`, `read`, `react`,
-//! `send --reply-to`, `send --thread`, `read --thread`, `send --attach` and
+//! `send --reply-to`, `send --thread`, `read --thread`, `send --attach`,
+//! `runs` (summaries paged past the owner's page size, one run's steps) and
 //! `--chat` on a second Chief's chat; and `--cloud` through the daemon's cloud
 //! proxy with the CLI's own lease (a loopback stand-in for the cloud).
 
@@ -378,4 +379,62 @@ fn chief_script_cloud_chats_use_the_clis_own_lease_and_send_as_cli() {
         cloud.bodies().into_iter().filter(|b| b.to_string().contains("message.send")).collect();
     assert_eq!(ops.len(), 1, "{:?}", cloud.bodies());
     assert_ne!(ops[0]["origin"], "user", "the CLI never speaks with the app's user origin");
+}
+
+#[test]
+fn chief_script_runs_pages_every_summary_and_reads_a_runs_steps() {
+    let (server, _home, conversation, _token) = chief_daemon("chief-script-runs");
+    let mut home = super::conversation_runs::Unix::open(&server.socket);
+    let mut chief = super::conversation_runs::bound(&server, &mut home, "agent_mux");
+    // More runs than one `conversation-runs` page (200), so the verb pages.
+    let total = 205_u64;
+    for index in 0..total {
+        chief.request(
+            "conversation-run-append",
+            super::conversation_runs::append(
+                &conversation,
+                json!({"id": format!("turn:runs:{index}"), "status": "done",
+                       "started_at": 1_000 + index, "title": format!("run {index}")}),
+                json!([]),
+            ),
+        );
+    }
+    chief.request(
+        "conversation-run-append",
+        super::conversation_runs::append(
+            &conversation,
+            json!({"id": "turn:runs:steps", "status": "done", "started_at": 5_000}),
+            json!([{"id": "tool:1", "kind": "tool", "status": "done",
+                    "tool": {"name": "Bash", "kind": "execute", "title": "ls"}},
+                   {"id": "text:1", "kind": "text", "text": "listed"}]),
+        ),
+    );
+
+    let ids = |value: &Value| -> Vec<String> {
+        value.as_array().unwrap().iter().map(|run| run["id"].as_str().unwrap().to_owned()).collect()
+    };
+    let all = json_of(&chief_cli(&server, &["runs", "--last", "500", "--json"], ""));
+    let all = ids(&all);
+    assert_eq!(all.len(), total as usize + 1, "{all:?}");
+    assert_eq!(all[0], "turn:runs:steps");
+    assert_eq!(all[1], format!("turn:runs:{}", total - 1));
+    assert_eq!(all.last().unwrap(), "turn:runs:0");
+    let unique: std::collections::HashSet<&String> = all.iter().collect();
+    assert_eq!(unique.len(), all.len(), "a page repeated a run");
+
+    let newest = json_of(&chief_cli(&server, &["runs", "--last", "2", "--json"], ""));
+    assert_eq!(ids(&newest), ["turn:runs:steps", &format!("turn:runs:{}", total - 1)]);
+    let older = json_of(&chief_cli(&server, &["runs", "--before", "1002", "--json"], ""));
+    assert_eq!(ids(&older), ["turn:runs:1", "turn:runs:0"]);
+
+    let run = json_of(&chief_cli(&server, &["runs", "turn:runs:steps", "--json"], ""));
+    assert_eq!(run["run"]["id"], "turn:runs:steps", "{run}");
+    let kinds: Vec<&str> =
+        run["steps"].as_array().unwrap().iter().map(|s| s["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["tool", "text"], "{run}");
+
+    let plain = chief_cli(&server, &["runs", "--last", "1"], "");
+    assert_success(&plain);
+    let stdout = String::from_utf8_lossy(&plain.stdout);
+    assert!(stdout.contains("turn:runs:steps") && stdout.contains("steps 2"), "{stdout}");
 }

@@ -130,6 +130,65 @@ impl ChatClient {
         }
     }
 
+    /// One page of run summaries, newest first, started before `before`
+    /// (`conversation-runs`; a Cloud chat reads `agent`'s runs through
+    /// `cloud-conversation-runs`); the runs and whether older ones remain.
+    pub(super) fn runs(
+        &mut self,
+        conversation: &str,
+        agent: &str,
+        before: Option<u64>,
+    ) -> Result<(Vec<Value>, bool), LinkError> {
+        let mut params = json!({"conversation": conversation});
+        if let Some(before) = before {
+            params["before_started_at"] = json!(before);
+        }
+        let value = match self.owner {
+            Owner::Local => {
+                params["limit"] = json!(200);
+                self.link.command("conversation-runs", params)?
+            }
+            Owner::Cloud => {
+                params["agent"] = json!(agent);
+                params["limit"] = json!(100);
+                self.link.command("cloud-conversation-runs", params)?
+            }
+        };
+        let runs = value.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
+        Ok((runs, value.get("has_more").and_then(Value::as_bool).unwrap_or(false)))
+    }
+
+    /// One page of `run`'s steps written after `after` (`conversation-run`
+    /// by write revision; `cloud-conversation-run` by place); the owner's
+    /// page (`run`, `steps`, `has_more`).
+    pub(super) fn run_steps(
+        &mut self,
+        conversation: &str,
+        agent: &str,
+        run: &str,
+        after: u64,
+    ) -> Result<Value, LinkError> {
+        match self.owner {
+            Owner::Local => self.link.command(
+                "conversation-run",
+                json!({"conversation": conversation, "run": run, "after_rev": after}),
+            ),
+            Owner::Cloud => self.link.command(
+                "cloud-conversation-run",
+                json!({"conversation": conversation, "agent": agent, "run": run, "after_seq": after}),
+            ),
+        }
+    }
+
+    /// The step key a run page's next read starts after: `rev` locally,
+    /// `seq` on a Cloud owner.
+    pub(super) fn step_key(&self) -> &'static str {
+        match self.owner {
+            Owner::Local => "rev",
+            Owner::Cloud => "seq",
+        }
+    }
+
     /// The thread of `root`: the root, then its replies.
     pub(super) fn thread(&mut self, conversation: &str, root: &str) -> Result<Value, LinkError> {
         let cmd = match self.owner {
