@@ -504,7 +504,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             handleSizingSample(sample, paneId: paneId)
         }
         reportPaneColors(paneId: paneId)
-        if needsSeed { connection?.seedPane(paneId: paneId, clearScrollback: true) }
+        if needsSeed { connection?.queuePaneSeed(paneId: paneId) }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
