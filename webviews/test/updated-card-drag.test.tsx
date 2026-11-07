@@ -100,12 +100,13 @@ function stage() {
       Object.defineProperty(event, "currentTarget", { value: section });
       Object.defineProperty(event, "target", { value: target });
       pressCard(rest, event as unknown as PointerEvent, host, "spring", () => log.push("start"));
-    } else section.dispatchEvent(event);
+    } else target.dispatchEvent(event);
   };
   return {
     section,
     log,
     pointer,
+    outside: document.body,
     words: document.querySelector(".words")!,
     button: document.querySelector("button")!,
     close: () => {
@@ -174,6 +175,23 @@ test("a press moved across the line selects the words, and a press on a button s
     pointer("pointerdown", 200, 420, 400, button);
     pointer("pointermove", 200, 300, 500);
     pointer("pointerup", 200, 300, 600);
+    expect(log).toEqual([]);
+  } finally {
+    close();
+  }
+});
+
+// Review of #37669 (P2): the press listened on the card only, and took the pointer only once it had
+// become a drag. A press let go off the card before the slop never heard its release, so the next
+// move over the card, with no button down, started a drag.
+test("a press let go off the card before the slop ends there: a later move drags nothing", () => {
+  const { log, pointer, section, outside, close } = stage();
+  try {
+    pointer("pointerdown", 100, 420, 0);
+    pointer("pointerup", 102, 470, 100, outside);
+    pointer("pointermove", 100, 300, 200);
+    pointer("pointermove", 100, 200, 300);
+    expect(section.dataset.dragging).toBeUndefined();
     expect(log).toEqual([]);
   } finally {
     close();
