@@ -12,9 +12,8 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -63,7 +62,6 @@ export function TasksSection({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const openTasks = useContext(OpenBackgroundTasks);
   const [showFinished, setShowFinished] = useState(false);
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
@@ -101,9 +99,7 @@ export function TasksSection({
           className="acpmux-session-info-task__open"
           disabled={why !== undefined}
           onClick={() => {
-            // On this Mac it opens rendered in the Background tasks panel, which keeps Open in terminal.
-            if (local && openTasks) openTasks();
-            else void openCommand(toolCallId, { local, showCall: onShowCall });
+            void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
