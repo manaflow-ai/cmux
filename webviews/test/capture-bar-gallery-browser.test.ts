@@ -62,12 +62,17 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
     });
     return page.evaluate(() => {
       const body = document.querySelector(".acpmux-capture")!.getBoundingClientRect();
+      const room = document.querySelector(".acpmux-capture__room")!.getBoundingClientRect();
       const problems: string[] = [];
+      if (Math.abs(body.height - room.height) > 0.5)
+        problems.push(`bar ${body.height} tall, its content ${room.height}`);
       if (body.right > window.innerWidth + 0.5) problems.push(`bar past the viewport (${body.right})`);
       for (const control of document.querySelectorAll<HTMLElement>(".acpmux-capture button, .acpmux-capture label")) {
         const box = control.getBoundingClientRect();
         if (box.bottom > body.bottom + 0.5 || box.right > body.right + 0.5 || box.top < body.top - 0.5)
-          problems.push(`${control.className || control.tagName}: ${control.textContent} cut off`);
+          problems.push(
+            `${control.className || control.tagName}: ${control.textContent} cut off (${box.top}-${box.bottom} in ${body.top}-${body.bottom})`,
+          );
       }
       return problems;
     });
@@ -79,7 +84,9 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
         test(`${variant} in ${scheme}`, async () => {
           const page = await open(variant, scheme);
           try {
-            expect(await clipped(page)).toEqual([]);
+            const problems = await clipped(page);
+            if (out) await page.screenshot({ path: path.join(out, `capture-bar-${variant}-${scheme}.png`) });
+            expect(problems).toEqual([]);
             if (variant === "recording") {
               expect(await page.locator(".acpmux-capture__elapsed").textContent()).toMatch(/^0:1\d$/);
               await page.locator(".acpmux-capture__stop").waitFor();
@@ -93,7 +100,9 @@ await requireBrowserLane("capture-bar-gallery-browser.test.ts", async () => {
     test("the band wraps in a narrow pane, nothing cut off", async () => {
       const page = await open("band", "dark", 420);
       try {
-        expect(await clipped(page)).toEqual([]);
+        const problems = await clipped(page);
+        if (out) await page.screenshot({ path: path.join(out, "capture-bar-band-narrow-dark.png") });
+        expect(problems).toEqual([]);
         if (out) await page.screenshot({ path: path.join(out, "capture-bar-band-narrow-dark.png") });
       } finally {
         await page.close();
