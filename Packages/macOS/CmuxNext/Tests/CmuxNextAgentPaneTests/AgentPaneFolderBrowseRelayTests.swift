@@ -73,4 +73,20 @@ struct AgentPaneFolderBrowseRelayTests {
             return
         }
     }
+
+    /// A refusal and a machine that is down read apart through the relay: a listed reason stays,
+    /// anything else in the error's data is dropped.
+    @Test func anErrorKeepsOnlyAListedReason() throws {
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/browse"])
+        func error(_ reason: String) throws -> [String: Any] {
+            let reply: [String: Any] = ["jsonrpc": "2.0", "id": 9, "error": ["code": -32602, "message": "no", "data": ["reason": reason, "roots": ["/srv"]]]]
+            let text = AcpmuxPaneMethods.filteredReply(reply, shape: shape, pageID: "4")
+            return try #require((try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["error"] as? [String: Any])
+        }
+        for reason in ["browse.outside_roots", "peer_unreachable"] {
+            #expect((try error(reason)["data"] as? [String: Any]).map { $0.keys.sorted() } == ["reason"])
+            #expect((try error(reason)["data"] as? [String: Any])?["reason"] as? String == reason)
+        }
+        #expect(try error("something.else")["data"] == nil)
+    }
 }
