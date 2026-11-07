@@ -2720,6 +2720,8 @@ export function Composer({
           showContextUsage && (
             <UsageRingMenu>
               <ContextRing
+                // The chat the reading is of: switching chats shows the new one's at once, uneased.
+                chat={snapshot.summary?.sessionId || sessionId}
                 used={usage?.used}
                 size={usage?.size}
                 setup={usage?.setup}
