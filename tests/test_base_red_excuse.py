@@ -4037,6 +4037,18 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.refused_with('.binaryTarget(name: "CCmuxAppFFI", path: "Frameworks/CCmuxAppFFI.xcframework")\n',
                           "has no single url and checksum")
 
+    def test_a_url_and_checksum_nested_in_another_argument_are_no_pin(self):
+        # Review of 4c957a46 (hq#7508 F1, P1): only the call's own arguments count.
+        url = (f"https://github.com/{REPO}/releases/download/cmux-app-ffi-{self.STEP_B_PIN}/"
+               "CCmuxAppFFI.xcframework.zip")
+        nested = (f'.binaryTarget(name: "CCmuxAppFFI", path: local(url: "{url}", checksum: "{self.CHECKSUM}"))\n')
+        self.refused_with(nested, "has no single url and checksum")
+        extra = self.target(self.STEP_B_PIN).replace('    checksum:', '    path: "x",\n    checksum:')
+        self.refused_with(extra, "has no single url and checksum")
+        joined = self.target(self.STEP_B_PIN).replace('url: "https', 'url: "" + "https')
+        self.refused_with(joined, "has no single url and checksum")
+        self.assertEqual(self.releases, [])
+
     def test_the_real_manifest_reads_its_one_pin(self):
         text = (ROOT / excuse.FFI_PIN_MANIFEST).read_text(encoding="utf-8")
         pin, checksum, why = excuse.ffi_binary_target(text, REPO)

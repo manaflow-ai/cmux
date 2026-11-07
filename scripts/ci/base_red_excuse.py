@@ -1094,7 +1094,41 @@ def swift_code(text: str) -> str:
 
 
 BINARY_TARGET = re.compile(r"\.binaryTarget\s*\(")
-SWIFT_ARG = re.compile(r'\b(name|url|checksum)\s*:\s*"([^"\\\n]*)"')
+
+
+def binary_target_args(code: str, start: int) -> tuple[list[tuple[str, str]], int]:
+    """The top-level arguments of the call whose `(` ends at START in CODE (comment-free swift_code), as (label,
+    raw value) pairs, and where the call ends. Nested calls, arrays and string literals stay inside their argument."""
+    args, depth, j, part = [], 1, start, start
+    while j < len(code) and depth:
+        c = code[j]
+        if c == '"':
+            j += 1
+            while j < len(code) and code[j] not in '"\n':
+                j += 2 if code[j] == "\\" else 1
+        elif c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(code[part:j])
+        elif c == "," and depth == 1:
+            args.append(code[part:j])
+            part = j + 1
+        j += 1
+    pairs = []
+    for raw in args:
+        found = re.fullmatch(r"\s*(\w+)\s*:\s*(.*?)\s*", raw, re.S)
+        pairs.append((found[1], found[2]) if found else ("", raw.strip()))
+    return pairs, j
+
+
+def string_literal(value: str) -> str | None:
+    """VALUE's text when VALUE is exactly one plain Swift string literal with no escape or interpolation."""
+    found = re.fullmatch(r'"([^"\\\n]*)"', value)
+    return found[1] if found else None
+
+
 
 
 def ffi_binary_target(manifest: str, repo: str) -> tuple[str | None, str | None, str]:
@@ -1103,20 +1137,17 @@ def ffi_binary_target(manifest: str, repo: str) -> tuple[str | None, str | None,
     download of cmux-app-ffi-<sha>/CCmuxAppFFI.xcframework.zip and its checksum 64 hex characters."""
     code, targets = swift_code(manifest), []
     for found in BINARY_TARGET.finditer(code):
-        depth, j = 1, found.end()
-        while j < len(code) and depth:
-            if code[j] == '"':  # a string literal's parentheses are not the call's
-                j += 1
-                while j < len(code) and code[j] not in '"\n':
-                    j += 2 if code[j] == "\\" else 1
-            elif code[j] in "()":
-                depth += 1 if code[j] == "(" else -1
-            j += 1
-        args: dict[str, list[str]] = {}
-        for key, value in SWIFT_ARG.findall(code[found.end():j - 1]):
-            args.setdefault(key, []).append(value)
-        if args.get("name") == [FFI_TARGET_NAME]:
-            targets.append(args)
+        pairs, _ = binary_target_args(code, found.end())
+        labels = [label for label, _ in pairs]
+        if string_literal(dict(pairs).get("name", "")) != FFI_TARGET_NAME or "name" not in labels:
+            continue
+        # Only `name:`, `url:` and `checksum:` at the call's own level, each once and each one plain string: a
+        # nested `url:` (inside `path: f(url: ...)`) or any other argument is no remote release pin.
+        values = {label: string_literal(value) for label, value in pairs}
+        if sorted(labels) != ["checksum", "name", "url"] or None in values.values():
+            targets.append({"name": [FFI_TARGET_NAME]})
+        else:
+            targets.append({key: [value] for key, value in values.items()})
     if len(targets) != 1:
         return None, None, f"Package.swift has {len(targets)} {FFI_TARGET_NAME} binary targets in its code, not one"
     target = targets[0]
