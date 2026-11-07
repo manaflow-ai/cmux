@@ -32,7 +32,7 @@ struct SpringFrameNoWindowPassTests {
             }
             stack.append(contentsOf: view.subviews)
         }
-        return found.prefix(24).joined(separator: ", ")
+        return found.prefix(60).joined(separator: ", ")
     }
 
     @Test(arguments: [LayoutDirection.left, .right])
@@ -67,6 +67,8 @@ struct SpringFrameNoWindowPassTests {
             }
             if !moving { break }
         }
+        let surfaces = (try? rig.screen)?.subviews.count ?? -1
+        Issue.record("DIAG frames=\(frames) framePasses=\(framePasses) extra=\(extra.prefix(8)) screenSubviews=\(surfaces) frameView=\(frameClass) c\(frameView.constraints.count) contentAR=\(rig.window.contentView?.translatesAutoresizingMaskIntoConstraints ?? false) AL=[\(Self.constraintViews(in: rig.window))]")
         #expect(frames > 2, "the press did not spring")
         #expect(framePasses == 0, "the window's frame view (\(frameClass)) laid out \(framePasses)x in \(frames) spring frames. Auto Layout views: \(Self.constraintViews(in: rig.window))")
         #expect(extra.isEmpty, "\(extra.count) window-pass layouts of views whose size did not change: \(extra.prefix(16))")
