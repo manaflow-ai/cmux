@@ -165,8 +165,10 @@ export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): 
 /// stableProps.ts: a callback is a stable function that calls the pane's newest one, an option object
 /// or element with the same parts is the one given before. The menu's rows and the summary button are
 /// read while the header renders, so they are read here on each pane render and hand over a change.
-export function ChatHeaderTools(props: ChatHeaderToolsProps) {
-  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] });
+/// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
+/// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
+export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
+  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
   return <ChatHeaderToolsMemo {...stable} />;
 }
 

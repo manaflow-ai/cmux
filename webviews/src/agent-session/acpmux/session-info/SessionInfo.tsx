@@ -1000,12 +1000,15 @@ function useSessionInfoLists({
   // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
   // none, its gallery or what it made changes, a turn starts or ends, or the panel lists another agent.
   // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
-  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`).
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`). Another chat's
+  // rows are always new: the panel outlives a chat switch, and B must never show A's images.
+  const chat = snapshot.sessionId;
   const listing = scope?.agent.id;
   const working = snapshot.isWorking;
   const any = rows.length > 0;
-  const galleryRows = useRef({ rows, any, artifacts, listing, working, outputFiles, toolCalls });
+  const galleryRows = useRef({ rows, chat, any, artifacts, listing, working, outputFiles, toolCalls });
   if (
+    galleryRows.current.chat !== chat ||
     galleryRows.current.any !== any ||
     galleryRows.current.artifacts !== artifacts ||
     galleryRows.current.listing !== listing ||
@@ -1013,7 +1016,7 @@ function useSessionInfoLists({
     galleryRows.current.outputFiles !== outputFiles ||
     galleryRows.current.toolCalls !== toolCalls
   )
-    galleryRows.current = { rows, any, artifacts, listing, working, outputFiles, toolCalls };
+    galleryRows.current = { rows, chat, any, artifacts, listing, working, outputFiles, toolCalls };
   const sectionRows = galleryRows.current.rows;
   const rowCount = rows.length;
   const lists = useMemo<SessionInfoLists>(

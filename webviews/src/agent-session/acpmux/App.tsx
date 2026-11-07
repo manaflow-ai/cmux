@@ -10843,6 +10843,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
                     {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
+                      chat={snapshot.sessionId}
                       nativeRowTools={{
                         enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
                         callNative,

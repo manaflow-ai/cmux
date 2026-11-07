@@ -6,7 +6,10 @@
 // rendered once per output update before liveToolOutput.ts, and still on every other pane render). stableHandlers.ts does this for the composer's `on*` props; this goes through
 // every prop, into plain objects, arrays and elements:
 //   - a function anywhere in the props is one function per place that calls the latest one there
-//     (its presence still counts: a function that comes or goes is a change);
+//     (its presence still counts: a function that comes or goes is a change). An array row's place
+//     names its `key` (or `id`), so a row kept from before (an open menu's) runs its own action, not
+//     the one that took its index; and `owner` (the chat) changing starts over, so a function kept
+//     from one chat never runs another chat's;
 //   - a plain object, an array or an element whose parts are all the same as last time is the
 //     value given last time, and one with no function in it is itself (data keeps its identity);
 //   - anything else (a class instance, a Set, a ref object) compares by identity.
@@ -41,7 +44,7 @@ function valueAt(root: unknown, path: Path): unknown {
 class Stabilizer {
   latest: unknown;
   /// One caller per function's place.
-  private calls = new Map<string, Fn>();
+  private calls = new Map<string, { fn: Fn; call: Fn }>();
   /// What each place was handed last time, and what it gave for it. A place is a prop's path; the
   /// places are as many as the largest props seen.
   private raw = new Map<string, unknown>();
@@ -57,18 +60,24 @@ class Stabilizer {
     return this.value(next, path, path.length);
   }
 
-  private caller(path: Path): Fn {
+  /// The caller for the function `fn` at `path`: it runs `fn`, and the newest function handed for
+  /// the same place after it. A place names its array rows by their `key` (or `id`) too, so a row
+  /// kept from an earlier render (an open menu's) runs its own row's action, never the one that took
+  /// its spot; and a caller is never handed to another stabilizer (another chat, `useStableProps`).
+  private caller(path: Path, fn: Fn): Fn {
     const key = JSON.stringify(path);
-    let call = this.calls.get(key);
-    if (!call) {
-      call = (...args: unknown[]) => (valueAt(this.latest, path) as Fn | undefined)?.(...args);
-      this.calls.set(key, call);
+    let entry = this.calls.get(key);
+    if (!entry) {
+      const made: { fn: Fn; call: Fn } = { fn, call: (...args: unknown[]) => made.fn(...args) };
+      entry = made;
+      this.calls.set(key, entry);
     }
-    return call;
+    entry.fn = fn;
+    return entry.call;
   }
 
   private value(next: unknown, path: Path, depth: number): unknown {
-    if (typeof next === "function") return this.caller(path);
+    if (typeof next === "function") return this.caller(path, next as Fn);
     if (depth >= MAX_DEPTH) return next;
     const element = isValidElement(next);
     if (!element && !Array.isArray(next) && !isPlainObject(next)) return next;
@@ -88,7 +97,7 @@ class Stabilizer {
             ? el
             : createElement(el.type, el.key === null ? props : { ...props, key: el.key });
     } else if (Array.isArray(next)) {
-      const items = next.map((item, index) => this.value(item, [...path, index], depth + 1));
+      const items = next.map((item, index) => this.value(item, [...path, rowPlace(item, index)], depth + 1));
       const sameAs = (list: readonly unknown[]) =>
         list.length === items.length && items.every((item, index) => Object.is(item, list[index]));
       made = Array.isArray(before) && sameAs(before) ? before : sameAs(next) ? next : items;
@@ -109,6 +118,13 @@ class Stabilizer {
   }
 }
 
+/// An array row's place: its index, and its `key` (or `id`) when it has one, so a row's functions
+/// stay its own when rows are added, removed or reordered.
+function rowPlace(item: unknown, index: number): string | number {
+  const named = isPlainObject(item) ? (item.key ?? item.id) : isValidElement(item) ? item.key : undefined;
+  return typeof named === "string" || typeof named === "number" ? `${index}:${named}` : index;
+}
+
 function sameFields(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keys = Object.keys(b);
   return keys.length === Object.keys(a).length && keys.every((key) => key in a && Object.is(a[key], b[key]));
@@ -117,10 +133,17 @@ function sameFields(a: Record<string, unknown>, b: Record<string, unknown>): boo
 /// `props` as a memoized component should get them: the same values while they are the same (see
 /// the top of this file). `eager` names function props the component calls while it renders, with
 /// the arguments it calls them with: each is called here, on every parent render, and its result is
-/// handed over the same way, so the component renders again when that result changes.
-export function useStableProps<P extends object>(props: P, eager?: { [K in keyof P]?: readonly unknown[][] }): P {
-  const stabilizer = useRef<Stabilizer | undefined>(undefined);
-  stabilizer.current ??= new Stabilizer();
+/// handed over the same way, so the component renders again when that result changes. `owner` is
+/// whose props these are (the chat): when it changes every value is new, and the functions handed
+/// out before keep calling the old owner's.
+export function useStableProps<P extends object>(
+  props: P,
+  eager?: { [K in keyof P]?: readonly unknown[][] },
+  owner?: unknown,
+): P {
+  const held = useRef<{ owner: unknown; stabilizer: Stabilizer } | undefined>(undefined);
+  if (!held.current || !Object.is(held.current.owner, owner)) held.current = { owner, stabilizer: new Stabilizer() };
+  const stabilizer = held.current.stabilizer;
   const root: Record<string, unknown> = { ...(props as Record<string, unknown>) };
   const results: Record<string, unknown[]> = {};
   for (const [name, calls] of Object.entries(eager ?? {}) as [string, unknown[][] | undefined][]) {
@@ -128,12 +151,12 @@ export function useStableProps<P extends object>(props: P, eager?: { [K in keyof
     if (typeof fn !== "function" || !calls) continue;
     results[name] = calls.map((args) => (fn as Fn)(...args));
   }
-  const stable = stabilizer.current.run({ props: root, results });
+  const stable = stabilizer.run({ props: root, results });
   const out = { ...(stable.props as Record<string, unknown>) };
   const kept = stable.results as Record<string, unknown[]>;
   for (const [name, calls] of Object.entries(eager ?? {}) as [string, unknown[][] | undefined][]) {
     if (!(name in kept) || !calls) continue;
-    out[name] = eagerCall(stabilizer.current, name, calls, kept[name]!);
+    out[name] = eagerCall(stabilizer, name, calls, kept[name]!);
   }
   return out as P;
 }
