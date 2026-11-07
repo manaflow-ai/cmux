@@ -522,6 +522,7 @@ impl HealthService {
     /// Records the authentication proof returned by an ACP session handshake.
     /// A successful `session/new` or `session/load` can be stronger evidence
     /// than an unavailable provider probe (Muse has no verified status command).
+    /// It holds until a later check reads that harness signed out or expired.
     pub fn record_acp_auth_success(&self, id: &str, detail: impl Into<String>) {
         if self.fixed() {
             return;
@@ -531,16 +532,19 @@ impl HealthService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(id.to_owned(), detail.clone());
-        let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(row) = rows.iter_mut().find(|row| row.id == id) {
+        let cache = self.settings.lock().unwrap_or_else(PoisonError::into_inner).cache.clone();
+        self.update_rows(|rows| {
+            let Some(row) = rows.iter_mut().find(|row| row.id == id) else { return };
+            if row.auth == Auth::SignedIn && row.auth_detail.as_deref() == Some(detail.as_str()) {
+                return;
+            }
             row.auth = Auth::SignedIn;
             row.auth_detail = Some(detail);
             row.checked_at = now_ms();
-        }
-        let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(path) = settings.cache.as_deref() {
-            save(path, &rows);
-        }
+            if let Some(path) = cache.as_deref() {
+                save(path, rows);
+            }
+        });
     }
 
     /// The first check: callers that ask before any check ended share one (the
@@ -632,13 +636,23 @@ impl HealthService {
         rows
     }
 
+    /// A check's own verdict wins over ACP evidence: signed out or expired
+    /// drops the evidence (a logout after the session started); only a row
+    /// the check could not read takes it.
     fn apply_acp_auth(&self, rows: &mut [HarnessHealth]) {
-        let evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
         for row in rows {
-            if let Some(detail) = evidence.get(&row.id) {
-                row.auth = Auth::SignedIn;
-                row.auth_detail = Some(detail.clone());
-                row.checked_at = now_ms();
+            match row.auth {
+                Auth::SignedOut | Auth::Expired => {
+                    evidence.remove(&row.id);
+                }
+                Auth::Unknown => {
+                    if let Some(detail) = evidence.get(&row.id) {
+                        row.auth = Auth::SignedIn;
+                        row.auth_detail = Some(detail.clone());
+                    }
+                }
+                Auth::SignedIn => {}
             }
         }
     }
@@ -896,10 +910,21 @@ mod tests {
             auto_update: false,
             last_auto_update: None,
         }]);
+        let feed = service.inventory_changes();
         service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
         let row = service.rows().pop().expect("muse health row");
         assert_eq!(row.auth, Auth::SignedIn);
         assert_eq!(row.auth_detail.as_deref(), Some("ACP session/new authenticated the harness"));
+        assert!(feed.has_changed().unwrap(), "the inventory feed sees the new sign-in");
+
+        // A later check that reads the harness signed out drops the evidence.
+        let mut checked = service.rows();
+        checked[0].auth = Auth::SignedOut;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::SignedOut);
+        checked[0].auth = Auth::Unknown;
+        service.apply_acp_auth(&mut checked);
+        assert_eq!(checked[0].auth, Auth::Unknown, "the logout's evidence is gone");
     }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {

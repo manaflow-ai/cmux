@@ -57,6 +57,13 @@ pub(crate) const LOGIN_ENV_OWNERS: &[LoginEnv] = &[
     // Codex's own API-key sign-in (`agent_login.rs` `MODEL_PLANE_ENV`).
     LoginEnv { key: "CODEX_API_KEY", family: "codex", shared_with_others: false },
     LoginEnv { key: "OPENCODE_CONFIG", family: "opencode", shared_with_others: false },
+    // Gemini CLI's API key is a provider key other multi-provider harnesses
+    // also read; its login folder is its own (`harness_health/agent_files.rs`).
+    // `GOOGLE_*` stays: Claude Code on Vertex reads it on purpose (`login_env.rs`).
+    LoginEnv { key: "GEMINI_API_KEY", family: "gemini", shared_with_others: true },
+    LoginEnv { key: "GEMINI_CLI_HOME", family: "gemini", shared_with_others: false },
+    // Muse Code's API key: no other harness signs in with it.
+    LoginEnv { key: "META_API_KEY", family: "muse", shared_with_others: false },
 ];
 
 /// The families whose login is exactly their own keys above.
@@ -309,6 +316,22 @@ mod tests {
             assert!(claude.contains(&key), "{key} reaches Claude Code");
         }
         assert!(!claude.contains(&"CLAUDE_CODE_OAUTH_TOKEN"));
+    }
+
+    #[test]
+    fn gemini_and_muse_logins_stay_with_their_harness() {
+        let claude: Vec<_> = foreign_login_keys("claude").collect();
+        for key in ["GEMINI_API_KEY", "GEMINI_CLI_HOME", "META_API_KEY"] {
+            assert!(claude.contains(&key), "{key} reaches Claude Code");
+        }
+        let opencode: Vec<_> = foreign_login_keys("opencode").collect();
+        assert!(opencode.contains(&"META_API_KEY") && opencode.contains(&"GEMINI_CLI_HOME"));
+        assert!(!opencode.contains(&"GEMINI_API_KEY"), "OpenCode loses a provider key");
+        let gemini: Vec<_> = foreign_login_keys("gemini").collect();
+        assert!(gemini.contains(&"META_API_KEY") && gemini.contains(&"CLAUDE_CODE_OAUTH_TOKEN"));
+        assert!(!gemini.contains(&"GEMINI_API_KEY") && !gemini.contains(&"GEMINI_CLI_HOME"));
+        let muse: Vec<_> = foreign_login_keys("muse").collect();
+        assert!(muse.contains(&"GEMINI_CLI_HOME") && !muse.contains(&"META_API_KEY"));
     }
 
     #[test]
