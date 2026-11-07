@@ -223,6 +223,10 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
+/// Debug builds only: a test seam for the Mac's reads of its copies (see `peer_snapshot`).
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub use peer_snapshot::reads_fail as peer_snapshot_reads_fail;
 mod peers;
 mod remote_rows;
 pub(crate) use peers::{
@@ -1364,6 +1368,8 @@ impl Hub {
             turn_lock: Mutex::new(()),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
+            restoring: AtomicBool::new(false),
+            restore_done: tokio::sync::Notify::new(),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),

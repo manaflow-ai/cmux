@@ -16,9 +16,14 @@
 //! again ([`RETRY_WAITS`], then the peer's next link).
 //!
 //! Until a link's restores are decided, prompts to that peer wait for them (`Gate`, at most
-//! [`GATE_WITHIN`]): a prompt the fresh machine ran first would take the seqs the restore
-//! needs. Then the deliveries the peer accepted and may have lost with its disk are delivered
-//! again under their own prompt ids (`server/outbox.rs` `redeliver_open`).
+//! [`GATE_WITHIN`], then they fail): a prompt the fresh machine ran first would take the seqs the
+//! restore needs. Only a positive answer releases them: the copies read and none ahead, or each
+//! one taken back whole (or refused as another history). A read that fails (the store's queue
+//! full, its thread gone, no answer) is "maybe ahead": it is read again ([`READ_WAITS`]), and
+//! past them every prompt to the peer fails visibly until it reconnects. A copy not taken back
+//! holds its own session the same way. Then, with nothing held, the deliveries the peer
+//! accepted and may have lost with its disk are delivered again under their own prompt ids
+//! (`server/outbox.rs` `redeliver_open`); with anything held, none is.
 
 use super::*;
 use crate::rpc::RpcError;
@@ -39,62 +44,109 @@ const RETRY_WAITS: [Duration; 4] = [
     Duration::from_secs(4),
 ];
 
-/// The longest a prompt to a peer waits for that peer's restores.
+/// The waits before each read again of whether a copy is ahead, when a read fails.
+const READ_WAITS: [Duration; 5] = [
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+];
+
+/// The longest a prompt to a peer waits for that peer's restores, after which it fails.
 const GATE_WITHIN: Duration = Duration::from_secs(30);
 
-/// For each peer, the link (instance and link epoch) whose restore decision is made: every copy
-/// ahead of its journals taken back, refused, or left for a later link. A prompt to a peer on a
-/// link not decided yet waits ([`Gate::wait`]). The peer reads its link ready before the hub
-/// hears of it (`peer.rs` sets `connected`, then sends `Connected`), so this goes by the link
-/// the peer is on, not by a notice: no prompt reaches a fresh machine ahead of its restore.
+/// What a peer's link decided of its copies.
+#[derive(Clone)]
+struct Decision {
+    link: Link,
+    /// The sessions still held: a copy not taken back whole, or every one (None) when it could
+    /// not be read whether any copy is ahead. A prompt to a held session fails visibly until a
+    /// later link decides again; nothing is delivered again to the peer meanwhile.
+    held: Option<HashSet<String>>,
+}
+
+/// For each peer, the link (instance and link epoch) whose restore decision is made. A prompt
+/// to a peer on a link not decided yet waits ([`Gate::wait`]). The peer reads its link ready
+/// before the hub hears of it (`peer.rs` sets `connected`, then sends `Connected`), so this goes
+/// by the link the peer is on, not by a notice: no prompt reaches a fresh machine ahead of its
+/// restore.
 #[derive(Default)]
 pub(crate) struct Gate {
-    decided: StdMutex<HashMap<String, Link>>,
+    decided: StdMutex<HashMap<String, Decision>>,
     done: Notify,
 }
 
 impl Gate {
-    fn decide(&self, peer: &str, link: Link) {
+    fn decide(&self, peer: &str, decision: Decision) {
         let mut decided = self.decided.lock().unwrap_or_else(|e| e.into_inner());
-        let at = decided.entry(peer.to_owned()).or_insert(link);
-        *at = (*at).max(link);
+        if decided.get(peer).is_none_or(|d| d.link <= decision.link) {
+            decided.insert(peer.to_owned(), decision);
+        }
         drop(decided);
         self.done.notify_waiters();
     }
 
-    fn is_decided(&self, peer: &crate::peer::Peer) -> bool {
+    /// The decision of `peer`'s current link, if made.
+    fn decision(&self, peer: &crate::peer::Peer) -> Option<Decision> {
         let link = (peer.generation, peer.link_epoch());
-        self.decided.lock().unwrap_or_else(|e| e.into_inner()).get(&peer.name) >= Some(&link)
+        let decided = self.decided.lock().unwrap_or_else(|e| e.into_inner());
+        decided.get(&peer.name).filter(|d| d.link >= link).cloned()
     }
 
     /// Waits until `peer`'s current link has its restore decision, while the link is up, at most
-    /// [`GATE_WITHIN`]. A link that is down waits for nothing: the request is refused as
-    /// unreachable as before, and tried again once a link is up.
-    pub(crate) async fn wait(&self, peer: &crate::peer::Peer) {
+    /// [`GATE_WITHIN`]; then a prompt to `session` goes unless the decision holds it. A link that
+    /// is down waits for nothing: the request is refused as unreachable as before.
+    pub(crate) async fn wait(
+        &self,
+        peer: &crate::peer::Peer,
+        session: &str,
+    ) -> Result<(), RpcError> {
         let deadline = tokio::time::Instant::now() + GATE_WITHIN;
         loop {
             let done = self.done.notified();
             tokio::pin!(done);
             done.as_mut().enable();
-            if !peer.ready() || self.is_decided(peer) {
-                return;
+            if !peer.ready() {
+                return Ok(());
             }
-            // A drop ends the wait at once too: its notice runs no restore, so poll the link
-            // at most every 100 ms while it waits.
+            if let Some(d) = self.decision(peer) {
+                return match d.held {
+                    Some(held) if !held.contains(session) => Ok(()),
+                    _ => Err(held_error(&peer.name)),
+                };
+            }
+            // A drop ends the wait at once too: its notice runs no restore, so the link is read
+            // again at most every 100 ms.
             let poll = tokio::time::Instant::now() + Duration::from_millis(100);
             if tokio::time::timeout_at(deadline.min(poll), done).await.is_err()
                 && tokio::time::Instant::now() >= deadline
             {
-                tracing::warn!(peer = %peer.name, "journal restores still undecided; the prompt goes on");
-                return;
+                return Err(held_error(&peer.name));
             }
         }
     }
 }
 
+fn held_error(peer: &str) -> RpcError {
+    RpcError::new(
+        -32000,
+        format!(
+            "{peer} came back on an older copy of its disk and this chat's newer history could not be given back to it yet; the prompt was not sent (it is tried again when {peer} reconnects)"
+        ),
+    )
+    .with_data(json!({"reason": "restore_pending", "peer": peer}))
+}
+
 impl PeerSnapshots {
-    /// The copies of `peer`'s chats that hold records past where `rows` say its journals end.
-    fn ahead(&self, peer: &str, rows: Vec<Row>) -> Vec<Ahead> {
+    /// The copies of `peer`'s chats that hold records past where `rows` say its journals end;
+    /// None when it could not be read (the queue full, the store's thread gone, no answer within
+    /// [`ANSWER_WITHIN`]): that is "maybe ahead", never "none".
+    fn ahead(&self, peer: &str, rows: Vec<Row>) -> Option<Vec<Ahead>> {
+        #[cfg(debug_assertions)]
+        if test_unknown(peer) {
+            return None;
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         let sent = {
             let mut dropped = self.dropped();
@@ -103,9 +155,9 @@ impl PeerSnapshots {
                 && self.enqueue(OP_BYTES, Op::Ahead { peer: peer.to_owned(), rows, reply: tx })
         };
         if !sent {
-            return Vec::new();
+            return None;
         }
-        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).unwrap_or_default()
+        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
     }
 
     fn restored(&self, (peer, mux): (&str, &str), last: Option<u64>) {
@@ -113,9 +165,14 @@ impl PeerSnapshots {
         self.admit(peer, OP_BYTES + mux.len() as u64, false, || Op::Restored { key, last });
     }
 
-    /// Prompts to `peer` wait here until its link's restores are decided.
-    pub(crate) async fn restores_done(&self, peer: &crate::peer::Peer) {
-        self.restoring.wait(peer).await;
+    /// Prompts to `peer`'s session `session` wait here until its link's restores are decided,
+    /// and fail when the decision holds them.
+    pub(crate) async fn restores_done(
+        &self,
+        peer: &crate::peer::Peer,
+        session: &str,
+    ) -> Result<(), RpcError> {
+        self.restoring.wait(peer, session).await
     }
 }
 
@@ -182,15 +239,35 @@ impl Hub {
         };
         let (hub, peer) = (self.clone(), peer.to_owned());
         tokio::spawn(async move {
-            let ahead = {
-                let (hub, peer) = (hub.clone(), peer.clone());
-                tokio::task::spawn_blocking(move || hub.peer_snapshots.ahead(&peer, rows))
+            // Read again on the way while the read fails, at most [`READ_WAITS`] (15.5 s and
+            // the reads' own [`ANSWER_WITHIN`]); never read is every session held.
+            let mut ahead = None;
+            for wait in std::iter::once(Duration::ZERO).chain(READ_WAITS) {
+                tokio::time::sleep(wait).await;
+                if hub.peer(&peer).is_none_or(|p| (p.generation, p.link_epoch()) != link) {
+                    return;
+                }
+                let (hub, peer, rows) = (hub.clone(), peer.clone(), rows.clone());
+                ahead = tokio::task::spawn_blocking(move || hub.peer_snapshots.ahead(&peer, rows))
                     .await
-                    .unwrap_or_default()
+                    .ok()
+                    .flatten();
+                if ahead.is_some() {
+                    break;
+                }
+                tracing::warn!(
+                    peer,
+                    "could not read whether a copy is ahead of the peer; trying again"
+                );
+            }
+            let Some(ahead) = ahead else {
+                tracing::warn!(peer, "prompts to this peer are held until it reconnects");
+                hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: None });
+                return;
             };
             // Whether a copy is still ahead of the peer's journal: then nothing is delivered again,
             // since a resend could take the seqs its records need.
-            let mut unfinished = false;
+            let mut held = HashSet::new();
             for (mux, created_at, after, records) in ahead {
                 let Some(through) = records.iter().filter_map(seq_of).max() else { continue };
                 let params = json!({"sessionId": mux, "createdAt": created_at,
@@ -231,24 +308,47 @@ impl Hub {
                     }
                     tokio::time::sleep(wait).await;
                 }
-                unfinished |= !done;
+                if !done {
+                    held.insert(mux);
+                }
             }
-            // Decided either way: a copy left for a later link holds no prompt now (a later
-            // link decides again), and the deliveries wait for that link.
-            hub.peer_snapshots.restoring.decide(&peer, link);
-            // A copy not taken back whole waits for the peer's next link, and so does every
-            // delivery to it.
-            if !unfinished {
+            // A copy not taken back whole holds its session's prompts, and every delivery to the
+            // peer, until a later link decides again.
+            let clear = held.is_empty();
+            hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: Some(held) });
+            if clear {
                 crate::server::outbox::redeliver_open(&hub, &peer);
             }
         });
     }
 }
 
+/// Debug builds only: every read of whether a copy of `peer` is ahead fails, `n` times.
+#[cfg(debug_assertions)]
+static UNKNOWN: StdMutex<Option<(String, u32)>> = StdMutex::new(None);
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+pub fn reads_fail(peer: &str, n: u32) {
+    *UNKNOWN.lock().unwrap_or_else(|e| e.into_inner()) = Some((peer.to_owned(), n));
+}
+
+#[cfg(debug_assertions)]
+fn test_unknown(peer: &str) -> bool {
+    let mut unknown = UNKNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    match unknown.as_mut() {
+        Some((p, n)) if p == peer && *n > 0 => {
+            *n -= 1;
+            true
+        }
+        _ => false,
+    }
+}
+
 /// The peer answered that its journal is another history than the copy's.
 fn refused(e: &RpcError) -> bool {
     let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
-    matches!(reason, Some("generation" | "diverged" | "busy"))
+    matches!(reason, Some("generation" | "diverged"))
 }
 
 impl Hub {

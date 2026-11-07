@@ -268,9 +268,10 @@ pub(super) async fn forward(
     if m == method::SESSION_PROMPT
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some((peer, _, _)) = hub.resolve_remote(key)
+        && let Some((peer, id, _)) = hub.resolve_remote(key)
+        && let Err(e) = hub.peer_snapshots.restores_done(&peer, &id).await
     {
-        hub.peer_snapshots.restores_done(&peer).await;
+        return Some(Err(e));
     }
     let reply = forward_inner(hub, conn, m, params).await.transpose();
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).

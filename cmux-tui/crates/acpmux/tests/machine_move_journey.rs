@@ -66,6 +66,13 @@ struct C {
 
 impl C {
     async fn call(&mut self, m: &str, p: Value) -> Value {
+        let v = self.raw(m, p).await;
+        assert!(v.get("error").is_none(), "{m}: {v}");
+        v["result"].clone()
+    }
+
+    /// The whole answer to `m`: its result or its error.
+    async fn raw(&mut self, m: &str, p: Value) -> Value {
         self.next += 1;
         let id = self.next;
         self.tx.send(Message::request(id, m, p).to_line()).await.unwrap();
@@ -76,8 +83,7 @@ impl C {
                 .expect("closed");
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                assert!(v.get("error").is_none(), "{m}: {v}");
-                return v["result"].clone();
+                return v;
             }
         }
     }
@@ -227,26 +233,70 @@ fn says(e: &Value, text: &str) -> bool {
     e["kind"] == "agent_message_chunk" && e["msg"].to_string().contains(text)
 }
 
+/// The prompts a move with `fault` sends, each of which runs exactly once.
+fn prompts(fault: Fault) -> Vec<&'static str> {
+    let mut all = vec!["p0", "p1", "p2", "p-race"];
+    if fault == Fault::LocalPrompt {
+        all.push("p-local");
+    }
+    all
+}
+
 /// Every record of `hub`'s journal of `id`, as the wire spells them.
 fn journal(hub: &Hub, id: &str) -> Vec<Value> {
     let records = hub.events(id, 0, 10_000).unwrap();
     records.iter().map(|r| serde_json::to_value(r).unwrap()).collect()
 }
 
+/// What goes wrong on the way, besides the machine going away.
+#[derive(Clone, Copy, PartialEq)]
+enum Fault {
+    None,
+    /// The fresh machine's disk fails after the first restored record.
+    AppendMidway,
+    /// A prompt on the fresh machine itself comes while the restore holds the chat.
+    LocalPrompt,
+    /// The Mac cannot read its copies twice, then can.
+    ReadsFailTwice,
+    /// The Mac cannot read its copies at all.
+    ReadsFail,
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_session_moved_to_a_fresh_machine_from_an_older_disk_loses_no_prompt_and_no_turn() {
-    move_to_a_fresh_machine(false).await;
+    move_to_a_fresh_machine(Fault::None).await;
 }
 
-/// The fresh machine's disk fails after the first record of the restore: it answers the restore
-/// as failed, the Mac keeps its copy and delivers nothing again, and its retry takes back the
-/// rest. Nothing is lost or run twice either.
+/// The fresh machine's disk fails after the first record of the restore, after the line is
+/// written: it answers the restore as failed, the Mac keeps its copy and delivers nothing
+/// again, and its retry takes back the rest, with no seq twice. Nothing is lost or run twice.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_restore_that_fails_midway_is_kept_and_finished_by_a_retry() {
-    move_to_a_fresh_machine(true).await;
+    move_to_a_fresh_machine(Fault::AppendMidway).await;
 }
 
-async fn move_to_a_fresh_machine(fail_midway: bool) {
+/// A prompt on the fresh machine itself, while the restore holds the chat: it waits, and runs
+/// once after every restored record.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_during_a_restore_waits_and_runs_once_after_it() {
+    move_to_a_fresh_machine(Fault::LocalPrompt).await;
+}
+
+/// The Mac cannot read whether its copy is ahead, twice: nothing goes to the machine until it
+/// can, and then everything does, in order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_copy_read_that_fails_holds_everything_until_it_reads() {
+    move_to_a_fresh_machine(Fault::ReadsFailTwice).await;
+}
+
+/// The Mac never can: a prompt to the machine fails visibly, and nothing is delivered again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_copy_that_cannot_be_read_holds_the_peer_and_says_so() {
+    move_to_a_fresh_machine(Fault::ReadsFail).await;
+}
+
+async fn move_to_a_fresh_machine(fault: Fault) {
+    let fail_midway = fault == Fault::AppendMidway;
     let _ = HERMETIC;
     let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
     let home = tempfile::tempdir().unwrap();
@@ -316,10 +366,48 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
             }
             let race = json!({"sessionId": "b/moved", "prompt": [{"type": "text", "text": "racer"}],
                               "_meta": {"acpmux": {"promptId": "p-race"}}});
-            cr.call(method::SESSION_PROMPT, race).await
+            cr.raw(method::SESSION_PROMPT, race).await
         })
     };
+    match fault {
+        Fault::ReadsFailTwice => acpmux::hub::peer_snapshot_reads_fail("b", 2),
+        Fault::ReadsFail => acpmux::hub::peer_snapshot_reads_fail("b", u32::MAX),
+        Fault::LocalPrompt => acpmux::hub::journal_restore::pause_once_holding(&id, 1500),
+        _ => {}
+    }
+    // On the fresh machine itself, while the restore holds the chat.
+    let local = (fault == Fault::LocalPrompt).then(|| {
+        let b2 = b2.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !acpmux::hub::journal_restore::test_paused() {
+                assert!(Instant::now() < deadline, "the restore never held the chat");
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let mut c = plain_client(b2).await;
+            let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "local"}],
+                           "_meta": {"acpmux": {"promptId": "p-local"}}});
+            c.call(method::SESSION_PROMPT, p).await
+        })
+    });
     relay.point_at(serve(b2.clone(), &auth).await);
+    if fault == Fault::ReadsFail {
+        // The racer is refused, saying why, and nothing reaches the machine: not it, not the
+        // deliveries the old machine had taken.
+        let answer = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
+        assert_eq!(answer["error"]["data"]["reason"], "restore_pending", "{answer}");
+        let events = journal(&b2, &id);
+        let kinds: Vec<_> = events.iter().map(|e| json!([e["seq"], e["kind"]])).collect();
+        for p in ["p1", "p2", "p-race"] {
+            assert!(
+                !events.iter().any(|e| names_prompt(e, "user_message", p)),
+                "{p} went: {kinds:?}"
+            );
+        }
+        acpmux::hub::peer_snapshot_reads_fail("b", 0);
+        return;
+    }
 
     // The waiting prompt runs there, once.
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -348,10 +436,11 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     };
-    tokio::time::timeout(Duration::from_secs(60), racer)
-        .await
-        .expect("the racer never ran")
-        .unwrap();
+    let raced = tokio::time::timeout(Duration::from_secs(60), racer).await.unwrap().unwrap();
+    assert!(raced.get("error").is_none(), "the racer was refused: {raced}");
+    if let Some(local) = local {
+        tokio::time::timeout(Duration::from_secs(60), local).await.unwrap().unwrap();
+    }
     let events = journal(&b2, &id);
     // Every record A saw of B is in B2's journal, with its seq.
     for record in &seen {
@@ -364,21 +453,29 @@ async fn move_to_a_fresh_machine(fail_midway: bool) {
         );
     }
     // Every prompt A sent ran exactly once: none lost, none run twice by the redelivery.
-    for p in ["p0", "p1", "p2", "p-race"] {
+    for p in prompts(fault) {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
         assert_eq!(ran, 1, "{p} ran {ran} times: {events:#?}");
     }
     // Let the redelivery settle, then count again: a late resend runs nothing more.
     tokio::time::sleep(Duration::from_secs(2)).await;
     let events = journal(&b2, &id);
-    for p in ["p0", "p1", "p2", "p-race"] {
+    for p in prompts(fault) {
         let ran = events.iter().filter(|e| names_prompt(e, "user_message", p)).count();
         assert_eq!(ran, 1, "{p} ran {ran} times after the redelivery: {events:#?}");
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
-    // The racer ran after every restored record.
+    // No seq twice, none missing.
+    let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
+    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>(), "B2's seqs");
     let restored = seen.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    // The local prompt ran after every restored record too.
+    if fault == Fault::LocalPrompt {
+        let local = events.iter().find(|e| names_prompt(e, "user_message", "p-local")).unwrap();
+        assert!(local["seq"].as_u64().unwrap() > restored, "the local prompt went first: {local}");
+    }
+    // The racer ran after every restored record.
     let raced = events.iter().find(|e| names_prompt(e, "user_message", "p-race")).unwrap();
     assert!(raced["seq"].as_u64().unwrap() > restored, "the racer went first: {raced}");
     if fail_midway {

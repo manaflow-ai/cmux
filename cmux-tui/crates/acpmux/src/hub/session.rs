@@ -124,6 +124,11 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
+    /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
+    /// (its `queued` record, its turn) goes between the restore's check and its settle.
+    pub(super) restoring: AtomicBool,
+    pub(super) restore_done: tokio::sync::Notify,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.

@@ -307,8 +307,20 @@ impl Hub {
                 // queues and is accepted at once instead of waiting unanswered for the lock
                 // (fuzz row g, g1). Nothing is awaited under it.
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
-                let waiting = {
+                let waiting = loop {
+                    // A journal restore holds the chat (`journal_restore.rs`): it is admitted
+                    // once the restore settled, never between its check and its settle.
+                    let done = session.restore_done.notified();
+                    tokio::pin!(done);
+                    done.as_mut().enable();
+                    if session.restoring.load(Ordering::SeqCst) {
+                        done.await;
+                        continue;
+                    }
                     let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+                    if session.restoring.load(Ordering::SeqCst) {
+                        continue;
+                    }
                     // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do
                     // not hold up a new one. A prompt that waits for the owner (its provenance's
                     // `approval`, `author.rs`) always queues.
@@ -327,7 +339,7 @@ impl Hub {
                         return Err(Err(super::auto_resume::retry_turn::busy()));
                     }
                     session.queued.fetch_add(1, Ordering::SeqCst);
-                    waiting
+                    break waiting;
                 };
                 let withdraw = if waiting {
                     let (waits, position) =

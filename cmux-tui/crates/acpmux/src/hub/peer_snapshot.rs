@@ -63,6 +63,8 @@ mod restore;
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) use disk::tests::thread_allocations;
 use disk::{Head, Key, Writer, record_bytes, seq_of};
+#[cfg(debug_assertions)]
+pub(crate) use restore::reads_fail;
 
 /// Records and bytes one peer session keeps; more than an attach page (400).
 pub(crate) const SESSION_EVENTS: usize = if cfg!(test) { 40 } else { 1000 };
