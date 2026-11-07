@@ -195,10 +195,12 @@ public final class WebCardPanel: NSPanel {
     /// SECURITY: whether a press of the native control counts as the person's: a left click from the
     /// HID system that went down on the control, on the key panel, begun at least a double-click
     /// interval after the card last drew (a machine arrived and Confirm appeared under a pointer aimed
-    /// at what was there before), with the control enabled.
+    /// at what was there before) and ``steadyControl`` after the control last moved, with the control enabled.
     func countsPersonPress(down: TimeInterval, onControl: Bool, upIsPerson: Bool, isKey: Bool) -> Bool {
         guard let card, controls[card]?.isEnabled == true, !personButton.isHidden else { return false }
+        // The page moves the slot: a click right after the control moved is not aimed at it.
         return onControl && upIsPerson && isKey && down - armedAt >= NSEvent.doubleClickInterval
+            && down - controlPlacedAt >= Self.steadyControl
     }
 
     /// Draws the shown card's control over its slot, at its own size (at least ``minimumControl``),
