@@ -167,6 +167,7 @@
     "CmuxMobileRPC": {"layer": "domain", "package": "Packages/iOS/CmuxMobileRPC", "note": "decodes RPC into CmuxMobileShellModel (test-only link)"},
 
     "CmuxAgentBrands": {"layer": "ui", "package": "Packages/Shared/CmuxAgentBrands", "note": "AppKit and SwiftUI brand images"},
+    "CmuxSpinner": {"layer": "ui", "package": "Packages/Shared/CmuxSpinner", "note": "the shared spinner layer and its UIKit, AppKit and SwiftUI views"},
     "CmuxScreenKitUI": {"layer": "ui", "package": "Packages/Shared/CmuxScreenKit", "note": "SwiftUI screen views"},
     "CmuxMobileSupport": {"layer": "ui", "package": "Packages/iOS/CmuxMobileSupport", "note": "SwiftUI and UIKit iOS support"},
     "MessagesLabHome": {"layer": "ui", "package": "Packages/Shared/CmuxMessagesLab", "note": "vendored AppKit Home transcript"},
