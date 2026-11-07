@@ -1,10 +1,16 @@
 # Cloud machine startup latency: measured baseline, lower bound, and the path to it
 
+> **Status (2026-11-04):** The benchmark entrypoints in this historical report
+> targeted classic Cloud and are retired. Their filenames remain as fail-fast
+> aliases so an old command cannot allocate a classic machine. New development
+> coverage uses the NEXT Cloud API through `web/scripts/cmux-vm-image/dev-e2e.ts`
+> and `dev-idle-e2e.ts`.
+
 Issue: https://github.com/manaflow-ai/cmux/issues/12905 (complements #12672 create
 failures, #12537 terminal startup, #12624 auth waits, #12625 refresh pressure,
 #11008 connection deadlines). Investigation date: 2026-09-17/18. Branch
 `12905-cloud-startup-latency`. Raw artifacts: `docs/cloud-startup-latency/`.
-Reproducible tooling: `web/scripts/cloud-vm/bench-*.{mjs,ts}` (section 10).
+Historical tooling: `web/scripts/cloud-vm/bench-*.{mjs,ts}` (the aliases are retired; see section 10).
 
 ## 1. Answer
 
@@ -66,9 +72,9 @@ Measurements used, with their sample counts:
 | --- | --- | --- |
 | PostHog `cloud_vm_request` (server, schema 2) | every `/api/vm*` request the server handled, `duration_ms` per operation, by client channel/build | 14 days to 2026-09-18, 240k events |
 | PostHog `cmux_cloud_vm_request` (Mac client, schema 1) | the same requests as the client saw them, joined to the server rows by `client_trace_id` | 14 days, 415k events |
-| `bench-vm-startup.mjs` | create → attach → warm attach → exec → pause → resume-attach → destroy against a deployed backend, with the create route's `Server-Timing` stages | staging n=5 sequential + n=3 concurrent + n=3 with edge probe; production n=3 sequential |
-| `bench-freestyle-floor.ts` | provider-only floor with the SDK: allocation, daemon process/listen, announce, exec/fs RTT, guest shell startup, pause/start/delete | md n=5 + burst 3; sm n=3 |
-| `bench-private-link.ts` | the app's transport path headlessly: production driver create, attach bundle, WireGuard hub, `cmux-tui remote connect --carrier`, snapshot, `bash -l`, prompt visible, reconnect | md n=3, client `e90a212` (Nightly bundle), with production's prompt identity and persisted addresses; without the model-plane edge rules (section 4.4) |
+| `bench-vm-startup.mjs` (retired) | historical classic create → attach → warm attach → exec → pause → resume-attach → destroy measurements; the compatibility alias now fails before network access | staging n=5 sequential + n=3 concurrent + n=3 with edge probe; production n=3 sequential |
+| `bench-freestyle-floor.ts` (retired) | historical classic provider-only floor with the SDK; the compatibility alias now fails before provider access | md n=5 + burst 3; sm n=3 |
+| `bench-private-link.ts` (retired) | historical classic transport path measurements; the compatibility alias now fails before provider or tunnel access | md n=3, client `e90a212` (Nightly bundle), with production's prompt identity and persisted addresses; without the model-plane edge rules (section 4.4) |
 | PR #12739 native measurements | Mac-side Cmd-D/Cmd-T phases on a warm link (Debug build) | 10+10 trials |
 | Source trace | the dependency graph in section 3 | HEAD `e4176d8d53` |
 
@@ -344,22 +350,20 @@ owns it; it is the largest single tail and must land regardless).
 
 ## 10. Reproduce
 
+The measurements in this report are historical classic Cloud observations and
+are retained for context. The old benchmark commands now fail before any
+network request or provider SDK import. For current NEXT Cloud development
+coverage, switch to `feat-cmux-next` and run the maintained development E2E
+scripts from `web/`:
+
 ```bash
-cd web && bun install --frozen-lockfile
-# Provider floor (needs FREESTYLE_API_KEY from ~/.secrets/cmux.env; creates and deletes its own VPC and machines)
-bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3 --out /tmp/floor.json
-# Transport path with the Nightly-bundled client (or --client <path to cmux-tui>)
-bun scripts/cloud-vm/bench-private-link.ts --trials 3 --out /tmp/link.json
-# Control plane (throwaway Pro user; Vercel env pulled like the smoke script)
-bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5 --out /tmp/api.json
-bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 3 --concurrency 3 --skip-pause --skip-exec
-bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 3 --edge-check --skip-pause
-bun scripts/cloud-vm/bench-vm-startup.mjs production --trials 3
-bun test tests/cloud-vm-bench-stats.test.ts
+bun scripts/cmux-vm-image/dev-e2e.ts --out-dir /tmp/cmux-next-e2e
+bun scripts/cmux-vm-image/dev-idle-e2e.ts --out-dir /tmp/cmux-next-idle-e2e
 ```
 
-PostHog queries are in `docs/cloud-startup-latency/posthog-*.txt` headers
-(HogQL over `cloud_vm_request` and `cmux_cloud_vm_request`, project 244066).
+Both scripts use the development API, create only their own machines, and
+clean up by exact machine id. The old `cloud-vm` benchmark names remain only
+as compatibility aliases that print this migration pointer.
 
 ## 11. Incidental findings from the benchmark runs
 
