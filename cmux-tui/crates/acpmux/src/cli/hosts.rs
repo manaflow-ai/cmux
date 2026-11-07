@@ -701,7 +701,8 @@ const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 ///
 /// When no daemon answers, `$u` is the one hand-written acpmux unit in
 /// `~/.config/systemd/user` (`acpmux*.service` but `acpmux.service` and
-/// `acpmux-update.service`) whose `ExecStart=` runs `acpmux daemon run` for
+/// `acpmux-update.service`) whose effective `ExecStart=` (the last one in the
+/// unit and its drop-ins, as the move reads it) runs `acpmux daemon run` for
 /// this home (its `ACPMUX_HOME`, if it sets one, is `~/.acpmux` or where it
 /// links to), with `$p` empty: a stopped or disabled unit is moved to
 /// `acpmux.service` too ([`migrate`]), so an update never leaves a daemon
@@ -719,7 +720,7 @@ if [ -n "$p" ]; then
 else acpmux_c=
   for acpmux_f in "$HOME"/.config/systemd/user/acpmux*.service; do
     case "${{acpmux_f##*/}}" in acpmux.service|acpmux-update.service) continue;; esac
-    [ -f "$acpmux_f" ] && grep -q '^ExecStart=.*acpmux[^ ]* daemon run' "$acpmux_f" || continue
+    [ -f "$acpmux_f" ] && cat "$acpmux_f" "$acpmux_f.d/"*.conf 2>/dev/null | sed -n 's/^ExecStart=//p' | grep . | tail -1 | grep -q 'acpmux[^ ]* daemon run' || continue
     acpmux_h=$(cat "$acpmux_f" "$acpmux_f.d/"*.conf 2>/dev/null | sed -n 's/^Environment=.*ACPMUX_HOME=\([^ "]*\).*/\1/p' | tail -1 | sed "s|%h|$HOME|g")
     [ -z "$acpmux_h" ] || [ "$(cd -P "$acpmux_h" 2>/dev/null && pwd)" = "$(cd -P {REMOTE_HOME} 2>/dev/null && pwd)" ] || continue
     acpmux_c="$acpmux_c ${{acpmux_f##*/}}"

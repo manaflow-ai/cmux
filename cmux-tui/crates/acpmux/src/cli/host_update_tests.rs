@@ -1115,6 +1115,17 @@ fn a_stopped_unit_is_moved_only_when_it_is_this_homes_one() {
     let up = peer.update(false);
     assert_eq!(up.migrated_from, None, "{up:?}");
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
+    // A drop-in that runs something else in its place: not the daemon's unit.
+    let peer = FakePeer::new("stopped-overridden");
+    peer.stopped_foreign_unit(false);
+    peer.write(
+        &format!("{UNITS}/{FOREIGN}.d/other.conf"),
+        "[Service]\nExecStart=\nExecStart=/usr/bin/true\n",
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.migrated_from, None, "{up:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")));
     // A quoted value: refused before anything changes, the binary put back.
     let peer = FakePeer::new("stopped-quoted");
     peer.stopped_foreign_unit(false);
