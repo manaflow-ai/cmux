@@ -600,11 +600,14 @@ export default componentEntry<HeaderToolsProps>({
                     ),
                   ),
                 )
-              : createElement(
-                  "div",
-                  { "data-page-inactive": unfocused && unfocused !== "kept" ? "" : undefined },
-                  createElement(module.ChatHeaderTools, props),
-                ),
+              : unfocused
+                ? // Sized to its content (inline-flex), so the tools row is exactly its buttons as in the header.
+                  createElement(
+                    "div",
+                    { "data-page-inactive": unfocused === "kept" ? undefined : "", style: { display: "inline-flex" } },
+                    createElement(module.ChatHeaderTools, props),
+                  )
+                : createElement(module.ChatHeaderTools, props),
           ),
     ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,

@@ -393,8 +393,10 @@ export function ChatHeaderTools({
   const webButtons = !native && tabTools && actions.length > 0;
   const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
   live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
+  // With every quick action folded the group is not rendered: an empty group still took a gap in the row.
   const buttons =
     webButtons &&
+    fold < tools.length &&
     tools.slice(0, tools.length - fold).map((tool) => (
       <button
         key={tool.id}
