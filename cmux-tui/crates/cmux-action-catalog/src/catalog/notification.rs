@@ -225,7 +225,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "notifications.toggleBanners",
         group: GROUP,
-        title: t("ActionCatalog", "action.notifications.toggleBanners", "Toggle Notification Banners"),
+        title: t("ActionCatalog", "action.notifications.toggleBanners", "Notification Banners"),
         keywords: &["banner", "desktop", "system", "macos", "notifications"],
         category: "notifications",
         symbol: "rectangle.stack.badge.minus",

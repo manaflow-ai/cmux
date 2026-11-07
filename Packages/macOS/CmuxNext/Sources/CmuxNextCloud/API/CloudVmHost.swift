@@ -16,7 +16,7 @@ public import Foundation
 /// caller builds (``CloudVmHostStore`` holds one), with the exec budget it runs under.
 public struct CloudVmHost: Sendable {
     /// What the machine said.
-    public struct State: Equatable, Sendable {
+    public struct State: Equatable, Sendable, Decodable {
         /// On now.
         public var on: Bool
         /// cmux created this machine for its owner, so on is its default and may be turned on.
@@ -35,40 +35,28 @@ public struct CloudVmHost: Sendable {
         self.timeoutMs = timeoutMs
     }
 
-    /// The command that reads the setting (`on` nil) or sets it.
+    /// The command that reads the setting (`on` nil) or sets it (cmux-cloud-machine `vm_host.rs`).
     public func command(on: Bool?) -> String {
-        let state = on.map { $0 ? " on" : " off" } ?? ""
-        return [
-            "set -eu",
-            #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#,
-            #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#,
-            #"u=cmux; id -u "$u" >/dev/null 2>&1 || u=root"#,
-            #"h=$(getent passwd "$u" | cut -d: -f6)"#,
-            #"b="$h/.cmux/bin/cmux-tui""#,
-            #"[ -x "$b" ] || { echo "cmux: this machine has no cmux-tui" >&2; exit 82; }"#,
-            #"as_u env HOME="$h" "$b" acp --json host vm-host\#(state)"#,
-        ].joined(separator: "; ")
+        struct Request: Encodable { var on: Bool? }
+        struct Reply: Decodable { var command: String }
+        return CloudMachineRules().call("cloud_model_vm_host_command", Request(on: on), as: Reply.self)?.command ?? "exit 82"
     }
 
-    /// The state in a successful exec's output (acpmux prints one JSON object, pretty), or nil.
-    public func parse(_ ran: CloudExecResult) -> State? {
-        guard ran.exitCode == 0, let start = ran.stdout.firstIndex(of: "{"),
-              let object = try? JSONSerialization.jsonObject(with: Data(ran.stdout[start...].utf8)) as? [String: Any],
-              let on = object["vmHost"] as? Bool else { return nil }
-        return State(on: on, cmuxVM: object["cmuxVm"] as? Bool ?? false)
+    /// What an exec answered: the state, or why it failed, in the machine's words, bounded.
+    private struct Answer: Decodable {
+        var state: State?
+        var failure: String?
     }
 
-    /// Why a failed exec failed, in the machine's words, bounded: acpmux's `--json` error
-    /// envelope's message (`{"error": {"message": …}}`, pretty), else the first line.
-    public func failure(_ ran: CloudExecResult) -> String {
-        let text = ran.stderr.isEmpty ? ran.stdout : ran.stderr
-        if let start = text.firstIndex(of: "{"),
-           let object = try? JSONSerialization.jsonObject(with: Data(text[start...].utf8)) as? [String: Any],
-           let message = (object["error"] as? [String: Any])?["message"] as? String {
-            return String(message.prefix(300))
-        }
-        // Not acpmux's envelope (an older cmux-tui's usage error, the shell's): its first line.
-        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? "exit \(ran.exitCode)"
-        return String(line.prefix(300))
+    private func answer(_ ran: CloudExecResult) -> Answer {
+        struct Request: Encodable { var exitCode: Int, stdout: String, stderr: String }
+        let request = Request(exitCode: Int(ran.exitCode), stdout: ran.stdout, stderr: ran.stderr)
+        return CloudMachineRules().call("cloud_model_vm_host_answer", request, as: Answer.self) ?? Answer(failure: "exit \(ran.exitCode)")
     }
+
+    /// The state in a successful exec's output, or nil.
+    public func parse(_ ran: CloudExecResult) -> State? { answer(ran).state }
+
+    /// Why a failed exec failed: acpmux's `--json` error envelope's message, else the first line.
+    public func failure(_ ran: CloudExecResult) -> String { answer(ran).failure ?? "exit \(ran.exitCode)" }
 }

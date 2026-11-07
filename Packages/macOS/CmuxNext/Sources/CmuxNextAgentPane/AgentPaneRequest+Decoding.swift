@@ -355,6 +355,7 @@ extension AgentPaneRequest {
         case "cloud.signIn": self = AgentPaneCloudStart(params: params).map(Self.cloudSignIn) ?? .unsupported(method)
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
+        case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -368,6 +369,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "machine.share.self": self = .shareMachineWithMe
+        case "share.op":
+            // As `action.run`: a `session` that is there must be a usable id, never dropped.
+            let session = params?["session"].map { $0 as? String }
+            if let op = AgentPaneShareOp(params: params), session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .shareOp(op, session: session ?? nil)
+            } else {
+                self = .unsupported(method)
+            }
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
@@ -406,6 +415,13 @@ extension AgentPaneRequest {
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
             } else { self = .unsupported(method) }
+        case "agent.mini":
+            self = .miniSubject
+        case "agent.mini.show":
+            // A session id is short; null (or absent) is the Chief.
+            if let session = params?["sessionId"] as? String {
+                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
+            } else { self = .showInMini(nil) }
         case "chief.face":
             // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
             if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
@@ -469,6 +485,9 @@ extension AgentPaneRequest {
         case "pane.sessionInfo.overlays":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
             else { self = .unsupported(method) }
+        case "pane.glass":
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
             else { self = .unsupported(method) }
@@ -504,7 +523,8 @@ extension AgentPaneRequest {
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
+                                      facts: id == nil ? nil : SubagentTabFacts(params))
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
@@ -560,6 +580,14 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "cloud.preview.open":
+            if let params, Set(params.keys) == ["port"],
+               let port = params["port"] as? NSNumber, CFGetTypeID(port) != CFBooleanGetTypeID(),
+               Double(port.intValue) == port.doubleValue, (1...65535).contains(port.intValue) {
+                self = .openCloudPreview(port: port.intValue)
+            } else {
+                self = .unsupported(method)
+            }
         case "quick.dismiss": self = .quickDismiss
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
@@ -604,6 +632,13 @@ extension AgentPaneRequest {
         case "transport.close":
             if let connection = params?["connection"] as? Int {
                 self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
+            }
+        case "externalAccess.openSettings":
+            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params.keys) == ["kind"] {
+                self = .externalAccessOpenSettings(kind)
             } else {
                 self = .unsupported(method)
             }
