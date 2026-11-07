@@ -127,3 +127,39 @@ fn a_malformed_request_is_refused() {
     assert_eq!(call(c"cloud_machine_facts", &json!({})).0, ERR_INVALID);
     assert_eq!(call(c"cloud_machine_nope", &json!({})).0, ERR_INVALID);
 }
+
+#[test]
+fn a_classic_record_reads_with_the_swift_keys() {
+    let (code, body) = call(
+        c"cloud_model_read",
+        &json!({"kind": "machine_classic", "value": {"id": "vm-1", "status": "running", "capabilities": {"exec": true}, "error": {"code": "x", "message": "y"}}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body["value"]["capabilities"]["exec"], true);
+    assert_eq!(body["value"]["error"]["code"], "x");
+}
+
+#[test]
+fn an_unsafe_scp_route_answers_why_and_no_route() {
+    let route = json!({"host": "h", "port": 2222, "username": "cmux", "hostPublicKey": "ssh-ed25519 A", "expiresAtUnix": 4_000_000_000_i64});
+    let (code, body) = call(c"cloud_model_read", &json!({"kind": "scp_endpoint", "value": route}));
+    assert_eq!(code, OK);
+    assert!(body["error"].is_string());
+    assert!(body.get("value").is_none());
+}
+
+#[test]
+fn the_server_shaped_models_read_over_the_channel() {
+    for (kind, value) in [
+        ("machine_stats", json!({"state": "paused"})),
+        (
+            "machine_previews",
+            json!({"machine": "vm_1", "previews": [], "listening": [], "unavailable": []}),
+        ),
+        ("preview_share_link_revocation", json!({"revoked": false})),
+    ] {
+        let (code, body) = call(c"cloud_model_read", &json!({"kind": kind, "value": value}));
+        assert_eq!(code, OK);
+        assert!(body.get("value").is_some(), "{kind}: {body}");
+    }
+}

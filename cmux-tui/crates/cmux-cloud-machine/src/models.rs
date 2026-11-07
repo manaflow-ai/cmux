@@ -25,6 +25,18 @@ pub const KINDS: &[&str] = &[
     "snapshots",
     "harness_login_copy",
     "limits",
+    "machine_stats",
+    "network",
+    "firewall_rule",
+    "firewall_rules",
+    "tunnel_network_mutation",
+    "publication",
+    "domain",
+    "provisioned_api",
+    "machine_previews",
+    "preview_share_link",
+    "preview_share_link_created",
+    "preview_share_link_revocation",
 ];
 
 /// The server's `value` of `kind`, as the app's JSON; an error says what was wrong.
@@ -45,8 +57,26 @@ pub fn read(kind: &str, value: &Value) -> Strict<Value> {
         "snapshots" => list(value, "snapshots", snapshot),
         "harness_login_copy" => to(serde_json::to_value(harness_copy::read(value)?)),
         "limits" => to(serde_json::to_value(limits::read(value))),
+        "machine_stats" => typed::<MachineStats>(value),
+        "network" => typed::<Network>(value),
+        "firewall_rule" => typed::<FirewallRule>(value),
+        "firewall_rules" => list(value, "rules", typed::<FirewallRule>),
+        "tunnel_network_mutation" => typed::<TunnelNetworkMutation>(value),
+        "publication" => typed::<Publication>(value),
+        "domain" => typed::<Domain>(value),
+        "provisioned_api" => typed::<ProvisionedApi>(value),
+        "machine_previews" => typed::<MachinePreviews>(value),
+        "preview_share_link" => typed::<PreviewShareLink>(value),
+        "preview_share_link_created" => typed::<PreviewShareLinkCreated>(value),
+        "preview_share_link_revocation" => typed::<PreviewShareLinkRevocation>(value),
         _ => Err(format!("unknown kind {kind}")),
     }
+}
+
+/// A model whose fields are the server's own: read strictly into `T` and written back.
+fn typed<T: Serialize + serde::de::DeserializeOwned>(value: &Value) -> Strict<Value> {
+    let read: T = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+    serde_json::to_value(read).map_err(|error| error.to_string())
 }
 
 fn list(value: &Value, key: &str, item: fn(&Value) -> Strict<Value>) -> Strict<Value> {
@@ -115,7 +145,17 @@ fn exec_result(value: &Value) -> Strict<Value> {
 }
 
 /// A short-lived private SCP route, in camel or snake case. The private key stays on the caller.
+/// Only a safe route is read: port 22, user `cmux`, an `ssh-ed25519` host key and an expiry still
+/// ahead. Anything else could send the transfer (and its key) to another host or account.
 fn scp_endpoint(value: &Value) -> Strict<Value> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX));
+    scp_endpoint_at(value, now)
+}
+
+/// [`scp_endpoint`] at `now` (Unix seconds).
+fn scp_endpoint_at(value: &Value, now: i64) -> Strict<Value> {
     let object = json::object(value, "endpoint")?;
     let either = |camel: &str, snake: &str| -> Strict<Option<Value>> {
         Ok(match present(object, camel) {
@@ -126,12 +166,20 @@ fn scp_endpoint(value: &Value) -> Strict<Value> {
     let host_key =
         either("hostPublicKey", "host_public_key")?.and_then(|key| key.as_str().map(str::to_owned));
     let expires = either("expiresAtUnix", "expires_at_unix")?.as_ref().and_then(json::int);
+    let host = json::string(object, "host")?.ok_or("host: missing")?;
+    let port = json::integer(object, "port")?.ok_or("port: missing")?;
+    let username = json::string(object, "username")?.ok_or("username: missing")?;
+    let host_key = host_key.ok_or("hostPublicKey: missing")?;
+    let expires = expires.ok_or("expiresAtUnix: missing")?;
+    if port != 22 || username != "cmux" || !host_key.starts_with("ssh-ed25519 ") || expires <= now {
+        return Err("the SCP endpoint is not a safe one (port 22, user cmux, an ed25519 host key, not expired)".into());
+    }
     Ok(json!({
-        "host": json::string(object, "host")?.ok_or("host: missing")?,
-        "port": json::integer(object, "port")?.ok_or("port: missing")?,
-        "username": json::string(object, "username")?.ok_or("username: missing")?,
-        "hostPublicKey": host_key.ok_or("hostPublicKey: missing")?,
-        "expiresAtUnix": expires.ok_or("expiresAtUnix: missing")?,
+        "host": host,
+        "port": port,
+        "username": username,
+        "hostPublicKey": host_key,
+        "expiresAtUnix": expires,
     }))
 }
 
@@ -364,6 +412,21 @@ pub struct PreviewShareLink {
     pub redemptions: i64,
     #[serde(default)]
     pub revoked_at: Option<i64>,
+}
+
+/// A new preview link: its record and its secret URL (only in this answer).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewShareLinkCreated {
+    pub link: PreviewShareLink,
+    pub url: String,
+}
+
+/// A revoked preview link.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewShareLinkRevocation {
+    pub revoked: bool,
 }
 
 #[cfg(test)]

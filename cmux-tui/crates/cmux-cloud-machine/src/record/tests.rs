@@ -413,9 +413,50 @@ fn the_record_round_trips_as_the_apps_json() {
     );
     let text = serde_json::to_value(&machine).unwrap();
     assert_eq!(text["displayName"], "Box");
-    assert_eq!(text["declaredCapabilities"]["exec"], true);
-    assert_eq!(text["declaredCapabilities"]["persistentHome"], false);
-    assert_eq!(text["lastChangeFailure"]["text"], "y");
+    // CloudMachine.swift's CodingKeys: `capabilities` and `error`, as the classic record names them.
+    assert_eq!(text["capabilities"]["exec"], true);
+    assert_eq!(text["capabilities"]["persistentHome"], false);
+    assert_eq!(text["error"]["text"], "y");
+    assert!(text.get("declaredCapabilities").is_none() && text.get("lastChangeFailure").is_none());
     assert_eq!(text["pendingMutationID"], Value::Null);
     assert_eq!(serde_json::from_value::<Machine>(text).unwrap(), machine);
+}
+
+/// A record in CloudMachine.swift's JSON shape (its CodingKeys: `capabilities`, `error`,
+/// `createdByUserId` for `createdBy`) reads with every field, and writes back the same keys.
+#[test]
+fn a_record_in_the_swift_shape_round_trips() {
+    let swift = json!({
+        "id": "vm_abcdefghij0123456789", "provider": "cmux-next", "status": "pausing",
+        "displayName": "Box", "slug": "kind-aqua", "kind": "dev", "image": "img", "imageVersion": "7",
+        "createdAt": 1_760_000_000_000_i64, "createdByUserId": "user_1", "team": "team_1",
+        "address": {"ipv4": "10.0.0.7"}, "size": {"name": "m", "cpu": 2, "memoryMb": 4096},
+        "capabilities": {"exec": true, "attachTransports": ["cmux-remote"]},
+        "pauseReason": "idle", "idlePauseMinutes": 30, "hourlyRateUsd": 0.25,
+        "updatedAt": 1_760_000_000_500_i64, "serverRevision": "184467440737095516160",
+        "runningSince": 1_760_000_000_000_i64,
+        "error": {"code": "cloud.provider.unavailable", "message": "no capacity", "at": 5, "text": "no capacity"},
+        "pendingChange": "pausing", "pendingMutationID": "M-1", "servesDesktop": true,
+    });
+    let machine: Machine = serde_json::from_value(swift.clone()).unwrap();
+    assert_eq!(machine.created_by.as_deref(), Some("user_1"));
+    assert!(machine.declared_capabilities.as_ref().is_some_and(|capabilities| capabilities.exec));
+    assert_eq!(
+        machine.last_change_failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("cloud.provider.unavailable")
+    );
+    assert_eq!(machine.server_revision.as_deref(), Some("184467440737095516160"));
+    assert_eq!(machine.pending_mutation_id.as_deref(), Some("M-1"));
+    let written = serde_json::to_value(&machine).unwrap();
+    for key in [
+        "capabilities",
+        "error",
+        "createdBy",
+        "serverRevision",
+        "pendingMutationID",
+        "servesDesktop",
+    ] {
+        assert!(written.get(key).is_some_and(|value| !value.is_null()), "{key} was not written");
+    }
+    assert_eq!(serde_json::from_value::<Machine>(written).unwrap(), machine);
 }

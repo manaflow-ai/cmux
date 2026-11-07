@@ -367,7 +367,7 @@ pub struct Machine {
     #[serde(default)]
     pub created_at: Option<f64>,
     /// Person who created the machine, when the API supplies it.
-    #[serde(default)]
+    #[serde(default, alias = "createdByUserId")]
     pub created_by: Option<String>,
     /// The team that owns the machine (the cmux-next record's `team`); nil on a classic record.
     #[serde(default)]
@@ -378,7 +378,7 @@ pub struct Machine {
     pub size: Option<Size>,
     /// Server-declared provider operations; nil when the record carried none (an older server,
     /// or a cmux-next record whose `capabilities` names are not provider operations).
-    #[serde(default)]
+    #[serde(default, rename = "capabilities", alias = "declaredCapabilities")]
     pub declared_capabilities: Option<Capabilities>,
     #[serde(default)]
     pub pause_reason: Option<PauseReason>,
@@ -403,7 +403,7 @@ pub struct Machine {
     #[serde(default)]
     pub size_pick: Option<Value>,
     /// Why the last pause, resume or resize failed; the next change clears it on the server.
-    #[serde(default)]
+    #[serde(default, rename = "error", alias = "lastChangeFailure")]
     pub last_change_failure: Option<ChangeFailure>,
     /// The newest unresolved Pause, Resume or Kill sent from this app (never read from a server).
     #[serde(default)]
