@@ -247,8 +247,8 @@ run again.
 ## Account and diagnostics
 
 ```bash
-cmux cloud sign-in
-cmux cloud sign-out
+cmux login
+cmux logout
 cmux cloud team-picker
 cmux cloud diagnostics
 cmux cloud open-mobile-pairing

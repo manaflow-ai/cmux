@@ -29,7 +29,7 @@ const call = (id: string, status = "completed", extra: Partial<Tool> = {}): Acpm
   text: "",
   tool: { id, title: id, kind: "execute", status, command: id, startedAt: at, ...extra },
 });
-const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true });
+const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true });
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -131,8 +131,6 @@ test("a run whose command is on the line never shares a version with its ended, 
   const step = row("r2", "activity", { items: [call("git diff")] });
   const live = turnView([user, run, note, step], new Set(["worked-u"]), {
     working: true,
-    liveRuns: true,
-    lineBelow: true,
   });
   const lined = live.find((entry) => entry.id === "r1")!;
   expect(lined.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
@@ -147,7 +145,6 @@ test("a run whose command is on the line never shares a version with its ended, 
       row("s", "turnSummary", { status: "completed" }),
     ],
     new Set(["worked-u"]),
-    { liveRuns: true, lineBelow: true },
   );
   const folded = ended.find((entry) => entry.id === "r1")!;
   expect(folded.items?.map((item) => item.tool?.id)).toEqual(["git log", "cp a b"]);
@@ -157,33 +154,14 @@ test("a run whose command is on the line never shares a version with its ended, 
 test("with a todo list the activity line offers ⌃B for a running command", async () => {
   const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
   const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  for (const liveRuns of [false, true]) {
-    const shaped = turnView(
-      [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
-      new Set(),
-      { working: true, liveRuns, lineBelow: true, sessionStatus: true },
-    );
-    const line = shaped.at(-1)!;
-    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-    expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
-  }
-});
-
-test("the older layout offers no ⌃B while the agent still writes the command", () => {
-  const draft = call("Bash", "pending", { title: "Bash", command: undefined });
-  for (const lineBelow of [false, true]) {
-    const shaped = turnView(
-      [row("u", "user"), row("run", "activity", { items: [call("git log"), draft] })],
-      new Set(),
-      {
-        working: true,
-        lineBelow,
-      },
-    );
-    const line = shaped.find((entry) => entry.kind === "working")!;
-    expect(line.doingDraft).toBe(true);
-    expect(withCtrlB(<WorkingFor row={line} now={() => line.at + 5_000} />)).not.toContain("cv-command__bg");
-  }
+  const shaped = turnView(
+    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
+    new Set(),
+    { working: true, sessionStatus: true },
+  );
+  const line = shaped.at(-1)!;
+  expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
+  expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
 });
 
 // Re-review on #24305 (Codex xhigh): with a todo list the activity line names the command the runs
@@ -206,7 +184,7 @@ test("with a todo list the activity line names the command its run gave up", () 
         row("r3", "activity", { items: [call("git status")] }),
       ],
       new Set(),
-      { working: true, liveRuns: true, lineBelow: true, sessionStatus: true },
+      { working: true, sessionStatus: true },
     );
     const line = shaped.at(-1)!;
     expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });

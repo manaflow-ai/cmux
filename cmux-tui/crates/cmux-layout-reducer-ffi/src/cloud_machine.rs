@@ -381,10 +381,13 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             #[derive(Deserialize)]
             struct Request {
                 url: String,
-                path: String,
+                // Swift's `browserURL(path: "/")` opens the root when no path is given.
+                #[serde(default)]
+                path: Option<String>,
             }
             let request: Request = read(request)?;
-            json!({"url": preview::browser_url(&request.url, &request.path)})
+            let path = request.path.as_deref().unwrap_or("/");
+            json!({"url": preview::browser_url(&request.url, path)})
         }
         b"cloud_model_vm_host_command" => {
             #[derive(Deserialize)]

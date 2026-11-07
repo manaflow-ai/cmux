@@ -256,6 +256,34 @@ fn a_failure_carries_the_steps_it_ran() {
     assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
 }
 
+/// A run that made its machine and then failed still names it, so its caller can delete what it
+/// made (the start matrix, `cmux chat --on vm:new`); a failure on a machine it did not make does not.
+#[test]
+fn a_failure_after_making_the_machine_names_it() {
+    let refused = || Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": "Machine didn't connect"}).to_string(),
+        ..Ran::default()
+    };
+    // `--wait` makes the machine first (`cloud new-machine`), then starts the session there.
+    let mut fake = Fake::new(vec![signed_in(), made(), no_relay(), refused()]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["new_machine"], true);
+
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--target", "machine:vm-9"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert!(error["details"].get("new_machine").is_none(), "{error}");
+}
+
 #[test]
 fn without_wait_it_answers_once_the_prompt_is_sent() {
     let mut fake = Fake::new(vec![
@@ -281,7 +309,7 @@ fn a_signed_out_app_says_how_to_sign_in() {
         panic!()
     };
     assert_eq!((error["code"].as_str(), exit), (Some("cloud.signed_out"), 1));
-    assert!(error["message"].as_str().unwrap().contains("cmux cloud sign-in"));
+    assert!(error["message"].as_str().unwrap().contains("cmux login"));
 }
 
 #[test]

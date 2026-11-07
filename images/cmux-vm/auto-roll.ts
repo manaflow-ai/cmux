@@ -4,16 +4,18 @@
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
 //   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
-//       [--dry-run auto|true|false] [--tip <ref>]
+//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>]
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
+//     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
+//     never rolls an older build needs the pin's history.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
 //       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
 //   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
-//     Removes an auto-rolled image from both lists when it is still production's first entry, so the entry
-//     before it boots again. Prints what it did; never removes a hand-approved image.
+//     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
+//     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
 //   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
@@ -123,18 +125,24 @@ export function approve(text: string, entry: BootImage): { text: string; previou
   return { text: out, previousFirst: prod[0]?.id ?? "" };
 }
 
-/** Takes an auto-rolled image back out while it is still production's first entry. */
+/**
+ * Takes a failed auto-rolled image out of both lists, first or not. A failed image a newer roll sits above stays
+ * second only until that newer roll is rolled back, and would then boot again with no check; removing it wherever
+ * it is means it can never come back.
+ */
 export function rollback(text: string, id: string): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
   const prod = locate(text, "production").images;
   const first = prod[0]?.id ?? "";
   if (!id.startsWith(AUTO_PREFIX)) return { text, rolledBack: false, reason: `${id} is not an auto-rolled image`, nowFirst: first };
-  if (first !== id) return { text, rolledBack: false, reason: `production's first image is ${first || "none"}, not ${id}`, nowFirst: first };
+  const staging = locate(text, "staging").images;
+  const inProd = prod.some((i) => i.id === id);
+  if (!inProd && !staging.some((i) => i.id === id)) return { text, rolledBack: false, reason: `${id} is in neither list`, nowFirst: first };
   const nextProd = prod.filter((i) => i.id !== id);
-  if (nextProd.length === 0) return { text, rolledBack: false, reason: `${id} is production's only image`, nowFirst: first };
-  let out = replaceList(text, "production", nextProd);
-  const staging = locate(out, "staging").images;
+  if (inProd && nextProd.length === 0) return { text, rolledBack: false, reason: `${id} is production's only image`, nowFirst: first };
+  let out = inProd ? replaceList(text, "production", nextProd) : text;
   if (staging.some((i) => i.id === id)) out = replaceList(out, "staging", staging.filter((i) => i.id !== id));
-  return { text: out, rolledBack: true, reason: `${id} removed; ${nextProd[0]!.id} boots again`, nowFirst: nextProd[0]!.id };
+  const nowFirst = nextProd[0]!.id;
+  return { text: out, rolledBack: true, reason: first === id ? `${id} removed; ${nowFirst} boots again` : `${id} removed; ${nowFirst} stays first`, nowFirst };
 }
 
 /**
@@ -176,6 +184,10 @@ export type SettleInput = {
   deployedFirst: string;
   /** Production's first entry at the feat-cmux-next tip now. */
   tipFirst: string;
+  /** Whether the image is in either VM_BOOT_IMAGES list at the feat-cmux-next tip now. */
+  tipHas: boolean;
+  /** Whether the image is in production's list in the deployed commit. */
+  deployedHas: boolean;
   /** Rollback only: which production deploy of the rollback this was, 1 for the rollback commit's own. */
   attempt: number;
 };
@@ -184,13 +196,14 @@ export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: numb
 
 /**
  * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
- * else (failed, cancelled, timed out, skipped, another image booted) rolls back, unless the tip's first entry is no
- * longer this image: then a newer roll or rollback commit moved production, and that commit's own deploy and settle
- * own it (the rollback would be a no-op anyway). A cancelled deploy alone proves nothing: the production deploy
- * queue never cancels a running deploy, so a cancel is a person or a timeout, and the image may be live.
+ * else (failed, cancelled, timed out, skipped, another image booted) rolls back while the image is in either list
+ * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
+ * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
+ * proves nothing: the production deploy queue never cancels a running deploy, so a cancel is a person or a
+ * timeout, and the image may be live.
  *
- * A rollback: verified when its deploy and product create are green and the create booted the deployed first entry,
- * which is not the rolled-back image. Otherwise the deploy is retried until ROLLBACK_DEPLOYS, then rollback_failed.
+ * A rollback: verified when its deploy and product create are green, the deployed production list no longer has
+ * the rolled-back image and the create booted the deployed first entry. Otherwise the deploy is retried until ROLLBACK_DEPLOYS, then rollback_failed.
  * A rollback's settle never lands another rollback commit, so a rollback cannot loop.
  */
 export function settle(s: SettleInput): Settle {
@@ -199,10 +212,10 @@ export function settle(s: SettleInput): Settle {
   const smokeGreen = s.deploy === "success" && s.product === "success";
   if (s.kind === "roll") {
     if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
-    if (s.tipFirst !== s.image) return done("superseded", `${seen}; production's first image at the tip is ${s.tipFirst || "none"}, not ${s.image}: the newer commit's deploy owns production`);
+    if (!s.tipHas) return done("superseded", `${seen}; ${s.image} is already in neither list at the tip (production's first is ${s.tipFirst || "none"})`);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
-  if (smokeGreen && s.deployedFirst !== "" && s.deployedFirst !== s.image && s.bootImage === s.deployedFirst)
+  if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
     return done("verified", `rollback of ${s.image}: ${s.deployedFirst} boots in production again (${seen})`);
   if (s.attempt < ROLLBACK_DEPLOYS) return done("retry", `rollback of ${s.image} not verified on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying again`, s.attempt + 1);
   return done("rollback_failed", `rollback of ${s.image} not verified after ${ROLLBACK_DEPLOYS} production deploys (${seen}); production may still boot it`);
@@ -210,7 +223,9 @@ export function settle(s: SettleInput): Settle {
 
 // ---- plan ----
 
-const git = (args: string[]) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8", timeout: 120_000 });
+/** The checkout plan reads git in (--repo; this repository by default). */
+let gitCwd = ROOT;
+const git = (args: string[]) => spawnSync("git", args, { cwd: gitCwd, encoding: "utf8", timeout: 120_000 });
 const gitOk = (args: string[]) => git(args).status === 0;
 const gitOut = (args: string[]) => {
   const r = git(args);
@@ -267,17 +282,20 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
   // Only a build of the branch itself rolls (the exact head a journey ran on), never a lane branch's.
   if (!gitOk(["merge-base", "--is-ancestor", commit, opts.tip])) return none(`${commit} is not on ${opts.tip}`);
   if (commit === pinned) return none(`cmux-tui ${commit.slice(0, 12)} is already pinned`);
-  // Never back: an older build than the pinned one (when the pin's commit is known here) does not roll.
-  const pinnedKnown = gitOk(["cat-file", "-e", `${pinned}^{commit}`]);
-  if (pinnedKnown && gitOk(["merge-base", "--is-ancestor", commit, pinned])) return none(`${commit.slice(0, 12)} is older than the pinned ${pinned.slice(0, 12)}`);
+  // Never back: an older build than the pinned one does not roll. Deciding that needs the pin and real history: a
+  // shallow checkout cuts ancestry at its boundary, so is-ancestor can answer "not older" for an older build.
+  // Either missing fails the plan instead of rolling.
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") throw new Error("plan needs full history; the checkout is shallow (fetch-depth: 0)");
+  if (!gitOk(["cat-file", "-e", `${pinned}^{commit}`])) throw new Error(`the pinned cmux-tui ${pinned.slice(0, 12)} is not in this checkout; fetch it before planning`);
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return none(`${commit.slice(0, 12)} is older than the pinned ${pinned.slice(0, 12)}`);
 
   // What the build would change in the lock (files.cmux.com only); unchanged binaries roll nothing.
   const pin = spawnSync("bun", [path.join(ROOT, "images/cmux-vm/pin-cmux-tui.ts"), "--commit", commit, "--lock", opts.lock], { encoding: "utf8", timeout: 180_000 });
   if (pin.status !== 0) return none(`cmux-tui ${commit.slice(0, 12)} is not published for the image: ${pin.stderr.trim().split("\n").pop() ?? ""}`);
   if ((JSON.parse(pin.stdout) as { unchanged: boolean }).unchanged) return none(`cmux-tui ${commit.slice(0, 12)} carries the pinned binaries`);
 
-  const base = pinnedKnown && gitOk(["merge-base", "--is-ancestor", pinned, commit]) ? pinned : pinnedKnown ? gitOut(["merge-base", pinned, commit]) : "";
-  const fixes = base ? fixCommits(`${base}..${commit}`, ["cmux-tui"]) : fixCommits(commit, ["cmux-tui"]).slice(0, 1);
+  const base = gitOk(["merge-base", "--is-ancestor", pinned, commit]) ? pinned : gitOut(["merge-base", pinned, commit]);
+  const fixes = fixCommits(`${base}..${commit}`, ["cmux-tui"]);
   return {
     roll: true,
     reason: `cmux-tui ${commit.slice(0, 12)} changes the image's cmux-tui (pinned ${pinned.slice(0, 12)})`,
@@ -285,7 +303,7 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     cmuxTui: commit,
     dryRun,
     fixes,
-    fixesTruncated: fixes.length >= FIX_LIMIT || base === "",
+    fixesTruncated: fixes.length >= FIX_LIMIT,
   };
 }
 
@@ -303,6 +321,7 @@ async function main(argv: string[]): Promise<number> {
   const wrangler = arg(rest, "--wrangler", DEFAULT_WRANGLER);
   const lock = arg(rest, "--lock", DEFAULT_LOCK);
   if (command === "plan") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
     const result = await plan({
       event: arg(rest, "--event"),
       commit: arg(rest, "--commit", ""),
@@ -339,17 +358,25 @@ async function main(argv: string[]): Promise<number> {
   if (command === "settle") {
     const kind = arg(rest, "--kind");
     if (kind !== "roll" && kind !== "rollback") throw new Error("--kind must be roll or rollback");
-    const firstOf = (file: string) => locate(readFileSync(file, "utf8"), "production").images[0]?.id ?? "";
+    const image = arg(rest, "--image");
+    const lists = (file: string) => {
+      const text = readFileSync(file, "utf8");
+      return { prod: locate(text, "production").images.map((i) => i.id), staging: locate(text, "staging").images.map((i) => i.id) };
+    };
+    const tip = lists(wrangler);
+    const deployed = lists(arg(rest, "--deployed-wrangler"));
     const attempt = Number(arg(rest, "--attempt", "1"));
     if (!Number.isInteger(attempt) || attempt < 1) throw new Error("--attempt must be a positive integer");
     const input: SettleInput = {
       kind,
-      image: arg(rest, "--image"),
+      image,
       deploy: arg(rest, "--deploy", ""),
       product: arg(rest, "--product", ""),
       bootImage: arg(rest, "--boot-image", ""),
-      deployedFirst: firstOf(arg(rest, "--deployed-wrangler")),
-      tipFirst: firstOf(wrangler),
+      deployedFirst: deployed.prod[0] ?? "",
+      tipFirst: tip.prod[0] ?? "",
+      tipHas: tip.prod.includes(image) || tip.staging.includes(image),
+      deployedHas: deployed.prod.includes(image),
       attempt,
     };
     console.log(JSON.stringify({ ...settle(input), deployedFirst: input.deployedFirst, tipFirst: input.tipFirst }, null, 2));

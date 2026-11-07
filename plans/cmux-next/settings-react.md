@@ -77,7 +77,7 @@ Validation per kind: `toggle`, `choice`, `choice_or_number`, `number` (range, fi
 against the value domain the app published (`settings.domains.publish`); with no published domain
 (headless host) they accept any non-empty string and the app reports a diagnostic on apply.
 
-Agent policy is explicit per key with no default (`SettingsSchema+AgentPolicy.swift`; the export
+Agent policy is explicit per key with no default (`schemas/settings/source/agent-policy.json`; the export
 test fails on a key in neither table). Refused today: `history.terminalCommands` and
 `feed.mirrorNotifications.*` (privacy), `browser.remoteLocalhost` (network), `app.quitBehavior`
 (destructive). `appearance.backgroundOpacity` and `appearance.backgroundBlur` are settable.

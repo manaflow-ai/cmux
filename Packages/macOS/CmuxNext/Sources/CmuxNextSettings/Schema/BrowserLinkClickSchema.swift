@@ -3,12 +3,6 @@ import CmuxNextDesign
 /// The Settings rows of `browser.links.*` (Browser > Links), kept out of
 /// `SettingsSchema` so its catalog stays within the type budget.
 nonisolated enum BrowserLinkClickSchema {
-    /// Agents may set every `browser.links.*` key (no network, privacy or
-    /// destructive effect).
-    static var agentSettableKeys: Set<String> {
-        Set(BrowserLinkClickSetting.keys.map { "browser.links.\($0.name)" })
-    }
-
     /// `browser.links.*`: what each modified link click does (Chrome's
     /// defaults, except Command-click: `layout.linkPlacement`), one choice row each.
     static var descriptors: [SettingDescriptor] {
