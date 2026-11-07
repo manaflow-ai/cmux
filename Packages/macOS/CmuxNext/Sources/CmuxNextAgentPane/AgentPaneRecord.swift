@@ -36,6 +36,10 @@ final class AgentPaneRecorder {
     private(set) var written: Set<String> = []
     /// Whether the capture bar's save panel is up: one at a time.
     var saving = false
+    /// What `composer.capture {mode: "pane"}` captures: the pane that was focused when the bar last
+    /// opened, as on screen (a person's own capture, unmasked), nil when that pane is gone or no
+    /// longer shown. Set by ``AgentPaneCaptureBar/toggle(on:)``; the closure holds the pane weakly.
+    var paneImage: (@MainActor () async -> CGImage?)?
 
     /// Starts filming `window`: `{started: true}`, `capture.busy` while one runs, `capture.failed`
     /// when ScreenCaptureKit could not start (no window, macOS before 14.4).

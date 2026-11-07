@@ -73,12 +73,12 @@ enum AgentPaneCapture {
     @MainActor static func hostWindow() -> NSWindow? { NSApp.keyWindow.map { $0.parent ?? $0 } }
 
     /// `app` (the host window, as `cmux window screenshot` takes it: no Screen Recording grant) or
-    /// `pane` (``AgentPaneCaptureBar/paneImage``), answered as a pick is.
+    /// `pane` (``AgentPaneRecorder/paneImage``), answered as a pick is.
     @MainActor private static func own(pane: Bool) async -> [String: Any] {
         let taken = Date()
         let image: CGImage?
         if pane {
-            image = await AgentPaneCaptureBar.paneImage?()
+            image = await AgentPaneRecorder.shared.paneImage?()
         } else {
             // perf-gate-ok: the person's own capture of the cmux window, once per click (composer.capture {mode: app}).
             image = try? await hostWindow()?.screenshotImage()

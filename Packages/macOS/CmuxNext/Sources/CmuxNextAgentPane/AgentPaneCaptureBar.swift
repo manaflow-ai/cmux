@@ -7,11 +7,6 @@ import CmuxNextSettings
 /// records stops the recording; the page decides that (`window.cmuxAcpmuxBridge.captureBar`).
 /// Not an AgentPaneView extension: that type is at its size limit.
 @MainActor public struct AgentPaneCaptureBar {
-    /// What `composer.capture {mode: "pane"}` captures: the pane that was focused when the bar last
-    /// opened, as on screen (a person's own capture, unmasked), nil when that pane is gone or no
-    /// longer shown. Set by ``toggle(on:)``; the closure holds the pane weakly.
-    static var paneImage: (@MainActor () async -> CGImage?)?
-
     private let pane: (@MainActor () async -> CGImage?)?
 
     /// `pane` captures the pane focused at the press (the chat's own pane when that is it).
@@ -21,7 +16,7 @@ import CmuxNextSettings
 
     /// Remembers this press's pane and toggles `view`'s bar (event `captureBar`, `{toggle: true}`).
     public func toggle(on view: AgentPaneView) {
-        Self.paneImage = pane
+        AgentPaneRecorder.shared.paneImage = pane
         let value: JSONValue = ["toggle": .bool(true)]
         view.deliver([AgentPageEvent(kind: "captureBar", value: value)],
                      scripts: ["window.cmuxAcpmuxBridge?.captureBar?.(\(value.compactText));"])
