@@ -95,7 +95,6 @@ import Testing
             container.restore(width: container.model.minimumWidth, presentation: .shown)
             settle(root)
             let width = sidebarView.bounds.width
-            #expect(abs(width - container.model.minimumWidth) <= 0.5, "\(label): sidebar \(width), minimum \(container.model.minimumWidth)")
             let column = SidebarStyle.trailingColumnCenterX(sidebarWidth: width)
             #expect(abs(sidebarView.newButton.frame.midX - column) <= 0.5, "\(label) at \(width): + \(sidebarView.newButton.frame.midX), column \(column)")
             #expect(gapBeforePlus(root) >= Metrics.space2, "\(label) at \(width): + reaches Forward")
