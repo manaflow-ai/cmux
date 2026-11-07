@@ -303,6 +303,15 @@ pub(super) async fn backend_token(
     Ok(token)
 }
 
+/// The proxy's URL for a call's path. An OpenAI-style base that already ends in `/v1` takes the path without its own
+/// `/v1`, so `--upstream http://host/v1` and `--upstream http://host` reach the same place.
+fn proxy_url(base: &str, path: &str) -> String {
+    match path.strip_prefix("/v1/") {
+        Some(rest) if base.ends_with("/v1") => format!("{base}/{rest}"),
+        _ => format!("{base}{path}"),
+    }
+}
+
 async fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
     let (program, args) =
         (program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
@@ -522,7 +531,7 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                     .and_then(|d| base64::engine::general_purpose::STANDARD.decode(d).ok());
                 match chunk {
                     Some(bytes) if call.body.len() + bytes.len() <= MAX_BODY_BYTES => {
-                        call.body.extend(bytes)
+                        call.body.extend(bytes);
                     }
                     _ => {
                         pending.remove(&id);
@@ -690,7 +699,7 @@ impl Provider {
                     }
                     None => None,
                 };
-                self.send(&format!("{base}{}", call.path), call, key.as_deref(), &[]).await
+                self.send(&proxy_url(base, &call.path), call, key.as_deref(), &[]).await
             }
             Upstream::Codex { auth } => {
                 let url = codex_url(&call.path).ok_or((
@@ -1078,6 +1087,13 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn joins_a_proxy_base_with_or_without_v1() {
+        assert_eq!(proxy_url("http://h:1", "/v1/responses"), "http://h:1/v1/responses");
+        assert_eq!(proxy_url("http://h:1/v1", "/v1/responses"), "http://h:1/v1/responses");
+        assert_eq!(proxy_url("http://h:1/api", "/v1/models?x=1"), "http://h:1/api/v1/models?x=1");
     }
 
     #[test]
