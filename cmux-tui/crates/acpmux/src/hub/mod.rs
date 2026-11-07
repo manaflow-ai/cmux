@@ -175,6 +175,7 @@ mod offer_results;
 mod offers;
 mod resume;
 mod secrets;
+mod elevation;
 mod seen;
 mod session;
 pub(crate) mod session_pages;

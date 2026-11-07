@@ -253,6 +253,29 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", .object(params))
     }
 
+    /// The sudo card's answer (acpmux hub/elevation.rs): `_acpmux/secret_submit` with the
+    /// password and this phone's signature over the card's id, `card_provide` and the card's
+    /// nonce (acpmux `Hub::card_answer_signed`); a Deny sends no value and needs no signature.
+    /// The password goes in the request only, never in a log line or an error.
+    public func answerElevation(sessionID: String, ask: AgentElevationAsk, password: AgentSecretText?) async throws {
+        var params: [String: JSONValue] = ["sessionId": .string(sessionID), "secretId": .string(ask.id)]
+        if let password {
+            guard let approver else { throw ApproverUnsupported() }
+            let sign = try await approver.authorize("Run \(ask.commandLine) as root")
+            let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+            let payload = ApprovalPayload(
+                instance: ask.instance, macDevice: approver.macDevice, approver: approver.phoneID,
+                session: sessionID, permission: ask.id, option: Self.elevationOption, nonce: ask.nonce,
+                expiresAt: expiresAt)
+            params["_meta"] = payload.meta(signature: try sign(payload.message))
+            params["value"] = .string(password.value)
+        }
+        _ = try await request("_acpmux/secret_submit", .object(params))
+    }
+
+    /// The option a phone signs for a sudo card's Approve (acpmux `secrets::CARD_PROVIDE`).
+    static let elevationOption = "card_provide"
+
     /// Answers a question with the harness-shaped reply, signed like an Allow.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
         let reply = try question.reply(answer)
@@ -491,6 +514,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):
                     try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
+                case .answerElevation(let ask, let password):
+                    try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
                 case .answerQuestion(let questionID, let answer):
                     guard let question = questions[questionID] else {
                         self.emit(.clientError("This question is no longer open on \(self.summary.macName)."))
