@@ -66,6 +66,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
     func show(_ dialog: CmuxDialogPresentation?) {
         self.dialog = dialog
         focusSerial = 0
+        valuesSerial = 0
         shows = 0
         publish()
     }
@@ -85,8 +86,13 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
         if shows > 1 { publish() }
     }
 
+    /// Bumped by each value the host sets (automation's `setValue`), so the page takes the host's values,
+    /// a secure field's too, over what the person typed.
+    private var valuesSerial = 0
+
     func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {
         guard dialog === self.dialog else { return }
+        valuesSerial += 1
         publish()
     }
 
@@ -144,6 +150,7 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
                                                                        "backward": .bool(focusBackward)])
         if case .object(var object) = wire {
             object["shown"] = .number(Double(max(shows, 1)))
+            object["valuesSerial"] = .number(Double(valuesSerial))
             wire = .object(object)
         }
         return ["dialog": wire]

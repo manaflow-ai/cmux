@@ -22,13 +22,15 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout }: OverlayDial
   const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
   // A secure field's text goes to the host only with the press, never on each key.
   const secure = new Set(dialog.fields.flatMap((field) => (field.kind === "text" && field.secure ? [field.id] : [])));
-  // The values the person typed win over the host's until the host sends a new dialog or sets one. The
-  // host never has a secure field's text, so its updates (a focus move, a set value) keep what was typed.
+  // The values the person typed win over the host's until the host sends a new dialog or sets a value.
+  // The host has a secure field's text only when it set it, so its other updates (a focus move, a
+  // re-show) keep what was typed.
   const [values, setValues] = useState(dialog.values);
-  const [hostValues, setHostValues] = useState({ id: dialog.id, values: dialog.values });
-  if (hostValues.values !== dialog.values || hostValues.id !== dialog.id) {
-    const typed = hostValues.id === dialog.id ? values : {};
-    setHostValues({ id: dialog.id, values: dialog.values });
+  const serial = dialog.valuesSerial ?? 0;
+  const [hostValues, setHostValues] = useState({ id: dialog.id, serial, values: dialog.values });
+  if (hostValues.values !== dialog.values || hostValues.id !== dialog.id || hostValues.serial !== serial) {
+    const typed = hostValues.id === dialog.id && hostValues.serial === serial ? values : {};
+    setHostValues({ id: dialog.id, serial, values: dialog.values });
     setValues({
       ...dialog.values,
       ...Object.fromEntries(Object.entries(typed).filter(([key]) => secure.has(key))),

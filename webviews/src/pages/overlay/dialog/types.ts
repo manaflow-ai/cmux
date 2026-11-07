@@ -45,6 +45,8 @@ export interface DialogState {
   keys: DialogKeys;
   layout: "standard" | "safeDefault";
   values: Record<string, DialogValue>;
+  /** Bumped by each value the host sets: the page then takes the host's values, a secure field's too. */
+  valuesSerial?: number;
   icon?: string;
   identifier?: string;
   /** A key asked the focus to move: once per serial. */

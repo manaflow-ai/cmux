@@ -21,7 +21,17 @@ public final class CmuxDialogPresentation {
     /// The view the host shows (the overlay page), while it is on screen.
     public internal(set) weak var view: NSView?
     /// The card's rect in ``view``'s coordinates, as the page last laid it out; nil before.
-    public var cardRect: CGRect?
+    public var cardRect: CGRect? {
+        didSet { if cardRect != nil { resumeCardWaiters() } }
+    }
+    /// Who waits for the card's first rect (`debug.dialog_strip`): resumed when it arrives.
+    var cardWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func resumeCardWaiters() {
+        let waiters = cardWaiters
+        cardWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
 
     init(id: Int, spec: CmuxDialogSpec, activeLook: ActiveLookScope?) {
         self.id = id

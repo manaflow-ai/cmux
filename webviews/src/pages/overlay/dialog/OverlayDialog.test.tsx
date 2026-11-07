@@ -253,3 +253,33 @@ test("buttons that do not fit on one line stack, and stay on one line when they 
   needed = 300;
   expect((await mount({ ...quitChoice, buttons: quitChoice.buttons.slice(2) })).dataset.stacked).toBeUndefined();
 });
+
+test("a value the host sets wins over the secure text the person typed", async () => {
+  const login: DialogState = {
+    ...quit,
+    layout: "standard",
+    fields: [{ kind: "text", id: "password", label: "Password", secure: true }],
+    values: { password: "" },
+  };
+  const { host, presses } = await render(login);
+  const field = host.querySelector('[data-field="password"]') as HTMLInputElement;
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "hunter2");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  // Automation's setValue clears the field: the host bumps its values serial.
+  await act(async () => {
+    root!.render(
+      <OverlayDialog
+        dialog={{ ...login, values: { password: "swordfish" }, valuesSerial: 1 }}
+        onPress={(button, values) => presses.push({ button, values })}
+        onEdit={() => {}}
+        onLayout={() => {}}
+      />,
+    );
+  });
+  expect(field.value).toBe("swordfish");
+  act(() => (host.querySelector('[data-button="keep"]') as HTMLButtonElement).click());
+  expect(presses.at(-1)?.values).toEqual({ password: "swordfish" });
+});
