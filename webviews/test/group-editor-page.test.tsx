@@ -159,7 +159,10 @@ test("a reloaded page shows the typed draft the host keeps, and a refresh keeps 
   const page = await mount();
   await page.send({ ...fixtureSession({ id: "a", name: "Frontend", revision: 4 }), draft: "Typed before the reload" });
   expect(page.field().value).toBe("Typed before the reload");
-  await page.send({ ...fixtureSession({ id: "a", name: "Renamed elsewhere", revision: 5 }), draft: "Typed before the reload" });
+  await page.send({
+    ...fixtureSession({ id: "a", name: "Renamed elsewhere", revision: 5 }),
+    draft: "Typed before the reload",
+  });
   expect(page.field().value).toBe("Typed before the reload");
 });
 
