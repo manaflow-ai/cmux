@@ -419,3 +419,40 @@ fn server_pairing_refuses_shared_or_symlinked_identity_files_without_touching_th
     assert_eq!(std::fs::read(&target).unwrap(), bytes);
     assert_eq!(api.begins.load(Ordering::SeqCst), 1);
 }
+
+/// `server status --json`'s `pairing` entry (the app's Server panel): a live code shows with
+/// its check words and never with the collect secret; paired shows the host and team; a lost
+/// begin reply reads as pairing in progress.
+#[test]
+fn server_pairing_app_view_shows_the_waiting_code_then_the_pairing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    assert_eq!(pairing::app_view(&path, NOW).unwrap(), json!({"state":"unpaired"}));
+    let api = Api::new(vec![
+        Err(Error::unreachable("fixture.connection_lost")),
+        Ok(Waited::Paired(paired())),
+    ]);
+    let mut progress = vec![];
+    assert!(run(&path, &api, None, &mut progress).is_err());
+    let offer = pairing::app_view(&path, NOW).unwrap();
+    assert_eq!(offer["state"], "unpaired");
+    assert_eq!(offer["code"], progress[0]["code"]);
+    assert_eq!(offer["words"], progress[0]["words"]);
+    assert_eq!(offer["fingerprint"], progress[0]["thumbprint"]);
+    assert_eq!(offer["expires_at_ms"], progress[0]["expires_at"]);
+    assert!(!format!("{offer}").contains(SECRET));
+    let expired = offer["expires_at_ms"].as_u64().unwrap();
+    assert_eq!(pairing::app_view(&path, expired).unwrap(), json!({"state":"unpaired"}));
+    assert_eq!(run(&path, &api, None, &mut progress).unwrap()["state"], "paired");
+    assert_eq!(
+        pairing::app_view(&path, NOW).unwrap(),
+        json!({"state":"paired","host":"host_00000000000000000001",
+            "team":"team_00000000000000000001","owner":"user_00000000000000000001"})
+    );
+
+    let lost = tempfile::tempdir().unwrap();
+    let lost = lost.path().join("pairing/identity.json");
+    let api = Api { lose_begin: true, ..Api::new(vec![]) };
+    assert!(run(&lost, &api, None, &mut vec![]).is_err());
+    assert_eq!(pairing::app_view(&lost, NOW).unwrap(), json!({"state":"pairing"}));
+}

@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
+import type { SessionHoverTrigger } from "../started/useSessionHover";
 import "./AgentTag.css";
 
 /** A compact agent or lane name tag shared by transcript activity rows. One that opens a chat is a
@@ -13,6 +14,7 @@ export function AgentTag({
   ariaLabel,
   className,
   attributes,
+  hover,
 }: {
   name: ReactNode;
   title?: string;
@@ -20,7 +22,9 @@ export function AgentTag({
   ariaLabel?: string;
   className?: string;
   /// More attributes on the button (`openSessionAttributes`).
-  attributes?: Record<string, string>;
+  attributes?: Record<string, string | undefined>;
+  /// The hover card of the chat it opens (``useSessionHover``).
+  hover?: SessionHoverTrigger;
 }) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
@@ -28,10 +32,12 @@ export function AgentTag({
       <button
         type="button"
         className={`${classes} is-open`}
-        title={title}
+        // A chat's hover card says more than the tooltip and would sit under it.
+        title={hover?.onPointerEnter ? undefined : title}
         aria-label={ariaLabel}
         data-interactive=""
         {...attributes}
+        {...hover}
         onClick={onClick}
       >
         <span className="cv-agent-tag__label">{name}</span>

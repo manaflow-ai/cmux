@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1314,
+    "entries": 1331,
     "shortcuts": 189
   },
   "sections": [
@@ -38,6 +38,12 @@
           "title": "Automations",
           "shortcut": null,
           "command": "cmux automation show-page"
+        },
+        {
+          "id": "home.compareTablePlayground",
+          "title": "Before/After Table Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.chatColors",
@@ -140,6 +146,12 @@
           "title": "Enable Channels",
           "shortcut": null,
           "command": "cmux home enable-channels"
+        },
+        {
+          "id": "window.focusDock",
+          "title": "Focus Dock",
+          "shortcut": null,
+          "command": "cmux window focus-dock"
         },
         {
           "id": "gallery.openStage",
@@ -260,6 +272,36 @@
           "title": "Minimize",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "window.dockEdgeBottom",
+          "title": "Move Dock to Bottom",
+          "shortcut": null,
+          "command": "cmux window dock-edge-bottom"
+        },
+        {
+          "id": "window.dockEdgeLeft",
+          "title": "Move Dock to Left",
+          "shortcut": null,
+          "command": "cmux window dock-edge-left"
+        },
+        {
+          "id": "window.dockEdgeRight",
+          "title": "Move Dock to Right",
+          "shortcut": null,
+          "command": "cmux window dock-edge-right"
+        },
+        {
+          "id": "window.dockEdgeTop",
+          "title": "Move Dock to Top",
+          "shortcut": null,
+          "command": "cmux window dock-edge-top"
+        },
+        {
+          "id": "home.createChannel",
+          "title": "New Channel…",
+          "shortcut": null,
+          "command": "cmux chat channel create"
         },
         {
           "id": "home.newChief",
@@ -530,6 +572,24 @@
           "title": "Show/Hide All Windows",
           "shortcut": "⌃⌥⌘.",
           "command": null
+        },
+        {
+          "id": "home.openChiefDock",
+          "title": "Show/Hide Chief",
+          "shortcut": "⌘I",
+          "command": "cmux home open-chief-dock"
+        },
+        {
+          "id": "window.toggleDock",
+          "title": "Show/Hide Dock",
+          "shortcut": null,
+          "command": "cmux window toggle-dock"
+        },
+        {
+          "id": "window.toggleDockTabBar",
+          "title": "Show/Hide Dock Tab Bar",
+          "shortcut": null,
+          "command": "cmux window toggle-dock-tab-bar"
         },
         {
           "id": "palette.sleepyMode",
@@ -2020,6 +2080,12 @@
           "command": "cmux column move-right"
         },
         {
+          "id": "window.movePaneToDock",
+          "title": "Move Pane to Dock",
+          "shortcut": null,
+          "command": "cmux pane move-to-dock"
+        },
+        {
           "id": "pane.moveToNewWindow",
           "title": "Move Pane to New Window",
           "shortcut": null,
@@ -3484,6 +3550,12 @@
           "command": "cmux terminal clear-theme"
         },
         {
+          "id": "terminal.runLastCommandAgain",
+          "title": "Run Last Command Again",
+          "shortcut": null,
+          "command": "cmux terminal run-last-command-again"
+        },
+        {
           "id": "terminal.scrollPageDown",
           "title": "Scroll Page Down",
           "shortcut": null,
@@ -4456,6 +4528,12 @@
           "command": "cmux browser open-link-in-incognito-window"
         },
         {
+          "id": "browserProfile.openLinkInNew",
+          "title": "Open Link in New Browser Profile…",
+          "shortcut": null,
+          "command": "cmux browser-profile open-link-in-new"
+        },
+        {
           "id": "browser.link.openInNewSpace",
           "title": "Open Link in New Space",
           "shortcut": null,
@@ -5170,6 +5248,12 @@
           "command": "cmux sidebar mark-checklist-item-in-progress"
         },
         {
+          "id": "palette.toggleMatchTerminalBackground",
+          "title": "Match Terminal Background",
+          "shortcut": null,
+          "command": "cmux sidebar toggle-match-terminal-background"
+        },
+        {
           "id": "sidebar.priority.moveEarlier",
           "title": "Move Chat Earlier in Priority…",
           "shortcut": null,
@@ -5524,12 +5608,6 @@
           "command": null
         },
         {
-          "id": "palette.toggleMatchTerminalBackground",
-          "title": "Toggle Match Terminal Background",
-          "shortcut": null,
-          "command": "cmux sidebar toggle-match-terminal-background"
-        },
-        {
           "id": "sidebar.priorityView.toggle",
           "title": "Toggle Priority View",
           "shortcut": "⌥⌘K",
@@ -5668,6 +5746,12 @@
           "command": "cmux notification never-clear-automatically"
         },
         {
+          "id": "notifications.toggleBanners",
+          "title": "Notification Banners",
+          "shortcut": null,
+          "command": "cmux notification toggle-banners"
+        },
+        {
           "id": "notifications.setAgentSound",
           "title": "Notification Sound for Agent…",
           "shortcut": null,
@@ -5714,12 +5798,6 @@
           "title": "Show Notifications",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "notifications.toggleBanners",
-          "title": "Toggle Notification Banners",
-          "shortcut": null,
-          "command": "cmux notification toggle-banners"
         }
       ]
     },
@@ -6138,7 +6216,7 @@
         {
           "id": "palette.newAgentChat",
           "title": "New Agent Chat",
-          "shortcut": "⌘I",
+          "shortcut": null,
           "command": "cmux agent new-chat"
         },
         {
@@ -6320,6 +6398,12 @@
           "title": "Show Background Tasks in Session Info",
           "shortcut": null,
           "command": "cmux agent show-background-tasks"
+        },
+        {
+          "id": "agentPane.showInMini",
+          "title": "Show in Mini",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentPane.showSubagents",
@@ -6868,12 +6952,6 @@
           "command": "cmux cloud preview-share"
         },
         {
-          "id": "cloudShareMachine",
-          "title": "Share Machine…",
-          "shortcut": null,
-          "command": "cmux cloud share-machine"
-        },
-        {
           "id": "palette.auth.signIn",
           "title": "Sign In",
           "shortcut": null,
@@ -7090,6 +7168,18 @@
           "command": "cmux servers add"
         },
         {
+          "id": "appearance.animations.cursor.toggle",
+          "title": "Agent Cursor Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-agent-cursor-animations"
+        },
+        {
+          "id": "appearance.animations.toggle",
+          "title": "All Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-all-animations"
+        },
+        {
           "id": "debug.allThemesPlayground",
           "title": "All Themes Playground",
           "shortcut": null,
@@ -7144,6 +7234,12 @@
           "command": "cmux settings check-for-updates"
         },
         {
+          "id": "palette.clearSearchHistory",
+          "title": "Clear Palette Search History",
+          "shortcut": null,
+          "command": "cmux settings clear-palette-history"
+        },
+        {
           "id": "help.documentation",
           "title": "cmux Documentation…",
           "shortcut": null,
@@ -7154,6 +7250,12 @@
           "title": "cmux on GitHub",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "layout.toggleStripScrollbar",
+          "title": "Column Scroll Bar",
+          "shortcut": null,
+          "command": "cmux settings toggle-column-scrollbar"
         },
         {
           "id": "help.copyLogs",
@@ -7240,6 +7342,18 @@
           "command": null
         },
         {
+          "id": "focusRing.toggle",
+          "title": "Focus Ring",
+          "shortcut": null,
+          "command": "cmux settings toggle-focus-ring"
+        },
+        {
+          "id": "focusRing.singlePane.toggle",
+          "title": "Focus Ring for a Single Pane",
+          "shortcut": null,
+          "command": "cmux settings toggle-single-pane-focus-ring"
+        },
+        {
           "id": "help.followOnX",
           "title": "Follow @cmux on X",
           "shortcut": null,
@@ -7274,6 +7388,24 @@
           "title": "Hide Host Pressure Warning",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "appearance.animations.feedback.toggle",
+          "title": "Highlight and Color Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-highlight-and-color-animations"
+        },
+        {
+          "id": "appearance.animations.home.toggle",
+          "title": "Home and Chat Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-home-and-chat-animations"
+        },
+        {
+          "id": "appearance.animations.hoverCards.toggle",
+          "title": "Hover Card Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-hover-card-animations"
         },
         {
           "id": "import.open",
@@ -7378,6 +7510,12 @@
           "command": null
         },
         {
+          "id": "appearance.animations.overlays.toggle",
+          "title": "Menu and Card Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-menu-and-card-animations"
+        },
+        {
           "id": "nowPlaying.disableCard",
           "title": "Never Show Media Card",
           "shortcut": null,
@@ -7388,6 +7526,18 @@
           "title": "New Custom Density…",
           "shortcut": null,
           "command": "cmux density create"
+        },
+        {
+          "id": "appearance.animations.newTab.toggle",
+          "title": "New Tab Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-new-tab-animations"
+        },
+        {
+          "id": "appearance.animations.newWorkspace.toggle",
+          "title": "New Workspace Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-new-workspace-animations"
         },
         {
           "id": "app.open",
@@ -7436,6 +7586,24 @@
           "title": "Pair Another Machine…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "appearance.animations.panes.toggle",
+          "title": "Pane and Window Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-pane-and-window-animations"
+        },
+        {
+          "id": "appearance.paneBorder.toggle",
+          "title": "Pane Borders",
+          "shortcut": null,
+          "command": "cmux settings toggle-pane-border"
+        },
+        {
+          "id": "appearance.panePadding.toggle",
+          "title": "Pane Padding",
+          "shortcut": null,
+          "command": "cmux settings toggle-pane-padding"
         },
         {
           "id": "agentPane.display.railOnRight",
@@ -7502,6 +7670,12 @@
           "title": "Roll Back to Previous Version…",
           "shortcut": null,
           "command": "cmux settings rollback-update"
+        },
+        {
+          "id": "appearance.paneCorners.toggle",
+          "title": "Rounded Pane Corners",
+          "shortcut": null,
+          "command": "cmux settings toggle-pane-corners"
         },
         {
           "id": "app.command.run",
@@ -7606,6 +7780,12 @@
           "command": "cmux media show-card"
         },
         {
+          "id": "appearance.animations.sidebar.toggle",
+          "title": "Sidebar Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-sidebar-animations"
+        },
+        {
           "id": "debug.sidebarStatesPlayground",
           "title": "Sidebar States Playground",
           "shortcut": null,
@@ -7624,6 +7804,18 @@
           "command": "cmux settings open-sign-in-pages-in-cmux"
         },
         {
+          "id": "appearance.animations.indicators.toggle",
+          "title": "Spinner and Progress Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-spinner-and-progress-animations"
+        },
+        {
+          "id": "liveSwift.start",
+          "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "liveWeb.stop",
           "title": "Stop Editing cmux Live",
           "shortcut": null,
@@ -7636,10 +7828,22 @@
           "command": null
         },
         {
+          "id": "liveSwift.stop",
+          "title": "Stop Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "palette.switchAppChannel",
           "title": "Switch Update Channel…",
           "shortcut": null,
           "command": "cmux settings switch-update-channel"
+        },
+        {
+          "id": "appearance.animations.tabs.toggle",
+          "title": "Tab Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-tab-animations"
         },
         {
           "id": "debug.tabBarPlayground",
@@ -7660,58 +7864,16 @@
           "command": "cmux settings use-shrinking-tabs"
         },
         {
+          "id": "appearance.paneBorderWidth.toggle",
+          "title": "Thick Pane Borders",
+          "shortcut": null,
+          "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
           "id": "debug.actionLatencyHUD",
           "title": "Toggle Action Latency HUD",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "appearance.animations.cursor.toggle",
-          "title": "Toggle Agent Cursor Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-agent-cursor-animations"
-        },
-        {
-          "id": "appearance.animations.toggle",
-          "title": "Toggle All Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-all-animations"
-        },
-        {
-          "id": "layout.toggleStripScrollbar",
-          "title": "Toggle Column Scroll Bar",
-          "shortcut": null,
-          "command": "cmux settings toggle-column-scrollbar"
-        },
-        {
-          "id": "focusRing.toggle",
-          "title": "Toggle Focus Ring",
-          "shortcut": null,
-          "command": "cmux settings toggle-focus-ring"
-        },
-        {
-          "id": "focusRing.singlePane.toggle",
-          "title": "Toggle Focus Ring for a Single Pane",
-          "shortcut": null,
-          "command": "cmux settings toggle-single-pane-focus-ring"
-        },
-        {
-          "id": "appearance.animations.feedback.toggle",
-          "title": "Toggle Highlight and Color Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-highlight-and-color-animations"
-        },
-        {
-          "id": "appearance.animations.home.toggle",
-          "title": "Toggle Home and Chat Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-home-and-chat-animations"
-        },
-        {
-          "id": "appearance.animations.hoverCards.toggle",
-          "title": "Toggle Hover Card Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-hover-card-animations"
         },
         {
           "id": "appearance.glass.lens.toggle",
@@ -7720,82 +7882,10 @@
           "command": null
         },
         {
-          "id": "appearance.animations.overlays.toggle",
-          "title": "Toggle Menu and Card Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-menu-and-card-animations"
-        },
-        {
-          "id": "appearance.animations.newTab.toggle",
-          "title": "Toggle New Tab Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-new-tab-animations"
-        },
-        {
-          "id": "appearance.animations.newWorkspace.toggle",
-          "title": "Toggle New Workspace Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-new-workspace-animations"
-        },
-        {
-          "id": "appearance.animations.panes.toggle",
-          "title": "Toggle Pane and Window Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-pane-and-window-animations"
-        },
-        {
-          "id": "appearance.paneBorder.toggle",
-          "title": "Toggle Pane Borders",
-          "shortcut": null,
-          "command": "cmux settings toggle-pane-border"
-        },
-        {
-          "id": "appearance.panePadding.toggle",
-          "title": "Toggle Pane Padding",
-          "shortcut": null,
-          "command": "cmux settings toggle-pane-padding"
-        },
-        {
-          "id": "appearance.paneCorners.toggle",
-          "title": "Toggle Rounded Pane Corners",
-          "shortcut": null,
-          "command": "cmux settings toggle-pane-corners"
-        },
-        {
           "id": "palette.toggleSetting",
           "title": "Toggle Setting…",
           "shortcut": null,
           "command": "cmux settings toggle-setting"
-        },
-        {
-          "id": "appearance.animations.sidebar.toggle",
-          "title": "Toggle Sidebar Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-sidebar-animations"
-        },
-        {
-          "id": "appearance.animations.indicators.toggle",
-          "title": "Toggle Spinner and Progress Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-spinner-and-progress-animations"
-        },
-        {
-          "id": "appearance.animations.tabs.toggle",
-          "title": "Toggle Tab Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-tab-animations"
-        },
-        {
-          "id": "appearance.paneBorderWidth.toggle",
-          "title": "Toggle Thick Pane Borders",
-          "shortcut": null,
-          "command": "cmux settings toggle-thick-pane-borders"
-        },
-        {
-          "id": "appearance.animations.web.toggle",
-          "title": "Toggle Web Page Animations",
-          "shortcut": null,
-          "command": "cmux settings toggle-web-page-animations"
         },
         {
           "id": "help.troubleshooting",
@@ -7906,6 +7996,12 @@
           "command": "cmux settings view-hang-report"
         },
         {
+          "id": "appearance.animations.web.toggle",
+          "title": "Web Page Animations",
+          "shortcut": null,
+          "command": "cmux settings toggle-web-page-animations"
+        },
+        {
           "id": "updates.whatsNew",
           "title": "What's New in cmux",
           "shortcut": null,
@@ -7916,6 +8012,12 @@
           "title": "Window Style: Bare",
           "shortcut": null,
           "command": "cmux settings window-style-bare"
+        },
+        {
+          "id": "appearance.chromeStyle.blocks",
+          "title": "Window Style: Blocks",
+          "shortcut": null,
+          "command": "cmux settings window-style-blocks"
         },
         {
           "id": "appearance.chromeStyle.card",

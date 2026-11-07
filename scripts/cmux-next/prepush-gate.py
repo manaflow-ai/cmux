@@ -71,6 +71,11 @@ it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/
 link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
 the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
 #30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
+Also on every local run, the same way: "Workflow YAML parses": each .github/workflows/*.yml (and composite
+action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's Psych; plus the local actionlint's
+new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
+CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
+2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -201,6 +206,21 @@ SCANNERS = (
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
 RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
 CONFLICT_CHECK = "Merge conflict markers"
+# A workflow GitHub cannot load runs no job at all: dd8b867f (2026-11-06, a direct commit) left an unquoted `: ` in a
+# nightly.yml input description, every push made a 0-job failed run and no nightly built for 3.5 hours.
+WORKFLOW_CHECK = "Workflow YAML parses (.github/workflows, .github/actions)"
+WORKFLOW_FILE = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
+WORKFLOW_HINT = ("Fix the workflow: quote a value that holds `: ` or ` #` (description: \"a: b\"), then push. GitHub "
+                 "cannot load a workflow that does not parse and runs none of its jobs, so no skip reason passes it.")
+# Ruby's Psych (libyaml), the parser a Mac without PyYAML still has: it parses only, it builds no objects.
+RUBY_YAML_PARSE = """require 'psych'
+begin
+  Psych.parse_stream($stdin.read)
+rescue Psych::SyntaxError => e
+  puts "#{e.line}:#{e.column}: #{[e.problem, e.context].compact.join(' ')}"
+  exit 1
+end
+"""
 CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_DRIFT = "cannot update the lock file"
@@ -365,6 +385,19 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
+
+
+def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
+    """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
+    files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
+    sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
+    files: set[str] = set()
+    for name, (keys, count) in RATCHET_BASELINES.items():
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+                for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
+        files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
+    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
+                  and blob_at(repo, head, p) is not None)
 
 
 def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
@@ -1153,6 +1186,94 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def yaml_problem(text: str) -> tuple[bool, str | None]:
+    """(whether TEXT could be parsed here, `line:column: problem` when it does not parse).
+
+    PyYAML when this Python has it (CI's guard venv and most dev Pythons), else Ruby's Psych (macOS ships it).
+    Neither: (False, None), and the caller warns; no network is needed either way."""
+    try:
+        import yaml  # noqa: PLC0415  (optional: the gate runs on Pythons without it)
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        try:
+            yaml.safe_load(text)
+        except yaml.MarkedYAMLError as error:
+            mark = error.problem_mark or error.context_mark
+            where = f"{mark.line + 1}:{mark.column + 1}" if mark else "1:1"
+            return True, f"{where}: {error.problem or error.context or error}"
+        except yaml.YAMLError as error:
+            return True, f"1:1: {error}"
+        return True, None
+    ruby = shutil.which("ruby")
+    if ruby is None:
+        return False, None
+    try:
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False, None
+    if result.returncode == 0:
+        return True, None
+    first = result.stdout.strip().splitlines()
+    # No line printed: Ruby itself failed (no psych), which says nothing about the file.
+    return (True, first[0]) if first else (False, None)
+
+
+def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
+    """actionlint's [syntax-check] messages for TEXT as PATH, without their line and column; None if it did not run.
+
+    Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
+    try:
+        result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    found = set()
+    for line in result.stdout.splitlines():
+        match = re.match(r"^[^:]+:(\d+):(\d+): (.*\[syntax-check\])$", line)
+        if match:
+            found.add(f"{match.group(1)}:{match.group(2)}: {match.group(3)}")
+    return found
+
+
+def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
+    unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
+
+    Only the head counts: GitHub loads the pushed head's file, so a broken commit fixed later in the push passes, and
+    a file the push does not change is never read. Not skippable by CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
+                ".github/").decode().split("\0")
+    files = sorted(n for n in names if n and WORKFLOW_FILE.match(n) and (restrict is None or n in restrict))
+    actionlint = shutil.which("actionlint")
+    found, unchecked = [], []
+    for path in files:
+        data = blob_at(repo, head, path)
+        if data is None:
+            continue
+        text = data.decode("utf-8", "replace")
+        checked, problem = yaml_problem(text)
+        if problem:
+            found.append(f"{path}:{problem} (the YAML does not parse; GitHub will not load this file)")
+            continue
+        if not checked:
+            unchecked.append(path)
+        if actionlint and path.startswith(".github/workflows/"):
+            now = actionlint_syntax(actionlint, path, text)
+            if now:
+                before = blob_at(repo, base, path)
+                old = actionlint_syntax(actionlint, path, before.decode("utf-8", "replace")) if before else set()
+                old_keys = {line.split(": ", 1)[1] for line in old or ()}
+                found += [f"{path}:{line} (actionlint)" for line in sorted(now)
+                          if line.split(": ", 1)[1] not in old_keys]
+    if unchecked and not actionlint:
+        log(f"prepush-gate: WARNING: no YAML parser here (PyYAML, ruby or actionlint), so {', '.join(unchecked)} "
+            "went unchecked; CI's \"Lint every workflow\" step still checks it. `pip install pyyaml` fixes this.")
+    return found
+
+
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                        restrict: set[str] | None = None) -> list[str]:
     """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
@@ -1293,6 +1414,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Local only, like the highlights (CLAUDE.md: no new CI gates): CI's "Lint every workflow" step (actionlint, on
+    # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
+    if highlights_layer if only is None else "workflows" in only:
+        broken = workflow_problems(repo, base, head, restrict)
+        if broken:
+            reserved.append((WORKFLOW_CHECK, broken))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
@@ -1322,7 +1449,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
-    changed = changed_files(repo, base, head)
+    changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
     if restrict is not None:
         changed = [p for p in changed if p in restrict]
@@ -1732,7 +1859,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,freeze,highlights")
+                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1852,6 +1979,9 @@ def main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == WORKFLOW_CHECK for name, _ in found_any):
+        # A workflow GitHub cannot load stops every run of it (all its jobs, on every push), not one check.
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {WORKFLOW_CHECK}. {WORKFLOW_HINT}")
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
@@ -1872,6 +2002,8 @@ def main(argv: list[str] | None = None) -> int:
         print(HIGHLIGHTS_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == WORKFLOW_CHECK for name, _ in found_any):
+        print(WORKFLOW_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

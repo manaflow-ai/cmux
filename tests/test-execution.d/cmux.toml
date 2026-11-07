@@ -52,6 +52,11 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_machine_channel.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that the Cloud machine channel payload from the build (--binaries-dir) matches the one from the manifest and refuses other bytes; run python3 tests/test_cmux_machine_channel.py yourself after changing scripts/ci/cmux-machine-channel.py (under 1 s, no network)."
+
+[[test]]
 path = "tests/test_cmux_next_app_ffi_pin_scope.py"
 lane = "linux-guard"
 
@@ -248,6 +253,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_prepush_workflow_yaml.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. It pushes a workflow that does not parse through the real pre-push hook in a throwaway repository; CI's Lint every workflow step (actionlint) is the backstop. Run python3 tests/test_cmux_next_prepush_workflow_yaml.py yourself after changing the workflow YAML layer of scripts/cmux-next/prepush-gate.py."
 
 [[test]]
 path = "tests/test_cmux_next_reel.py"

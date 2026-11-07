@@ -605,8 +605,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidChange), name: UIResponder.keyboardDidShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardDidHideNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
     }
 
     override func didMove(toParent parent: UIViewController?) {
@@ -2732,12 +2732,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         setKeyBar(visible: false, note: note)
     }
 
-    @objc private func keyboardDidHide() {
+    @objc private func keyboardDidHide(_ note: Notification) {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd didHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         #endif
+        // A hide a newer show interrupted: the keyboard is on its way up, and
+        // settling the stack now would lay it out against the hide.
+        guard !isStale(note) else { return }
         dock.keyboardDidHide()
         keyboardDidChange()
+    }
+
+    @objc private func keyboardDidShow(_ note: Notification) {
+        // A show a newer hide interrupted (the keyboard key pressed twice).
+        guard !isStale(note) else { return }
+        keyboardDidChange()
+    }
+
+    /// A did-show or did-hide that ends a transition a later one replaced
+    /// (`MobileKeyboardFrameTracker.isStale(didChangeTo:)`).
+    private func isStale(_ note: Notification) -> Bool {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        return keyboardTracker.isStale(didChangeTo: end)
     }
 
     @objc private func keyboardDidChange() {

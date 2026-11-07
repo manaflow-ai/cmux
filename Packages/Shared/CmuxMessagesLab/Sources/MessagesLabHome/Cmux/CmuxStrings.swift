@@ -244,6 +244,8 @@ enum CmuxStrings {
     static var pictureCopy: String { String(localized: "home.picture.copy", defaultValue: "Copy Picture", table: "CmuxHome", bundle: .module) }
     static var pictureSave: String { String(localized: "home.picture.save", defaultValue: "Save Picture…", table: "CmuxHome", bundle: .module) }
     static var pictureReply: String { String(localized: "home.picture.reply", defaultValue: "Send in Chat", table: "CmuxHome", bundle: .module) }
+    /// The picture viewer's switch between a comparison's rows ("Light | Dark"), for VoiceOver.
+    static var pictureRowSwitch: String { String(localized: "home.picture.rowSwitch", defaultValue: "Picture Set", table: "CmuxHome", bundle: .module) }
     static var pictureViewer: String { String(localized: "home.picture.viewer", defaultValue: "Picture Viewer", table: "CmuxHome", bundle: .module) }
     static var pictureLoading: String { String(localized: "home.picture.loading", defaultValue: "Loading Picture", table: "CmuxHome", bundle: .module) }
     static var pictureLoadFailed: String { String(localized: "home.picture.loadFailed", defaultValue: "This picture could not be loaded.", table: "CmuxHome", bundle: .module) }

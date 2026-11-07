@@ -12312,133 +12312,133 @@
       }
     },
     "importSuggestions.benefit.conductor" : {
-      "comment" : "What the Conductor card in Settings › Import brings over.",
+      "comment" : "What the Conductor card in Settings › Import brings over (its source is named here, inside Import; no date).",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your Conductor workspaces open here in place, on their branches, with their chats. Conductor Cloud shuts down on November 20."
+            "value" : "Your Conductor workspaces open here in place, on their branches, with their chats."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Conductor-Arbeitsbereiche öffnen sich hier an Ort und Stelle, auf ihren Branches, mit ihren Chats. Conductor Cloud wird am 20. November eingestellt."
+            "value" : "Deine Conductor-Arbeitsbereiche öffnen sich hier an Ort und Stelle, auf ihren Branches, mit ihren Chats."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos espaces de travail Conductor s’ouvrent ici sur place, sur leurs branches, avec leurs discussions. Conductor Cloud ferme le 20 novembre."
+            "value" : "Vos espaces de travail Conductor s’ouvrent ici sur place, sur leurs branches, avec leurs discussions."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تُفتح مساحات عمل Conductor هنا في مكانها، على فروعها، مع محادثاتها. يتوقف Conductor Cloud في 20 نوفمبر."
+            "value" : "تُفتح مساحات عمل Conductor هنا في مكانها، على فروعها، مع محادثاتها. يتوقف"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus espacios de trabajo de Conductor se abren aquí en su lugar, en sus ramas, con sus chats. Conductor Cloud cierra el 20 de noviembre."
+            "value" : "Tus espacios de trabajo de Conductor se abren aquí en su lugar, en sus ramas, con sus chats."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作區會就地在此開啟，保留其分支與對話。Conductor Cloud 將於 11 月 20 日關閉。"
+            "value" : "你的 Conductor 工作區會就地在此開啟，保留其分支與對話。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的 Conductor 工作区会就地在此打开，保留其分支和对话。Conductor Cloud 将于 11 月 20 日关闭。"
+            "value" : "你的 Conductor 工作区会就地在此打开，保留其分支和对话。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간이 브랜치와 채팅 그대로 여기에서 열립니다. Conductor Cloud는 11월 20일에 종료됩니다."
+            "value" : "Conductor 작업 공간이 브랜치와 채팅 그대로 여기에서 열립니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペースが、ブランチとチャットはそのままにここで開きます。Conductor Cloud は 11 月 20 日に終了します。"
+            "value" : "Conductor のワークスペースが、ブランチとチャットはそのままにここで開きます。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vaši Conductor radni prostori otvaraju se ovdje na mjestu, na svojim granama, sa svojim razgovorima. Conductor Cloud se gasi 20. novembra."
+            "value" : "Vaši Conductor radni prostori otvaraju se ovdje na mjestu, na svojim granama, sa svojim razgovorima."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine Conductor-arbejdsområder åbnes her på stedet, på deres branches, med deres chats. Conductor Cloud lukker den 20. november."
+            "value" : "Dine Conductor-arbejdsområder åbnes her på stedet, på deres branches, med deres chats."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "I tuoi spazi di lavoro di Conductor si aprono qui sul posto, sui loro branch, con le loro chat. Conductor Cloud chiude il 20 novembre."
+            "value" : "I tuoi spazi di lavoro di Conductor si aprono qui sul posto, sui loro branch, con le loro chat."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor របស់អ្នកបើកនៅទីនេះនៅនឹងកន្លែង លើ branch របស់វា ជាមួយការជជែករបស់វា។ Conductor Cloud បិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។"
+            "value" : "កន្លែងធ្វើការ Conductor របស់អ្នកបើកនៅទីនេះនៅនឹងកន្លែង លើ branch របស់វា ជាមួយការជជែករបស់វា។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbeidsområdene dine åpnes her der de er, på sine grener, med chattene sine. Conductor Cloud stenges 20. november."
+            "value" : "Conductor-arbeidsområdene dine åpnes her der de er, på sine grener, med chattene sine."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Twoje obszary robocze Conductor otwierają się tu na miejscu, na swoich gałęziach, z czatami. Conductor Cloud zostanie wyłączony 20 listopada."
+            "value" : "Twoje obszary robocze Conductor otwierają się tu na miejscu, na swoich gałęziach, z czatami."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus espaços de trabalho do Conductor abrem aqui no lugar, nos branches deles, com as conversas. O Conductor Cloud será encerrado em 20 de novembro."
+            "value" : "Seus espaços de trabalho do Conductor abrem aqui no lugar, nos branches deles, com as conversas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваши рабочие пространства Conductor открываются здесь на месте, на своих ветках, со своими чатами. Conductor Cloud закроется 20 ноября."
+            "value" : "Ваши рабочие пространства Conductor открываются здесь на месте, на своих ветках, со своими чатами."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor ของคุณจะเปิดที่นี่ในที่เดิม บนสาขาของมัน พร้อมแชต Conductor Cloud ปิดให้บริการวันที่ 20 พฤศจิกายน"
+            "value" : "พื้นที่ทำงาน Conductor ของคุณจะเปิดที่นี่ในที่เดิม บนสาขาของมัน พร้อมแชต"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanlarınız burada yerinde, dallarında ve sohbetleriyle açılır. Conductor Cloud 20 Kasım'da kapanıyor."
+            "value" : "Conductor çalışma alanlarınız burada yerinde, dallarında ve sohbetleriyle açılır."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ваші робочі простори Conductor відкриваються тут на місці, на своїх гілках, зі своїми чатами. Conductor Cloud закриється 20 листопада."
+            "value" : "Ваші робочі простори Conductor відкриваються тут на місці, на своїх гілках, зі своїми чатами."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không gian làm việc Conductor của bạn mở tại chỗ ở đây, trên nhánh của chúng, cùng các cuộc trò chuyện. Conductor Cloud ngừng hoạt động vào ngày 20 tháng 11."
+            "value" : "Không gian làm việc Conductor của bạn mở tại chỗ ở đây, trên nhánh của chúng, cùng các cuộc trò chuyện."
           }
         }
       }
@@ -12840,397 +12840,397 @@
       }
     },
     "conductorImport.note.title" : {
-      "comment" : "The title of the sidebar's one-time note that points to Import from Conductor.",
+      "comment" : "The title of the sidebar's one-time note that points to Settings › Import when this Mac has workspaces another app can hand over. Names no app.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bring your Conductor workspaces"
+            "value" : "Import your workspaces"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bring deine Conductor-Arbeitsbereiche mit"
+            "value" : "Arbeitsbereiche importieren"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apportez vos espaces de travail Conductor"
+            "value" : "Importez vos espaces de travail"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "أحضر مساحات عمل Conductor"
+            "value" : "استورد مساحات عملك"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trae tus espacios de trabajo de Conductor"
+            "value" : "Importa tus espacios de trabajo"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "帶來你的 Conductor 工作區"
+            "value" : "匯入你的工作區"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "带来你的 Conductor 工作区"
+            "value" : "导入你的工作区"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간 가져오기"
+            "value" : "작업 공간 가져오기"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペースを移行"
+            "value" : "ワークスペースを読み込む"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Donesite svoje Conductor radne prostore"
+            "value" : "Uvezite svoje radne prostore"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tag dine Conductor-arbejdsområder med"
+            "value" : "Importér dine arbejdsområder"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Porta i tuoi spazi di lavoro di Conductor"
+            "value" : "Importa i tuoi spazi di lavoro"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "នាំកន្លែងធ្វើការ Conductor របស់អ្នកមក"
+            "value" : "នាំចូលកន្លែងធ្វើការរបស់អ្នក"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ta med Conductor-arbeidsområdene dine"
+            "value" : "Importer arbeidsområdene dine"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Przenieś swoje obszary robocze Conductor"
+            "value" : "Zaimportuj swoje obszary robocze"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Traga seus espaços de trabalho do Conductor"
+            "value" : "Importe seus espaços de trabalho"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перенесите рабочие пространства Conductor"
+            "value" : "Импортируйте рабочие пространства"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "นำพื้นที่ทำงาน Conductor ของคุณมา"
+            "value" : "นำเข้าพื้นที่ทำงานของคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanlarınızı getirin"
+            "value" : "Çalışma alanlarınızı içe aktarın"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перенесіть робочі простори Conductor"
+            "value" : "Імпортуйте робочі простори"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mang không gian làm việc Conductor sang đây"
+            "value" : "Nhập không gian làm việc của bạn"
           }
         }
       }
     },
     "conductorImport.note.detail" : {
-      "comment" : "The detail of the sidebar's one-time Import from Conductor note: the deadline, and where the import is.",
+      "comment" : "The detail of the sidebar's one-time import note. Names no app and no date.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud shuts down on November 20. Settings › Import opens your workspaces here, in place."
+            "value" : "Bring sessions from other apps into cmux, in place."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud wird am 20. November eingestellt. Einstellungen › Importieren öffnet deine Arbeitsbereiche hier, an Ort und Stelle."
+            "value" : "Bring Sitzungen aus anderen Apps an Ort und Stelle in cmux."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud ferme le 20 novembre. Réglages › Importer ouvre vos espaces de travail ici, sur place."
+            "value" : "Apportez vos sessions d’autres apps dans cmux, sur place."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يتوقف Conductor Cloud في 20 نوفمبر. الإعدادات › الاستيراد يفتح مساحات عملك هنا في مكانها."
+            "value" : "انقل جلساتك من التطبيقات الأخرى إلى cmux، في مكانها."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud cierra el 20 de noviembre. Ajustes › Importar abre tus espacios de trabajo aquí, en su lugar."
+            "value" : "Trae tus sesiones de otras apps a cmux, en su lugar."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 將於 11 月 20 日關閉。「設定 › 匯入」會就地在此開啟你的工作區。"
+            "value" : "將其他 App 中的工作階段就地帶入 cmux。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 将于 11 月 20 日关闭。“设置 › 导入”会就地在此打开你的工作区。"
+            "value" : "将其他应用中的会话就地带入 cmux。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud는 11월 20일에 종료됩니다. 설정 › 가져오기에서 작업 공간을 그대로 여기에서 엽니다."
+            "value" : "다른 앱의 세션을 그대로 cmux로 가져옵니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud は 11 月 20 日に終了します。設定 › 読み込みで、ワークスペースをそのままここで開けます。"
+            "value" : "ほかのアプリのセッションを、その場のまま cmux に取り込めます。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud se gasi 20. novembra. Postavke › Uvoz otvara vaše radne prostore ovdje, na mjestu."
+            "value" : "Prenesite sesije iz drugih aplikacija u cmux, na mjestu."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud lukker den 20. november. Indstillinger › Import åbner dine arbejdsområder her, på stedet."
+            "value" : "Tag sessioner fra andre apps med ind i cmux, på stedet."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud chiude il 20 novembre. Impostazioni › Importa apre qui i tuoi spazi di lavoro, sul posto."
+            "value" : "Porta in cmux le sessioni di altre app, sul posto."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud បិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។ ការកំណត់ › នាំចូល បើកកន្លែងធ្វើការរបស់អ្នកនៅទីនេះ នៅនឹងកន្លែង។"
+            "value" : "នាំវគ្គពីកម្មវិធីផ្សេងទៀតចូល cmux នៅនឹងកន្លែង។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud stenges 20. november. Innstillinger › Import åpner arbeidsområdene dine her, der de er."
+            "value" : "Ta med økter fra andre apper inn i cmux, der de er."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud zostanie wyłączony 20 listopada. Ustawienia › Import otworzy tu Twoje obszary robocze, na miejscu."
+            "value" : "Przenieś sesje z innych aplikacji do cmux, na miejscu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Conductor Cloud será encerrado em 20 de novembro. Ajustes › Importar abre seus espaços de trabalho aqui, no lugar."
+            "value" : "Traga sessões de outros apps para o cmux, no lugar."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud закроется 20 ноября. Настройки › Импорт откроют ваши рабочие пространства здесь, на месте."
+            "value" : "Перенесите сеансы из других приложений в cmux, на месте."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud ปิดให้บริการวันที่ 20 พฤศจิกายน การตั้งค่า › นำเข้า จะเปิดพื้นที่ทำงานของคุณที่นี่ในที่เดิม"
+            "value" : "นำเซสชันจากแอปอื่นเข้ามาใน cmux ในที่เดิม"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud 20 Kasım'da kapanıyor. Ayarlar › İçe Aktar, çalışma alanlarınızı burada yerinde açar."
+            "value" : "Diğer uygulamalardaki oturumları yerinde cmux’a getirin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud закриється 20 листопада. Налаштування › Імпорт відкриють ваші робочі простори тут, на місці."
+            "value" : "Перенесіть сеанси з інших застосунків у cmux, на місці."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor Cloud ngừng hoạt động vào ngày 20 tháng 11. Cài đặt › Nhập sẽ mở không gian làm việc của bạn tại chỗ ở đây."
+            "value" : "Đưa phiên từ các ứng dụng khác vào cmux, tại chỗ."
           }
         }
       }
     },
     "conductorImport.note.open" : {
-      "comment" : "The button of the sidebar's Import from Conductor note: opens Settings › Import.",
+      "comment" : "The button of the sidebar's import note: opens Settings › Import.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open Import"
+            "value" : "Import…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Import öffnen"
+            "value" : "Importieren …"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ouvrir l’importation"
+            "value" : "Importer…"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "فتح الاستيراد"
+            "value" : "استيراد…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abrir Importar"
+            "value" : "Importar…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "開啟匯入"
+            "value" : "匯入…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "打开导入"
+            "value" : "导入…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "가져오기 열기"
+            "value" : "가져오기…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "読み込みを開く"
+            "value" : "読み込む…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Otvori uvoz"
+            "value" : "Uvezi…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Åbn import"
+            "value" : "Importér…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apri Importa"
+            "value" : "Importa…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បើកការនាំចូល"
+            "value" : "នាំចូល…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Åpne import"
+            "value" : "Importer …"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Otwórz import"
+            "value" : "Importuj…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abrir Importar"
+            "value" : "Importar…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Открыть импорт"
+            "value" : "Импортировать…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "เปิดการนำเข้า"
+            "value" : "นำเข้า…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "İçe Aktarmayı Aç"
+            "value" : "İçe Aktar…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відкрити імпорт"
+            "value" : "Імпортувати…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mở Nhập"
+            "value" : "Nhập…"
           }
         }
       }
@@ -13368,133 +13368,133 @@
       }
     },
     "conductorImport.onboarding.line" : {
-      "comment" : "A line on the first-run Bring your history page when this Mac has Conductor: where to import its workspaces, and the deadline.",
+      "comment" : "A line on the first-run Bring your history page when this Mac has workspaces another app can hand over: where to import them. Names no app and no date.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor workspaces: import them from Settings › Import before Conductor Cloud shuts down on November 20."
+            "value" : "Workspaces from other apps: import them in place from Settings › Import."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-Arbeitsbereiche: Importiere sie über Einstellungen › Importieren, bevor Conductor Cloud am 20. November eingestellt wird."
+            "value" : "Arbeitsbereiche aus anderen Apps: Importiere sie an Ort und Stelle unter Einstellungen › Import."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Espaces de travail Conductor : importez-les depuis Réglages › Importer avant la fermeture de Conductor Cloud le 20 novembre."
+            "value" : "Espaces de travail d’autres apps : importez-les sur place depuis Réglages › Importation."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "مساحات عمل Conductor: استوردها من الإعدادات › الاستيراد قبل توقف Conductor Cloud في 20 نوفمبر."
+            "value" : "مساحات العمل من التطبيقات الأخرى: استوردها في مكانها من الإعدادات › الاستيراد."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Espacios de trabajo de Conductor: impórtalos desde Ajustes › Importar antes de que Conductor Cloud cierre el 20 de noviembre."
+            "value" : "Espacios de trabajo de otras apps: impórtalos en su lugar desde Ajustes › Importar."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 工作區：請在 Conductor Cloud 於 11 月 20 日關閉前，從「設定 › 匯入」匯入。"
+            "value" : "其他 App 的工作區：可在「設定 › 匯入」中就地匯入。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 工作区：请在 Conductor Cloud 于 11 月 20 日关闭前，从“设置 › 导入”导入。"
+            "value" : "其他应用的工作区：可在“设置 › 导入”中就地导入。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor 작업 공간: Conductor Cloud가 11월 20일에 종료되기 전에 설정 › 가져오기에서 가져오세요."
+            "value" : "다른 앱의 작업 공간: 설정 › 가져오기에서 그대로 가져올 수 있습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor のワークスペース: Conductor Cloud が 11 月 20 日に終了する前に、設定 › 読み込みから読み込んでください。"
+            "value" : "ほかのアプリのワークスペースは、設定 › 読み込みからその場のまま読み込めます。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor radni prostori: uvezite ih iz Postavke › Uvoz prije nego što se Conductor Cloud ugasi 20. novembra."
+            "value" : "Radni prostori iz drugih aplikacija: uvezite ih na mjestu iz Postavke › Uvoz."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbejdsområder: Importér dem fra Indstillinger › Import, før Conductor Cloud lukker den 20. november."
+            "value" : "Arbejdsområder fra andre apps: importér dem på stedet fra Indstillinger › Import."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Spazi di lavoro di Conductor: importali da Impostazioni › Importa prima che Conductor Cloud chiuda il 20 novembre."
+            "value" : "Spazi di lavoro di altre app: importali sul posto da Impostazioni › Importa."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កន្លែងធ្វើការ Conductor៖ នាំចូលពី ការកំណត់ › នាំចូល មុនពេល Conductor Cloud បិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។"
+            "value" : "កន្លែងធ្វើការពីកម្មវិធីផ្សេងទៀត៖ នាំចូលពួកវានៅនឹងកន្លែងពី ការកំណត់ › នាំចូល។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor-arbeidsområder: Importer dem fra Innstillinger › Import før Conductor Cloud stenges 20. november."
+            "value" : "Arbeidsområder fra andre apper: importer dem der de er fra Innstillinger › Import."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Obszary robocze Conductor: zaimportuj je w Ustawienia › Import, zanim Conductor Cloud zostanie wyłączony 20 listopada."
+            "value" : "Obszary robocze z innych aplikacji: zaimportuj je na miejscu w Ustawienia › Import."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Espaços de trabalho do Conductor: importe-os em Ajustes › Importar antes que o Conductor Cloud seja encerrado em 20 de novembro."
+            "value" : "Espaços de trabalho de outros apps: importe-os no lugar em Ajustes › Importar."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Рабочие пространства Conductor: импортируйте их в Настройки › Импорт до закрытия Conductor Cloud 20 ноября."
+            "value" : "Рабочие пространства из других приложений: импортируйте их на месте в Настройки › Импорт."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "พื้นที่ทำงาน Conductor: นำเข้าจาก การตั้งค่า › นำเข้า ก่อนที่ Conductor Cloud จะปิดให้บริการวันที่ 20 พฤศจิกายน"
+            "value" : "พื้นที่ทำงานจากแอปอื่น: นำเข้าในที่เดิมได้จาก การตั้งค่า › นำเข้า"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Conductor çalışma alanları: Conductor Cloud 20 Kasım'da kapanmadan önce Ayarlar › İçe Aktar'dan içe aktarın."
+            "value" : "Diğer uygulamalardaki çalışma alanları: Ayarlar › İçe Aktar’dan yerinde içe aktarın."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Робочі простори Conductor: імпортуйте їх у Налаштування › Імпорт до закриття Conductor Cloud 20 листопада."
+            "value" : "Робочі простори з інших застосунків: імпортуйте їх на місці в Параметри › Імпорт."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không gian làm việc Conductor: hãy nhập chúng từ Cài đặt › Nhập trước khi Conductor Cloud ngừng hoạt động vào ngày 20 tháng 11."
+            "value" : "Không gian làm việc từ ứng dụng khác: nhập tại chỗ từ Cài đặt › Nhập."
           }
         }
       }

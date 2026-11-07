@@ -114,6 +114,8 @@ public final class PointerHover: NSObject {
     struct DebugPointer {
         var point: NSPoint?
         var mouse: NSPoint
+        /// The tracking areas the synthesized pointer is inside (`SyntheticPointer`).
+        var inside: [ObjectIdentifier: NSTrackingArea] = [:]
     }
 
     static var debugPointers: [ObjectIdentifier: DebugPointer] = [:]
@@ -121,9 +123,19 @@ public final class PointerHover: NSObject {
     /// DEBUG: sets `window`'s synthesized pointer (nil: outside the window),
     /// then recomputes every target in the window.
     public static func setDebugPointer(_ point: NSPoint?, in window: NSWindow) {
-        debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation)
+        setDebugPointer(point, inside: debugInside(in: window), in: window)
+    }
+
+    /// DEBUG: sets `window`'s synthesized pointer and the tracking areas it is inside now (`SyntheticPointer`).
+    static func setDebugPointer(_ point: NSPoint?, inside: [ObjectIdentifier: NSTrackingArea], in window: NSWindow) {
+        debugPointers[ObjectIdentifier(window)] = DebugPointer(point: point, mouse: NSEvent.mouseLocation, inside: inside)
         installKeyObserversIfNeeded()
         refresh(in: window)
+    }
+
+    /// DEBUG: the tracking areas `window`'s synthesized pointer is inside (`SyntheticPointer`).
+    static func debugInside(in window: NSWindow) -> [ObjectIdentifier: NSTrackingArea] {
+        debugPointers[ObjectIdentifier(window)]?.inside ?? [:]
     }
 
     /// DEBUG: the synthesized pointer of `window` while it holds: `.some(nil)`

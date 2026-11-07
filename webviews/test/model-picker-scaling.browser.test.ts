@@ -142,7 +142,9 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       }
     });
 
-    test(`${engine}: long model names truncate inside the scaled width cap`, async () => {
+    // Lawrence 2026-11-05 ("cant see full model name"): the menu grows to fit a long name up to
+    // its 40em cap, then the name wraps; it is never clipped.
+    test(`${engine}: long model names wrap inside the scaled width cap, never clipped`, async () => {
       const page = await open(engine, 1200, "long-model-name");
       try {
         for (const scale of [1, 1.5]) {
@@ -156,13 +158,13 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
               width: menu.getBoundingClientRect().width,
               rowTitle: name.closest<HTMLElement>("[role=option]")!.title,
               name: name.textContent,
-              clipped: name.scrollWidth > name.clientWidth,
+              clipped: name.scrollWidth > name.clientWidth + 1 || name.scrollHeight > name.clientHeight + 1,
               ellipsis: getComputedStyle(name).textOverflow,
             };
           });
-          expect(layout.width).toBeLessThanOrEqual(370.5 * scale + 0.5);
-          expect(layout.clipped).toBe(true);
-          expect(layout.ellipsis).toBe("ellipsis");
+          expect(layout.width).toBeLessThanOrEqual(520 * scale + 0.5);
+          expect(layout.clipped).toBe(false);
+          expect(layout.ellipsis).toBe("clip");
           expect(layout.rowTitle).toContain(layout.name!);
         }
       } finally {
@@ -174,7 +176,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       const page = await open(engine);
       try {
         expect((await geometry(page)).model).toBeGreaterThanOrEqual(185);
-        expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(371);
+        expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(520.5);
         const labels = await page
           .locator(".acpmux-cols-body > [role=listbox] [role=option] .acpmux-cols-name")
           .evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, content: node.scrollWidth })));

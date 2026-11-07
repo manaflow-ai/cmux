@@ -20,8 +20,10 @@ import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
-import { PullRequestGlyph, type PullRequestGlyphState } from "./PullRequestGlyph";
+import { PullRequestGlyph } from "./PullRequestGlyph";
+import type { PullRequestGlyphState } from "./pullRequestGlyphModel";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 /// Rows shown before Show more (Claude Code desktop's Changes shows five).
@@ -177,15 +179,18 @@ export function ChangesSection({
   return (
     <>
       <ul className="acpmux-session-info-list" data-section="changes">
-        {shown.map((pr) => (
-          <PullRequestRow
-            key={pr.url}
-            pr={pr}
-            live={statuses[pr.url] ?? {}}
-            onOpenBeside={onOpenBeside}
-            onDismiss={onDismiss}
-          />
-        ))}
+        <WindowedRows
+          items={shown}
+          render={(pr) => (
+            <PullRequestRow
+              key={pr.url}
+              pr={pr}
+              live={statuses[pr.url] ?? {}}
+              onOpenBeside={onOpenBeside}
+              onDismiss={onDismiss}
+            />
+          )}
+        />
       </ul>
       {folds && (
         <button

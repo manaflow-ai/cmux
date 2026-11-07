@@ -209,12 +209,20 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
 /// be overly... verbose?"); wide names each rule with its number and the command that answers it
 /// (`ctx 412k: acpmux send lane-1 /compact | sessions rotate lane-1`). A respawn that waits
 /// for the turn to end (`respawnPending`, `hub/profile_respawn.rs`) comes first, in full in both:
-/// `respawn pending: profile changed`.
+/// `respawn pending: profile changed`. A live agent host on another build than the daemon's
+/// (`hostBuildDiffers`, `hub/views/host_build.rs`) is `other build`; wide names the host's build.
 fn warn(row: &Value, wide: bool) -> String {
     let respawn = row
         .get("respawnPending")
         .and_then(Value::as_str)
         .map(|why| format!("respawn pending: {why}"));
+    let other_build =
+        (row.get("hostBuildDiffers").and_then(Value::as_bool) == Some(true)).then(|| {
+            match row.get("hostBuild").and_then(Value::as_str).filter(|_| wide) {
+                Some(host) => format!("other build: {host}"),
+                None => "other build".to_owned(),
+            }
+        });
     let usage = row.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty()).map(
         |warnings| {
             if !wide {
@@ -227,7 +235,7 @@ fn warn(row: &Value, wide: bool) -> String {
                 .join("; ")
         },
     );
-    respawn.into_iter().chain(usage).collect::<Vec<_>>().join("; ")
+    respawn.into_iter().chain(other_build).chain(usage).collect::<Vec<_>>().join("; ")
 }
 
 /// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).

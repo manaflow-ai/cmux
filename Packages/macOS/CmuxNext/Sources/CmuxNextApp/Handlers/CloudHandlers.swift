@@ -62,13 +62,13 @@ enum CloudHandlers {
                 if let window, context.services.windows.controller(for: window.id) == nil {
                     return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
                 }
-                if request.isDefault, actionOrigin == .user, window != nil {
+                if request.takesPlainPath, actionOrigin == .user, window != nil {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
-                guard request.isDefault else {
+                guard request.takesPlainPath else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
@@ -247,7 +247,7 @@ enum CloudHandlers {
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
         guard session.machine.allows(.desktop) else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        let viewer = viewer ?? session.machine.defaultDesktopViewer
+        let viewer = viewer ?? session.machine.defaultDesktopViewer(for: services.cloud.auth.user?.id)
         if viewer == "rd" {
             guard session.machine.capabilities.desktop,
                   let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,

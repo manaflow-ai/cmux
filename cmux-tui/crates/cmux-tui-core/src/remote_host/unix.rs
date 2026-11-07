@@ -209,10 +209,10 @@ impl RemoteHostSupervisor {
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        // Nothing turned on (the app's remote.enabled off, or signed out with Computer Use off):
+        // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
         // no host starts for a request, so an off switch never runs cmux Remote.
         if !lock(&self.inner.config).wanted() {
-            return Err("cmux Remote is off (remote.enabled in cmux)".into());
+            return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
         }
         let connection = Inner::ensure(&self.inner)?;
         connection.call(method, params)
@@ -343,7 +343,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);

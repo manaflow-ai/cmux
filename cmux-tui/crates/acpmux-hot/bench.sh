@@ -2,6 +2,8 @@
 # Builds the guest's four variants, the host bench, and runs it: per-call cost against native,
 # swap and rollback times (plans/cmux-next/acpmux-hot-modules-DESIGN.md). A fleet step, never the
 # person's Mac:  cmux-ci test --setup rust -- bash cmux-tui/crates/acpmux-hot/bench.sh
+# On an owned Mac: cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA \
+#   --key KEY --os macos --arg acpmux-hot
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 out="${FAST_CHECKS_OUT:-$here/guest/target/bench-out}"
@@ -54,6 +56,13 @@ run_login() { # MODULE
 }
 cp "$here/guest/target/good.wasm" "$live_dir/acpmux_hot.wasm"
 run_login good
+# The same daemon, with no restart, swaps to the `no-offer` module and back: the sign-in stops finding
+# the link and then finds it again. Alone, since the swap changes the module for the whole process.
+ACPMUX_HOT_MODULE="$live_dir/acpmux_hot.wasm" ACPMUX_HOT_SWAP_TO="$here/guest/target/no-offer.wasm" \
+  cargo test --locked -p acpmux --features hot-modules --test agent_login -- --exact \
+  hot_module_swaps_under_a_running_daemon --nocapture 2>&1 | tee "$out/daemon-swap.log" \
+  | grep -E '^test |test result|acpmux-hot:'
+grep -q 'swap back seen' "$out/daemon-swap.log" || { echo "the running daemon's swap was not seen" >&2; exit 1; }
 cp "$here/guest/target/no-offer.wasm" "$live_dir/acpmux_hot.wasm"
 if run_login no-offer; then echo "daemon login passed with the no-offer module: the module was not asked" >&2; exit 1; fi
 echo "daemon login failed with the no-offer module, as it must"

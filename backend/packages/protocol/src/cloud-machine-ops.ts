@@ -60,6 +60,12 @@ export const CloudMachine = Schema.Struct({
   hourly_rate_usd: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)))),
   /** When the machine last started running (a start or a bind); null unless it is running. Clients show rate x time running as "about $X so far". */
   running_since: Schema.optionalKey(Schema.NullOr(Millis)),
+  /**
+   * The machine serves link service `desktop` (its agent display as cmux.rd/1): a Native machine whose daemon
+   * advertises CLOUD_DESKTOP_CAPABILITY in its bind or status report. Clients offer Open Desktop's `rd` viewer on
+   * it; the link_token mint stays the authority (the creator only). Absent from an older server: no desktop.
+   */
+  desktop: Schema.optionalKey(Schema.Boolean),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 

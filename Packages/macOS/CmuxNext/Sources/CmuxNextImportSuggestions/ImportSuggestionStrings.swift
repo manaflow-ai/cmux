@@ -70,7 +70,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     }
     static var conductor: String {
         String(localized: "importSuggestions.benefit.conductor",
-               defaultValue: "Your Conductor workspaces open here in place, on their branches, with their chats. Conductor Cloud shuts down on November 20.",
+               defaultValue: "Your Conductor workspaces open here in place, on their branches, with their chats.",
                table: "ImportSuggestions", bundle: .module)
     }
     static var classicAgain: String {

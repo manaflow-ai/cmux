@@ -14,6 +14,7 @@ import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
 import { HomeSheets } from "./sheets";
+import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 import { ChiefWorkStore } from "./ChiefWorkStore";
 import {
   HomeOps,
@@ -406,6 +407,12 @@ export class HomeChannelsStore {
     this.stops = [];
     this.starting = undefined;
   }
+
+  /** Ranks the Cmd-K palette's rows (`cmux.home.paletteRank`); offline, the fixture ranker. */
+  readonly rankPalette = (request: PaletteRankRequest): Promise<PaletteRankReply> =>
+    this.client
+      ? this.client.call<PaletteRankReply>(HomeOps.paletteRank, request)
+      : Promise.resolve(fixtureRank(request));
 
   async reloadInbox(): Promise<void> {
     if (!this.client) return;
@@ -810,6 +817,48 @@ export class HomeChannelsStore {
       this.set({ error: describe(error) });
       return false;
     }
+  }
+
+  /** Puts my pinned grid in `order` (a drag in the Messages list moved a tile, or dropped a row in):
+   * every tile gets a position on the owners' scale (now plus its index), pinned, so this order holds
+   * across both owners. Optimistic: the grid shows the order at once; a refusal puts that row back.
+   * Resolves true when every owner took it. */
+  async arrangePinned(order: readonly string[]): Promise<boolean> {
+    const client = this.client;
+    if (!client) return false;
+    const base = Math.max(
+      Date.now(),
+      ...[...this.snapshot.conversations.values()].map((c) => (c.pinPosition ?? 0) + 1),
+    );
+    const moves = order.flatMap((id, index) => {
+      const before = this.snapshot.conversations.get(id);
+      const position = base + index;
+      return before ? [{ id, before, position }] : [];
+    });
+    if (moves.length === 0) return false;
+    const conversations = new Map(this.snapshot.conversations);
+    for (const { id, before, position } of moves)
+      conversations.set(id, { ...before, pinned: true, pinPosition: position });
+    this.set({ conversations });
+    const results = await Promise.all(
+      moves.map(async ({ id, before, position }) => {
+        try {
+          await client.call(HomeOps.pin, {
+            conversation: id,
+            pinned: true,
+            position,
+            idempotencyKey: this.key("pin"),
+          } satisfies HomePinRequest);
+          return true;
+        } catch (error) {
+          if (this.snapshot.conversations.get(id)?.pinPosition === position)
+            this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+          this.set({ error: describe(error) });
+          return false;
+        }
+      }),
+    );
+    return results.every(Boolean);
   }
 
   /** Flags a conversation unread (the read cursor stays) or clears the flag. Optimistic, as a pin. */

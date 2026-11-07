@@ -27,10 +27,20 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every few minutes while the machine runs.
-const INTERVAL: Duration = Duration::from_secs(300);
+/// Every minute while the machine runs: a merged fix reaches an idle machine
+/// within about a minute of the channel moving, not five. One check is a GET
+/// of the small signed channel file (served uncached, max-age 60) and a
+/// signature check; it logs only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
+/// No flip or restart this long after the role starts (a boot or an update's
+/// restart), a bind or a resume: a new or claimed machine's first link comes
+/// up then, and a restart kills it before its hello (nightly 8d8fc7a,
+/// 2026-11-06: a spare claimed at 21:28:35 restarted at 21:28:41 and its
+/// first dial never came back). Past it, a chat that started holds the update
+/// as busy, so the update waits for an idle machine.
+pub(super) const CONNECT_HOLD: Duration = Duration::from_secs(5 * 60);
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -67,6 +77,37 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// returns, no worker flips or restarts anything; a stop that comes during
 /// one waits for it (a rename and a few `--no-block` systemctl calls).
 static COMMIT: Mutex<()> = Mutex::new(());
+
+/// Until when no flip runs (see [`CONNECT_HOLD`]); set by the role, read by its worker.
+static HELD_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// The hold's end after one that starts at `now`: never earlier than `held`.
+pub(super) fn extended_hold(held: Option<Instant>, now: Instant) -> Instant {
+    let until = now + CONNECT_HOLD;
+    held.map_or(until, |held| held.max(until))
+}
+
+/// How much of the hold ending at `held` is left at `now`, if any.
+pub(super) fn hold_left(held: Option<Instant>, now: Instant) -> Option<Duration> {
+    held.and_then(|held| held.checked_duration_since(now)).filter(|left| !left.is_zero())
+}
+
+fn hold_connects() {
+    let mut held = HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+    *held = Some(extended_hold(*held, Instant::now()));
+}
+
+/// The flip's own look at the hold: a bind or resume that came while the
+/// update downloaded or staged holds it too (it is retried as busy).
+pub(super) fn held_outcome(now: Instant) -> Option<Outcome> {
+    held_for(now)
+        .map(|left| Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())]))
+}
+
+/// How much of the connect hold is left at `now`.
+pub(super) fn held_for(now: Instant) -> Option<Duration> {
+    hold_left(*HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner()), now)
+}
 
 thread_local! {
     static WORKER_GENERATION: Cell<Option<u64>> = const { Cell::new(None) };
@@ -144,6 +185,7 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
+        hold_connects();
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -166,7 +208,10 @@ impl Role for UpdaterRole {
 
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
-            HostEvent::Resumed | HostEvent::ChannelChanged => {
+            HostEvent::Resumed | HostEvent::Bound { .. } | HostEvent::ChannelChanged => {
+                if !matches!(event, HostEvent::ChannelChanged) {
+                    hold_connects();
+                }
                 if let Some(worker) = &self.worker {
                     let _ = worker.tx.send(Msg::Check);
                 }
@@ -198,6 +243,14 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
         return;
     }
     loop {
+        // A check during the hold waits it out (a Check message only wakes it
+        // to look again).
+        if let Some(left) = held_for(Instant::now()) {
+            if !wait(rx, left) {
+                return;
+            }
+            continue;
+        }
         let outcome = check(paths);
         let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
         if !wait(rx, next) {
@@ -349,8 +402,9 @@ fn check_inner(paths: &Paths) -> Outcome {
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
-    let last =
-        last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
+    let last = last
+        .or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())))
+        .or_else(|| held_outcome(Instant::now()));
     if let Some(outcome) = last {
         drop(commit);
         disarm_guard();
@@ -499,11 +553,20 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
+/// What a restart would cut: the relay chats this cmux-host runs, then
+/// [`acpmux_busy_sessions`]. Empty only when both are idle.
+fn busy_sessions() -> Result<Vec<String>, String> {
+    if let Some(chats) = super::relay_chats_busy(crate::cloud::relay::running_chats()) {
+        return Ok(vec![chats]);
+    }
+    acpmux_busy_sessions()
+}
+
 /// The acpmux sessions that run a turn or wait on a permission, by name
 /// (as `acpmux host update --if-idle` reads them). Fails closed: an error,
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
-fn busy_sessions() -> Result<Vec<String>, String> {
+fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),

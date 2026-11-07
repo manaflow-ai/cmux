@@ -517,6 +517,12 @@ impl MeshHub for HttpHub {
         })
     }
 
+    fn sessions(&self) -> BoxFuture<'_, Result<crate::mesh::AddressBook, HubError>> {
+        Box::pin(async move {
+            decode(self.call(reqwest::Method::GET, "/v1/mesh/sessions", None, CALL_WAIT).await?)
+        })
+    }
+
     fn answer<'a>(
         &'a self,
         id: &'a str,

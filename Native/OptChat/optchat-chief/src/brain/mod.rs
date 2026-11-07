@@ -198,7 +198,7 @@ pub enum Input {
         ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (`subagents.showWorkspaces`).
+    /// start whether or not it opens then (sidebar_choice.rs).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -538,6 +538,10 @@ pub struct ReactionFields {
     pub classifier_prompt: Option<String>,
     /// `true`, `false` or `default`.
     pub reactions_can_wake: Option<String>,
+    /// The Chief turns' permission mode (`engine::parse_mode_flag`: a mode,
+    /// or `unset` to clear), cmux#37392. Not a reaction field: it rides in
+    /// this box so `EngineRequest` stays small (clippy large_enum_variant).
+    pub permission_mode: Option<String>,
 }
 
 impl From<DaemonEvent> for Input {

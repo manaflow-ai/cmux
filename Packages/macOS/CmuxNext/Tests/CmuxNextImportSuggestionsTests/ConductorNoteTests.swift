@@ -95,4 +95,27 @@ struct ConductorNoteTests {
         let empty = try ImportScannerTests.Home()
         #expect(ImportScanner(home: empty.url).conductorOnboardingLine(now: Self.now) == nil)
     }
+
+    /// The note, its button and the first-run line point at Settings › Import without naming
+    /// another app or its shutdown date, in every language; the Settings › Import card names its
+    /// source (that is what it imports) but carries no date either.
+    @Test func theNoteNamesNoOtherAppAndNoDateInEveryLanguage() throws {
+        let bundle = ConductorImportStrings.bundle
+        let localizations = bundle.localizations.filter { $0 != "Base" }
+        #expect(localizations.count >= 21, "\(bundle.bundlePath) has \(localizations)")
+        let unnamed = ["conductorImport.note.title", "conductorImport.note.detail", "conductorImport.note.open", "conductorImport.onboarding.line"]
+        let undated = unnamed + ["importSuggestions.benefit.conductor"]
+        let missing = "\u{0}missing"
+        for localization in localizations {
+            let lproj = try #require(bundle.url(forResource: localization, withExtension: "lproj").flatMap(Bundle.init(url:)))
+            for key in undated {
+                let text = lproj.localizedString(forKey: key, value: missing, table: "ImportSuggestions")
+                #expect(text != missing && !text.isEmpty, "\(localization): \(key) is missing")
+                #expect(!text.contains("20") && !text.contains("Cloud"), "\(localization): \(key) names a date: \(text)")
+                if unnamed.contains(key) {
+                    #expect(!text.contains("Conductor"), "\(localization): \(key) names another app: \(text)")
+                }
+            }
+        }
+    }
 }

@@ -211,8 +211,12 @@ test("the diff breakdown stays inline without a nested card", async () => {
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();
   expect(body.querySelector(".acpmux-pr-card__lines")?.tagName).toBe("SPAN");
   expect(body.querySelector(".acpmux-pr-card__breakdown")?.textContent).toContain(
-    "Code+200−40·Tests+150·Mocks+12−3·Docs+9−2·Generated+1,000−20",
+    "Code+200−40Tests+150Mocks+12−3Docs+9−2Generated+1,000−20",
   );
+  // One bar split by kind (Leo 2026-11-07), each part as wide as its kind's changed lines.
+  const parts = [...body.querySelectorAll<HTMLElement>(".acpmux-pr-card__barPart")];
+  expect(parts.map((part) => part.dataset.kind)).toEqual(["code", "tests", "mocks", "docs", "generated"]);
+  expect(Number(parts[4]!.style.flexGrow)).toBeGreaterThan(Number(parts[0]!.style.flexGrow));
 });
 
 test("code changed with no test gets a warning; a change with a test does not", async () => {
@@ -240,7 +244,8 @@ test("a truncated file read says the inline breakdown is partial", async () => {
     pullRequest: pullRequest({ files, changedFiles: 3, additions: 20, deletions: 2 }),
     fetchedAt: Date.now() / 1000 - 5,
   });
-  expect(body.querySelector(".acpmux-pr-card__kindPartial")?.textContent).toBe("the first 2 files");
+  // Said beside the numbers, with the real total (Leo 2026-11-07), never a bare "the first 2 files".
+  expect(body.querySelector(".acpmux-pr-card__kindPartial")?.textContent).toBe("from 2 of 3 files");
 });
 
 test("an answer cmux read a while ago says its age instead of looking current", async () => {
@@ -314,14 +319,14 @@ test("the glyph follows state and the card names that state in its status row", 
   expect(styles).toContain(".acpmux-pr-card__state");
 });
 
-test("an open pull request's checks are a compact ✓/✗ count; a merged or closed one's are gone", async () => {
+test("an open pull request's checks are counts in words; a merged or closed one's are gone", async () => {
   const open = await card({
     pullRequest: pullRequest({ checks: { state: "failing", passed: 90, total: 100 }, checkList: [] }),
     fetchedAt: Date.now() / 1000,
   });
   const checks = open.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
-  expect(checks.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("✓ 90");
-  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 10");
+  expect(checks.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("90 passed");
+  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("10 failed");
   expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe("90 of 100 checks passed, 10 failing");
   await unmount();
   const running = await card({
@@ -329,9 +334,9 @@ test("an open pull request's checks are a compact ✓/✗ count; a merged or clo
     fetchedAt: Date.now() / 1000,
   });
   const pending = running.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
-  expect(pending.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("✓ 12");
+  expect(pending.querySelector(".acpmux-pr-card__passed")?.textContent).toBe("12 passed");
   expect(pending.querySelector(".acpmux-pr-card__failed")).toBeNull();
-  expect(pending.querySelector(".acpmux-pr-card__pending")?.textContent).toBe("◷ 28");
+  expect(pending.querySelector(".acpmux-pr-card__pending")?.textContent).toBe("28 running");
   await unmount();
   for (const state of ["merged", "closed"]) {
     const ended = await card({
@@ -368,13 +373,13 @@ test("the card says how many of the failing checks are also red on the base", as
   expect(checks.querySelector(".acpmux-pr-card__sr")?.textContent).toBe(
     "98 of 100 checks passed, 2 failing, 1 also red on base",
   );
-  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+  expect(checks.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
   expect(checks.querySelector(".acpmux-pr-card__onBase")?.textContent).toBe("(1 already on base)");
-  // One red is still this pull request's, so its ✗ stays danger.
+  // One red is still this pull request's, so its failures stay danger.
   expect(checks.dataset.onBase).toBeUndefined();
 });
 
-test("every red being the base's reads the ✗ muted", async () => {
+test("every red being the base's reads the failures muted", async () => {
   const { body } = await card({
     pullRequest: pullRequest({
       checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
@@ -441,4 +446,69 @@ test("a host that marks rows without counting them is still read", async () => {
   expect(body.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "98 of 100 checks passed, 2 failing, 1 also red on base",
   );
+});
+
+// Leo 2026-11-07: "can you not just also pull the GitHub icon for the profile picture?" The host's
+// copy of the picture shows in the monogram's box; without one (not read yet, offline) the monogram.
+test("the author's GitHub picture shows when the host has it, else the monogram", async () => {
+  const avatar = "data:image/png;base64,iVBORw0KGgo=";
+  const { body } = await card({ pullRequest: pullRequest({ authorAvatar: avatar }), fetchedAt: Date.now() / 1000 - 5 });
+  expect(body.querySelector<HTMLImageElement>(".acpmux-pr-card__avatar")?.getAttribute("src")).toBe(avatar);
+  expect(body.querySelector(".acpmux-pr-card__monogram")).toBeNull();
+  await teardown?.();
+  teardown = undefined;
+  // Only a data URL is drawn: a remote address would be a request the page's CSP refuses anyway.
+  const remote = await card({
+    pullRequest: pullRequest({ authorAvatar: "https://avatars.githubusercontent.com/u/1" }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(remote.body.querySelector(".acpmux-pr-card__avatar")).toBeNull();
+  expect(remote.body.querySelector(".acpmux-pr-card__monogram")?.textContent).toBe("T");
+});
+
+// Leo 2026-11-07: "Are we able to pull the colors? Or at least ... just have some colors". A label
+// GitHub coloured wears that colour; one it did not gets a tone its name picks, the same every time;
+// risk:high without a colour is the failure ink.
+test("labels wear GitHub's colour, else a stable tone, and risk:high stands out", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      labels: ["risk:normal", "agent", "risk:high", "bad"],
+      labelColors: { "risk:normal": "fbca04", bad: "#zzz" },
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const labels = [...body.querySelectorAll<HTMLElement>(".acpmux-pr-card__label")];
+  expect(labels.map((label) => label.textContent)).toEqual(["risk:normal", "agent", "risk:high", "bad"]);
+  expect(labels[0]!.style.getPropertyValue("--label")).toBe("#fbca04");
+  expect(labels[1]!.dataset.tone).toMatch(/^[0-7]$/);
+  expect(labels[2]!.dataset.tone).toBe("danger");
+  // A colour that is not six hex digits is dropped for a tone, never written into a style.
+  expect(labels[3]!.style.getPropertyValue("--label")).toBe("");
+  expect(labels[3]!.dataset.tone).toMatch(/^[0-7]$/);
+  await teardown?.();
+  teardown = undefined;
+  const again = await card({
+    pullRequest: pullRequest({ labels: ["agent"], labelColors: {} }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(again.body.querySelector<HTMLElement>(".acpmux-pr-card__label")!.dataset.tone).toBe(labels[1]!.dataset.tone);
+});
+
+// Leo 2026-11-07: "Is that the tests or what? As in, like the CI?" The row names itself and each count.
+test("checks read as CI checks in words: passed, failed and running", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 11, total: 13 },
+      checkList: [
+        { name: "cmux-next / daemon tests", state: "failed" },
+        { name: "cmux-next / fast tier", state: "pending" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const row = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  const visible = [...row.querySelectorAll(":scope > [aria-hidden=true]")].map((part) => part.textContent);
+  expect(visible).toEqual(["Checks", "11 passed", "1 failed", "1 running"]);
+  // It has names to list, so a keyboard can reach it as a pointer can.
+  expect(row.tabIndex).toBe(0);
 });

@@ -135,8 +135,8 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
 }
 
-public struct AgentAttachment: Hashable, Sendable, Identifiable {
-    public enum Kind: Hashable, Sendable { case image, file }
+public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
+    public enum Kind: Hashable, Sendable, Codable { case image, file }
 
     public var id: String
     public var kind: Kind

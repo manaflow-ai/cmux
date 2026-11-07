@@ -30,11 +30,21 @@ extension CEFTab {
         if host.visibleTab === self {
             let pageFrame = placed[ObjectIdentifier(host.hostView)] ?? host.hostView.frame
             var rects = occlusionRects
+            var hole = CEFPageHole.none
             if !pastFirstRealPage {
                 // An open side panel is part of the page window: only the web contents' part is a hole.
                 let panel = sidePanel.headerFrame != nil ? sidePanel.state : nil
-                rects.append(panel?.contentsFrame(inPage: pageFrame) ?? pageFrame)
+                let contents = panel?.contentsFrame(inPage: pageFrame) ?? pageFrame
+                rects.append(contents)
+                if panel == nil {
+                    hole = .whole
+                } else if let local = Self.local([contents], in: pageFrame).first {
+                    hole = .rect(local)
+                }
             }
+            // A hosted page (layer hosting) shows its pixels in this window, past the page window's holes: it takes
+            // the same hole, so a New Tab page shows the window backdrop and not Chromium's opaque page color.
+            host.hostView.layerHosting.pageHole = hole
             if !frames.grab.isEmpty { rects.append(frames.grab) }
             if let header = sidePanel.headerFrame { rects.append(header) }
             host.hostView.occlusionRects = CEFHostView.outermost(Self.local(rects, in: pageFrame))

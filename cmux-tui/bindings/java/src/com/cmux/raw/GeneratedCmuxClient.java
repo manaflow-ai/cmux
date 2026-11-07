@@ -1344,6 +1344,11 @@ public abstract class GeneratedCmuxClient {
         return TerminalHistoryPagesResult.fromWire(result);
     }
 
+    public final TerminalLastCommandResult terminalLastCommand(TerminalLastCommandRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_LAST_COMMAND, request.toWire());
+        return TerminalLastCommandResult.fromWire(result);
+    }
+
     public final TerminalPortsResult terminalPorts(TerminalPortsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_PORTS, request.toWire());
         return TerminalPortsResult.fromWire(result);

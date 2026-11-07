@@ -321,8 +321,16 @@ impl Inner {
                 anyhow::bail!("a failed write-back of {} (a test)", path.display());
             }
             let file = open_segment_to_write(&path)?;
+            // The same bytes go back: the log's modified time stays what it was. A closed chat's
+            // age is its log's modified time (`hub/retention.rs`), and a restart must not make a
+            // chat untouched for a month look written now.
+            let modified = file.metadata().and_then(|meta| meta.modified());
             write_at(&file, &bytes, offset)
                 .with_context(|| format!("write back {}", path.display()))?;
+            if let Err(error) = modified.and_then(|at| file.set_modified(at)) {
+                // Only the chat's age: retention then keeps the log whole longer.
+                tracing::warn!(session = %id, "keep the modified time of {}: {error}", path.display());
+            }
             #[cfg(all(test, unix))]
             sync_model::rewritten(&file, offset);
             let held = {

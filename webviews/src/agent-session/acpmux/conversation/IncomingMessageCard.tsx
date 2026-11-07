@@ -41,7 +41,7 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { hasAgentMark, knownMark, MonogramMark } from "../../shared/AgentMark";
-import { SubsessionContext, useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useMachineChats, useSenderChat, useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
 import { harnessLabel, runModel } from "../subagents/agentRuns";
@@ -71,7 +71,8 @@ import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./SessionRef";
-import { resolveSessionRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
+import { useSessionHover } from "../started/useSessionHover";
+import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -97,7 +98,7 @@ export function senderHarness(listed: string | undefined, named: string | undefi
 /// its harness's mark, else the neutral agent glyph in its own stable tone.
 export function SenderMark({ message }: { message: IncomingMessage }) {
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
@@ -153,6 +154,16 @@ export function senderLabel(name: string, host: string | undefined): string {
     : name;
 }
 
+/// The name a received line gives its sender: the recorded session's own, from the session metadata
+/// (senderIdentity.ts), as its preview and session card name it, whatever name the message fell back
+/// to (a raw `acp:<id>` when its provenance carried no `fromName`). A Chief, an app's persona and a
+/// person name themselves.
+function useSenderSessionName(message: IncomingMessage, person: boolean): string {
+  const session = !person && !message.chief && !message.app ? message.sessionId : undefined;
+  const identity = useSenderIdentity({ name: session ? message.name : "", ...(session && { sessionId: session }) });
+  return session ? identity.name : message.name;
+}
+
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({
@@ -172,8 +183,9 @@ export function SenderName({
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
-  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
-  const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
+  const sender = useSenderChat(message.chief ? "" : (message.lookup ?? message.name), message.sessionId);
+  const recorded = useSenderSessionName(message, false);
+  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -187,7 +199,6 @@ export function SenderName({
   // the session link either way, never a pill a click does nothing on (Leo, 2026-11-05: "i can't
   // click to go to these for some reason"). A Chief, a tool's notice, an app's persona or a batch
   // of senders is no one chat to ask for.
-  const subsessions = useContext(SubsessionContext);
   const asks =
     !listed &&
     !message.chief &&
@@ -195,20 +206,28 @@ export function SenderName({
     !toolNotice &&
     !message.app &&
     !inboxNames &&
-    message.name.trim() !== "" &&
+    (message.lookup ?? message.name).trim() !== "" &&
     sessionRefsResolve();
-  const query = asks ? message.name.trim() : undefined;
+  // acpmux's record of who sent it, never the line's text, which may carry a note for the reader
+  // ("(self-declared, unauthenticated)"): asked by that text, no chat ever matched (Leo, 2026-11-07).
+  // A line with no record still has the note stripped (senderRef).
+  const query = asks ? senderRef(message.lookup ?? message.name) || undefined : undefined;
   const resolved = useSessionRef(query, false);
   useEffect(
     () => (query && resolved === undefined ? whenIdle(() => void resolveSessionRef(query)) : undefined),
     [query, resolved],
   );
   const sessionId = listed ?? resolved?.sessionId;
+  // The chat the name opens shows its hover card, as any reference to a chat does; the card opens it
+  // as the name does, as a sender.
+  const { trigger: hover, card } = useSessionHover(sessionId ?? "", onOpen);
+  // The tab opens on the click, never after a round trip: by the chat's id once acpmux named it,
+  // else by what the sender is asked for by, which the new tab resolves itself and, when no machine
+  // here has that chat, says so in place (direct.ts `resolveMissing`). Leo, 2026-11-07: "I expect to
+  // see, okay, my right pane is going to either gain a new tab or, like, split".
   const openAsked = () => {
     if (!query) return;
-    void resolveSessionRef(query).then((target) =>
-      target ? onOpen(target.sessionId) : subsessions?.senderMissing?.(query),
-    );
+    onOpen(resolved?.sessionId ?? query);
   };
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon =
@@ -235,6 +254,7 @@ export function SenderName({
           title={openTitle}
           ariaLabel={open}
           attributes={openSessionAttributes(sessionId, true)}
+          hover={hover}
           onClick={() => (listed ? onOpen(listed) : openAsked())}
         />
       ) : query ? (
@@ -254,6 +274,7 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {sessionId && card}
     </span>
   );
 }
@@ -406,9 +427,12 @@ export function IncomingMessageLine({
   // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
-  const name = (message.chief && chief?.name) || message.name;
   // A person is never a chat: their name never finds one (a guest names themselves).
   const sender = useSenderChat(person || message.chief ? "" : message.name, person ? undefined : message.sessionId);
+  // The session's own name, as SenderName shows it: a peer's `<machine>/<name>` reads as `<name>` in
+  // the toggle's label and the reply editor's, the machine already shown beside it.
+  const recorded = useSenderSessionName(message, Boolean(person));
+  const name = (message.chief && chief?.name) || senderLabel(recorded, sender.host);
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).

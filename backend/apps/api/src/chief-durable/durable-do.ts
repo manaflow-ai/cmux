@@ -179,8 +179,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
   private async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
     const a = await this.settingsOf(agent).admit(agent, owner, turn)
     if (a.ok) {
-      const { agent: ag, owner: ow, enabled, chiefs, ...rest } = a.config
-      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", ...rest })
+      const { agent: ag, owner: ow, enabled, chiefs, channel, ...rest } = a.config
+      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", channel: channel ?? undefined, ...rest })
     }
     return a
   }

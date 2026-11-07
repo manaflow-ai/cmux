@@ -91,7 +91,11 @@ public struct CloudAPIClient: Sendable {
     }
 
     public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
-        struct List: Decodable { var snapshots: [CloudSnapshot] }
+        struct List: CloudServerModel {
+            static var cloudModelKind: String { "snapshots" }
+            var snapshots: [CloudSnapshot]
+            init(from decoder: any Decoder) throws { snapshots = try [CloudSnapshot](from: decoder) }
+        }
         return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
     }
 
@@ -112,23 +116,15 @@ public struct CloudAPIClient: Sendable {
                               as: CloudMachine.self)
     }
 
-    public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
-        try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
     // MARK: Files and SCP
 
     /// Mints a short-lived private SCP route. The public key is the only key
     /// material sent to the backend; the caller owns the corresponding secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        let endpoint = try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
-                                      timeout: .seconds(100), as: CloudSCPEndpoint.self)
-        guard endpoint.port == 22, endpoint.username == "cmux",
-              endpoint.hostPublicKey.hasPrefix("ssh-ed25519 "),
-              endpoint.expiresAtUnix > Int64(Date().timeIntervalSince1970) else {
-            throw CloudAPIError.decoding("/api/vm/\(id)/scp-endpoint returned an unsafe endpoint")
-        }
-        return endpoint
+        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
+        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
+        try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
+                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
     // MARK: Tunnel
@@ -398,11 +394,7 @@ public struct CloudAPIClient: Sendable {
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
         if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw CloudAPIError.decoding("\(path): \(error)")
-        }
+        return try CloudMachineRules().answer(data, as: T.self, context: path)
     }
 }
 

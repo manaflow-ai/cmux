@@ -1,10 +1,11 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
-// Opening a line with the transcript at its very bottom (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
-// SCCROLL IS AT THE VERY BOTTOM AKA YOU FUCKING PUSH THE TEXT UP VISUALLY INSTEAD OF EXPANDING DOWN
-// LIKE USUAL / JUST THAT CASE"). A long chat whose last turn ran two commands under "Ran 2 commands"
-// and wrote a short reply after them, scrolled to its end. Opening the group there keeps the bottom
-// where it is and pushes everything above it up (App.tsx `beginBottomStackFold`); anywhere else the
-// line stays put and its body grows down (transcript-expand-at-bottom.test.ts). Closing there pulls the
+// Opening and closing a line with the transcript at its very bottom. A long chat whose last turn ran
+// two commands under "Ran 2 commands" and wrote a short reply after them, scrolled to its end.
+// Opening the group there grows down, as Codex opens a call at the end of a chat (Lucas, 2026-11-06,
+// Codex parity): the line and the text above it stay where the reader clicked, what opens goes under
+// the composer, and the view stops following (VirtualTranscript.tsx `beginBottomStackFold`). This
+// replaces the bottom pin on open (Leo, 2026-11-02). Anywhere else the line also stays put and its
+// body grows down (transcript-expand-at-bottom.test.ts). Closing at the very bottom still pulls the
 // text above down and leaves no blank room under the rows (Leo, 2026-11-03: "it's weird to collapse
 // and get all that empty space at the bottom").
 import { agentPaneEntry } from "../../../gallery/format";
@@ -75,8 +76,12 @@ const atBottom: Play = async (ctx) => {
     worked()!.click();
     await ctx.waitFor(group, { capMs: 10_000 });
   }
+  // As the reader's wheel does: it lets go of the line the Worked for click held (`toEnd` below).
   const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
-  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  if (!scroller) return;
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+  scroller.scrollTop = scroller.scrollHeight;
+  scroller.dispatchEvent(new Event("scroll"));
 };
 
 /// The same chat whose last turn ran a command with a long log, as Leo's Shell card at the bottom.
@@ -143,8 +148,19 @@ const pinned = (before: ReturnType<typeof measure>, after: ReturnType<typeof mea
   expect(after.fromEnd <= 2, `${what}: the view left its end`, { before, after });
   expect(Math.abs(after.lastFoot - before.lastFoot) <= 2, `${what}: the last row's foot moved`, { before, after });
 };
+/// Puts the view back at its very end, as the reader's wheel does, and waits for it to hold still. The
+/// wheel lets go of the line the last click held (VirtualTranscript `release`); a scroll from code
+/// alone would be put back on it.
+const toEnd = async (ctx: Parameters<Play>[0]) => {
+  const node = scroller(ctx);
+  node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+  node.scrollTop = node.scrollHeight;
+  node.dispatchEvent(new Event("scroll"));
+  await settle(ctx);
+};
 
-/// At the bottom: opens "Ran 2 commands", which keeps the bottom and pushes the text above up.
+/// At the bottom: opens "Ran 2 commands". The line and the view stay where they were, and what
+/// opened grows down under the composer, so the view is no longer at its end.
 const expandAtBottom: Play = async (ctx) => {
   await atBottom(ctx);
   await settle(ctx);
@@ -153,12 +169,15 @@ const expandAtBottom: Play = async (ctx) => {
   expect(before.fromEnd <= 2, "not at the bottom before the click", before);
   await toggleAndSettle(ctx, group, "true");
   const after = measure(ctx, group);
-  pinned(before, after, "opening at the bottom");
-  expect(before.line - after.line > 40, "opening at the bottom did not push the line up", { before, after });
+  expect(Math.abs(after.line - before.line) <= 1, "opening at the bottom moved the line", { before, after });
+  expect(Math.abs(after.scrollTop - before.scrollTop) <= 1, "opening at the bottom moved the view", { before, after });
+  expect(after.scrollHeight > before.scrollHeight + 40, "opening at the bottom grew nothing down", { before, after });
+  expect(after.fromEnd > 40, "opening at the bottom kept the view at its end", { before, after });
 };
 
-/// At the bottom: opens the group and its last command (a Shell card with its output), then closes
-/// the command. The text above comes down by what closed; no blank room is left under the rows.
+/// At the bottom: opens the group and its last command (a Shell card with its output), goes back to
+/// the very end, then closes the command. The text above comes down by what closed; no blank room is
+/// left under the rows.
 const collapseAtBottom: Play = async (ctx) => {
   await expandAtBottom(ctx);
   const command = [
@@ -167,6 +186,7 @@ const collapseAtBottom: Play = async (ctx) => {
     ),
   ].at(-1)!;
   await toggleAndSettle(ctx, command, "true");
+  await toEnd(ctx);
   const before = measure(ctx, command);
   expect(before.fromEnd <= 2, "not at the bottom after opening the command", before);
   await toggleAndSettle(ctx, command, "false");
@@ -188,6 +208,7 @@ const collapseTallGroup: Play = async (ctx) => {
     ),
   ].at(-1)!;
   await toggleAndSettle(ctx, command, "true");
+  await toEnd(ctx);
   const before = measure(ctx, group);
   expect(before.fromEnd <= 2, "not at the bottom with the tall group open", before);
   await toggleAndSettle(ctx, group, "false");
@@ -215,6 +236,45 @@ const expandAway: Play = async (ctx) => {
   expect(after.scrollHeight > before.scrollHeight + 20, "away from the bottom nothing grew down", { before, after });
 };
 
+/// A turn still running at the bottom, its first two commands done under "Ran 2 commands" (Leo,
+/// 2026-11-06, on a recording under load: "the entire tool call expansion apparatus is borked" and
+/// "way too discontinuous"). Opening the group while the agent goes on: a third command joins it
+/// mid-fold. `cmuxGalleryArrive` (set by the play) delivers that next snapshot as acpmux would, so a
+/// frame test can land it on any frame of the fold (transcript-expand-under-load.test.ts).
+const runningHead = [...earlier, ...middle, user("Run the fetch tests and show me the log", 6)];
+const runCommands = [
+  command("Run the fetch tests", "bun test fetch", log),
+  command("Show the test log", "tail -n 12 fetch.log", log),
+];
+const slowCommand = command("Run the slow case", "bun test fetch --slow", log);
+const reply = assistant("Two runs pass; checking the slow case next.", 4, { id: "expand-at-bottom-reply" });
+const runningSnapshot = chat([...runningHead, activity(runCommands, 5, { id: "expand-at-bottom-run" }), reply], {
+  title: "Fetch tests",
+  isWorking: true,
+});
+const arrivedSnapshot = chat(
+  [
+    ...runningHead,
+    activity([...runCommands, slowCommand], 5, { id: "expand-at-bottom-run", version: 2 }),
+    { ...reply, version: 2 },
+  ],
+  { title: "Fetch tests", isWorking: true },
+);
+
+declare global {
+  interface Window {
+    /** The under-load scene's next snapshot: a third command joins the group. */
+    cmuxGalleryArrive?: () => void;
+  }
+}
+
+/// At the bottom of the running turn, with the next snapshot armed for the test to deliver.
+const armUnderLoad: Play = async (ctx) => {
+  await atBottom(ctx);
+  const view = ctx.document.defaultView!;
+  view.cmuxGalleryArrive = () => view.cmuxAcpmuxBridge?.receive(structuredClone(arrivedSnapshot));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.expand-at-bottom",
   title: "Opening a line at the bottom",
@@ -226,29 +286,34 @@ export default agentPaneEntry({
   ],
   variants: {
     shipped: {
-      note: "Scrolled to the very bottom with “Ran 2 commands” closed. Opening it keeps the bottom pinned and pushes the text above up; away from the bottom it opens down and nothing moves.",
+      note: "Scrolled to the very bottom with “Ran 2 commands” closed. Opening it grows down under the composer, as Codex does: the line and the text above it stay put. Away from the bottom it opens down too.",
       snapshot: chat(rows, { title: "Fetch tests" }),
       play: atBottom,
     },
     prompt: {
-      note: "Scrolled to the very bottom under a long prompt cut to its first lines. Its Show more opens the whole prompt by pushing the text above up; the reply under it stays where it was.",
+      note: "Scrolled to the very bottom under a long prompt cut to its first lines. Its Show more opens the whole prompt downward: the prompt's top stays put and the reply under it moves down.",
       snapshot: chat(promptRows, { title: "Fetch tests" }),
       play: atBottom,
     },
     "expand-at-bottom": {
-      note: "Scrolled to the very bottom, “Ran 2 commands” opened: the bottom stays where it was and the text above moves up.",
+      note: "Play: scrolled to the very bottom, “Ran 2 commands” opened: the line stays where it was clicked, its steps grow down under the composer, and the view stops following.",
       snapshot: chat(rows, { title: "Fetch tests" }),
       play: expandAtBottom,
     },
     "collapse-at-bottom": {
-      note: "Scrolled to the very bottom with a command's Shell card open, then closed: the text above comes down and no blank room is left under the reply (Leo, 2026-11-03).",
+      note: "Play: a command's Shell card opened, the view back at its very bottom, then the card closed: the text above comes down and no blank room is left under the reply (Leo, 2026-11-03).",
       snapshot: chat(rows, { title: "Fetch tests" }),
       play: collapseAtBottom,
     },
     "collapse-tall-group": {
-      note: "Scrolled to the very bottom with a tall group open (a 40-line log), then the group closed: the bottom stays pinned and the text above comes down.",
+      note: "Play: a tall group open (a 40-line log), the view back at its very bottom, then the group closed: the bottom stays pinned and the text above comes down.",
       snapshot: chat(tallRows, { title: "Fetch tests" }),
       play: collapseTallGroup,
+    },
+    "under-load": {
+      note: "A running turn scrolled to the very bottom with “Ran 2 commands” closed. Opened while a third command joins the group: one motion, the bottom stays pinned, nothing overlaps.",
+      snapshot: runningSnapshot,
+      play: armUnderLoad,
     },
     "expand-away": {
       note: "Away from the bottom an earlier turn's “Worked for” line opens down: the line and the view stay where they were.",

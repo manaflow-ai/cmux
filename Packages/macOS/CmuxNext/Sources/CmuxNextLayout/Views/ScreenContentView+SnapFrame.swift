@@ -1,0 +1,52 @@
+import AppKit
+
+/// CLOSE MOTION 3 (film cm-b-split-reduce, 120 Hz): a structural change whose frames snap (Reduce Motion, pane
+/// animations off) showed its terminals torn for one refresh: each pane took its new frame in the change's turn, each
+/// terminal asked Ghostty for its new size there, and the pass just before that turn's commit found no frame drawn at it
+/// (FRAME OWNER S4 keeps the old bounds and frame until then), so the commit showed the new layout with each terminal at
+/// its old size beside its ground.
+///
+/// The Chromium model: the renderer gets the size before the compositor needs its frame. In a shown, live screen the
+/// snapped change's own turn gives each resized pane's content its new size ahead, render only
+/// (``PaneHostView/drawAhead(sizeChange:)``, as a key press's first refresh is drawn ahead, T-KEYS 3), and the screen
+/// keeps showing what it showed, the panes the change took out included, until the next frame tick presents the change
+/// in one pass (as a key press's turn presents nothing until its first tick, S1B). That tick's layout finds each
+/// terminal's frame drawn at its new size, and the presenter shows it with its bounds in that commit.
+extension ScreenContentView {
+    /// Whether a structural change that snapped shows at the next frame tick: a shown screen in a window whose root
+    /// runs frames, with a pane whose host changes size. Gives those hosts their sizes ahead now.
+    func holdsSnapForContent() -> Bool {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        let strip = stripShift, scale = self.scale
+        var resized = false
+        for (pane, frame) in paneFrames {
+            guard let host = context.hosts[pane], host.superview === self, host.frame.width >= 1, host.frame.height >= 1 else { continue }
+            // As `applyPresentation` places it: on the pixel grid where it shows.
+            let placed = frame.rect.offsetBy(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+                .pixelEdges(scale)
+            guard placed.size != host.frame.size else { continue }
+            resized = true
+            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height))
+        }
+        guard resized else { return false }
+        (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)
+        context.requestFrames()
+        return true
+    }
+
+    /// The frame tick (or a settle: the screen parks, Reduce Motion lands everything) shows the held snap.
+    func presentHeldSnap() {
+        guard frameInput.snapWaitsForContent else { return }
+        frameInput.snapWaitsForContent = false
+        applyPresentation()
+    }
+
+    /// In the presentation that shows the held snap: the panes it took out go, unless a later change took them back.
+    func releaseSnapDeparted() {
+        guard !frameInput.snapDeparted.isEmpty else { return }
+        for pane in frameInput.snapDeparted where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
+            context.release(pane)
+        }
+        frameInput.snapDeparted = []
+    }
+}

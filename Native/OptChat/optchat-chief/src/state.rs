@@ -394,7 +394,7 @@ pub struct SubRecord {
     #[serde(default)]
     pub workspace: Option<String>,
     /// Where `control show` opens its workspace while it has none (hidden,
-    /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
+    /// as the Chief chose, sidebar_choice.rs, or closed by `control hide`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_slot: Option<WorkspaceSlot>,
     /// That workspace's public id (`ws_…`), when its place can name it: its

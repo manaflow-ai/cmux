@@ -51,6 +51,21 @@ class FromTreeTests(unittest.TestCase):
         self.assertIn("a deleted file needs a rebuild", str(raised.exception))
         self.assertIn(GONE, str(raised.exception))
 
+    def test_a_global_exclude_does_not_hide_a_deleted_file(self):
+        excludes = os.path.join(self.tree, "..", "excludes")
+        write(excludes, "Gone.swift\n")
+        config = os.path.join(self.tree, "..", "gitconfig")
+        write(config, f"[core]\n\texcludesFile = {excludes}\n")
+        files = [os.path.join(self.build, GONE)]
+        old = os.environ.get("GIT_CONFIG_GLOBAL")
+        os.environ["GIT_CONFIG_GLOBAL"] = config
+        try:
+            with self.assertRaises(SystemExit) as raised:
+                patch.from_tree(files, self.tree, self.build)
+        finally:
+            os.environ.pop("GIT_CONFIG_GLOBAL") if old is None else os.environ.__setitem__("GIT_CONFIG_GLOBAL", old)
+        self.assertIn("a deleted file needs a rebuild", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,18 +32,10 @@ public final class WebKitSpareTab {
         public init() {}
     }
 
-    /// Debug Settings > Browser Page Loading > "Make new WebKit tabs ahead" (`BrowserPageTunables.all`).
-    /// Off: every WebKit tab builds its view when it opens, and a spare left waiting closes.
-    nonisolated static let setting = Tunable<Bool>.toggle(
-        "browserPage.webKitSpareTab", BrowserPageTunables.section, "Make new WebKit tabs ahead",
-        help: "One empty WebKit tab is made ahead at an idle moment, holding no page, and the next new WebKit tab you open takes it instead of building its view when it opens. A new one is made at the next idle moment after each take, and none is kept under memory pressure.",
-        default: true, code: "WebKitSpareTab.setting")
-
     private let policy: Policy
     private let timer: DemandTimer
     private let activity: () -> UInt64
     private let isTrackingMenu: () -> Bool
-    private let isEnabled: () -> Bool
     private var activityMark: UInt64 = 0
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     private var underPressure = false
@@ -57,15 +49,14 @@ public final class WebKitSpareTab {
     /// Spares a new tab took in this process (`debug` reports).
     public private(set) var taken = 0
 
-    /// - Parameters: nil `activity`, `isTrackingMenu` and `isEnabled` read the app's input count, the main run
-    ///   loop's menu tracking and the Debug Setting (a test passes its own).
+    /// - Parameters: nil `activity` and `isTrackingMenu` read the app's input count and the main run
+    ///   loop's menu tracking (a test passes its own).
     public init(policy: Policy = Policy(), clock: any Clock<Duration> = ContinuousClock(),
-                activity: (() -> UInt64)? = nil, isTrackingMenu: (() -> Bool)? = nil, isEnabled: (() -> Bool)? = nil,
+                activity: (() -> UInt64)? = nil, isTrackingMenu: (() -> Bool)? = nil,
                 memoryPressure: MemoryPressureEvents? = nil) {
         self.policy = policy
         self.activity = activity ?? { ExpectedActivity.shared.total }
         self.isTrackingMenu = isTrackingMenu ?? { RunLoop.main.currentMode == .eventTracking }
-        self.isEnabled = isEnabled ?? { WebKitSpareTab.setting.value }
         timer = DemandTimer(owner: "WebKitSpareTab.build", clock: clock)
         if let memoryPressure { watch(memoryPressure) }
     }
@@ -91,13 +82,9 @@ public final class WebKitSpareTab {
         scheduleBuild()
     }
 
-    /// The waiting spare, which is the caller's from now on, or nil (none ready, or switched off).
+    /// The waiting spare, which is the caller's from now on, or nil (none ready).
     /// Either way the next idle moment makes the next one.
     func take() -> WebKitTab? {
-        guard isEnabled() else {
-            drop()
-            return nil
-        }
         isLikely = true
         defer { scheduleBuild() }
         guard let tab else { return nil }
@@ -113,7 +100,7 @@ public final class WebKitSpareTab {
         tab = nil
     }
 
-    private var shouldBuild: Bool { isLikely && tab == nil && !underPressure && make != nil && isEnabled() }
+    private var shouldBuild: Bool { isLikely && tab == nil && !underPressure && make != nil }
 
     private func scheduleBuild() {
         guard shouldBuild else { return }

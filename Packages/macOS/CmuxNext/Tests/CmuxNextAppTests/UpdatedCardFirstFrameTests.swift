@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout shifts/flicker
@@ -10,7 +11,7 @@ import Testing
 /// WorkspaceRowView, SidebarUpdatedCardHost). The card now has its room in its first frame (the height
 /// its page last reported) and its page's first height lands without the spring.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 struct UpdatedCardFirstFrameTests {
     final class FakeIsland: SidebarSurfaceIsland {
         let view = NSView()
@@ -36,8 +37,8 @@ struct UpdatedCardFirstFrameTests {
     }
 
     static let card = SidebarUpdatedCard(title: "Updated", whatsNewTitle: "See What's New", dismissLabel: "Close")
-    static let key = "cmux.sidebar.updatedCard.height"
-    static let widthsKey = "cmux.sidebar.updatedCard.heights"
+    static let key = SidebarUpdatedCardHost.rememberedHeightKey
+    static let widthsKey = SidebarUpdatedCardHost.rememberedHeightsKey
 
     static func forget() {
         UserDefaults.standard.removeObject(forKey: key)

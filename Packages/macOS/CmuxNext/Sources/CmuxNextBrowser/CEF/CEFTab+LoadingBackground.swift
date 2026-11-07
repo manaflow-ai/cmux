@@ -28,16 +28,16 @@ extension CEFTab {
     var pageBaseARGB: UInt32 {
         PageBackground.chromiumARGB(
             pastFirstRealPage: pastFirstRealPage,
-            documentSettled: documentSettled || !BrowserPageTunables.loadingBackground.value,
+            documentSettled: documentSettled,
             document: pageBackdropARGB,
             newTab: PageBackground.themeARGB(in: container, surface: .newTabPage),
             loading: PageBackground.themeARGB(in: container))
     }
 
     /// The theme base of a committed document that has not settled yet; nil
-    /// once it has, or with `BrowserPageTunables.loadingBackground` off.
+    /// once it has.
     var loadingBaseARGB: UInt32? {
-        guard BrowserPageTunables.loadingBackground.value, pastFirstRealPage, !documentSettled else { return nil }
+        guard pastFirstRealPage, !documentSettled else { return nil }
         return PageBackground.themeARGB(in: container)
     }
 
@@ -69,9 +69,14 @@ extension CEFTab {
             let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux)
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             self.settleTimer.cancel()
-            if let value, let argb = Self.backdropARGB(from: value), argb != self.pageBackdropARGB {
-                self.pageBackdropARGB = argb
-                if self.documentSettled { self.applyPageBackground() }
+            if let value {
+                let argb = Self.backdropARGB(from: value)
+                let canvasDark = PageBackground.canvasDark(from: value) ?? false
+                if (argb != nil && argb != self.pageBackdropARGB) || canvasDark != self.pageCanvasDark {
+                    if let argb { self.pageBackdropARGB = argb }
+                    self.pageCanvasDark = canvasDark
+                    if self.documentSettled { self.applyPageBackground() }
+                }
             }
             self.documentDidSettle()
             if self.pageBackdropReReadOwed {

@@ -21,6 +21,9 @@ PROTOCOL = {
         {"kind": "request", "name": "session/prompt", "params": True, "result": True},
         {"kind": "request", "name": "acp.session.fork", "params": {"$ref": "#/types/ForkParams"}, "result": True},
         {"kind": "request", "name": "_acpmux/attach", "params": {"$ref": "#/types/AttachParams"}, "result": True},
+        # A closed object with no properties: the method takes no param.
+        {"kind": "request", "name": "_acpmux/peers", "params": {"type": "object", "additionalProperties": False},
+         "result": True},
     ],
     "types": {
         # No additionalProperties: an open object, so a key beyond its properties is allowed.
@@ -28,7 +31,12 @@ PROTOCOL = {
         "AttachParams": {
             "additionalProperties": False,
             "properties": {"sessionId": {"type": "string"}, "afterSeq": {"type": ["integer", "null"]}},
-        }
+        },
+        "AcpmuxRequestMeta": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"promptId": {}, "localAppToken": {}, "decisionNonce": {}, "personDecision": {}},
+        },
     },
 }
 
@@ -36,7 +44,7 @@ PANE = '''
 nonisolated enum AcpmuxPaneMethods {
     public static let initialize = "{initialize}"
     public static let requests: Set<String> = [
-        "session/prompt", "_acpmux/attach", {extra_request}
+        "session/prompt", "_acpmux/attach", "_acpmux/peers", {extra_request}
     ]
     public static let notifications: Set<String> = ["session/prompt"]
 }
@@ -47,6 +55,7 @@ extension AcpmuxPaneMethods {
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "_acpmux/attach": (["sessionId", "afterSeq"{extra_param}], ["promptId"]),
         "acp.session.fork": (["sessionId", "cwd"], []),
+        "_acpmux/peers": ([{peers_param}], [{extra_meta}]),
     ]
     static let other: [String: (params: Set<String>, acpmux: Set<String>)] = [
         "_acpmux/attach": (["notAParam"], []),
@@ -57,7 +66,7 @@ extension AcpmuxPaneMethods {
 
 class CheckTests(unittest.TestCase):
     def tree(self, *, client: str = "", extra_request: str = "", extra_param: str = "", allow: str = "",
-             initialize: str = "initialize") -> Path:
+             initialize: str = "initialize", peers_param: str = "", extra_meta: str = "", pane_extra: str = "") -> Path:
         root = Path(tempfile.mkdtemp())
         (root / check.PROTOCOL).parent.mkdir(parents=True)
         (root / check.PROTOCOL).write_text(json.dumps(PROTOCOL))
@@ -65,7 +74,10 @@ class CheckTests(unittest.TestCase):
         pane.mkdir(parents=True)
         (pane / "AcpmuxPaneMethods.swift").write_text(
             PANE.replace("{extra_request}", extra_request).replace("{initialize}", initialize))
-        (pane / "AcpmuxPaneMethods+Params.swift").write_text(PARAMS.replace("{extra_param}", extra_param))
+        (pane / "AcpmuxPaneMethods+Params.swift").write_text(
+            PARAMS.replace("{extra_param}", extra_param).replace("{peers_param}", peers_param)
+            .replace("{extra_meta}", extra_meta))
+        (pane / "AgentPaneTransport.swift").write_text(pane_extra)
         (root / check.SOURCES / "Client.swift").write_text(client)
         (root / check.ALLOWLIST).parent.mkdir(parents=True)
         (root / check.ALLOWLIST).write_text(allow)
@@ -103,6 +115,49 @@ class CheckTests(unittest.TestCase):
         client = 'let doc = """\n  see https://x // "_acpmux/attachh"\n  """\nlet m = #"_acpmux/rawdrift"#\n'
         problems = check.check(self.tree(client=client))
         self.assertEqual(sorted(p.split("'")[1] for p in problems), ["_acpmux/attachh", "_acpmux/rawdrift"], problems)
+
+    def test_a_closed_empty_schema_takes_no_param(self):
+        problems = check.check(self.tree(peers_param='"sessionId"'))
+        self.assertEqual(problems, [
+            "AcpmuxPaneMethods.knownParams[_acpmux/peers]: '_acpmux/peers#sessionId' is not in "
+            f"{check.PROTOCOL}"
+        ])
+
+    def test_raw_and_multiline_strings_in_the_method_list(self):
+        # A raw or multiline literal in `requests` is read as its value, and a `]` inside a string
+        # does not end the list early.
+        problems = check.check(self.tree(
+            extra_request='#"_acpmux/rawdrift"#, """\n        _acpmux/multidrift\n        """, "a]b"'))
+        names = sorted(p.split("'")[1] for p in problems)
+        self.assertEqual(names, ["_acpmux/multidrift", "_acpmux/rawdrift", "a]b"], problems)
+
+    def test_raw_strings_in_known_params(self):
+        problems = check.check(self.tree(extra_param=', #"promptID"#'))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("'_acpmux/attach#promptID'", problems[0])
+
+    def test_meta_acpmux_keys_are_checked(self):
+        problems = check.check(self.tree(
+            extra_meta='"promptId", "promptID"',
+            pane_extra='''
+                acpmux["localAppToken"] = token
+                acpmux["steerOnly"] = true
+                if acpmux["model"] == nil {}
+                setAcpmuxMeta("approverDecisions", signed)
+                setAcpmuxMeta(["decisionNonce": nonce, field: proof])
+                func setDecision(nonce: String, proof: some Sendable, field: String = "personDecision") {}
+                box.setDecision(nonce: n, proof: d, field: "approverDecision")
+            '''))
+        names = sorted(p.split("'")[1] for p in problems)
+        self.assertEqual(names, ["_meta.acpmux#approverDecision", "_meta.acpmux#approverDecisions",
+                                 "_meta.acpmux#promptID", "_meta.acpmux#steerOnly"], problems)
+
+    def test_a_missing_meta_type_fails(self):
+        root = self.tree()
+        spec = json.loads((root / check.PROTOCOL).read_text())
+        del spec["types"]["AcpmuxRequestMeta"]
+        (root / check.PROTOCOL).write_text(json.dumps(spec))
+        self.assertEqual(len(check.check(root)), 1)
 
     def test_a_listed_name_is_allowed_and_a_stale_one_fails(self):
         allow = "_acpmux/attachh not registered yet (owner: acpmux)\n_acpmux/gone stale\nsession/prompt now defined\n"

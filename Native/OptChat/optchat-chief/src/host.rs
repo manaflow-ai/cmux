@@ -257,7 +257,7 @@ pub fn turn_preset(
         BTreeMap::new()
     };
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
     // presets set it for a Chief that sends no env.
@@ -392,7 +392,7 @@ pub fn subagent_preset(
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
@@ -824,7 +824,13 @@ fn start(
     // (and compactions') system text after everything above; subagents keep
     // the text without it (they are not this Chief). Its grant limits the
     // turn's tools (chief_profile.rs).
-    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    // `chiefs` create_channel goes through the app's control socket
+    // (chief_channel.rs): the daemon holds no cloud session.
+    let chief_tools = Arc::new(
+        load_chief_tools(&source, daemon_socket, &membership)?.with_channels(
+            crate::chief_channel::ChannelMaker::from_env(&|k: &str| env(k)),
+        ),
+    );
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
     // The optional coordinator contact belongs only to this Chief's turns;
@@ -1653,6 +1659,18 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            fork: Some(Arc::new(crate::migrate_fork::ForkPeer::new(
+                home.to_path_buf(),
+                {
+                    let tx = Mutex::new(tx.clone());
+                    Arc::new(move |text| {
+                        tx.lock()
+                            .expect("fork tx")
+                            .send(Input::PeerChiefNote { text })
+                            .is_ok()
+                    })
+                },
+            ))),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;

@@ -66,3 +66,10 @@ test("a shell call's exit code: rawOutput.exit_code first, then OpenCode's metad
   );
   expect(both.tool?.exitCode).toBe(0);
 });
+
+test("a shell call with Bash's description but no command yet is still a draft", () => {
+  // Its row would read "Running a command" (the row never shows the description), so it waits.
+  expect(
+    isDraftCall({ id: "call-2", title: "Bash", kind: "execute", status: "in_progress", description: "List the runs" }),
+  ).toBe(true);
+});

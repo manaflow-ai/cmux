@@ -1474,6 +1474,13 @@
             }
           }
         },
+        "desktop": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
         "revision": {
           "required": true,
           "type": {
@@ -25047,6 +25054,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -27206,6 +27216,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -27672,6 +27685,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -28055,6 +28071,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -28717,6 +28736,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -29091,6 +29113,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29477,6 +29502,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -29894,6 +29922,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -30272,6 +30303,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -30646,6 +30680,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"
@@ -32117,6 +32154,9 @@
                   }
                 ]
               },
+              "desktop": {
+                "type": "boolean"
+              },
               "revision": {
                 "$ref": "#/$defs/Revision"
               }
@@ -33340,6 +33380,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "desktop": {
+                "type": "boolean"
               },
               "revision": {
                 "$ref": "#/$defs/Revision"

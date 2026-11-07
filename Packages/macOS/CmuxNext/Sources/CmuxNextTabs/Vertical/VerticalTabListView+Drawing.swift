@@ -115,7 +115,7 @@ extension VerticalTabListView {
     /// theme-scoped, as `TabCell.badgeColor`.
     private func badgeColor(_ item: TabItem) -> NSColor? {
         switch item.status {
-        case .needsInput: Palette.attention
+        case .needsInput: Palette.statusAttention
         case .success: Palette.success
         case .failure: Palette.danger
         case .none: item.isUnread ? Palette.notificationBlue : nil

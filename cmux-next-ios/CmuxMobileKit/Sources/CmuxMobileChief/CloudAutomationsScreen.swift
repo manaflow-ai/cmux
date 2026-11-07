@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -28,7 +29,7 @@ public struct CloudAutomationsScreen: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
-            ProgressView("Loading automations…")
+            CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")
         case .failed(let message):
@@ -95,10 +96,12 @@ struct CloudAutomationRow: View {
             Circle().fill(automationColor(row.last)).frame(width: 8, height: 8).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                Text(subtitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                }
             }
             Spacer(minLength: 8)
-            if busy { ProgressView() }
+            if busy { CmuxSpinner() }
         }
         .accessibilityElement(children: .combine)
     }
@@ -110,7 +113,7 @@ struct CloudAutomationRow: View {
         if row.enabled, let next = row.nextRun {
             parts.append(String(localized: "next \(next.formatted(.relative(presentation: .named)))"))
         }
-        return parts.joined(separator: " · ")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

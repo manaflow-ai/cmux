@@ -13,6 +13,26 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
 
+## Daemon edits: swap the running daemon
+
+To try a daemon edit (`crates/cmux-tui-core`, `crates/cmux-tui`, `crates/acpmux`) on a running session,
+swap the daemon for the new build. Don't end its terminals or kill it. Run the new build's own CLI:
+
+```bash
+<new build>/cmux-tui --session <name> server restart   # same as `cmux daemon restart`
+<new build>/cmux-tui-acpmux daemon restart             # agent sessions
+```
+
+`server restart` stops the session's daemon the way an update hands it off, waits for it to exit,
+and starts the daemon of the binary you ran. That daemon adopts every terminal: the same shells,
+their scrollback and their input. `acpmux daemon restart` does the same for agent sessions, which
+keep their conversation. On a Mac, the new build is the binary `verify-cmux-tui-hosted.sh` downloads
+to `cmux-tui/target/hosted/<commit>/` (above). A tagged app's session is `cmux-app-<tag>`. The app
+hands its session back to the daemon bundled in it on its next launch, unless that bundle carries
+your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
+`scripts/cmux-next/daemon-swap-check.py --old A --new B` checks a swap between two builds end to end
+(HQ#7149 L7 runs it hourly against NIGHTLYs).
+
 ## Settings in the CLI and MCP
 
 `cmux settings` and the MCP `settings_*` tools work for every key in the embedded settings schema
