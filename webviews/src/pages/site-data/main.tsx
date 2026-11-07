@@ -14,6 +14,8 @@ import "./styles.css";
 export function mountSiteDataWindowPage(root: HTMLElement, client: PageClient): () => void {
   return mountChromePage<SiteDataState, PageInfoWindowCommand>(root, client, {
     page: "site-data",
+    // The window frame keeps the keys: Escape closes, Return runs the default button.
+    focus: ".piw",
     render: (state, send, strings) => <SiteDataWindow state={state} onCommand={send} strings={strings} />,
   });
 }
