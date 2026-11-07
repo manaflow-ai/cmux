@@ -1005,9 +1005,23 @@ export function mergeQueue(
     // prompt is the person's own. Without this, a queued agent_message was rendered as a plain
     // user prompt until it left the queue, so its received card (and reply actions) disappeared.
     const message = listed === null ? undefined : (kept ?? listedMessage);
-    // acpmux's inbox notice: the threads its `queued` record named, while the text is the same. An
-    // edit makes it the person's (hub/queue.rs drops the provenance), so it keeps none.
-    const inbox = message || edited?.has(id) || !whole ? undefined : had.inbox;
+    // acpmux's inbox notice: the threads acpmux lists (`inboxNotice`, its provenance), else those its
+    // `queued` record named while the text is the same. An edit makes it the person's (hub/queue.rs
+    // drops the provenance), so it keeps none. A notice whose record the pane never read (a chat
+    // reopened on a recent page) drew as the person's queued prompt under "Paused after an error"
+    // (Leo, 2026-11-05: "Why is the thing still queued? ... don't show these kinds of things").
+    // One that names no thread, or from an acpmux that lists none (its `[inbox]` text from acpmux),
+    // is still no prompt of the person's: no thread to draw, and no queue row.
+    const listedInbox =
+      entry?.inboxNotice && typeof entry.inboxNotice === "object"
+        ? (queuedInbox({ text: preview, _meta: { provenance: entry.inboxNotice } }) ?? { threads: [] })
+        : !("inboxNotice" in (entry ?? {})) && entry?.client === "acpmux" && preview.startsWith("[inbox] ")
+          ? (had?.inbox ?? { threads: [] })
+          : undefined;
+    const inbox =
+      message || edited?.has(id)
+        ? undefined
+        : (listedInbox ?? (whole && !("inboxNotice" in (entry ?? {})) ? had.inbox : undefined));
     // A list that names the field says whose it is, null the owner's (acpmux lists it for every
     // prompt once it serves authors); an older acpmux lists none, and the records read decide.
     const hold = listedHold(entry, had);
@@ -8297,7 +8311,9 @@ export class AcpmuxDirectClient {
     // to their saved originals (promptBudget.ts). The row and a Retry keep what the prompt carried:
     // such an image is its original's link, drawn as a file as acpmux's echo and a reload draw it.
     const carried = fitPromptBudget(input, sendAttachments, options);
-    if (carried !== sendAttachments) {
+    // A video sent without its frames (an agent that takes no images, or past the budget) is the
+    // file chip in the row its echo draws, not a tile (conversation/sentVideos.ts).
+    if (carried !== audible) {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
@@ -10370,6 +10386,9 @@ export class AcpmuxDirectClient {
   /// Feedback on the person's click or action that belongs to the moment, not the chat (a Stop the
   /// agent refused, a take-over that failed): a toast, never a transcript line.
   transient(text: string): void {
+    // A closed client's late failure (a takeOver() that fails after a reconnect replaced it) is
+    // about a pane that is gone: neither the new pane's toasts nor a line.
+    if (this.closed) return;
     if (this.toastSink) this.toastSink(text);
     else this.notice(text);
   }
@@ -11244,6 +11263,7 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.fedMode = false;
     this.closed = true;
+    this.toastSink = undefined;
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
