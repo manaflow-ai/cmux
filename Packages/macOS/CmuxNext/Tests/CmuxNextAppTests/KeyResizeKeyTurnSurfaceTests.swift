@@ -23,7 +23,7 @@ import Testing
 /// nothing out, presents nothing, announces no rest and sizes no surface in its own turn, and nothing between it and
 /// the next frame tick does (the layout's observation turn included). The first tick syncs the model and presents
 /// once: the panes move in that tick. Each terminal's grids go to its PTY coalesced from there (FRAME OWNER S4 m18,
-/// #36478: at most one per 25 ms window, ending at the landing's), never in the key's turn.
+/// #36478: at most one per refresh (RESIZE P0 6), ending at the landing's), never in the key's turn.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeKeyTurnSurfaceTests {

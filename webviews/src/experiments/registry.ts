@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
+import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
@@ -26,6 +27,7 @@ import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.expe
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
+import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
@@ -40,6 +42,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
+import { hatChevronLook, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -58,7 +61,10 @@ import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgen
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
+import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
+import { timeHoverWording } from "../agent-session/acpmux/conversation/timeHoverWording.experiment";
+import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDate.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -82,11 +88,14 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapMark,
   threadMinimapWave,
   threadMinimapIncoming,
+  threadMinimapCard,
   chatMinimapPlaceholder,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
+  timeHoverWording,
+  timeHoverDate,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
@@ -105,6 +114,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayStopLook,
   trayMotionLook,
   composerHatLook,
+  hatChevronLook,
+  hatDoneLook,
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
@@ -123,6 +134,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   contextRingLook,
   planUsageLook,
   emojiShortcodeLook,
+  pastePlaceholderLook,
+  sendStopMorph,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

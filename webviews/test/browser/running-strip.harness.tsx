@@ -71,6 +71,43 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
     </section>,
   );
 };
+// The same command with its tail open as a host that reads output and opens terminals shows it
+// (`window.__showOpenCommand`): the command, then one line of its time, state and Open in terminal.
+(window as unknown as { __showOpenCommand: () => void }).__showOpenCommand = () => {
+  const items = trayItems(
+    [],
+    [
+      {
+        id: "s/1",
+        command,
+        state: "running",
+        processId: "s/1",
+        toolCallId: "call-1",
+        startedAt: Date.now() - 33_000,
+      },
+    ],
+    [],
+    true,
+  );
+  view.render(
+    <section className="acpmux-shell" style={{ width: 720 }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={items}
+            working
+            waiting={new Set()}
+            onOpen={() => {}}
+            onOpenCommand={() => {}}
+            canOpenTerminal
+            canReadTail
+            stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
 // Leo's panel (2026-10-25) at 118 agents: 2 running, 116 ended, in a dock `height` tall that
 // squeezes the tray as a short pane does.
 (window as unknown as { __showPanel: (height: number) => void }).__showPanel = (height) => {

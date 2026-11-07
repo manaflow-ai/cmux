@@ -37,7 +37,7 @@ final class CloudService {
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
-    let codexBroker: CloudCodexBrokerAdapter
+    let codexBroker: CloudCodexHolder
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
@@ -192,40 +192,34 @@ final class CloudService {
         let shareDefault = shareAPI == ownerAPI ? identity : install(shareAPI, "install-share")
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
+        let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                                   machineIO: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
-        let machineAPI = machineAPI
+                                                   machineIO: machineIO)
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
         let userHome = FileManager.default.homeDirectoryForCurrentUser
-        codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
-            currentScope: {
-                guard auth.isSignedIn, let user = auth.user else { return nil }
-                return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-            },
-            launch: {
-                try await work.run(.userVisible, mayBlock: .files) {
-                    guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
-                        environment: environment, userHome: userHome) else { throw CloudCodexBrokerError.brokerUnavailable }
-                    let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-                        + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
-                    guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
-                        .first(where: { FileManager.checked.isExecutableFile(atPath: $0.path) }) else {
-                        throw CloudCodexBrokerError.brokerUnavailable
+        codexBroker = CloudCodexHolder(
+            configuration: .init(binary: machineIO?.binary, root: paths.root, userHome: userHome, api: configuration.ownerAPIBaseURL(),
+                                 cacheDirectory: machineIO?.cacheDirectory, appVersion: "cmux-next"),
+            answers: .init(
+                credential: { try? await auth.tokens().access },
+                acpmux: {
+                    try? await work.run(.userVisible, mayBlock: .files) {
+                        AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment, userHome: userHome)?.executable
                     }
-                    return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
-                }
-            }, target: { [weak machines] scope, machineID in
+                },
+                currentScope: {
+                    guard auth.isSignedIn, let user = auth.user else { return nil }
+                    return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+                },
                 // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
-                return CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope, callerOwnsVM: {
-                    guard let link = await MainActor.run(body: { machines?.session(machineID)?.appLink }) else { return false }
+                ownsMachine: { [weak machines] machineID in
+                    guard let link = machines?.session(machineID)?.appLink else { return false }
                     return await link.ownerLink != nil
-                }, isLive: {
-                    await MainActor.run { machines?.session(machineID)?.machine.status.isLive ?? false }
-                })
-            })
+                },
+                isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },

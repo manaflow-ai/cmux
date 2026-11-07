@@ -74,6 +74,7 @@ import {
   type MinimapTurns,
   type RowsChange,
   WAVE_SHAPES,
+  replyMore,
 } from "./model";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
@@ -1471,6 +1472,7 @@ export function ThreadMinimap({
           row={cardRow}
           from={cardTurn.from}
           reply={cardTurn.reply}
+          more={() => replyMore(cardTurn)}
           metadata={cardTurn.metadata}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {

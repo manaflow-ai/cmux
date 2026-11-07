@@ -26185,7 +26185,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Match Terminal Background",
+      "title" : "Match Terminal Background",
       "title_key" : "action.palette.toggleMatchTerminalBackground",
       "title_table" : "ActionCatalog"
     },
@@ -26884,7 +26884,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Notification Banners",
+      "title" : "Notification Banners",
       "title_key" : "action.notifications.toggleBanners",
       "title_table" : "ActionCatalog"
     },
@@ -36133,7 +36133,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle New Tab Animations",
+      "title" : "New Tab Animations",
       "title_key" : "action.appearance.animations.newTab.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36164,7 +36164,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle New Workspace Animations",
+      "title" : "New Workspace Animations",
       "title_key" : "action.appearance.animations.newWorkspace.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36195,7 +36195,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle All Animations",
+      "title" : "All Animations",
       "title_key" : "action.appearance.animations.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36226,7 +36226,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Sidebar Animations",
+      "title" : "Sidebar Animations",
       "title_key" : "action.appearance.animations.sidebar.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36257,7 +36257,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Tab Animations",
+      "title" : "Tab Animations",
       "title_key" : "action.appearance.animations.tabs.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36288,7 +36288,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Pane and Window Animations",
+      "title" : "Pane and Window Animations",
       "title_key" : "action.appearance.animations.panes.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36319,7 +36319,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Menu and Card Animations",
+      "title" : "Menu and Card Animations",
       "title_key" : "action.appearance.animations.overlays.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36350,7 +36350,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Hover Card Animations",
+      "title" : "Hover Card Animations",
       "title_key" : "action.appearance.animations.hoverCards.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36381,7 +36381,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Home and Chat Animations",
+      "title" : "Home and Chat Animations",
       "title_key" : "action.appearance.animations.home.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36412,7 +36412,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Agent Cursor Animations",
+      "title" : "Agent Cursor Animations",
       "title_key" : "action.appearance.animations.cursor.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36443,7 +36443,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Spinner and Progress Animations",
+      "title" : "Spinner and Progress Animations",
       "title_key" : "action.appearance.animations.indicators.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36474,7 +36474,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Highlight and Color Animations",
+      "title" : "Highlight and Color Animations",
       "title_key" : "action.appearance.animations.feedback.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36505,7 +36505,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Web Page Animations",
+      "title" : "Web Page Animations",
       "title_key" : "action.appearance.animations.web.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36660,7 +36660,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Pane Borders",
+      "title" : "Pane Borders",
       "title_key" : "action.appearance.paneBorder.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36691,7 +36691,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Pane Padding",
+      "title" : "Pane Padding",
       "title_key" : "action.appearance.panePadding.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -36722,7 +36722,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Rounded Pane Corners",
+      "title" : "Rounded Pane Corners",
       "title_key" : "action.appearance.paneCorners.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -37032,7 +37032,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Focus Ring",
+      "title" : "Focus Ring",
       "title_key" : "action.focusRing.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -37125,7 +37125,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Focus Ring for a Single Pane",
+      "title" : "Focus Ring for a Single Pane",
       "title_key" : "action.focusRing.singlePane.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -37156,7 +37156,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Thick Pane Borders",
+      "title" : "Thick Pane Borders",
       "title_key" : "action.appearance.paneBorderWidth.toggle",
       "title_table" : "ActionCatalog"
     },
@@ -40707,7 +40707,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Column Scroll Bar",
+      "title" : "Column Scroll Bar",
       "title_key" : "action.layout.toggleStripScrollbar",
       "title_table" : "LayoutActions"
     },

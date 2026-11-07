@@ -40,6 +40,7 @@ import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
+import { DoneMark, type DoneLook } from "./DoneMark";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -77,6 +78,7 @@ export function AgentLine({
   via,
   nameLink,
   lean = false,
+  doneLook = "words",
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -147,6 +149,8 @@ export function AgentLine({
   /// the line only where it asks for a look (waiting, failed, stopped) or no time shows; screen readers
   /// always hear it (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle").
   lean?: boolean;
+  /// How a finished tray line ends (DoneMark.tsx, hatParts.experiment.ts); `words` is "Done · 36s".
+  doneLook?: DoneLook;
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -227,8 +231,11 @@ export function AgentLine({
           <span className="acpmux-summary-agent__name">{name}</span>
         )}
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {/* What it does now hands over as a status line does: the old step slides up and out as the
+            new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
+            animation, I like that"). */}
         {latest && latest !== name && latestAt === "inline" && (
-          <span className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`}>{latest}</span>
+          <Tick className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`} text={latest} slide />
         )}
         {latest && latest !== name && latestAt === "below" && (
           <span className={`acpmux-agent-line__latest${latestCode ? " is-code" : ""}`}>{latest}</span>
@@ -253,6 +260,10 @@ export function AgentLine({
               {timed ? (
                 // Running says itself by its ticking time and Stop; the word is for screen readers.
                 <span className="acpmux-agent-line__sr">{state}</span>
+              ) : status === "done" && doneLook !== "words" ? (
+                // A finished line's done mark (DoneMark.tsx) in place of the word and its dot; the
+                // line's own time follows in its column, as every line's does.
+                <DoneMark state={state} look={doneLook} />
               ) : (
                 <>
                   <Tick className="acpmux-summary-agent__state" text={state} />
