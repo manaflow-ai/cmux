@@ -223,7 +223,16 @@ test("a row clicked while an answer is on its way runs that row, not the answer'
   const ran: string[] = [];
   const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
   root = createRoot(host);
-  await act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
+  await act(async () =>
+    root!.render(
+      createElement(Palette, {
+        items: list,
+        rank: ranker.rank,
+        strings,
+        onClose() {},
+      }),
+    ),
+  );
   await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
   await type("release");
   // The empty query's rows are still on screen; the person clicks "random" among them.
@@ -243,7 +252,16 @@ test("an edit after an early Enter cancels it: the new query's answer runs nothi
   const ran: string[] = [];
   const list = items.map((item) => ({ ...item, run: () => void ran.push(item.id) }));
   root = createRoot(host);
-  await act(async () => root!.render(createElement(Palette, { items: list, rank: ranker.rank, strings, onClose() {} })));
+  await act(async () =>
+    root!.render(
+      createElement(Palette, {
+        items: list,
+        rank: ranker.rank,
+        strings,
+        onClose() {},
+      }),
+    ),
+  );
   await act(async () => ranker.asked[0]!.answer(reply(0, 1, 2)));
   await type("release");
   const field = host.ownerDocument.querySelector<HTMLInputElement>(".lg-palette input")!;
