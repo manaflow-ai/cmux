@@ -20,7 +20,7 @@ pub(crate) fn whole(float: f64) -> Option<i64> {
         return None;
     }
     // Whole and within 2^53: the cast is exact.
-    #[expect(clippy::cast_possible_truncation, reason = "checked whole and within 2^53 above")]
+    #[allow(clippy::cast_possible_truncation, reason = "checked whole and within 2^53 above")]
     let int = float as i64;
     Some(int)
 }
