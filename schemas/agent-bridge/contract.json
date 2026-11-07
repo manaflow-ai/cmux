@@ -90,6 +90,7 @@
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",
+    "externalAccess.openSettings": "externalAccess.openSettings",
     "file.drag": "file.drag",
     "file.open": "file.open",
     "file.search": "file.search",
