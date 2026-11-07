@@ -16,7 +16,9 @@ public nonisolated enum SettingsSchema {
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
-            + NotificationSettingsSchema.descriptors + NotificationSoundSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + NotificationSettingsSchema.dismissalDescriptors + NotificationSettingsSchema.bannerDescriptors + NotificationSettingsSchema.feedMirrorDescriptors
+            + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors
+            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
             + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
@@ -178,7 +180,6 @@ public nonisolated enum SettingsSchema {
                 help: SettingsText.keyed("settings.app.quitBehavior.help",
                                         "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
                 kind: .choice([
-                    SettingChoice(QuitBehavior.ask.rawValue, SettingsText.keyed("settings.choice.quitAsk", "Ask")),
                     SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
                     SettingChoice(QuitBehavior.endKeepLayout.rawValue,
                                   SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),

@@ -142,6 +142,29 @@ describe("the preview's rows", () => {
     expect(rows[0]!.detail).toBe("Agents can drive apps on your Mac.");
   });
 
+  // Review F1 of #37894: with no build notes the rows come from the host's items, already in the
+  // page's language, and the English-only title check let the German generic entry through.
+  test("leave out the host's generic entry in any language when the build notes have not loaded", () => {
+    const german: UpdateHighlights = {
+      ...data,
+      language: "de",
+      items: [
+        {
+          id: "fixes-and-improvements",
+          title: "Fehlerbehebungen und Verbesserungen",
+          summary: null,
+          category: "improved",
+        },
+        { id: "tabs", title: "Tabs behalten ihre Scrollposition", summary: null, category: "improved" },
+      ],
+      rest: undefined,
+      moreCount: 0,
+    };
+    expect(previewEntries(german, undefined, "de").map((row) => row.title)).toEqual([
+      "Tabs behalten ihre Scrollposition",
+    ]);
+  });
+
   test("list every build of the update's span once its notes load, each change once, internal work left out", () => {
     const span = [
       {
@@ -429,6 +452,90 @@ describe("the card", () => {
 
   // Review F2 of #37790 at efe59289: a drag closed the open preview but handed its room back only
   // after the close (240 ms), so the native host shrank and moved the held card's view mid-drag.
+  // Review F4 of #37790: the card with the theme's doodle decoration had no press listener, rest box or
+  // anchor, so it could not be dragged.
+  // Review of #38020 at 2b1e9834: the press listener was attached to the card's node once, so a live
+  // theme switch between the plain card and the doodle one replaced the node and the new card did not drag.
+  test("a card that switches to the doodle decoration while shown still drags", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ drag });
+    expect(host.querySelector(".wn-updated")).not.toBeNull();
+    // The theme switches live: the same card, now with the doodle decoration.
+    const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+    const { createStrings } = await import("../src/pages/shared/i18n");
+    const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+    await act(async () =>
+      root!.render(
+        <UpdatedCard
+          data={data}
+          strings={createStrings(table)}
+          actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+          closeButton={false}
+          decoration="doodle"
+          animate={false}
+          drag={drag}
+        />,
+      ),
+    );
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card).not.toBeNull();
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 60, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 20, dom.window));
+    expect(moves).toEqual([-40]);
+    await act(async () => pointer("pointerup", 20, dom.window));
+  });
+
+  test("the doodle-decorated card drags too, and says where it rests", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "top" as const, above: 0, below: 400 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ decoration: "doodle", animate: false, anchor: "top", drag });
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card.getAttribute("data-anchor")).toBe("top");
+    expect(card.hasAttribute("data-drags")).toBe(true);
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 20, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 60, dom.window));
+    expect(moves).toEqual([40]);
+    expect(card.hasAttribute("data-dragging")).toBe(true);
+    await act(async () => pointer("pointerup", 60, dom.window));
+  });
+
   test("a drag that starts with the preview open hands its room back at once", async () => {
     const sizes: number[] = [];
     const moves: number[] = [];

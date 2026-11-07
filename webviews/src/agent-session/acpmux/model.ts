@@ -68,6 +68,7 @@ import {
   promptParts,
 } from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
+import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
@@ -775,6 +776,9 @@ export type AcpmuxActivity = {
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).
     approved?: true;
+    /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
+    /// not sufficient to identify plumbing calls with names such as ToolSearch.
+    provenance?: { claudeTool?: string; claudeCodeToolName?: string };
   };
 };
 
@@ -825,7 +829,14 @@ export const contentsUnknown = (diff: AcpmuxFileDiff) =>
 
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
-export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+export type AcpmuxSecretAsk = {
+  secretId: string;
+  name: string;
+  reason: string;
+  /// A sudo card (acpmux `hub/elevation.rs`, `elevation_request`): the exact argv sudo runs, on
+  /// which machine, and its time limit. Its answer is the same `secret_submit`, with the password.
+  elevation?: { argv: string[]; host: string; timeoutSecs?: number };
+};
 
 /// An agent's offer of a parallel chat (cx-807da, acpmux `hub/offers.rs`): the `session_offer`
 /// record, and its `session_offer_decision` once the person answered. Title and prompt are the
@@ -1774,7 +1785,7 @@ const isStatusKind = (row: AcpmuxRow) =>
 function isToolRun(row: AcpmuxRow): boolean {
   const card = row.foldRun === undefined && !isFoldedCopy(row);
   let tool = false;
-  for (const item of row.items ?? []) {
+  for (const item of visibleToolItems(row.items) ?? []) {
     if (!item.tool) continue;
     tool = true;
     if (card && (item.tool.kind === "edit" || item.tool.kind === "fileChange") && item.tool.status !== "pending")
@@ -1861,9 +1872,10 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
 const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
-/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), or a session start
-/// (rows/SessionStartRow.tsx), which the transcript no longer draws.
-const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden" || row.kind === "sessionStart";
+/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), a session start
+/// (rows/SessionStartRow.tsx), which the transcript no longer draws, or a run whose every call is hidden.
+const drawsNothing = (row: AcpmuxRow) =>
+  row.incoming?.kind === "hidden" || row.kind === "sessionStart" || hidesEveryCall(row);
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
@@ -1967,11 +1979,15 @@ function fallbackRowHeight(
       : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
+    const items = visibleToolItems(row.items) ?? [];
+    // Successful discovery normally leaves no rendered steps, but keep a mountable slot so Find
+    // can reveal the original call before the row's ToolRows projection is expanded.
+    if (row.items?.length && !items.length) return finish(toolRowHeight());
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside
     // an open "Worked for" draws.
-    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
+    const edits = items.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
     if (edits.length && row.foldRun === undefined && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap(
@@ -1983,12 +1999,11 @@ function fallbackRowHeight(
     }
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
-    if (row.foldRun && row.items?.length) {
-      const groups = toolGroups(row.items);
+    if (row.foldRun && items.length) {
+      const groups = toolGroups(items);
       if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
-    const items = row.items ?? [];
     let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
       : toolRowHeight();

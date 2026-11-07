@@ -56,7 +56,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
+import {
+  renderVmGuestModelPlaneEnvFile,
+  VM_GUEST_MODEL_PLANE_ENV_PATH,
+  vmEdgeAliasDomain,
+  vmGuestModelPlaneEnv,
+} from "../../services/coderouter/vmGuestEnv";
 import {
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
@@ -79,16 +84,58 @@ import {
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
-import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import {
+  devTreeCredentialCheckCommand,
+  devTreeLock,
+  devTreeSizes,
+  devTreeUserPaths,
+  setUpDevTree,
+  uploadDevTreeScript,
+  DEV_TREE_SCRIPT,
+  FIRST_BUILD,
+} from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import {
+  AGENT_TOOLS_PROFILE,
+  agentToolsDaemonEnv,
+  agentToolsFiles,
+  agentToolsLinkCommand,
+  browserRoleBakePhases,
+  daemonEnvLines,
+  RD_SOCKET,
+  RD_SOCKET_UNIT,
+  rdHostPath,
+  rdSetupCommand,
+} from "./agent-tools";
 import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import {
+  argValue,
+  createVm,
+  deleteVm,
+  firstExec,
+  freestyleClient,
+  hasFlag,
+  Ledger,
+  run,
+  StepLog,
+  type Vm,
+} from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import {
+  baseInputTree,
+  cachedInstallCommand,
+  imagePackagesCommand,
+  layerLabel,
+  isAppProgram,
+  layerKeys,
+  layerName,
+  overlayPrepareCommand,
+  overlayPruneCommand,
+  type LayerName,
+} from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -98,7 +145,20 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { cronAtAllowCommand, cronAtAllowProblems, SSH_LOGIN_GROUP, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
+import {
+  cronAtAllowCommand,
+  cronAtAllowProblems,
+  SSH_LOGIN_GROUP,
+  SSH_SYNC_UNIT,
+  SSHD_DROP_IN,
+  sshdBakeCommand,
+  sshdDropIn,
+  sshdListenProblems,
+  sshdPamProblems,
+  sshdPolicyProblems,
+  splitSshdBakeOutput,
+  sshSyncUnit,
+} from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -846,6 +906,13 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
  * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
  * tree it reads is the snapshot's: nothing else runs on the builder in between.
  */
+/** The error the collect throws when a step rejected, if any: a step that ran and failed wins over the other step's
+ * cut connection, so inventory.ts never retries past a guest failure. */
+export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unknown>>): unknown {
+  const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected").map((s) => s.reason as unknown);
+  return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -865,8 +932,8 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
   ].join(" && "))]);
-  const failed = settled.find((s) => s.status === "rejected");
-  if (failed) throw failed.reason;
+  const failed = inventoryFailure(settled);
+  if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();
