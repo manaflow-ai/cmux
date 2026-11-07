@@ -281,8 +281,9 @@ test('the row reads "Received 7 messages" with no session names, and opens to ea
   const head = host.querySelector<HTMLElement>(".cv-lane-batch__toggle")!;
   expect(head.textContent).toBe("Received 7 messages");
   expect(head.textContent).not.toContain("/");
-  // The senders' short names are its hover.
-  expect(head.title).toBe("nightly-rollback, opus-session-info, grid, picker, rail, base-red-watch-quiet, ux-owner");
+  // Its hover lists the messages newest first (MessageGroupHover.tsx), not a title of names (Leo,
+  // 2026-11-07: "the hover preview when you receive a lot of messages, this is not useful").
+  expect(head.title).toBe("");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");
   const lines = [...host.querySelectorAll<HTMLElement>(".cv-received")];
@@ -291,7 +292,7 @@ test('the row reads "Received 7 messages" with no session names, and opens to ea
   expect(lines[3]!.querySelector(".cv-received__from")?.textContent).toContain("picker");
   expect(lines[3]!.textContent).toContain("Picker polish is up for review.");
   expect(lines[0]!.querySelector(".cv-received__text")).toBeNull();
-  await click(".cv-received .cv-disclosure__toggle");
+  await click(".cv-received .cv-agentmsg__toggle");
   expect(host.querySelector(".cv-received .cv-received__text")?.textContent).toContain(
     "The whole report from build-box-11/nightly-rollback.",
   );

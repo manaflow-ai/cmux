@@ -52,7 +52,8 @@ test("a relayed message is its sender's card, the label only behind Details", ()
   const prompt = incomingPrompt(text, { _meta: { provenance: named }, client: "acpmux-cli#1@build-box" });
   expect(prompt).toEqual({
     kind: "message",
-    message: { name: "build-box/lane-3", text: body, raw: text },
+    // `--from` only names it: acpmux could not verify it, and the line marks that (senderIdentity.ts).
+    message: { name: "build-box/lane-3", text: body, raw: text, unverified: true },
   });
 });
 

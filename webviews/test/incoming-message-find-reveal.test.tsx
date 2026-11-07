@@ -77,7 +77,7 @@ async function draw(id: string, needle?: string) {
   );
   return {
     repaints: () => repaints,
-    toggle: () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
   };
 }
 
@@ -110,7 +110,7 @@ test("a Find match for another row leaves the message folded", async () => {
       </FindReveal.Provider>,
     ),
   );
-  expect(host.querySelector("button.cv-disclosure__toggle")?.getAttribute("aria-expanded")).toBe("false");
+  expect(host.querySelector("button.cv-agentmsg__toggle")?.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("the panel has no From header: the line names the sender once", async () => {

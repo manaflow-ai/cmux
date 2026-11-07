@@ -14,6 +14,9 @@ import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
+/// The row's toggle: the one message row (AgentMessageRow.tsx) says whether it is open there.
+const toggleOf = (row: Element) => row.querySelector(".cv-agentmsg__toggle")!;
+
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
@@ -104,9 +107,9 @@ test("a sent message reads its target, how it was taken and its first line, and 
   expect(row.textContent).toBe("Sent to coord-deputy Merged #4182 queued");
   expect(row.dataset.sendState).toBe("sent");
   expect(row.classList.contains("is-live")).toBe(false);
-  expect(row.getAttribute("aria-expanded")).toBe("false");
+  expect(toggleOf(row).getAttribute("aria-expanded")).toBe("false");
   await act(async () => row.click());
-  expect(row.getAttribute("aria-expanded")).toBe("true");
+  expect(toggleOf(row).getAttribute("aria-expanded")).toBe("true");
   expect(container.querySelector(".cv-subsession__under h2")?.textContent).toBe("Merged #4182");
   // Open, the message shows once: under the row, not again as the row's first line.
   expect(row.textContent).toBe("Sent to coord-deputy queued");
@@ -212,7 +215,7 @@ test("the target opens its chat when the session list has it, without opening th
   expect(link.textContent).toBe("coord-deputy");
   await act(async () => link.click());
   expect(opened).toEqual(["s0"]);
-  expect(container.querySelector(".cv-sent")!.getAttribute("aria-expanded")).toBe("false");
+  expect(toggleOf(container.querySelector(".cv-sent")!).getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a host:name target finds the peer's chat listed as host/name", async () => {
@@ -275,8 +278,8 @@ test("a batch's message names its recipient and the file its words came from; op
   expect(rows[0]!.querySelector(".cv-sent__file")?.textContent).toBe("escalate.md");
   // Each message opens on its own.
   await act(async () => rows[1]!.click());
-  expect(rows[0]!.getAttribute("aria-expanded")).toBe("false");
-  expect(rows[1]!.getAttribute("aria-expanded")).toBe("true");
+  expect(toggleOf(rows[0]!).getAttribute("aria-expanded")).toBe("false");
+  expect(toggleOf(rows[1]!).getAttribute("aria-expanded")).toBe("true");
   // Its words are not in the transcript: it opens straight to the call, with no Raw to click
   // (Leo 2026-10-26: "I EXPAND THEN ALL I SEE IS ... RAW").
   expect(container.querySelector(".cv-subsession__toggle")).toBeNull();

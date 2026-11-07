@@ -245,7 +245,9 @@ test("three inbox notices share one line and expose each notice when opened", as
   const toggle = host.querySelector(".cv-lane-batch__toggle")!;
   // "Received N messages", no session names at rest: they are its hover (Leo, 2026-11-02).
   expect(toggle.textContent).toBe("Received 3 messages");
-  for (const sender of senders) expect(toggle.getAttribute("title")).toContain(sender);
+  // Its hover lists each message (MessageGroupHover.tsx, test/agent-message-rows-unified.test.tsx),
+  // never a title of names (Leo, 2026-11-07, on that list: "this is not useful").
+  expect(toggle.getAttribute("title")).toBeNull();
   expect(toggle.textContent).not.toContain("\n");
   expect(host.querySelector(".cv-received")).toBeNull();
   await click(".cv-lane-batch__toggle");

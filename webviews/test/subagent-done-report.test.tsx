@@ -93,34 +93,42 @@ afterEach(() => {
   saved.clear();
 });
 
-test("the chevron after a finished line's words toggles its report under the line", () => {
-  const host = render([agent("a", { result: REPORT })]);
-  const chevron = host.querySelector<HTMLButtonElement>("button.cv-subagent-done__disclose");
-  expect(chevron).not.toBeNull();
-  expect(chevron!.getAttribute("aria-expanded")).toBe("false");
-  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+// A finished line with a report is the one message row (AgentMessageRow.tsx), as a send and a
+// received message are (Leo, 2026-11-07: "with the sub-agent conclusions ... They should look
+// basically the same as the other ones"): the line toggles the report, the name opens the view.
+const toggleOf = (host: HTMLElement) =>
+  host.querySelector<HTMLButtonElement>(".cv-subagent-report-row button.cv-agentmsg__toggle");
 
-  click(chevron!);
-  expect(chevron!.getAttribute("aria-expanded")).toBe("true");
+test("the line of a finished subagent with a report toggles the report under the line", () => {
+  const host = render([agent("a", { result: REPORT })]);
+  const toggle = toggleOf(host);
+  expect(toggle).not.toBeNull();
+  expect(toggle!.getAttribute("aria-expanded")).toBe("false");
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  expect(host.querySelector(".cv-subagent-report-row .cv-agentmsg__line")?.textContent).toContain("Subagent finished:");
+
+  click(toggle!);
+  expect(toggle!.getAttribute("aria-expanded")).toBe("true");
   const report = host.querySelector(".cv-subagent-done__report");
   expect(report).not.toBeNull();
-  expect(chevron!.getAttribute("aria-controls")).toBe(report!.id);
+  // In the same card a received message opens to.
+  expect(report!.closest(".cv-agentmsg__card")?.id).toBe(toggle!.getAttribute("aria-controls") ?? "");
   // The transcript's Markdown renders it: its paragraphs and its bold.
   expect(report!.querySelector(".cv-md")).not.toBeNull();
   expect(report!.querySelector("strong")?.textContent).toBe("golden files");
   expect(report!.textContent).toContain("Fixed the read order.");
 
-  click(chevron!);
-  expect(chevron!.getAttribute("aria-expanded")).toBe("false");
+  click(toggle!);
+  expect(toggle!.getAttribute("aria-expanded")).toBe("false");
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
-test("the chevron never opens the view, and the line's click still does", () => {
+test("the line never opens the view, and the name still does", () => {
   const opened: string[] = [];
   const host = render([agent("a", { result: REPORT })], opened);
-  click(host.querySelector("button.cv-subagent-done__disclose")!);
+  click(toggleOf(host)!);
   expect(opened).toEqual([]);
-  click(host.querySelector("button.cv-subagent-done")!);
+  click(host.querySelector(".cv-subagent-report-row button.cv-agentmsg__name")!);
   expect(opened).toEqual(["a"]);
   // Opening the view leaves the report as it was.
   expect(host.querySelector(".cv-subagent-done__report")).not.toBeNull();
@@ -128,7 +136,7 @@ test("the chevron never opens the view, and the line's click still does", () => 
 
 test("a last message stands in for a missing result", () => {
   const host = render([agent("a", { lastMessage: "Done: three keys fixed." })]);
-  click(host.querySelector("button.cv-subagent-done__disclose")!);
+  click(toggleOf(host)!);
   expect(host.querySelector(".cv-subagent-done__report")?.textContent).toContain("Done: three keys fixed.");
 });
 
