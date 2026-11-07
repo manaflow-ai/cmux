@@ -14,6 +14,7 @@ SCRIPT = ROOT / "scripts" / "mobile-stability-soak" / "mobile-soak.py"
 
 def load_mobile_soak_module():
     previous_simulator_id = os.environ.get("SIMULATOR_ID")
+    previous_scheme = os.environ.pop("MOBILE_ATTACH_URL_SCHEME", None)
     os.environ["SIMULATOR_ID"] = "mobile-soak-contract-test"
     try:
         spec = importlib.util.spec_from_file_location("mobile_soak_contract", SCRIPT)
@@ -25,6 +26,8 @@ def load_mobile_soak_module():
             os.environ.pop("SIMULATOR_ID", None)
         else:
             os.environ["SIMULATOR_ID"] = previous_simulator_id
+        if previous_scheme is not None:
+            os.environ["MOBILE_ATTACH_URL_SCHEME"] = previous_scheme
     module.external_ticket_path = ""
     module.attach_route_id = "debug_loopback"
     module.attach_route_kind = ""
@@ -68,7 +71,9 @@ def test_create_ticket_requests_simulator_injection_url_contract() -> None:
     assert created["workspace_id"] == "workspace-test"
     assert created["host"] == "127.0.0.1"
     assert created["port"] == 58465
-    assert created["attach_url"].startswith("cmux-ios-dev://attach?v=1&payload=")
+    exact_scheme = f"cmux-ios-{mobile_soak.bundle_id}"
+    assert mobile_soak.ATTACH_URL_SCHEME == exact_scheme
+    assert created["attach_url"].startswith(f"{exact_scheme}://attach?v=1&payload=")
 
 
 if __name__ == "__main__":
