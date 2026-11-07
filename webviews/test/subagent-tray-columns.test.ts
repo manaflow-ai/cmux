@@ -306,7 +306,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             head: {
               title: rect(".acpmux-running-tray__title", head),
               time: rect(".acpmux-running-tray__time", head),
-              chevron: rect(".acpmux-running-tray__status > svg", head),
+              chevron: rect(".acpmux-running-tray__status svg", head),
             },
           };
         });
@@ -403,7 +403,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 return {
                   title: rect(".acpmux-running-tray__title", head),
                   time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
-                  chevron: rect(".acpmux-running-tray__status > svg", head),
+                  chevron: rect(".acpmux-running-tray__status svg", head),
                 };
               })(),
             };

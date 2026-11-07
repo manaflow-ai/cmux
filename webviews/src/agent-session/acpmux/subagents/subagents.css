@@ -603,7 +603,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
   color: var(--agent-muted);
 }
-.acpmux-running-tray__status > svg {
+.acpmux-running-tray__status svg {
   flex: none;
   color: var(--agent-muted);
 }
