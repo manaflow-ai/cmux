@@ -151,6 +151,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     const scanWithin = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<Scanned>((resolve) => {
+        // fixed-wait: a deadline, not a wait; a stage that answers clears it and goes on at once.
         timer = setTimeout(
           () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs / 1000} s` }),
           stageDeadlineMs,
@@ -173,6 +174,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
           const open = () => browser!.newPage({ viewport: { width: 760, height: 900 } });
           let page = await open();
           for (let stage = queue.shift(); stage; stage = queue.shift()) {
+            // fixed-wait: the stage's deadline above; each stage ends as soon as it is scanned.
             const result = await scanWithin(page, stage);
             results.push(result);
             // A stage that failed may leave its page stuck or crashed: the next stage gets a new one. A hung
