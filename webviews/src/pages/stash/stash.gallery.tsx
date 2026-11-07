@@ -38,5 +38,50 @@ export default componentEntry<StashGalleryProps>({
       },
     },
     disconnected: { note: "The stash owner is not connected.", props: { offline: true } },
+    "row-menu": {
+      note: "A row has no destructive control of its own: its right-click menu holds Restore and Delete.",
+      props: {},
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".stash-row"));
+        if (ctx.document.querySelector(".stash-row button:not(.stash-row-main)")) {
+          throw new Error("a stash row has a second button");
+        }
+        await ctx.contextMenu({ selector: ".stash-row" });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+      },
+    },
+    "row-delete-keyboard": {
+      note: "Shift-F10 on the focused bottom row opens its menu; Delete hides the row behind the app's Undo toast.",
+      props: { undoPending: true },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll(".stash-row").length;
+        await ctx.waitFor(() => rows() === 6);
+        // The bottom row, so no row moves when it hides.
+        await ctx.focus({ selector: ".stash-group:last-of-type .stash-row:last-child .stash-row-main" });
+        await ctx.press("Shift+F10");
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => rows() === 5);
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+      },
+    },
+    "restore-all-during-undo": {
+      note: "A row deleted, its Undo toast still up, then Restore All: the hidden row stays hidden; the group's shown rows reopen.",
+      props: { undoPending: true },
+      play: async (ctx) => {
+        const titles = () =>
+          [...ctx.document.querySelectorAll(".stash-row-title")].map((title) => title.textContent ?? "");
+        await ctx.waitFor(() => titles().length === 6);
+        // The bottom group, so nothing under it moves: its last row first, then Restore All.
+        await ctx.contextMenu({ selector: ".stash-group:last-of-type .stash-row:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => titles().length === 5);
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+        await ctx.click({ selector: ".stash-group:last-of-type .stash-group-actions button" });
+        await ctx.waitFor(() => titles().length === 4);
+        if (titles().includes("https://example.org/long/path")) throw new Error("Restore All reopened the hidden row");
+      },
+    },
   },
 });

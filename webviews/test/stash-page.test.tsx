@@ -19,6 +19,8 @@ const names = [
   "MouseEvent",
   "KeyboardEvent",
   "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = names.map((name) => [name, scope[name]] as const);
@@ -35,11 +37,15 @@ beforeAll(() => {
   for (const name of names) scope[name] = name === "window" ? dom.window : win[name];
   scope.IS_REACT_ACT_ENVIRONMENT = true;
   scope.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+  scope.requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
 });
 
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  for (const menu of dom.window.document.querySelectorAll('[role="menu"]')) menu.remove();
 });
 
 afterAll(() => {
@@ -83,6 +89,17 @@ const rows = () => [...host.querySelectorAll<HTMLElement>(".stash-row")];
 const titles = () => rows().map((row) => row.querySelector(".stash-row-title")?.textContent);
 const button = (text: string, within: ParentNode = host) =>
   [...within.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+const menuItems = () => [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+const menuLabels = () => menuItems().map((item) => item.textContent);
+const menuItem = (text: string) => menuItems().find((item) => item.textContent === text);
+async function menuKey(target: HTMLElement) {
+  target.focus();
+  await act(async () => {
+    target.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+    );
+  });
+}
 const last = (provider: InstanceType<typeof MockStashProvider>, op: string) =>
   provider.calls.filter((call) => call.op === op).at(-1)?.params;
 
@@ -121,7 +138,7 @@ test("the page lists stashes; a row restores its page and Restore in New Workspa
   expect(titles()[0]).toBe("Design review — editor states");
   const group = host.querySelector<HTMLElement>(".stash-group")!;
   await act(async () => button("Restore in New Workspace", group).click());
-  expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", new_workspace: true });
+  expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", members: ["m2", "m3"], new_workspace: true });
   expect(titles()[0]).toBe("backend");
 });
 
@@ -131,7 +148,11 @@ test("a delete hides its row while the app's Undo toast is up; Undo brings it ba
   provider.toast = new Promise((resolve) => (release = resolve));
   provider.undo = true;
   await mount(provider);
-  await act(async () => rows()[0]!.querySelector<HTMLButtonElement>(".stash-row-delete")!.click());
+  // A row carries no destructive control: Delete is in its menu (Shift-F10 on the focused row).
+  expect(host.querySelector(".stash-row button:not(.stash-row-main)")).toBeNull();
+  await menuKey(rows()[0]!.querySelector<HTMLButtonElement>(".stash-row-main")!);
+  expect(menuLabels()).toEqual(["Restore", "Delete"]);
+  await act(async () => menuItem("Delete")!.click());
   expect(titles()).not.toContain("Atlas release notes");
   expect(last(provider, StashOps.delete)).toEqual({ stash: "s1", members: ["m1"] });
   await act(async () => release());
@@ -142,6 +163,36 @@ test("a delete hides its row while the app's Undo toast is up; Undo brings it ba
   await act(async () => button("Delete Group").click());
   expect(titles()).not.toContain("Atlas release notes");
   expect(provider.stashes.map((stash) => stash.id)).toEqual(["s2", "s3"]);
+});
+
+test("Restore All during a member's Undo window sends the shown members only, never the hidden one", async () => {
+  const provider = new MockStashProvider();
+  let release!: () => void;
+  provider.toast = new Promise((resolve) => (release = resolve));
+  provider.undo = false;
+  const { store } = await mount(provider);
+  const group = () => store.getSnapshot().groups.find((candidate) => candidate.id === "s1")!;
+  const pending = store.delete(group(), group().members[0]!);
+  await act(async () => {});
+  expect(titles()).not.toContain("Atlas release notes");
+  // Restore All from the header (the whole group as shown) and from the store's default.
+  await act(async () => button("Restore All", host.querySelector<HTMLElement>(".stash-group")!).click());
+  expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", members: ["m2", "m3"], new_workspace: false });
+  await act(async () => release());
+  await act(async () => pending);
+  expect(provider.stashes.some((stash) => stash.id === "s1")).toBe(false);
+});
+
+test("the store's group restores default to the group's shown members", async () => {
+  const provider = new MockStashProvider();
+  provider.toast = new Promise(() => undefined);
+  const { store } = await mount(provider);
+  const group = store.getSnapshot().groups.find((candidate) => candidate.id === "s1")!;
+  void store.delete(group, group.members[1]!);
+  await act(async () => {});
+  // A stale group object (read before the delete) still never sends the hidden member.
+  await act(async () => store.restore(group, undefined, true));
+  expect(last(provider, StashOps.restore)).toEqual({ stash: "s1", members: ["m1", "m3"], new_workspace: true });
 });
 
 test("Import from OneTab… imports pasted text, says how many, and a stash made elsewhere shows at once", async () => {

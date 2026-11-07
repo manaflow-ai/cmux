@@ -81,9 +81,10 @@ test("Stashed Tabs: restore and delete send stash, members and new_workspace", a
   await store.restore(group, [member]);
   await store.restore(group, undefined, true);
   expect(client.sent(StashOps.restore)).toEqual([
-    { stash: "s1", new_workspace: false },
+    // Group restores name the group's members: an absent list is the daemon's whole stash.
     { stash: "s1", members: ["m1"], new_workspace: false },
-    { stash: "s1", new_workspace: true },
+    { stash: "s1", members: ["m1"], new_workspace: false },
+    { stash: "s1", members: ["m1"], new_workspace: true },
   ]);
 
   await store.delete(group);

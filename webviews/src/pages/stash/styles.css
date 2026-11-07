@@ -170,12 +170,13 @@
   align-items: center;
   gap: 4px;
   height: 28px;
-  padding: 0 4px 0 0;
   border-radius: 6px;
 }
 
-/* The row lights for its own click target only: hovering the row's × lights the × alone. */
-.stash-row:hover:not(:has(.stash-row-delete:hover)) {
+/* A row lights under the pointer and while its menu is open (the row the menu acts on). */
+.stash-row:hover,
+.stash-row:has([data-popup-open]),
+.stash-row[data-popup-open] {
   background: var(--page-hover);
 }
 
@@ -227,24 +228,6 @@
   font-size: var(--text-caption);
   color: var(--page-text-3);
   font-variant-numeric: tabular-nums;
-}
-
-.stash-row-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--page-text-3);
-  cursor: default;
-}
-
-.stash-row-delete:hover:not(:disabled) {
-  background: var(--page-hover);
-  color: var(--page-text);
 }
 
 .stash-empty {

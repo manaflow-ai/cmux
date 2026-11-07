@@ -1,9 +1,10 @@
 // The Stashed Tabs page (a OneTab of cmux's own): stashed groups, newest first, each dated and
 // named after its workspace, one compact line per page or workspace. A row's click restores it; its
-// × or menu deletes it behind the app's Undo toast. State lives in `StashStore`; this file renders
+// menu (a right-click, or Shift-F10 / the context-menu key on the focused row) deletes it behind the
+// app's Undo toast. A row carries no destructive control of its own. State lives in `StashStore`; this file renders
 // it and turns plain keys and clicks into store intents. Cmd/Ctrl chords never reach it.
-import { useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
-import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
+import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
+import { PageMenu, pageMenuKey, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
 import { isWorkspace, matchGroups, memberHost, memberTitle, workspaceTabs } from "./model";
@@ -17,7 +18,6 @@ const ICONS = {
   page: "M8 1.75a6.25 6.25 0 1 0 0 12.5 6.25 6.25 0 0 0 0-12.5ZM1.75 8h12.5M8 1.75c1.9 1.8 2.75 3.9 2.75 6.25S9.9 12.45 8 14.25C6.1 12.45 5.25 10.35 5.25 8S6.1 3.55 8 1.75Z",
   // A window with a sidebar: a workspace.
   workspace: "M2.25 3.25h11.5v9.5H2.25ZM5.75 3.25v9.5",
-  close: "M4.5 4.5l7 7M11.5 4.5l-7 7",
 };
 
 function Glyph({ path }: { path: string }) {
@@ -59,15 +59,20 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
   const count = new Intl.NumberFormat(language);
   const off = snap.busy || down;
 
+  const showMenu = (x: number, y: number, returnFocus: HTMLElement | null, items: PageMenuItem[]) =>
+    setMenu({ session: ++menuSession.current, x, y, items, returnFocus });
   const openMenu = (event: MouseEvent, items: PageMenuItem[]) => {
     event.preventDefault();
-    setMenu({
-      session: ++menuSession.current,
-      x: event.clientX,
-      y: event.clientY,
+    showMenu(
+      event.clientX,
+      event.clientY,
+      event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
       items,
-      returnFocus: event.currentTarget instanceof HTMLElement ? event.currentTarget : null,
-    });
+    );
+  };
+  const keyMenu = (event: KeyboardEvent, items: () => PageMenuItem[]) => {
+    const at = pageMenuKey(event);
+    if (at) showMenu(at.x, at.y, at.returnFocus, items());
   };
 
   const groupItems = (group: StashGroup): PageMenuItem[] => [
@@ -167,7 +172,12 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
             const name = group.name || t("stash.untitled");
             return (
               <section key={group.id} className="stash-group" aria-label={name}>
-                <div className="stash-group-header" onContextMenu={(event) => openMenu(event, groupItems(whole))}>
+                {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
+                <div
+                  className="stash-group-header"
+                  onContextMenu={(event) => openMenu(event, groupItems(whole))}
+                  onKeyDown={(event) => keyMenu(event, () => groupItems(whole))}
+                >
                   <h2 className="stash-group-name">{name}</h2>
                   <span className="stash-meta">{date.format(group.created_at_ms)}</span>
                   <span className="stash-meta stash-count">{count.format(whole.members.length)}</span>
@@ -207,10 +217,12 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
                       : undefined
                     : memberHost(member);
                   return (
+                    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
                     <div
                       key={member.id}
                       className="stash-row"
                       onContextMenu={(event) => openMenu(event, memberItems(whole, member))}
+                      onKeyDown={(event) => keyMenu(event, () => memberItems(whole, member))}
                     >
                       <button
                         type="button"
@@ -225,16 +237,6 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
                         <span className="stash-row-title">{memberTitle(member, t("stash.untitledWorkspace"))}</span>
                         {aside && <span className="stash-row-aside">{aside}</span>}
                         <span className="stash-row-time">{time.format(group.created_at_ms)}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="stash-row-delete"
-                        disabled={off}
-                        title={t("stash.delete")}
-                        aria-label={t("stash.delete")}
-                        onClick={() => void store.delete(whole, member)}
-                      >
-                        <Glyph path={ICONS.close} />
                       </button>
                     </div>
                   );

@@ -12,6 +12,8 @@ export type StashGalleryProps = {
   query?: string;
   importText?: string;
   offline?: boolean;
+  /** The app's Undo toast stays up: a delete's rows stay hidden and nothing is deleted yet. */
+  undoPending?: boolean;
 };
 
 function many(now: number): StashRecord[] {
@@ -28,13 +30,20 @@ function many(now: number): StashRecord[] {
   }));
 }
 
-export function StashGallery({ stashes = "sample", query, importText, offline = false }: StashGalleryProps) {
+export function StashGallery({
+  stashes = "sample",
+  query,
+  importText,
+  offline = false,
+  undoPending = false,
+}: StashGalleryProps) {
   const [store] = useState(() => {
     const now = Date.now();
     const provider = new MockStashProvider(
       stashes === "empty" ? [] : stashes === "many" ? many(now) : sampleStashes(now),
     );
     provider.offline = offline;
+    if (undoPending) provider.toast = new Promise<void>(() => undefined);
     const created = new StashStore(provider, { importOpen: importText !== undefined });
     if (query) created.setQuery(query);
     if (importText) created.setImportText(importText);

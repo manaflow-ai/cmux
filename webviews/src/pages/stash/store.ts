@@ -262,18 +262,24 @@ export class StashStore {
     });
   }
 
-  /** Restore All (`members` absent), a row's click, or Restore in New Workspace. */
-  restore(group: StashGroup, members?: StashMember[], newWorkspace = false): Promise<void> {
+  /** Restore All and Restore in New Workspace (`members` absent: the group's), or a row's click.
+   * The members always go by id: an absent list means the daemon's whole stash, which would also
+   * reopen a member whose delete still waits on its Undo toast. */
+  restore(group: StashGroup, members: StashMember[] = group.members, newWorkspace = false): Promise<void> {
+    const shown = this.hidden.has(group.id)
+      ? []
+      : members.filter((member) => !this.hidden.has(memberKey(group.id, member.id)));
+    if (!shown.length) return Promise.resolve();
     return this.run((client) =>
       client.call(StashOps.restore, {
         stash: group.id,
-        ...(members ? { members: members.map((member) => member.id) } : {}),
+        members: shown.map((member) => member.id),
         new_workspace: newWorkspace,
       }),
     );
   }
 
-  /** Delete Group (`member` absent) or a row's ×: hidden at once while the app's Undo toast is
+  /** Delete Group (`member` absent) or a row's Delete: hidden at once while the app's Undo toast is
    * up; back when the person pressed Undo or the delete failed. */
   async delete(group: StashGroup, member?: StashMember): Promise<void> {
     if (!this.client) return;
