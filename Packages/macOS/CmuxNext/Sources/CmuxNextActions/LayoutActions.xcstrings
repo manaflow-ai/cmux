@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Chief Dock"
+            "value": "Show/Hide Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "فتح رصيف Chief"
+            "value": "إظهار/إخفاء Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvori Chief dok"
+            "value": "Prikaži/sakrij Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn Chief-dock"
+            "value": "Vis/skjul Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief-Dock öffnen"
+            "value": "Chief ein-/ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir dock de Chief"
+            "value": "Mostrar/ocultar Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrir le dock Chief"
+            "value": "Afficher/masquer Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri dock Chief"
+            "value": "Mostra/nascondi Chief"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chiefドックを開く"
+            "state": "needs_review",
+            "value": "Chief を表示/非表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើកចតChief"
+            "value": "បង្ហាញ/លាក់ Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 도크 열기"
+            "value": "Chief 보기/숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne Chief-dokk"
+            "value": "Vis/skjul Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz dok Chief"
+            "value": "Pokaż/ukryj Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir dock do Chief"
+            "value": "Mostrar/ocultar Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Открыть док Chief"
+            "value": "Показать/скрыть Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิดด็อก Chief"
+            "value": "แสดง/ซ่อน Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief Yuvasını Aç"
+            "value": "Chief'i göster/gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрити док Chief"
+            "value": "Показати/сховати Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở dock Chief"
+            "value": "Hiện/ẩn Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打开 Chief 停靠栏"
+            "value": "显示/隐藏 Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "打開 Chief 停駐區"
+            "value": "顯示/隱藏 Chief"
           }
         }
       }
