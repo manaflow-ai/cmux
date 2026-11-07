@@ -3,6 +3,19 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
+    /// Starts a pane-title command for a standalone window mirror projection.
+    func requestRenamePane(
+        _ tmuxPaneID: Int,
+        title: String,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard !isTornDown,
+              panelsByPaneId[tmuxPaneID] != nil,
+              let command = RemoteTmuxHost.selectPaneTitleCommand(paneID: tmuxPaneID, title: title),
+              let connection else { return false }
+        return connection.sendTracked(command, completion: completion)
+    }
+
     struct PendingControlPaneFocusRequest {
         let requestID: UUID
         let paneID: Int
