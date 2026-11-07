@@ -122,7 +122,7 @@ export default componentEntry<Props>({
     ring: {
       props: { look: "ring" },
       play: listening,
-      note: "Weighed: a soft orange ring pulsing around the mic. Clear, but louder than a composer you keep typing in should be.",
+      note: "Weighed: a still orange ring around the mic. Clear, but louder than a composer you keep typing in should be.",
     },
     "wave-app-source": {
       props: { look: "wave", source: "chatgpt" },

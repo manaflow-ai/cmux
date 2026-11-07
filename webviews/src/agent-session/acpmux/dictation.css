@@ -144,7 +144,6 @@
 .acpmux-mic-outside > span {
   width: 2px;
   height: 75%;
-  border-radius: 999px;
   background: var(--agent-soft);
   transform: scaleY(0.35);
   transform-origin: center;
